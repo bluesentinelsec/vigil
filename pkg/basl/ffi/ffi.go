@@ -104,8 +104,8 @@ type Lib struct {
 type BoundFunc struct {
 	ptr        unsafe.Pointer
 	name       string
-	retType    string
-	paramTypes []string
+	RetType    string
+	ParamTypes []string
 }
 
 // Policy controls which libraries can be loaded.
@@ -137,7 +137,7 @@ func (l *Lib) Bind(name, retType string, paramTypes []string) (*BoundFunc, error
 	if ptr == nil {
 		return nil, fmt.Errorf("ffi: dlsym %q: %s", name, C.GoString(C.dlerror()))
 	}
-	return &BoundFunc{ptr: ptr, name: name, retType: retType, paramTypes: paramTypes}, nil
+	return &BoundFunc{ptr: ptr, name: name, RetType: retType, ParamTypes: paramTypes}, nil
 }
 
 // Close unloads the library.
@@ -164,11 +164,11 @@ func signature(retType string, paramTypes []string) string {
 // Call invokes the bound function. Args are Go types: int32, float64, string.
 // Returns a Go type matching retType, or nil for void.
 func (f *BoundFunc) Call(args []interface{}) (interface{}, error) {
-	if len(args) != len(f.paramTypes) {
-		return nil, fmt.Errorf("ffi: %s: expected %d args, got %d", f.name, len(f.paramTypes), len(args))
+	if len(args) != len(f.ParamTypes) {
+		return nil, fmt.Errorf("ffi: %s: expected %d args, got %d", f.name, len(f.ParamTypes), len(args))
 	}
 
-	sig := signature(f.retType, f.paramTypes)
+	sig := signature(f.RetType, f.ParamTypes)
 	switch sig {
 	// void return
 	case "void()":
@@ -302,12 +302,6 @@ func (f *BoundFunc) CallGeneric(args []interface{}) (uintptr, error) {
 		cargs[0], cargs[1], cargs[2], cargs[3], cargs[4], cargs[5])
 	return uintptr(result), nil
 }
-
-// RetType returns the declared return type.
-func (f *BoundFunc) RetType() string { return f.retType }
-
-// ParamTypes returns the declared parameter types.
-func (f *BoundFunc) ParamTypes() []string { return f.paramTypes }
 
 func asI32(v interface{}, name string, idx int) (int32, error) {
 	if n, ok := v.(int32); ok {

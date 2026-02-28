@@ -73,8 +73,8 @@ type Lib struct {
 type BoundFunc struct {
 	ptr        unsafe.Pointer
 	name       string
-	retType    string
-	paramTypes []string
+	RetType    string
+	ParamTypes []string
 }
 
 // Policy controls which libraries can be loaded.
@@ -124,7 +124,7 @@ func (l *Lib) Bind(name, retType string, paramTypes []string) (*BoundFunc, error
 		return nil, fmt.Errorf("ffi: GetProcAddress %q failed", name)
 	}
 
-	return &BoundFunc{ptr: unsafe.Pointer(ptr), name: name, retType: retType, paramTypes: paramTypes}, nil
+	return &BoundFunc{ptr: unsafe.Pointer(ptr), name: name, RetType: retType, ParamTypes: paramTypes}, nil
 }
 
 // Close unloads the library.
@@ -245,14 +245,12 @@ func IntToPtr(v uintptr) unsafe.Pointer {
 
 // Call invokes the bound function (simplified Windows implementation).
 func (f *BoundFunc) Call(args []interface{}) (interface{}, error) {
-	if len(args) != len(f.paramTypes) {
-		return nil, fmt.Errorf("ffi: %s: expected %d args, got %d", f.name, len(f.paramTypes), len(args))
+	if len(args) != len(f.ParamTypes) {
+		return nil, fmt.Errorf("ffi: %s: expected %d args, got %d", f.name, len(f.ParamTypes), len(args))
 	}
 
-	// Simplified implementation - only supports basic signatures
-	// Full implementation would need all the type conversions from Unix version
-	sig := f.retType + "("
-	for i, p := range f.paramTypes {
+	sig := f.RetType + "("
+	for i, p := range f.ParamTypes {
 		if i > 0 {
 			sig += ","
 		}
@@ -280,4 +278,9 @@ func (f *BoundFunc) Call(args []interface{}) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("ffi: unsupported signature %s on Windows", sig)
 	}
+}
+
+// CallGeneric invokes the bound function with variadic arguments (stub for Windows).
+func (f *BoundFunc) CallGeneric(args ...interface{}) (interface{}, error) {
+	return nil, fmt.Errorf("ffi: CallGeneric not yet implemented on Windows")
 }

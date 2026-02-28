@@ -92,8 +92,8 @@ func (interp *Interpreter) wrapBoundFunc(bf *ffi.BoundFunc) value.Value {
 
 	obj.Fields["call"] = value.NewNativeFunc("ffi.Func.call", func(args []value.Value) (value.Value, error) {
 		// Check if signature involves ptr — use generic trampoline
-		hasPtr := bf.RetType() == "ptr"
-		for _, pt := range bf.ParamTypes() {
+		hasPtr := bf.RetType == "ptr"
+		for _, pt := range bf.ParamTypes {
 			if pt == "ptr" {
 				hasPtr = true
 			}
@@ -128,12 +128,12 @@ func (interp *Interpreter) wrapBoundFunc(bf *ffi.BoundFunc) value.Value {
 
 		result, err := bf.Call(goArgs)
 		if err != nil {
-			def := defaultForType(bf.RetType())
+			def := defaultForType(bf.RetType)
 			return value.Void, &MultiReturnVal{Values: []value.Value{def, value.NewErr(err.Error())}}
 		}
 
-		retVal := marshalReturn(result, bf.RetType())
-		if bf.RetType() == "void" {
+		retVal := marshalReturn(result, bf.RetType)
+		if bf.RetType == "void" {
 			return value.Ok, nil
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{retVal, value.Ok}}
@@ -163,11 +163,11 @@ func callGeneric(bf *ffi.BoundFunc, args []value.Value) (value.Value, error) {
 
 	result, err := bf.CallGeneric(goArgs)
 	if err != nil {
-		def := defaultForType(bf.RetType())
+		def := defaultForType(bf.RetType)
 		return value.Void, &MultiReturnVal{Values: []value.Value{def, value.NewErr(err.Error())}}
 	}
 
-	switch bf.RetType() {
+	switch bf.RetType {
 	case "ptr":
 		if result == 0 {
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NullPtr, value.NewErr("returned null")}}
