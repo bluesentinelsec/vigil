@@ -15,6 +15,9 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: arm64
+          - os: windows-latest
+            platform: windows
+            arch: amd64
     
     runs-on: ${{ matrix.os }}
     
@@ -52,8 +55,13 @@ jobs:
         run: echo "VERSION=$(./basl --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
       
       - name: Package binary
+        shell: bash
         run: |
-          zip basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            zip basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl.exe
+          else
+            zip basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl
+          fi
       
       - name: Upload artifact
         uses: actions/upload-artifact@v6
