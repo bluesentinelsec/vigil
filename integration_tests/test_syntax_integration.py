@@ -1894,7 +1894,6 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 self._assert_failure(src, err_sub)
 
 
-    @unittest.skipIf(IS_WINDOWS, "Thread module not yet implemented on Windows")
     def test_thread_gil_stdlib_safety(self) -> None:
         """GIL ensures stdlib calls from multiple threads don't race."""
         self._assert_success(
@@ -1941,7 +1940,6 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             stdout="t3,t7,t9|3|true|true",
         )
 
-    @unittest.skipIf(IS_WINDOWS, "Thread module not yet implemented on Windows")
     def test_thread_sleep_releases_gil(self) -> None:
         """thread.sleep releases the GIL so other threads can run concurrently."""
         self._assert_success(
@@ -1972,7 +1970,6 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             stdout="2|true|true",
         )
 
-    @unittest.skipIf(IS_WINDOWS, "Thread module not yet implemented on Windows")
     def test_thread_join_returns_value(self) -> None:
         """Thread.join returns the spawned function's return value."""
         self._assert_success(
@@ -1993,7 +1990,6 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             stdout="42|true",
         )
 
-    @unittest.skipIf(IS_WINDOWS, "Thread module not yet implemented on Windows")
     def test_thread_join_twice_errors(self) -> None:
         """Joining a thread twice returns an error."""
         self._assert_success(

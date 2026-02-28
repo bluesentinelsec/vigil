@@ -1543,9 +1543,6 @@ func TestExec_ArgsModule(t *testing.T) {
 }
 
 func TestExec_ThreadModule(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Thread module not yet implemented on Windows")
-	}
 	tests := []struct {
 		name string
 		src  string
@@ -1592,9 +1589,6 @@ func TestExec_ThreadModule(t *testing.T) {
 }
 
 func TestExec_MutexModule(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Mutex module not yet implemented on Windows")
-	}
 	_, out, err := evalBASL(`import "mutex"; import "fmt"; fn main() -> i32 {
 		Mutex m, err e = mutex.new();
 		err e2 = m.lock();
