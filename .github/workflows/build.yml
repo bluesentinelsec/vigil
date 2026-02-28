@@ -50,12 +50,16 @@ jobs:
       - name: Build binary
         run: make build
       
+      - name: List files (debug)
+        shell: bash
+        run: ls -la
+      
       - name: Get version
         id: version
         shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            VERSION=$("$PWD/basl.exe" --version | cut -d' ' -f2)
+            VERSION=$(./basl.exe --version | cut -d' ' -f2)
           else
             VERSION=$(./basl --version | cut -d' ' -f2)
           fi
