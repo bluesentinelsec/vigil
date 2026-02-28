@@ -713,9 +713,9 @@ func TestExec_PathModule(t *testing.T) {
 		wantOutput []string
 	}{
 		{"base", `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.base("/foo/bar.txt")); return 0; }`, []string{"bar.txt"}},
-		{"dir", `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.dir("/foo/bar.txt")); return 0; }`, []string{"/foo"}},
+		{"dir", `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.dir("/foo/bar.txt")); return 0; }`, []string{filepath.ToSlash(filepath.Dir("/foo/bar.txt"))}},
 		{"ext", `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.ext("file.tar.gz")); return 0; }`, []string{".gz"}},
-		{"join", `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.join("a", "b", "c.txt")); return 0; }`, []string{"a/b/c.txt"}},
+		{"join", `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.join("a", "b", "c.txt")); return 0; }`, []string{filepath.ToSlash(filepath.Join("a", "b", "c.txt"))}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -779,6 +779,7 @@ func TestExec_RegexModule(t *testing.T) {
 
 func TestExec_FileModule(t *testing.T) {
 	tmpDir := t.TempDir()
+	escPath := func(p string) string { return strings.ReplaceAll(p, `\`, `\\`) }
 
 	tests := []struct {
 		name       string
@@ -786,7 +787,7 @@ func TestExec_FileModule(t *testing.T) {
 		wantOutput []string
 	}{
 		{"read_lines", func() string {
-			path := filepath.Join(tmpDir, "basl_test_lines.txt")
+			path := escPath(filepath.Join(tmpDir, "basl_test_lines.txt"))
 			return `import "fmt"; import "file"; fn main() -> i32 {
 				err w = file.write_all("` + path + `", "a\nb\nc");
 				array<string> lines, err e = file.read_lines("` + path + `");
@@ -797,7 +798,7 @@ func TestExec_FileModule(t *testing.T) {
 			}`
 		}, []string{"3", "a", "b", "c"}},
 		{"exists", func() string {
-			path := filepath.Join(tmpDir, "basl_test_exists.txt")
+			path := escPath(filepath.Join(tmpDir, "basl_test_exists.txt"))
 			return `import "fmt"; import "file"; fn main() -> i32 {
 				file.write_all("` + path + `", "x");
 				fmt.print(string(file.exists("` + path + `")));
@@ -807,8 +808,8 @@ func TestExec_FileModule(t *testing.T) {
 			}`
 		}, []string{"true", "false"}},
 		{"mkdir_listdir", func() string {
-			dir := filepath.Join(tmpDir, "basl_test_dir")
-			file := filepath.Join(dir, "a.txt")
+			dir := escPath(filepath.Join(tmpDir, "basl_test_dir"))
+			file := escPath(filepath.Join(strings.ReplaceAll(dir, `\\`, `\`), "a.txt"))
 			return `import "fmt"; import "file"; fn main() -> i32 {
 				file.mkdir("` + dir + `");
 				file.write_all("` + file + `", "a");
@@ -820,8 +821,8 @@ func TestExec_FileModule(t *testing.T) {
 			}`
 		}, []string{"1"}},
 		{"rename", func() string {
-			path1 := filepath.Join(tmpDir, "basl_test_ren1.txt")
-			path2 := filepath.Join(tmpDir, "basl_test_ren2.txt")
+			path1 := escPath(filepath.Join(tmpDir, "basl_test_ren1.txt"))
+			path2 := escPath(filepath.Join(tmpDir, "basl_test_ren2.txt"))
 			return `import "fmt"; import "file"; fn main() -> i32 {
 				file.write_all("` + path1 + `", "data");
 				file.rename("` + path1 + `", "` + path2 + `");

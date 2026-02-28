@@ -2,12 +2,13 @@ package interp
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestSqliteOpenExecQuery(t *testing.T) {
 	tmp := t.TempDir()
-	db := filepath.Join(tmp, "test.db")
+	db := strings.ReplaceAll(filepath.Join(tmp, "test.db"), `\`, `\\`)
 	src := `import "fmt"; import "sqlite";
 fn main() -> i32 {
 	SqliteDB db, err e1 = sqlite.open("` + db + `");

@@ -2,14 +2,15 @@ package interp
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestArchiveTarCreateExtract(t *testing.T) {
 	tmp := t.TempDir()
-	src := filepath.Join(tmp, "a.txt")
-	tarFile := filepath.Join(tmp, "out.tar")
-	extractDir := filepath.Join(tmp, "extracted")
+	src := strings.ReplaceAll(filepath.Join(tmp, "a.txt"), `\`, `\\`)
+	tarFile := strings.ReplaceAll(filepath.Join(tmp, "out.tar"), `\`, `\\`)
+	extractDir := strings.ReplaceAll(filepath.Join(tmp, "extracted"), `\`, `\\`)
 	basl := `import "fmt"; import "file"; import "archive";
 fn main() -> i32 {
 	file.write_all("` + src + `", "hello tar");
@@ -30,9 +31,9 @@ fn main() -> i32 {
 
 func TestArchiveZipCreateExtract(t *testing.T) {
 	tmp := t.TempDir()
-	src := filepath.Join(tmp, "b.txt")
-	zipFile := filepath.Join(tmp, "out.zip")
-	extractDir := filepath.Join(tmp, "extracted")
+	src := strings.ReplaceAll(filepath.Join(tmp, "b.txt"), `\`, `\\`)
+	zipFile := strings.ReplaceAll(filepath.Join(tmp, "out.zip"), `\`, `\\`)
+	extractDir := strings.ReplaceAll(filepath.Join(tmp, "extracted"), `\`, `\\`)
 	basl := `import "fmt"; import "file"; import "archive";
 fn main() -> i32 {
 	file.write_all("` + src + `", "hello zip");

@@ -3,11 +3,16 @@ package interp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
+func escapePathForBASL(path string) string {
+	return strings.ReplaceAll(path, `\`, `\\`)
+}
+
 func TestFileWriteReadAll(t *testing.T) {
-	tmp := filepath.Join(t.TempDir(), "test.txt")
+	tmp := escapePathForBASL(filepath.Join(t.TempDir(), "test.txt"))
 	src := `import "fmt"; import "file"; fn main() -> i32 { file.write_all("` + tmp + `", "hello"); string data, err e = file.read_all("` + tmp + `"); fmt.print(data); return 0; }`
 	_, out, err := evalBASL(src)
 	if err != nil {
@@ -29,8 +34,8 @@ func TestFileReadAllNotFound(t *testing.T) {
 }
 
 func TestFileExists(t *testing.T) {
-	tmp := filepath.Join(t.TempDir(), "exists.txt")
-	os.WriteFile(tmp, []byte("x"), 0644)
+	tmp := escapePathForBASL(filepath.Join(t.TempDir(), "exists.txt"))
+	os.WriteFile(strings.ReplaceAll(tmp, `\\`, `\`), []byte("x"), 0644)
 	_, out, err := evalBASL(`import "fmt"; import "file"; fn main() -> i32 { fmt.print(string(file.exists("` + tmp + `"))); fmt.print(string(file.exists("/no/such/file"))); return 0; }`)
 	if err != nil {
 		t.Fatal(err)
@@ -41,8 +46,8 @@ func TestFileExists(t *testing.T) {
 }
 
 func TestFileMkdirListDir(t *testing.T) {
-	tmp := filepath.Join(t.TempDir(), "sub")
-	tmpFile := filepath.Join(tmp, "a.txt")
+	tmp := escapePathForBASL(filepath.Join(t.TempDir(), "sub"))
+	tmpFile := escapePathForBASL(filepath.Join(strings.ReplaceAll(tmp, `\\`, `\`), "a.txt"))
 	src := `import "fmt"; import "file"; fn main() -> i32 { file.mkdir("` + tmp + `"); file.write_all("` + tmpFile + `", "a"); array<string> entries, err e = file.list_dir("` + tmp + `"); fmt.print(string(entries.len())); return 0; }`
 	_, out, err := evalBASL(src)
 	if err != nil {
