@@ -1,98 +1,63 @@
 # BASL `package` CLI
 
-`basl package` creates a single-file native executable for a BASL program.
+`basl package` creates distributable packages from BASL projects. It automatically detects whether you're packaging an application or library:
 
-The produced file is a copy of the current `basl` interpreter binary with a bundled BASL application payload appended to it. The bundled executable can then run the packaged BASL program directly.
-
-This is intentionally a local packaging feature:
-
-1. no cross-compilation support
-2. no source-to-machine-code compilation
-3. no separate runtime install required on the target machine
+- **Applications** (with `main.basl`) → Single-file executable
+- **Libraries** (without `main.basl`) → Distributable directory bundle
 
 ## Quick Start
 
-Package an app:
+### Package an application
 
 ```sh
 cd myapp
-basl package
+basl package              # Creates ./myapp executable
 ```
 
-Run the packaged app:
+### Package a library
 
 ```sh
-./myapp arg1 arg2
+cd mylib
+basl package              # Creates ./mylib-bundle/ directory
 ```
 
-Inspect a packaged app:
+## Application Packaging
 
-```sh
-basl package --inspect ./myapp
-```
+Creates a single-file executable containing the BASL interpreter and your application source.
 
-## Commands
-
-### Build a packaged executable
+### Usage
 
 ```sh
 basl package [-o output] [--path dir] [<entry.basl|project-dir>]
 ```
 
-Examples:
+### Examples
 
 ```sh
-basl package
-basl package ./myapp
-basl package ./examples/app.basl
-basl package -o dist/myapp ./cmd/main.basl
-basl package --path ./lib ./app/main.basl
+basl package                              # Package current project
+basl package ./myapp                      # Package specific project
+basl package script.basl                  # Package single script
+basl package -o dist/myapp                # Custom output path
+basl package --path ./lib ./app/main.basl # Additional search paths
 ```
 
-Behavior:
+### How It Works
 
-1. resolves the packaging target
-2. reads the entry `.basl` file
-3. if the target is omitted, uses the current working directory
-4. if the target is a BASL project root (contains `basl.toml`), defaults to `main.basl`
-5. automatically resolves project imports from `lib/` and `deps/`
-6. resolves reachable BASL source imports
-7. rewrites bundled BASL-file imports to internal package paths
-8. stores the rewritten BASL files in an appended payload
-9. writes a new executable at the output path
+The packager:
+1. Detects if project has `main.basl` (application) or not (library)
+2. For applications: Copies the `basl` interpreter binary
+3. Appends a zip archive with your BASL source files
+4. Adds metadata so the binary runs your app on startup
 
-If `-o` is omitted:
+The packaged app runs on the same platform (no cross-compilation).
 
-1. project mode uses the project directory name
-2. file mode uses the entry filename without the `.basl` suffix
-
-Example:
+### Inspect Packaged Binary
 
 ```sh
-cd myproject
-basl package
+basl package --inspect ./myapp
 ```
 
-Produces:
-
-```sh
-./myproject
-```
-
-If the project is a library project (no `main.basl` at the root), packaging fails. `basl package` only builds runnable applications.
-
-### Inspect a packaged executable
-
-```sh
-basl package --inspect <binary>
-```
-
-This reads the packaged payload from an existing executable and prints:
-
-1. the fixed bundled entrypoint
-2. the list of bundled BASL files
-
-Example output:
+Shows what files are bundled:
 
 ```text
 ENTRY
@@ -104,7 +69,57 @@ FILES
   pkg/mod002.basl
 ```
 
-This is useful for:
+## Library Packaging
+
+Creates a distributable directory bundle that users can drop into their projects.
+
+### Usage
+
+```sh
+basl package [-o output-dir] [project-dir]
+```
+
+### Examples
+
+```sh
+basl package                    # Package current library
+basl package ./mylib            # Package specific library
+basl package -o mylib-1.0.0     # Custom output directory
+```
+
+### Output Structure
+
+```
+mylib-bundle/
+├── lib/           # All .basl source files
+├── basl.toml      # Project metadata
+└── README.txt     # Usage instructions
+```
+
+### Using a Packaged Library
+
+Users copy the bundle's `lib/` directory to their project's `deps/`:
+
+```sh
+cp -r mylib-bundle/lib/ myproject/deps/mylib/
+```
+
+Then import in their code:
+
+```c
+import "mylib/utils";
+```
+
+## Package vs Bundle Command
+
+The `basl bundle` command still exists for explicit library packaging, but `basl package` now handles both automatically:
+
+```sh
+basl package    # Auto-detects application or library
+basl bundle     # Explicitly package as library
+```
+
+Use `basl package` for everything - it does the right thing.
 
 1. confirming the file is actually a BASL packaged binary
 2. seeing what BASL modules were embedded

@@ -7,6 +7,7 @@ package ffi
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 // --- integer trampolines ---
 typedef int (*fn_void_to_i32)();

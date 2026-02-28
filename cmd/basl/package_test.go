@@ -170,6 +170,104 @@ func TestInspectPackagedBinaryListsBundledFiles(t *testing.T) {
 	}
 }
 
+func TestPackageLibraryCreatesBundle(t *testing.T) {
+	root := t.TempDir()
+
+	// Create library project (no main.basl)
+	writeDocLikeTestFile(t, root, "basl.toml", "name = \"mylib\"\nversion = \"1.0.0\"\n")
+	writeDocLikeTestFile(t, root, "lib/utils.basl", `
+pub fn hello() -> string {
+    return "hello from mylib";
+}
+`)
+	writeDocLikeTestFile(t, root, "lib/math/calc.basl", `
+pub fn add(i32 a, i32 b) -> i32 {
+    return a + b;
+}
+`)
+
+	outputDir := filepath.Join(root, "output-bundle")
+	
+	// Run library bundle
+	code := runLibraryBundle(root, outputDir)
+	if code != 0 {
+		t.Fatalf("runLibraryBundle() returned %d, want 0", code)
+	}
+
+	// Verify bundle structure
+	if _, err := os.Stat(filepath.Join(outputDir, "basl.toml")); err != nil {
+		t.Errorf("bundle missing basl.toml: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "README.txt")); err != nil {
+		t.Errorf("bundle missing README.txt: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "lib/utils.basl")); err != nil {
+		t.Errorf("bundle missing lib/utils.basl: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "lib/math/calc.basl")); err != nil {
+		t.Errorf("bundle missing lib/math/calc.basl: %v", err)
+	}
+
+	// Verify file contents
+	utilsData, err := os.ReadFile(filepath.Join(outputDir, "lib/utils.basl"))
+	if err != nil {
+		t.Fatalf("failed to read bundled utils.basl: %v", err)
+	}
+	if !strings.Contains(string(utilsData), "hello from mylib") {
+		t.Errorf("bundled file missing expected content")
+	}
+}
+
+func TestDetectLibraryProject(t *testing.T) {
+	tests := []struct {
+		name      string
+		files     map[string]string
+		wantLib   bool
+	}{
+		{
+			name: "application with main.basl",
+			files: map[string]string{
+				"basl.toml":  "name = \"app\"\n",
+				"main.basl":  "fn main() -> i32 { return 0; }\n",
+				"lib/mod.basl": "pub fn test() -> void {}\n",
+			},
+			wantLib: false,
+		},
+		{
+			name: "library without main.basl",
+			files: map[string]string{
+				"basl.toml":  "name = \"lib\"\n",
+				"lib/mod.basl": "pub fn test() -> void {}\n",
+			},
+			wantLib: true,
+		},
+		{
+			name: "single file is not library",
+			files: map[string]string{
+				"script.basl": "fn main() -> i32 { return 0; }\n",
+			},
+			wantLib: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			for path, content := range tt.files {
+				writeDocLikeTestFile(t, root, path, content)
+			}
+
+			got, err := detectLibraryProject(root)
+			if err != nil {
+				t.Fatalf("detectLibraryProject() error = %v", err)
+			}
+			if got != tt.wantLib {
+				t.Errorf("detectLibraryProject() = %v, want %v", got, tt.wantLib)
+			}
+		})
+	}
+}
+
 func writeDocLikeTestFile(t *testing.T, root, relPath, contents string) string {
 	t.Helper()
 

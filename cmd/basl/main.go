@@ -58,6 +58,10 @@ func main() {
 		os.Exit(runPackage(args[1:]))
 		return
 	}
+	if args[0] == "bundle" {
+		os.Exit(runBundle(args[1:]))
+		return
+	}
 	if args[0] == "editor" {
 		os.Exit(runEditor(args[1:]))
 		return

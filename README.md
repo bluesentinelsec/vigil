@@ -2,18 +2,24 @@
 
 **Blazingly Awesome Scripting Language**
 
-BASL is a statically-typed, C-syntax scripting language that prioritizes readability, predictability, and explicitness. It's designed for systems scripting, automation, and rapid prototyping with a comprehensive standard library.
+BASL is a statically-typed, C-syntax scripting language that prioritizes readability, predictability, and explicitness. It's designed for systems scripting, automation, and rapid prototyping with a comprehensive standard library. Batteries included. Ship self-contained binaries for production distribution. Implemented in Go.
 
 ## Features
 
 - **C-like syntax** with modern conveniences (type inference, multi-return, f-strings)
 - **Static typing** with runtime enforcement
-- **Rich standard library** including HTTP, SQLite, crypto, compression, and more
+- **Rich standard library** including HTTP, SQLite, JSON, crypto, compression, and more
 - **FFI support** for calling native C libraries
-- **Built-in formatter** (`basl fmt`)
-- **Integrated debugger** with breakpoints and step execution
-- **Package system** with project scaffolding
-- **Editor support** for Vim and VS Code
+- **Comprehensive tooling**:
+  - `basl new` - Create projects with standard layout
+  - `basl fmt` - Format code automatically
+  - `basl test` - Run tests with built-in framework
+  - `basl debug` - Interactive debugger with breakpoints
+  - `basl package` - Build standalone executables
+  - `basl embed` - Embed assets as code
+  - `basl doc` - Generate documentation
+  - `basl get/deps` - Dependency management
+  - `basl editor` - Install editor integrations
 
 ## Quick Start
 
@@ -169,9 +175,11 @@ BASL includes a comprehensive standard library:
 - **Advanced**: `thread`, `mutex`, `unsafe`, `ffi`
 - **Graphics**: `rl` (Raylib bindings)
 
-See [docs/stdlib.md](docs/stdlib.md) for complete reference.
+See [docs/stdlib/](docs/stdlib/) for complete reference.
 
 ## CLI Tools
+
+Full reference: [CLI Documentation](docs/cli.md)
 
 ### Run Scripts
 
@@ -190,6 +198,8 @@ basl fmt --check script.basl  # Check formatting (CI mode)
 
 ### Debug
 
+See [Debugger Guide](docs/debugger.md) for detailed usage.
+
 ```bash
 basl debug script.basl        # Start interactive debugger
 ```
@@ -198,24 +208,61 @@ Debugger commands: `break`, `continue`, `step`, `next`, `print`, `list`, `quit`
 
 ### Project Management
 
+See [Project Structure](docs/project_structure.md) for conventions.
+
 ```bash
-basl new myapp                # Create new application
-basl new mylib --lib          # Create new library
+basl new myapp                # Create new application (with main.basl entry point)
+basl new mylib --lib          # Create new library (no main.basl, for reusable code)
 basl test                     # Run tests in test/ directory
 ```
 
-### Package Binaries
+### Package Applications and Libraries
+
+See [Packaging Guide](docs/package_cli.md) for complete documentation.
 
 ```bash
-basl package script.basl      # Create standalone executable
+basl package                  # Auto-detects: executable or library bundle
+```
+
+Applications (with `main.basl`) become standalone executables.
+Libraries (without `main.basl`) become distributable directory bundles.
+
+### Embed Assets
+
+See [Embedding Guide](docs/embed.md) for details.
+
+```bash
+basl embed logo.png           # Generate BASL module from file
+```
+
+### Editor Support
+
+See [Editor Setup](docs/editor_cli.md) for installation.
+
+```bash
+basl editor vim               # Install Vim syntax highlighting
+basl editor vscode            # Install VS Code extension
 ```
 
 ### Documentation
 
+See [Doc Command](doc_cli.md) for details.
+
 ```bash
-basl help                     # Show help
-basl help <topic>             # Show help for specific topic
-basl doc <module>             # Show module documentation
+basl doc lib/utils.basl         # Show module documentation
+basl doc lib/utils.basl trim    # Show specific symbol
+```
+
+### Help
+
+```bash
+basl --help                      # Show general help
+basl -h                          # Short form
+basl help                        # Alternative form
+basl help <command>              # Help for specific command
+basl help package                # Example: packaging help
+basl <command> --help            # Command-specific help
+basl fmt --help                  # Example: formatter help
 ```
 
 ## Examples
@@ -235,9 +282,10 @@ See the [examples/](examples/) directory for practical examples:
 
 - [CLI Reference](docs/cli.md) - Complete command-line tool reference
 - [Language Syntax](docs/syntax.md) - Complete language reference
-- [Standard Library](docs/stdlib.md) - All stdlib modules
+- [Standard Library](docs/stdlib/) - All stdlib modules
 - [Debugger](docs/debugger.md) - Debugger usage
-- [Packaging](docs/package_cli.md) - Creating standalone executables
+- [Packaging](docs/package_cli.md) - Creating executables and library bundles
+- [Documentation](docs/doc_cli.md) - Extracting API documentation
 - [Dependencies](docs/dependencies.md) - Dependency management
 - [Embedding](docs/embed.md) - Embed BASL in Go applications
 - [Editor Support](docs/editor_cli.md) - Vim and VS Code setup
@@ -246,7 +294,7 @@ See the [examples/](examples/) directory for practical examples:
 
 ## Development
 
-### Build from Source
+### Build Basl from Source
 
 ```bash
 make build        # Build binary
@@ -259,7 +307,6 @@ make clean        # Clean build artifacts
 
 - Go 1.21 or later
 - Python 3 (for integration tests)
-- Optional: Raylib (for graphics support)
 
 ## License
 

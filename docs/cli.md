@@ -11,6 +11,7 @@ basl debug [script.basl]        # Start debugger
 basl new <name> [--lib]         # Create new project
 basl test [path]                # Run tests
 basl package [options]          # Package executable
+basl bundle [options]           # Bundle library for distribution
 basl embed <files...>           # Embed assets
 basl doc <module>               # Show documentation
 basl editor <vim|vscode>        # Install editor support
@@ -140,19 +141,26 @@ See [stdlib/test.md](stdlib/test.md) for test framework details.
 
 ## Packaging
 
-### Create standalone executable
+### Package applications or libraries
 
 ```bash
-basl package                        # Package current project
+basl package                        # Auto-detect: executable or library
 basl package ./myapp                # Package specific project
 basl package script.basl            # Package single script
 basl package -o dist/myapp          # Custom output path
 ```
 
-Creates a single-file executable containing:
-- The BASL interpreter
-- Your script and all imported modules
+**Applications** (with `main.basl`):
+- Creates a single-file executable
+- Contains the BASL interpreter + your source
 - No external dependencies needed
+
+**Libraries** (without `main.basl`):
+- Creates a distributable directory bundle
+- Contains library source files from `lib/`
+- Users drop into their `deps/` directory
+
+See [package_cli.md](package_cli.md) for complete documentation.
 
 ### Inspect packaged binary
 
@@ -210,13 +218,16 @@ See [embed.md](embed.md) for details.
 
 ## Documentation
 
-### Show module documentation
+### Show documentation
+
+See [Doc Command](doc_cli.md) for complete guide.
 
 ```bash
-basl doc fmt                # Show fmt module docs
-basl doc json               # Show json module docs
-basl doc file               # Show file module docs
+basl doc lib/utils.basl         # Show all public symbols
+basl doc lib/utils.basl trim    # Show specific symbol
 ```
+
+Extracts documentation from comments in BASL source files.
 
 ### Show help
 

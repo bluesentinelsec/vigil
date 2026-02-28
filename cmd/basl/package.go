@@ -65,6 +65,19 @@ func runPackage(args []string) int {
 		return 0
 	}
 
+	// Check if this is a library project (no main.basl)
+	isLibrary, err := detectLibraryProject(cfg.entryPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error[package]: %s\n", err)
+		return 1
+	}
+
+	if isLibrary {
+		// Package as library bundle
+		return runLibraryBundle(cfg.entryPath, cfg.outputPath)
+	}
+
+	// Package as executable
 	plan, err := buildPackagePlan(cfg.entryPath, cfg.outputPath, cfg.searchPaths)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error[package]: %s\n", err)
@@ -77,6 +90,50 @@ func runPackage(args []string) int {
 	}
 
 	return 0
+}
+
+func detectLibraryProject(entryPath string) (bool, error) {
+	targetPath := entryPath
+	if targetPath == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return false, err
+		}
+		targetPath = cwd
+	}
+
+	absTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return false, err
+	}
+
+	info, err := os.Stat(absTarget)
+	if err != nil {
+		return false, err
+	}
+
+	// If it's a file, it's not a library
+	if !info.IsDir() {
+		return false, nil
+	}
+
+	// Check if it's a project directory
+	projectRoot, ok, err := findProjectRoot(absTarget)
+	if err != nil {
+		return false, err
+	}
+	if !ok || projectRoot != absTarget {
+		return false, nil
+	}
+
+	// Check if main.basl exists
+	mainPath := filepath.Join(projectRoot, "main.basl")
+	if _, err := os.Stat(mainPath); err == nil {
+		return false, nil // Has main.basl, it's an application
+	}
+
+	// No main.basl, it's a library
+	return true, nil
 }
 
 type packageArgs struct {
