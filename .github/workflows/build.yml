@@ -76,13 +76,13 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
       
       - name: Package binary
-        shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            zip basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl.exe
+            7z a basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl.exe
           else
             zip basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl
           fi
+        shell: bash
       
       - name: Upload artifact
         uses: actions/upload-artifact@v6
