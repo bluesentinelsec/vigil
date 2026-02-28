@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import tempfile
 import textwrap
 import unittest
@@ -15,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BASL_BIN = str(REPO_ROOT / "basl")
 
 TIMEOUT = 5
+IS_WINDOWS = platform.system() == "Windows"
 
 
 class BaslDebuggerTests(unittest.TestCase):
@@ -31,9 +33,13 @@ class BaslDebuggerTests(unittest.TestCase):
             f.write(textwrap.dedent(source).strip() + "\n")
         return path
 
-    def _spawn(self, script: str, *extra_args: str) -> pexpect.spawn:
+    def _spawn(self, script: str, *extra_args: str):
         args = [BASL_BIN, "debug", *extra_args, script]
-        child = pexpect.spawn(args[0], args[1:], timeout=TIMEOUT, encoding="utf-8")
+        if IS_WINDOWS:
+            # Windows uses popen_spawn instead of spawn
+            child = pexpect.popen_spawn.PopenSpawn(" ".join(args), timeout=TIMEOUT, encoding="utf-8")
+        else:
+            child = pexpect.spawn(args[0], args[1:], timeout=TIMEOUT, encoding="utf-8")
         return child
 
     # ── step from start ──────────────────────────────────────────────
