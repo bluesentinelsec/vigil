@@ -2,6 +2,7 @@ package interp
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func TestPathJoin(t *testing.T) {
 }
 
 func TestPathDirBaseExt(t *testing.T) {
-	testPath := filepath.Join("/a", "b", "c.txt")
+	testPath := strings.ReplaceAll(filepath.Join("/a", "b", "c.txt"), `\`, `\\`)
 	code := `import "fmt"; import "path"; fn main() -> i32 { fmt.print(path.dir("` + testPath + `")); fmt.print(path.base("` + testPath + `")); fmt.print(path.ext("` + testPath + `")); return 0; }`
 	_, out, err := evalBASL(code)
 	if err != nil {
