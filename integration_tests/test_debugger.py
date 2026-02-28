@@ -12,6 +12,9 @@ from pathlib import Path
 
 import pexpect
 
+if platform.system() == "Windows":
+    from pexpect.popen_spawn import PopenSpawn
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASL_BIN = str(REPO_ROOT / "basl")
 
@@ -36,8 +39,8 @@ class BaslDebuggerTests(unittest.TestCase):
     def _spawn(self, script: str, *extra_args: str):
         args = [BASL_BIN, "debug", *extra_args, script]
         if IS_WINDOWS:
-            # Windows uses popen_spawn instead of spawn
-            child = pexpect.popen_spawn.PopenSpawn(" ".join(args), timeout=TIMEOUT, encoding="utf-8")
+            # Windows uses PopenSpawn instead of spawn
+            child = PopenSpawn(" ".join(args), timeout=TIMEOUT, encoding="utf-8")
         else:
             child = pexpect.spawn(args[0], args[1:], timeout=TIMEOUT, encoding="utf-8")
         return child
