@@ -1,0 +1,45 @@
+import "args";
+import "fmt";
+import "os";
+
+fn main() -> i32 {
+    // Create argument parser
+    args.Parser parser = args.parser("mytool", "A simple CLI tool example");
+    
+    // Define flags
+    args.flag(parser, "verbose", "v", "Enable verbose output", false);
+    args.flag(parser, "output", "o", "Output file path", "");
+    args.flag(parser, "count", "c", "Number of iterations", "1");
+    
+    // Define positional arguments
+    args.arg(parser, "input", "Input file path");
+    
+    // Parse arguments
+    err e = args.parse(parser);
+    if (e != ok) {
+        fmt.println(f"Error: {e}");
+        return 1;
+    }
+    
+    // Get flag values
+    bool verbose = args.get_bool(parser, "verbose");
+    string output = args.get_string(parser, "output");
+    i32 count = args.get_i32(parser, "count");
+    
+    // Get positional argument
+    string input = args.get_arg(parser, "input");
+    
+    // Display parsed values
+    fmt.println("Parsed arguments:");
+    fmt.println(f"  Input: {input}");
+    fmt.println(f"  Output: {output}");
+    fmt.println(f"  Count: {count}");
+    fmt.println(f"  Verbose: {verbose}");
+    
+    if (verbose) {
+        fmt.println("\nVerbose mode enabled!");
+        fmt.println(f"Processing {input} {count} times...");
+    }
+    
+    return 0;
+}

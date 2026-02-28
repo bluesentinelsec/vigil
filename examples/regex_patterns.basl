@@ -1,0 +1,48 @@
+import "regex";
+import "fmt";
+
+fn main() -> i32 {
+    string text = "Contact us at support@example.com or sales@example.com";
+    
+    // Match pattern
+    bool matches = regex.match(text, "example\\.com");
+    fmt.println(f"Contains 'example.com': {matches}");
+    
+    // Find first match
+    string email, err e = regex.find(text, "[a-z]+@[a-z]+\\.[a-z]+");
+    if (e == ok) {
+        fmt.println(f"First email found: {email}");
+    }
+    
+    // Find all matches
+    array<string> emails, err e2 = regex.find_all(text, "[a-z]+@[a-z]+\\.[a-z]+");
+    if (e2 == ok) {
+        fmt.println(f"All emails found ({emails.len()}):");
+        for addr in emails {
+            fmt.println(f"  - {addr}");
+        }
+    }
+    
+    // Replace pattern
+    string replaced, err e3 = regex.replace(text, "@example\\.com", "@newdomain.com");
+    if (e3 == ok) {
+        fmt.println(f"After replacement: {replaced}");
+    }
+    
+    // Split by pattern
+    string csv = "apple,banana,cherry,date";
+    array<string> fruits, err e4 = regex.split(csv, ",");
+    if (e4 == ok) {
+        fmt.println(f"\nSplit CSV ({fruits.len()} items):");
+        for fruit in fruits {
+            fmt.println(f"  - {fruit}");
+        }
+    }
+    
+    // Validate phone number
+    string phone = "555-123-4567";
+    bool valid = regex.match(phone, "^\\d{3}-\\d{3}-\\d{4}$");
+    fmt.println(f"\nPhone '{phone}' is valid: {valid}");
+    
+    return 0;
+}

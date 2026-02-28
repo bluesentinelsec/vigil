@@ -4,16 +4,39 @@ Checklist for every change to the BASL language, stdlib, or tooling.
 
 ---
 
-## 1. Update the Syntax Guide
+## 1. Update Documentation
+
+### Language Documentation
 
 File: `docs/syntax.md` — language syntax only (types, operators, control flow, classes, etc.)
 File: `docs/stdlib.md` — standard library module reference (fmt, os, file, math, etc.)
 
 - New keyword or operator → add to the relevant section in `syntax.md`
 - New type → add to Types section in `syntax.md`
-- New stdlib module or function → add to `stdlib.md`
+- New stdlib module or function → add to `stdlib.md` and create detailed doc in `docs/stdlib/<module>.md`
 - Changed semantics (e.g. new error format) → update examples in-place
 - New language construct (e.g. new statement form) → add section with grammar + example in `syntax.md`
+
+### Toolchain Documentation
+
+File: `docs/cli.md` — comprehensive CLI reference for all commands
+File: `docs/package_cli.md` — detailed `basl package` documentation
+File: `docs/embed.md` — `basl embed` documentation
+File: `docs/debugger.md` — debugger usage
+File: `docs/dependencies.md` — dependency management
+File: `docs/project_structure.md` — project layout conventions
+File: `docs/editor_cli.md` — editor support
+
+- New CLI command → add to `cli.md` quick reference and create detailed section
+- Changed CLI behavior → update relevant doc file
+- New CLI flag or option → document in appropriate file
+
+### User-Facing Documentation
+
+File: `README.md` — project overview, quick start, feature highlights
+
+- Major new feature → add to README features section
+- Breaking change → update README examples if affected
 
 ## 2. Update Editor / IDE Support
 
@@ -93,38 +116,32 @@ make cover      # prints per-function coverage
 
 ## 7. Update Examples
 
-### kick_tires (`examples/kick_tires/`)
+### Examples directory (`examples/`)
 
-- New language feature → write at least one exercise using it
-- Changed syntax → update any affected programs so they still run
-- Verify all examples still work:
-
-```sh
-for f in $(find examples/kick_tires -name '*.basl' -path '*/main.basl'); do
-    echo "=== $f ==="
-    go run ./cmd/basl "$f" < /dev/null 2>&1 | head -5
-done
-```
-
-Note: ch12 (GUI) programs require interactive testing — they open windows.
-
-### Feature examples (`examples/`)
-
-- New stdlib module → add a standalone example demonstrating it
-- New major feature (classes, ffi, raylib) → add or update a focused example
-- Verify standalone examples:
+- New language feature → add or update an example demonstrating it
+- New stdlib module → add a standalone example showing practical usage
+- Changed syntax → update affected examples so they still run
+- Verify all examples work:
 
 ```sh
 for f in examples/*.basl; do
     echo "=== $f ==="
-    go run ./cmd/basl "$f" < /dev/null 2>&1 | head -5
+    ./basl "$f" < /dev/null 2>&1 | head -10
 done
 ```
 
-### Raylib examples (`examples/raylib/`)
-
-- New raylib/raygui binding → update `hello_window.basl` or `demo_3d.basl` if relevant, or add a new example
-- These require manual testing (they open windows)
+Current examples:
+- `hello.basl` - Basic hello world
+- `collections.basl` - Arrays and maps
+- `error_handling.basl` - Multi-return error patterns
+- `classes.basl` - Object-oriented programming
+- `file_operations.basl` - File I/O
+- `json_parsing.basl` - JSON handling
+- `database.basl` - SQLite operations
+- `regex_patterns.basl` - Regular expressions
+- `http_server.basl` - HTTP server
+- `concurrency.basl` - Threads and mutexes
+- `cli_tool.basl` - Argument parsing
 
 ---
 

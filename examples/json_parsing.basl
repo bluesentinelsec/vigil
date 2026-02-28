@@ -1,0 +1,43 @@
+import "json";
+import "fmt";
+
+fn main() -> i32 {
+    // Parse JSON string
+    string json_str = "{\"name\": \"Alice\", \"age\": 30, \"active\": true}";
+    json.Value data, err e = json.parse(json_str);
+    if (e != ok) {
+        fmt.println(f"Error parsing JSON: {e}");
+        return 1;
+    }
+    
+    // Access JSON fields
+    string name = data.get("name").as_string();
+    i32 age = data.get("age").as_i32();
+    bool active = data.get("active").as_bool();
+    
+    fmt.println(f"Name: {name}");
+    fmt.println(f"Age: {age}");
+    fmt.println(f"Active: {active}");
+    
+    // Parse JSON array
+    string arr_str = "[1, 2, 3, 4, 5]";
+    json.Value arr, err e2 = json.parse(arr_str);
+    if (e2 == ok) {
+        i32 len = arr.len();
+        fmt.println(f"\nArray length: {len}");
+        for (i32 i = 0; i < len; i++) {
+            i32 val = arr.at(i).as_i32();
+            fmt.println(f"  [{i}] = {val}");
+        }
+    }
+    
+    // Create and stringify JSON
+    map<string, string> person = {
+        "name": "Bob",
+        "city": "New York"
+    };
+    string output = json.stringify(person);
+    fmt.println(f"\nStringified JSON: {output}");
+    
+    return 0;
+}

@@ -1,0 +1,30 @@
+import "http";
+import "fmt";
+
+fn main() -> i32 {
+    fn handler(http.Request req) -> http.Response {
+        string path = req.path;
+        
+        if (path == "/") {
+            return http.Response{
+                status: 200,
+                body: "Hello from BASL HTTP server!"
+            };
+        } else if (path == "/json") {
+            return http.Response{
+                status: 200,
+                headers: {"Content-Type": "application/json"},
+                body: "{\"message\": \"Hello JSON\"}"
+            };
+        } else {
+            return http.Response{
+                status: 404,
+                body: "Not Found"
+            };
+        }
+    }
+    
+    fmt.println("Starting server on http://localhost:8080");
+    http.listen(":8080", handler);
+    return 0;
+}

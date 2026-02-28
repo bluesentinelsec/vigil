@@ -10,13 +10,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bluesentinelsec/basl/pkg/basl"
 	"github.com/bluesentinelsec/basl/pkg/basl/formatter"
 	"github.com/bluesentinelsec/basl/pkg/basl/interp"
 	"github.com/bluesentinelsec/basl/pkg/basl/lexer"
 	"github.com/bluesentinelsec/basl/pkg/basl/parser"
 )
 
-const version = "0.1.0"
+const version = basl.Version
 
 func init() {
 	// Lock the main goroutine to the OS main thread.
@@ -36,7 +37,7 @@ func main() {
 			fmt.Print(mainHelpText())
 			return
 		case "--version":
-			fmt.Println("basl " + version)
+			fmt.Println("basl " + basl.Version)
 			return
 		case "help":
 			os.Exit(runHelp(args[1:]))

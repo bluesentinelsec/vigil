@@ -1,0 +1,42 @@
+import "thread";
+import "mutex";
+import "fmt";
+import "time";
+
+i32 counter = 0;
+mutex.Mutex m = mutex.new();
+
+fn increment(i32 id, i32 times) -> void {
+    for (i32 i = 0; i < times; i++) {
+        mutex.lock(m);
+        counter++;
+        mutex.unlock(m);
+    }
+    fmt.println(f"Thread {id} finished");
+}
+
+fn main() -> i32 {
+    fmt.println("Starting concurrent counter example");
+    
+    // Spawn 5 threads that each increment counter 1000 times
+    thread.Thread t1 = thread.spawn(increment, 1, 1000);
+    thread.Thread t2 = thread.spawn(increment, 2, 1000);
+    thread.Thread t3 = thread.spawn(increment, 3, 1000);
+    thread.Thread t4 = thread.spawn(increment, 4, 1000);
+    thread.Thread t5 = thread.spawn(increment, 5, 1000);
+    
+    // Wait for all threads to complete
+    thread.join(t1);
+    thread.join(t2);
+    thread.join(t3);
+    thread.join(t4);
+    thread.join(t5);
+    
+    fmt.println(f"Final counter value: {counter}");
+    fmt.println("Expected: 5000");
+    
+    // Clean up mutex
+    mutex.destroy(m);
+    
+    return 0;
+}

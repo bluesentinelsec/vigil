@@ -1,0 +1,6 @@
+import "fmt";
+
+fn main() -> i32 {
+    fmt.println("Hello, World!");
+    return 0;
+}
