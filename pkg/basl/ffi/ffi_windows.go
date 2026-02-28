@@ -63,7 +63,28 @@ type Handle struct {
 	path   string
 }
 
-// Load opens a dynamic library at the given path.
+// Lib represents a loaded shared library.
+type Lib struct {
+	handle C.HMODULE
+	path   string
+}
+
+// BoundFunc represents a symbol bound with its C type signature.
+type BoundFunc struct {
+	ptr        unsafe.Pointer
+	name       string
+	retType    string
+	paramTypes []string
+}
+
+// Policy controls which libraries can be loaded.
+type Policy struct {
+	AllowedDirs []string
+	Allowlist   []string
+	Enabled     bool
+}
+
+// Load opens a dynamic library at the given path (legacy API).
 func Load(path string) (*Handle, error) {
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))
@@ -74,6 +95,45 @@ func Load(path string) (*Handle, error) {
 	}
 
 	return &Handle{handle: h, path: path}, nil
+}
+
+// Open loads a shared library. Returns error if policy denies it.
+func Open(path string, policy *Policy) (*Lib, error) {
+	if policy != nil && !policy.Enabled {
+		return nil, fmt.Errorf("ffi: disabled by policy")
+	}
+
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+
+	h := C.LoadLibraryA(cpath)
+	if h == nil {
+		return nil, fmt.Errorf("ffi: LoadLibrary %q failed", path)
+	}
+
+	return &Lib{handle: h, path: path}, nil
+}
+
+// Bind looks up a symbol and binds it with a declared type signature.
+func (l *Lib) Bind(name, retType string, paramTypes []string) (*BoundFunc, error) {
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+
+	ptr := C.GetProcAddress(l.handle, cname)
+	if ptr == nil {
+		return nil, fmt.Errorf("ffi: GetProcAddress %q failed", name)
+	}
+
+	return &BoundFunc{ptr: unsafe.Pointer(ptr), name: name, retType: retType, paramTypes: paramTypes}, nil
+}
+
+// Close unloads the library.
+func (l *Lib) Close() error {
+	if l.handle != nil {
+		C.FreeLibrary(l.handle)
+		l.handle = nil
+	}
+	return nil
 }
 
 // Close unloads the dynamic library.
@@ -181,4 +241,43 @@ func CallVariadic(fn unsafe.Pointer, args []unsafe.Pointer) unsafe.Pointer {
 // IntToPtr converts an integer to a pointer.
 func IntToPtr(v uintptr) unsafe.Pointer {
 	return C.to_ptr(C.uintptr_t(v))
+}
+
+// Call invokes the bound function (simplified Windows implementation).
+func (f *BoundFunc) Call(args []interface{}) (interface{}, error) {
+	if len(args) != len(f.paramTypes) {
+		return nil, fmt.Errorf("ffi: %s: expected %d args, got %d", f.name, len(f.paramTypes), len(args))
+	}
+
+	// Simplified implementation - only supports basic signatures
+	// Full implementation would need all the type conversions from Unix version
+	sig := f.retType + "("
+	for i, p := range f.paramTypes {
+		if i > 0 {
+			sig += ","
+		}
+		sig += p
+	}
+	sig += ")"
+
+	switch sig {
+	case "void()":
+		CallVoidToVoid(f.ptr)
+		return nil, nil
+	case "i32()":
+		return CallVoidToI32(f.ptr), nil
+	case "i32(i32)":
+		a := args[0].(int32)
+		return CallI32ToI32(f.ptr, a), nil
+	case "i32(i32,i32)":
+		a := args[0].(int32)
+		b := args[1].(int32)
+		return CallI32I32ToI32(f.ptr, a, b), nil
+	case "void(i32)":
+		a := args[0].(int32)
+		CallI32ToVoid(f.ptr, a)
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("ffi: unsupported signature %s on Windows", sig)
+	}
 }
