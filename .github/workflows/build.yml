@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            VERSION=$(basl.exe --version | cut -d' ' -f2)
+            VERSION=$("$PWD/basl.exe" --version | cut -d' ' -f2)
           else
             VERSION=$(./basl --version | cut -d' ' -f2)
           fi
