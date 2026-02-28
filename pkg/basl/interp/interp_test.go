@@ -2,7 +2,6 @@ package interp
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -1124,49 +1123,58 @@ fn main() -> i32 { i32 r = fib(15); return 0; }
 }
 
 func TestExec_FileHandleModule(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("FileHandle tests not yet working on Windows")
-	}
+	tmpDir := t.TempDir()
+	escPath := func(p string) string { return strings.ReplaceAll(p, `\`, `\\`) }
+
 	tests := []struct {
 		name string
-		src  string
+		src  func() string
 		want []string
 	}{
-		{"file open write read close", `import "file"; import "fmt"; fn main() -> i32 {
-			File f, err e = file.open("/tmp/_basl_test_fh.txt", "w");
-			err e2 = f.write("hello world");
-			err e3 = f.close();
-			File f2, err e4 = file.open("/tmp/_basl_test_fh.txt", "r");
-			string data, err e5 = f2.read(11);
-			err e6 = f2.close();
-			fmt.print(data);
-			file.remove("/tmp/_basl_test_fh.txt");
-			return 0;
-		}`, []string{"hello world"}},
-		{"file stat", `import "file"; import "fmt"; fn main() -> i32 {
-			file.write_all("/tmp/_basl_test_stat.txt", "abc");
-			FileStat s, err e = file.stat("/tmp/_basl_test_stat.txt");
-			fmt.print(s.name);
-			fmt.print(fmt.sprintf("%d", s.size));
-			fmt.print(fmt.sprintf("%t", s.is_dir));
-			file.remove("/tmp/_basl_test_stat.txt");
-			return 0;
-		}`, []string{"_basl_test_stat.txt", "3", "false"}},
-		{"file read_line", `import "file"; import "fmt"; fn main() -> i32 {
-			file.write_all("/tmp/_basl_test_rl.txt", "line1\nline2\nline3");
-			File f, err e = file.open("/tmp/_basl_test_rl.txt", "r");
-			string l1, err e2 = f.read_line();
-			string l2, err e3 = f.read_line();
-			err e4 = f.close();
-			fmt.print(l1);
-			fmt.print(l2);
-			file.remove("/tmp/_basl_test_rl.txt");
-			return 0;
-		}`, []string{"line1", "line2"}},
+		{"file open write read close", func() string {
+			path := escPath(filepath.Join(tmpDir, "fh.txt"))
+			return `import "file"; import "fmt"; fn main() -> i32 {
+				File f, err e = file.open("` + path + `", "w");
+				err e2 = f.write("hello world");
+				err e3 = f.close();
+				File f2, err e4 = file.open("` + path + `", "r");
+				string data, err e5 = f2.read(11);
+				err e6 = f2.close();
+				fmt.print(data);
+				file.remove("` + path + `");
+				return 0;
+			}`
+		}, []string{"hello world"}},
+		{"file stat", func() string {
+			path := escPath(filepath.Join(tmpDir, "stat.txt"))
+			return `import "file"; import "fmt"; fn main() -> i32 {
+				file.write_all("` + path + `", "abc");
+				FileStat s, err e = file.stat("` + path + `");
+				fmt.print(s.name);
+				fmt.print(fmt.sprintf("%d", s.size));
+				fmt.print(fmt.sprintf("%t", s.is_dir));
+				file.remove("` + path + `");
+				return 0;
+			}`
+		}, []string{"stat.txt", "3", "false"}},
+		{"file read_line", func() string {
+			path := escPath(filepath.Join(tmpDir, "rl.txt"))
+			return `import "file"; import "fmt"; fn main() -> i32 {
+				file.write_all("` + path + `", "line1\nline2\nline3");
+				File f, err e = file.open("` + path + `", "r");
+				string l1, err e2 = f.read_line();
+				string l2, err e3 = f.read_line();
+				err e4 = f.close();
+				fmt.print(l1);
+				fmt.print(l2);
+				file.remove("` + path + `");
+				return 0;
+			}`
+		}, []string{"line1", "line2"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, out, err := evalBASL(tt.src)
+			_, out, err := evalBASL(tt.src())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1180,54 +1188,58 @@ func TestExec_FileHandleModule(t *testing.T) {
 }
 
 func TestExec_ArchiveModule(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Archive tests not yet working on Windows")
-	}
+	tmpDir := t.TempDir()
+	escPath := func(p string) string { return strings.ReplaceAll(p, `\`, `\\`) }
+
 	tests := []struct {
 		name string
-		src  string
+		src  func() string
 		want []string
 	}{
-		{"tar create and extract", `import "archive"; import "file"; import "fmt"; fn main() -> i32 {
-			file.write_all("/tmp/_basl_tar_a.txt", "aaa");
-			file.write_all("/tmp/_basl_tar_b.txt", "bbb");
-			err e1 = archive.tar_create("/tmp/_basl_test.tar", ["/tmp/_basl_tar_a.txt", "/tmp/_basl_tar_b.txt"]);
-			file.mkdir("/tmp/_basl_tar_out");
-			err e2 = archive.tar_extract("/tmp/_basl_test.tar", "/tmp/_basl_tar_out");
-			string a, err e3 = file.read_all("/tmp/_basl_tar_out/_basl_tar_a.txt");
-			string b, err e4 = file.read_all("/tmp/_basl_tar_out/_basl_tar_b.txt");
-			fmt.print(a);
-			fmt.print(b);
-			file.remove("/tmp/_basl_tar_a.txt");
-			file.remove("/tmp/_basl_tar_b.txt");
-			file.remove("/tmp/_basl_test.tar");
-			file.remove("/tmp/_basl_tar_out/_basl_tar_a.txt");
-			file.remove("/tmp/_basl_tar_out/_basl_tar_b.txt");
-			file.remove("/tmp/_basl_tar_out");
-			return 0;
-		}`, []string{"aaa", "bbb"}},
-		{"zip create and extract", `import "archive"; import "file"; import "fmt"; fn main() -> i32 {
-			file.write_all("/tmp/_basl_zip_a.txt", "xxx");
-			file.write_all("/tmp/_basl_zip_b.txt", "yyy");
-			err e1 = archive.zip_create("/tmp/_basl_test.zip", ["/tmp/_basl_zip_a.txt", "/tmp/_basl_zip_b.txt"]);
-			file.mkdir("/tmp/_basl_zip_out");
-			err e2 = archive.zip_extract("/tmp/_basl_test.zip", "/tmp/_basl_zip_out");
-			string a, err e3 = file.read_all("/tmp/_basl_zip_out/_basl_zip_a.txt");
-			string b, err e4 = file.read_all("/tmp/_basl_zip_out/_basl_zip_b.txt");
-			fmt.print(a);
-			fmt.print(b);
-			file.remove("/tmp/_basl_zip_a.txt");
-			file.remove("/tmp/_basl_zip_b.txt");
-			file.remove("/tmp/_basl_test.zip");
-			file.remove("/tmp/_basl_zip_out/_basl_zip_a.txt");
-			file.remove("/tmp/_basl_zip_out/_basl_zip_b.txt");
-			file.remove("/tmp/_basl_zip_out");
-			return 0;
-		}`, []string{"xxx", "yyy"}},
+		{"tar create and extract", func() string {
+			a := escPath(filepath.Join(tmpDir, "tar_a.txt"))
+			b := escPath(filepath.Join(tmpDir, "tar_b.txt"))
+			tarFile := escPath(filepath.Join(tmpDir, "test.tar"))
+			outDir := escPath(filepath.Join(tmpDir, "tar_out"))
+			extractedA := escPath(filepath.Join(strings.ReplaceAll(outDir, `\\`, `\`), "tar_a.txt"))
+			extractedB := escPath(filepath.Join(strings.ReplaceAll(outDir, `\\`, `\`), "tar_b.txt"))
+			return `import "archive"; import "file"; import "fmt"; fn main() -> i32 {
+				file.write_all("` + a + `", "aaa");
+				file.write_all("` + b + `", "bbb");
+				err e1 = archive.tar_create("` + tarFile + `", ["` + a + `", "` + b + `"]);
+				file.mkdir("` + outDir + `");
+				err e2 = archive.tar_extract("` + tarFile + `", "` + outDir + `");
+				string a, err e3 = file.read_all("` + extractedA + `");
+				string b, err e4 = file.read_all("` + extractedB + `");
+				fmt.print(a);
+				fmt.print(b);
+				return 0;
+			}`
+		}, []string{"aaa", "bbb"}},
+		{"zip create and extract", func() string {
+			a := escPath(filepath.Join(tmpDir, "zip_a.txt"))
+			b := escPath(filepath.Join(tmpDir, "zip_b.txt"))
+			zipFile := escPath(filepath.Join(tmpDir, "test.zip"))
+			outDir := escPath(filepath.Join(tmpDir, "zip_out"))
+			extractedA := escPath(filepath.Join(strings.ReplaceAll(outDir, `\\`, `\`), "zip_a.txt"))
+			extractedB := escPath(filepath.Join(strings.ReplaceAll(outDir, `\\`, `\`), "zip_b.txt"))
+			return `import "archive"; import "file"; import "fmt"; fn main() -> i32 {
+				file.write_all("` + a + `", "xxx");
+				file.write_all("` + b + `", "yyy");
+				err e1 = archive.zip_create("` + zipFile + `", ["` + a + `", "` + b + `"]);
+				file.mkdir("` + outDir + `");
+				err e2 = archive.zip_extract("` + zipFile + `", "` + outDir + `");
+				string a, err e3 = file.read_all("` + extractedA + `");
+				string b, err e4 = file.read_all("` + extractedB + `");
+				fmt.print(a);
+				fmt.print(b);
+				return 0;
+			}`
+		}, []string{"xxx", "yyy"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, out, err := evalBASL(tt.src)
+			_, out, err := evalBASL(tt.src())
 			if err != nil {
 				t.Fatal(err)
 			}

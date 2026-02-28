@@ -968,7 +968,17 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         self._assert_success(source, stdout="123:abc:431")
 
     def test_stdlib_os_module(self) -> None:
-        basl_path = str(BASL_BIN).replace("\\", "\\\\")
+        # Use a simple command that works on all platforms
+        if IS_WINDOWS:
+            test_cmd = 'cmd.exe'
+            test_args = ['/c', 'echo', 'test']
+        else:
+            test_cmd = 'echo'
+            test_args = ['test']
+        
+        test_cmd_escaped = test_cmd.replace("\\", "\\\\")
+        test_args_str = ', '.join(f'"{arg}"' for arg in test_args)
+        
         source = f"""
             import "fmt";
             import "os";
@@ -979,7 +989,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 string miss_v, bool miss_ok = os.env("BASL_IT_MISSING");
                 string cwd, err ce = os.cwd();
                 string host, err he = os.hostname();
-                string out, string errs, err xe = os.exec("{basl_path}", "--version");
+                string out, string errs, err xe = os.exec("{test_cmd_escaped}", {test_args_str});
 
                 fmt.print(
                     string(se == ok) + ":" +
@@ -992,18 +1002,14 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                     string(ce == ok) + ":" +
                     string(host.len() > 0) + ":" +
                     string(he == ok) + ":" +
-                    string(out.len() > 5) + ":" +
-                    string(errs == "") + ":" +
+                    string(out.len() > 0) + ":" +
                     string(xe == ok)
                 );
                 return 0;
             }}
         """
-        # os.exec() has issues on Windows - skip the exec-related checks
-        if IS_WINDOWS:
-            expected = "true:hello:true::false:true:true:true:true:true:false:true:false"
-        else:
-            expected = "true:hello:true::false:true:true:true:true:true:true:true:true"
+        # All platforms should now work
+        expected = "true:hello:true::false:true:true:true:true:true:true:true"
         self._assert_success(source, stdout=expected)
 
     def test_stdlib_time_module(self) -> None:
