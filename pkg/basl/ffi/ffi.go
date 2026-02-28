@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package ffi provides dynamic loading of C shared libraries via dlopen/dlsym.
 // This file is for macOS and Linux (cgo required).
 package ffi
