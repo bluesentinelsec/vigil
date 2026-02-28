@@ -1,0 +1,28 @@
+# Binary
+/basl
+
+# Go
+*.test
+coverage.out
+cpu.prof
+mem.prof
+
+# C / CGO
+*.dylib
+*.so
+*.dll
+
+# Editors
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI
+.kiro

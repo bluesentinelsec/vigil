@@ -1,0 +1,57 @@
+{
+  "fn": {
+    "prefix": "fn",
+    "body": ["fn ${1:name}(${2}) -> ${3:void} {", "\t$0", "}"],
+    "description": "Function declaration"
+  },
+  "fn main": {
+    "prefix": "main",
+    "body": ["fn main() -> i32 {", "\t$0", "\treturn 0;", "}"],
+    "description": "Main function"
+  },
+  "if": {
+    "prefix": "if",
+    "body": ["if (${1:condition}) {", "\t$0", "}"],
+    "description": "If statement"
+  },
+  "ife": {
+    "prefix": "ife",
+    "body": ["if (${1:condition}) {", "\t$2", "} else {", "\t$0", "}"],
+    "description": "If/else statement"
+  },
+  "for": {
+    "prefix": "for",
+    "body": ["for (i32 ${1:i} = 0; ${1:i} < ${2:n}; ${1:i}++) {", "\t$0", "}"],
+    "description": "For loop"
+  },
+  "forin": {
+    "prefix": "forin",
+    "body": ["for (${1:item} in ${2:collection}) {", "\t$0", "}"],
+    "description": "For-in loop"
+  },
+  "while": {
+    "prefix": "while",
+    "body": ["while (${1:condition}) {", "\t$0", "}"],
+    "description": "While loop"
+  },
+  "class": {
+    "prefix": "class",
+    "body": ["class ${1:Name} {", "\tpub ${2:string} ${3:field};", "", "\tfn init(${2:string} ${3:field}) -> void {", "\t\tself.${3:field} = ${3:field};", "\t}", "", "\t$0", "}"],
+    "description": "Class declaration"
+  },
+  "import": {
+    "prefix": "import",
+    "body": ["import \"${1:fmt}\";"],
+    "description": "Import statement"
+  },
+  "println": {
+    "prefix": "println",
+    "body": ["fmt.println(${1});"],
+    "description": "fmt.println"
+  },
+  "switch": {
+    "prefix": "switch",
+    "body": ["switch (${1:expr}) {", "\tcase ${2:val}:", "\t\t$0", "\tdefault:", "\t\t"],
+    "description": "Switch statement"
+  }
+}
