@@ -283,6 +283,7 @@ See the [examples/](examples/) directory for practical examples:
 - [CLI Reference](docs/cli.md) - Complete command-line tool reference
 - [Language Syntax](docs/syntax.md) - Complete language reference
 - [Standard Library](docs/stdlib/) - All stdlib modules
+- [Performance](docs/performance.md) - Performance characteristics and benchmarks
 - [Debugger](docs/debugger.md) - Debugger usage
 - [Packaging](docs/package_cli.md) - Creating executables and library bundles
 - [Documentation](docs/doc_cli.md) - Extracting API documentation
