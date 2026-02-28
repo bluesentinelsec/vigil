@@ -52,7 +52,14 @@ jobs:
       
       - name: Get version
         id: version
-        run: echo "VERSION=$(./basl --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            VERSION=$(./basl.exe --version | cut -d' ' -f2)
+          else
+            VERSION=$(./basl --version | cut -d' ' -f2)
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
       
       - name: Package binary
         shell: bash
