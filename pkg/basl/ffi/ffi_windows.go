@@ -281,6 +281,6 @@ func (f *BoundFunc) Call(args []interface{}) (interface{}, error) {
 }
 
 // CallGeneric invokes the bound function with variadic arguments (stub for Windows).
-func (f *BoundFunc) CallGeneric(args ...interface{}) (interface{}, error) {
-	return nil, fmt.Errorf("ffi: CallGeneric not yet implemented on Windows")
+func (f *BoundFunc) CallGeneric(args ...interface{}) (uintptr, error) {
+	return 0, fmt.Errorf("ffi: CallGeneric not yet implemented on Windows")
 }
