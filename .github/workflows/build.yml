@@ -50,18 +50,28 @@ jobs:
       - name: Build binary
         run: make build
       
-      - name: List files (debug)
+      - name: Check binary exists
         shell: bash
-        run: ls -la
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Files in current directory:"
+          ls -la
+          echo "Looking for basl binary:"
+          ls -la basl* || echo "No basl files found"
       
       - name: Get version
         id: version
         shell: bash
         run: |
-          if [ "${{ matrix.platform }}" = "windows" ]; then
+          # On Windows, Go creates basl.exe even though Makefile says basl
+          if [ -f "basl.exe" ]; then
             VERSION=$(./basl.exe --version | cut -d' ' -f2)
-          else
+          elif [ -f "basl" ]; then
             VERSION=$(./basl --version | cut -d' ' -f2)
+          else
+            echo "ERROR: basl binary not found!"
+            exit 1
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
       
