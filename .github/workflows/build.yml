@@ -64,29 +64,17 @@ jobs:
         id: version
         shell: bash
         run: |
-          # On Windows, Go creates basl.exe even though Makefile says basl
-          if [ -f "basl.exe" ]; then
-            VERSION=$(./basl.exe --version | cut -d' ' -f2)
-          elif [ -f "basl" ]; then
-            VERSION=$(./basl --version | cut -d' ' -f2)
-          else
-            echo "ERROR: basl binary not found!"
-            exit 1
-          fi
+          # The binary is always named 'basl' regardless of platform
+          VERSION=$(./basl --version | cut -d' ' -f2)
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
       
       - name: Package binary
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Files:"
-          ls -la
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            if [ -f "basl.exe" ]; then
-              7z a basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl.exe
-            else
-              echo "ERROR: basl.exe not found for packaging!"
-              exit 1
-            fi
+            # On Windows, the binary is still named 'basl' (Makefile doesn't add .exe)
+            # But we need to rename it to basl.exe for Windows users
+            mv basl basl.exe
+            7z a basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl.exe
           else
             zip basl-${{ matrix.platform }}-${{ matrix.arch }}-${{ steps.version.outputs.VERSION }}.zip basl
           fi
