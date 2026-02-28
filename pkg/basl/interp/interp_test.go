@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -777,47 +778,63 @@ func TestExec_RegexModule(t *testing.T) {
 }
 
 func TestExec_FileModule(t *testing.T) {
+	tmpDir := t.TempDir()
+
 	tests := []struct {
 		name       string
-		src        string
+		src        func() string
 		wantOutput []string
 	}{
-		{"read_lines", `import "fmt"; import "file"; fn main() -> i32 {
-			err w = file.write_all("/tmp/basl_test_lines.txt", "a\nb\nc");
-			array<string> lines, err e = file.read_lines("/tmp/basl_test_lines.txt");
-			fmt.print(string(lines.len()));
-			for l in lines { fmt.print(l); }
-			file.remove("/tmp/basl_test_lines.txt");
-			return 0;
-		}`, []string{"3", "a", "b", "c"}},
-		{"exists", `import "fmt"; import "file"; fn main() -> i32 {
-			file.write_all("/tmp/basl_test_exists.txt", "x");
-			fmt.print(string(file.exists("/tmp/basl_test_exists.txt")));
-			file.remove("/tmp/basl_test_exists.txt");
-			fmt.print(string(file.exists("/tmp/basl_test_exists.txt")));
-			return 0;
-		}`, []string{"true", "false"}},
-		{"mkdir_listdir", `import "fmt"; import "file"; fn main() -> i32 {
-			file.mkdir("/tmp/basl_test_dir");
-			file.write_all("/tmp/basl_test_dir/a.txt", "a");
-			array<string> entries, err e = file.list_dir("/tmp/basl_test_dir");
-			fmt.print(string(entries.len()));
-			file.remove("/tmp/basl_test_dir/a.txt");
-			file.remove("/tmp/basl_test_dir");
-			return 0;
-		}`, []string{"1"}},
-		{"rename", `import "fmt"; import "file"; fn main() -> i32 {
-			file.write_all("/tmp/basl_test_ren1.txt", "data");
-			file.rename("/tmp/basl_test_ren1.txt", "/tmp/basl_test_ren2.txt");
-			fmt.print(string(file.exists("/tmp/basl_test_ren1.txt")));
-			fmt.print(string(file.exists("/tmp/basl_test_ren2.txt")));
-			file.remove("/tmp/basl_test_ren2.txt");
-			return 0;
-		}`, []string{"false", "true"}},
+		{"read_lines", func() string {
+			path := filepath.Join(tmpDir, "basl_test_lines.txt")
+			return `import "fmt"; import "file"; fn main() -> i32 {
+				err w = file.write_all("` + path + `", "a\nb\nc");
+				array<string> lines, err e = file.read_lines("` + path + `");
+				fmt.print(string(lines.len()));
+				for l in lines { fmt.print(l); }
+				file.remove("` + path + `");
+				return 0;
+			}`
+		}, []string{"3", "a", "b", "c"}},
+		{"exists", func() string {
+			path := filepath.Join(tmpDir, "basl_test_exists.txt")
+			return `import "fmt"; import "file"; fn main() -> i32 {
+				file.write_all("` + path + `", "x");
+				fmt.print(string(file.exists("` + path + `")));
+				file.remove("` + path + `");
+				fmt.print(string(file.exists("` + path + `")));
+				return 0;
+			}`
+		}, []string{"true", "false"}},
+		{"mkdir_listdir", func() string {
+			dir := filepath.Join(tmpDir, "basl_test_dir")
+			file := filepath.Join(dir, "a.txt")
+			return `import "fmt"; import "file"; fn main() -> i32 {
+				file.mkdir("` + dir + `");
+				file.write_all("` + file + `", "a");
+				array<string> entries, err e = file.list_dir("` + dir + `");
+				fmt.print(string(entries.len()));
+				file.remove("` + file + `");
+				file.remove("` + dir + `");
+				return 0;
+			}`
+		}, []string{"1"}},
+		{"rename", func() string {
+			path1 := filepath.Join(tmpDir, "basl_test_ren1.txt")
+			path2 := filepath.Join(tmpDir, "basl_test_ren2.txt")
+			return `import "fmt"; import "file"; fn main() -> i32 {
+				file.write_all("` + path1 + `", "data");
+				file.rename("` + path1 + `", "` + path2 + `");
+				fmt.print(string(file.exists("` + path1 + `")));
+				fmt.print(string(file.exists("` + path2 + `")));
+				file.remove("` + path2 + `");
+				return 0;
+			}`
+		}, []string{"false", "true"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, lines, err := evalBASL(tt.src)
+			_, lines, err := evalBASL(tt.src())
 			if err != nil {
 				t.Fatalf("error: %v", err)
 			}

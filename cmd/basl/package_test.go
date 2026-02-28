@@ -187,7 +187,7 @@ pub fn add(i32 a, i32 b) -> i32 {
 `)
 
 	outputDir := filepath.Join(root, "output-bundle")
-	
+
 	// Run library bundle
 	code := runLibraryBundle(root, outputDir)
 	if code != 0 {
@@ -220,15 +220,15 @@ pub fn add(i32 a, i32 b) -> i32 {
 
 func TestDetectLibraryProject(t *testing.T) {
 	tests := []struct {
-		name      string
-		files     map[string]string
-		wantLib   bool
+		name    string
+		files   map[string]string
+		wantLib bool
 	}{
 		{
 			name: "application with main.basl",
 			files: map[string]string{
-				"basl.toml":  "name = \"app\"\n",
-				"main.basl":  "fn main() -> i32 { return 0; }\n",
+				"basl.toml":    "name = \"app\"\n",
+				"main.basl":    "fn main() -> i32 { return 0; }\n",
 				"lib/mod.basl": "pub fn test() -> void {}\n",
 			},
 			wantLib: false,
@@ -236,7 +236,7 @@ func TestDetectLibraryProject(t *testing.T) {
 		{
 			name: "library without main.basl",
 			files: map[string]string{
-				"basl.toml":  "name = \"lib\"\n",
+				"basl.toml":    "name = \"lib\"\n",
 				"lib/mod.basl": "pub fn test() -> void {}\n",
 			},
 			wantLib: true,
