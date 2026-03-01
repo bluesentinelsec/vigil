@@ -141,5 +141,44 @@ func (interp *Interpreter) makeIoModule() *Env {
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(data)), value.Ok}}
 	}))
 
+	env.Define("read", value.NewNativeFunc("io.read", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeI32 {
+			return value.Void, fmt.Errorf("io.read: expected (i32 count)")
+		}
+		count := args[0].AsI32()
+		if count <= 0 {
+			return value.Void, fmt.Errorf("io.read: count must be positive, got %d", count)
+		}
+
+		buf := make([]byte, count)
+		n, err := os.Stdin.Read(buf)
+
+		if err == io.EOF {
+			if n > 0 {
+				// Return partial data with ok
+				return value.Void, &MultiReturnVal{Values: []value.Value{
+					value.NewString(string(buf[:n])),
+					value.Ok,
+				}}
+			}
+			// EOF with no data
+			return value.Void, &MultiReturnVal{Values: []value.Value{
+				value.NewString(""),
+				value.NewErr("EOF"),
+			}}
+		}
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{
+				value.NewString(""),
+				value.NewErr(err.Error()),
+			}}
+		}
+
+		return value.Void, &MultiReturnVal{Values: []value.Value{
+			value.NewString(string(buf[:n])),
+			value.Ok,
+		}}
+	}))
+
 	return env
 }

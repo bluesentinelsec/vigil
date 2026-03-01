@@ -61,6 +61,41 @@ Prints `prompt`, reads a line. Equivalent to `io.input`.
 string val, err e = io.read_string("Enter value: ");
 ```
 
+### io.read(i32 count) -> (string, err)
+
+Reads up to `count` bytes from stdin. Returns the data read (may be less than `count` at EOF).
+
+- Returns `(data, ok)` on success, where `data.len() <= count`
+- Returns `("", err("EOF"))` at end of input with no data
+- Returns `("", err(message))` on other errors
+- If EOF is reached after reading some data, returns `(data, ok)` with partial data
+
+Useful for processing large inputs incrementally without buffering everything in memory.
+
+```c
+// Read and process stdin in 4KB chunks
+while (true) {
+    string chunk, err e = io.read(4096);
+    if (e != ok) {
+        break;  // EOF or error
+    }
+    // Process chunk
+    fmt.print(chunk);
+}
+```
+
+**Example: Streaming tee**
+```c
+File f, err e = file.open("output.txt", "w");
+while (true) {
+    string chunk, err e2 = io.read(4096);
+    if (e2 != ok) { break; }
+    fmt.print(chunk);      // stdout
+    f.write(chunk);        // file
+}
+f.close();
+```
+
 ### io.read_all() -> (string, err)
 
 Reads all of stdin into a string. Useful for reading piped input or implementing Unix-style filters.
@@ -77,4 +112,4 @@ if (e != ok) {
 fmt.print(content);
 ```
 
-**Note**: This reads the entire stdin into memory. For large inputs where exact byte-for-byte output is not required, consider line-by-line processing. Be aware that `io.read_line()` strips newlines, so it is not suitable for stream-copy tools like `cat`.
+**Note**: This reads the entire stdin into memory. For large inputs, use `io.read(count)` to process data incrementally. `io.read_line()` strips newlines, so it is not suitable for stream-copy tools like `cat`.
