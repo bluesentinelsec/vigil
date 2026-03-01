@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"os"
 	"testing"
 )
 
@@ -127,22 +128,103 @@ func TestErrMessageArityCheck(t *testing.T) {
 }
 
 func TestIOReadStringEOF(t *testing.T) {
+	// Save original stdin
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	// Create pipe with no data (immediate EOF)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	w.Close() // Close immediately to trigger EOF
+
 	code := `
 		import "io";
-		import "file";
 		
 		fn main() -> i32 {
-			// Simulate EOF by reading from empty file
-			file.write_all("test_eof_input.txt", "");
-			File f, err e1 = file.open("test_eof_input.txt", "r");
-			if (e1 != ok) {
+			string val, err e = io.read_string("prompt: ");
+			if (e == ok) {
 				return 1;
 			}
-			f.close();
-			
-			// Note: Can't easily test io.read_string with EOF in unit test
-			// because it reads from stdin. This test verifies the pattern.
-			file.remove("test_eof_input.txt");
+			if (!e.is_eof()) {
+				return 2;
+			}
+			return 0;
+		}
+	`
+
+	exitCode, _, err := evalBASL(code)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}
+
+func TestIOReadI32EOF(t *testing.T) {
+	// Save original stdin
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	// Create pipe with no data (immediate EOF)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	w.Close() // Close immediately to trigger EOF
+
+	code := `
+		import "io";
+		
+		fn main() -> i32 {
+			i32 val, err e = io.read_i32("prompt: ");
+			if (e == ok) {
+				return 1;
+			}
+			if (!e.is_eof()) {
+				return 2;
+			}
+			return 0;
+		}
+	`
+
+	exitCode, _, err := evalBASL(code)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}
+
+func TestIOReadF64EOF(t *testing.T) {
+	// Save original stdin
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	// Create pipe with no data (immediate EOF)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	w.Close() // Close immediately to trigger EOF
+
+	code := `
+		import "io";
+		
+		fn main() -> i32 {
+			f64 val, err e = io.read_f64("prompt: ");
+			if (e == ok) {
+				return 1;
+			}
+			if (!e.is_eof()) {
+				return 2;
+			}
 			return 0;
 		}
 	`
