@@ -69,7 +69,8 @@ fn test_wc_lines_only() -> void {
     string stdout, string stderr, err e2 = os.exec(basl_bin, main_script, "-l", test_file);
     t.assert(e2 == ok, "basl-wc -l should succeed");
     t.assert(stdout.contains("3 "), "should show 3 lines");
-    t.assert(!stdout.contains("28"), "should not show bytes");
+    t.assert(!stdout.contains(" 3 "), "should not show words (no double space before 3)");
+    t.assert(!stdout.contains(" 6 "), "should not show bytes");
     
     file.remove(test_file);
 }

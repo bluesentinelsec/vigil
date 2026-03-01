@@ -1,0 +1,31 @@
+// Counter logic for wc utility
+
+pub fn count_content(string content) -> (i32, i32, i32, err) {
+    i32 lines = 0;
+    i32 words = 0;
+    i32 bytes = content.len();
+    
+    bool in_word = false;
+    for (i32 i = 0; i < content.len(); i++) {
+        string ch, err e = content.substr(i, 1);
+        if (e != ok) {
+            return (0, 0, 0, e);
+        }
+        
+        if (ch == "\n") {
+            lines++;
+        }
+        
+        bool is_space = (ch == " " || ch == "\t" || ch == "\n");
+        if (is_space) {
+            in_word = false;
+        } else {
+            if (!in_word) {
+                words++;
+                in_word = true;
+            }
+        }
+    }
+    
+    return (lines, words, bytes, ok);
+}
