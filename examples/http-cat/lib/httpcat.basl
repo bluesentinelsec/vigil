@@ -1,0 +1,200 @@
+// HTTP client library for httpcat CLI
+import "http";
+import "fmt";
+import "time";
+import "json";
+import "file";
+import "base64";
+
+class RequestConfig {
+    pub string method;
+    pub string url;
+    pub map<string, string> headers;
+    pub map<string, string> query_params;
+    pub string body;
+    pub bool pretty_json;
+    pub string output_file;
+    pub string basic_auth;
+    
+    fn init() -> void {
+        self.method = "GET";
+        self.url = "";
+        self.headers = {};
+        self.query_params = {};
+        self.body = "";
+        self.pretty_json = false;
+        self.output_file = "";
+        self.basic_auth = "";
+    }
+}
+
+class ResponseReport {
+    pub i32 status_code;
+    pub i64 duration_ms;
+    pub map<string, string> headers;
+    pub string body;
+    pub i32 body_size;
+    
+    fn init() -> void {
+        self.status_code = 0;
+        self.duration_ms = i64(0);
+        self.headers = {};
+        self.body = "";
+        self.body_size = 0;
+    }
+}
+
+// Factory function to create a new RequestConfig
+pub fn new_config() -> RequestConfig {
+    return RequestConfig();
+}
+
+// Factory function to create a new ResponseReport (for testing)
+pub fn new_report() -> ResponseReport {
+    return ResponseReport();
+}
+
+// Build URL with query parameters
+pub fn build_url(string base_url, map<string, string> params) -> string {
+    if (params.len() == 0) {
+        return base_url;
+    }
+    
+    string url = base_url;
+    bool first = true;
+    
+    if (url.contains("?")) {
+        first = false;
+    } else {
+        url = url + "?";
+    }
+    
+    array<string> keys = params.keys();
+    for key in keys {
+        if (!first) {
+            url = url + "&";
+        }
+        url = url + key + "=" + params.get(key);
+        first = false;
+    }
+    
+    return url;
+}
+
+// Add basic auth header
+pub fn add_basic_auth(map<string, string> headers, string auth) -> err {
+    if (auth == "") {
+        return ok;
+    }
+    
+    string encoded = base64.encode(auth);
+    headers.set("Authorization", "Basic " + encoded);
+    return ok;
+}
+
+// Execute HTTP request and return response report
+pub fn execute_request(RequestConfig config) -> (ResponseReport, err) {
+    ResponseReport report = ResponseReport();
+    
+    // Build full URL with query params
+    string full_url = build_url(config.url, config.query_params);
+    
+    // Add basic auth if provided
+    err auth_err = add_basic_auth(config.headers, config.basic_auth);
+    if (auth_err != ok) {
+        return (report, auth_err);
+    }
+    
+    // Start timing
+    i64 start = time.now();
+    
+    // Make HTTP request using http.request
+    HttpResponse resp, err e = http.request(config.method, full_url, config.headers, config.body);
+    
+    if (e != ok) {
+        return (report, e);
+    }
+    
+    // Calculate duration
+    i64 duration = time.since(start);
+    
+    // Build report
+    report.status_code = resp.status;
+    report.duration_ms = duration;
+    report.headers = resp.headers;
+    report.body = resp.body;
+    report.body_size = resp.body.len();
+    
+    return (report, ok);
+}
+
+// Format response report for display
+pub fn format_report(ResponseReport report, bool pretty_json) -> string {
+    string output = "";
+    
+    // Status line
+    output = output + f"HTTP {report.status_code}\n";
+    output = output + f"Time: {report.duration_ms}ms\n";
+    output = output + f"Size: {report.body_size} bytes\n";
+    output = output + "\n";
+    
+    // Headers
+    output = output + "Headers:\n";
+    array<string> header_keys = report.headers.keys();
+    for key in header_keys {
+        output = output + f"  {key}: {report.headers.get(key)}\n";
+    }
+    output = output + "\n";
+    
+    // Body
+    output = output + "Body:\n";
+    
+    // For now, just output the body as-is
+    // Pretty-printing would require parsing and re-stringifying
+    output = output + report.body + "\n";
+    
+    return output;
+}
+
+// Save response body to file
+pub fn save_to_file(string path, string content) -> err {
+    err e = file.write_all(path, content);
+    return e;
+}
+
+// Run the HTTP request with given config
+pub fn run(RequestConfig config) -> (string, err) {
+    ResponseReport report, err e = execute_request(config);
+    if (e != ok) {
+        return ("", e);
+    }
+    
+    // Save to file if requested
+    if (config.output_file != "") {
+        err save_err = save_to_file(config.output_file, report.body);
+        if (save_err != ok) {
+            return ("", save_err);
+        }
+    }
+    
+    // Format and return report
+    string output = format_report(report, config.pretty_json);
+    return (output, ok);
+}
+
+// Simplified execute function that doesn't require RequestConfig type
+pub fn execute(string url, string method, map<string, string> headers, map<string, string> query_params, string body, bool pretty_json, string output_file, string basic_auth) -> (string, err) {
+    RequestConfig config = RequestConfig();
+    config.url = url;
+    config.method = method;
+    config.headers = headers;
+    config.query_params = query_params;
+    config.body = body;
+    config.pretty_json = pretty_json;
+    config.output_file = output_file;
+    config.basic_auth = basic_auth;
+    
+    string output, err e = run(config);
+    return (output, e);
+}
+

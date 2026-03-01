@@ -1,0 +1,86 @@
+import "t";
+import "httpcat";
+import "file";
+
+fn test_build_url_no_params() -> void {
+    string url = httpcat.build_url("https://example.com", {});
+    t.assert(url == "https://example.com", "URL should be unchanged");
+}
+
+fn test_build_url_with_params() -> void {
+    map<string, string> params = {};
+    params.set("foo", "bar");
+    params.set("baz", "qux");
+    
+    string url = httpcat.build_url("https://example.com", params);
+    
+    // URL should contain both params (order may vary)
+    i32 foo_idx, bool foo_found = url.index_of("foo=bar");
+    i32 baz_idx, bool baz_found = url.index_of("baz=qux");
+    i32 q_idx, bool q_found = url.index_of("?");
+    
+    t.assert(foo_found, "URL should contain foo=bar");
+    t.assert(baz_found, "URL should contain baz=qux");
+    t.assert(q_found, "URL should contain ?");
+}
+
+fn test_build_url_existing_query() -> void {
+    map<string, string> params = {};
+    params.set("new", "param");
+    
+    string url = httpcat.build_url("https://example.com?existing=value", params);
+    
+    i32 existing_idx, bool existing_found = url.index_of("existing=value");
+    i32 new_idx, bool new_found = url.index_of("new=param");
+    i32 amp_idx, bool amp_found = url.index_of("&");
+    
+    t.assert(existing_found, "URL should keep existing param");
+    t.assert(new_found, "URL should add new param");
+    t.assert(amp_found, "URL should use & separator");
+}
+
+fn test_add_basic_auth_empty() -> void {
+    map<string, string> headers = {};
+    err e = httpcat.add_basic_auth(headers, "");
+    
+    t.assert(e == ok, "Empty auth should succeed");
+    t.assert(headers.len() == 0, "Headers should be empty");
+}
+
+fn test_add_basic_auth_valid() -> void {
+    map<string, string> headers = {};
+    err e = httpcat.add_basic_auth(headers, "user:pass");
+    
+    t.assert(e == ok, "Valid auth should succeed");
+    t.assert(headers.len() == 1, "Should add one header");
+    t.assert(headers.has("Authorization"), "Should have Authorization header");
+    
+    string auth = headers.get("Authorization");
+    i32 idx, bool found = auth.index_of("Basic ");
+    t.assert(found && idx == 0, "Should start with 'Basic '");
+}
+
+fn test_format_report_basic() -> void {
+    // Test using the execute function instead of direct ResponseReport
+    string output, err e = httpcat.execute("https://httpbin.org/status/200", "GET", {}, {}, "", false, "", "");
+    
+    t.assert(e == ok, "Execute should succeed");
+    i32 status_idx, bool status_found = output.index_of("HTTP 200");
+    t.assert(status_found, "Should contain status code");
+}
+
+fn test_save_to_file() -> void {
+    string test_file = "/tmp/httpcat_test.txt";
+    string content = "test content";
+    
+    err e = httpcat.save_to_file(test_file, content);
+    t.assert(e == ok, "Save should succeed");
+    
+    // Verify file was written
+    string read_content, err read_err = file.read_all(test_file);
+    t.assert(read_err == ok, "Read should succeed");
+    t.assert(read_content == content, "Content should match");
+    
+    // Cleanup
+    file.remove(test_file);
+}

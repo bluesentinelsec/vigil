@@ -1,0 +1,72 @@
+import "fmt";
+import "args";
+import "os";
+import "file";
+import "httpcat";
+
+fn die(string msg) -> void {
+    fmt.println(f"Error: {msg}");
+    os.exit(1);
+}
+
+fn main() -> i32 {
+    // Create argument parser
+    ArgParser p = args.parser("httpcat", "HTTP debugger CLI - curl meets Postman-lite");
+    
+    // Define flags
+    p.flag("method", "string", "GET", "HTTP method (GET, POST, PUT, DELETE)");
+    p.flag("data", "string", "", "Request body");
+    p.flag("json", "string", "", "Read JSON from file as body");
+    p.flag("out", "string", "", "Save response body to file");
+    p.flag("pretty", "bool", "false", "Pretty-print JSON responses");
+    p.flag("auth", "string", "", "Basic authentication (user:pass)");
+    p.flag("header", "string", "", "Add header (format: 'Key: Value')");
+    p.flag("query", "string", "", "Add query parameter (format: 'key=value')");
+    
+    // Define positional argument for URL
+    p.arg("url", "string", "URL to request");
+    
+    // Parse arguments
+    map<string, string> parsed, err parse_err = p.parse();
+    if (parse_err != ok) {
+        die(parse_err.message());
+    }
+    
+    // Get URL
+    string url = parsed.get("url");
+    if (url == "") {
+        die("URL is required");
+    }
+    
+    // Get other parameters
+    string method = parsed.get("method");
+    string output_file = parsed.get("out");
+    string basic_auth = parsed.get("auth");
+    bool pretty_json = (parsed.get("pretty") == "true");
+    string data = parsed.get("data");
+    string json_file = parsed.get("json");
+    
+    // Build body
+    string body = "";
+    map<string, string> headers = {};
+    
+    if (json_file != "") {
+        string content, err e = file.read_all(json_file);
+        if (e != ok) {
+            die(f"failed to read JSON file: {e.message()}");
+        }
+        body = content;
+        headers.set("Content-Type", "application/json");
+    } else if (data != "") {
+        body = data;
+    }
+    
+    // Execute request using helper function
+    string output, err e = httpcat.execute(url, method, headers, {}, body, pretty_json, output_file, basic_auth);
+    if (e != ok) {
+        die(e.message());
+    }
+    
+    fmt.print(output);
+    return 0;
+}
