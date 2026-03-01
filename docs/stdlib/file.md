@@ -73,6 +73,41 @@ Renames (moves) a file.
 err e = file.rename("old.txt", "new.txt");
 ```
 
+### file.symlink(string target, string link) -> err
+
+Creates a symbolic link pointing to `target`.
+
+- Returns `ok` on success.
+- Returns `err(message)` on failure.
+- **Windows:** Requires administrator privileges or Developer Mode enabled.
+
+```c
+err e = file.symlink("target.txt", "link.txt");
+```
+
+### file.link(string target, string link) -> err
+
+Creates a hard link to `target`.
+
+- Returns `ok` on success.
+- Returns `err(message)` on failure.
+- Hard links share the same inode as the target.
+
+```c
+err e = file.link("target.txt", "hardlink.txt");
+```
+
+### file.readlink(string path) -> (string, err)
+
+Reads the target of a symbolic link.
+
+- Returns `(target, ok)` on success.
+- Returns `("", err(message))` on failure or if path is not a symlink.
+
+```c
+string target, err e = file.readlink("link.txt");
+```
+
 ### file.mkdir(string path) -> err
 
 Creates a directory and all necessary parents (like `mkdir -p`). Directory permissions: `0755`.
