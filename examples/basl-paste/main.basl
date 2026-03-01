@@ -1,0 +1,61 @@
+import "io";
+import "fmt";
+import "file";
+import "os";
+
+fn main() -> i32 {
+    array<string> argv = os.args();
+    
+    if (argv.len() < 2) {
+        fmt.eprintln("usage: paste FILE1 FILE2 [...]");
+        return 1;
+    }
+    
+    // Open all files
+    array<File> files = [];
+    for (i32 i = 0; i < argv.len(); i++) {
+        File f, err e = file.open(argv[i], "r");
+        if (e != ok) {
+            fmt.eprintln(f"paste: cannot open {argv[i]}");
+            return 1;
+        }
+        files.push(f);
+    }
+    
+    // Read lines from all files in parallel
+    while (true) {
+        array<string> line_parts = [];
+        bool any_data = false;
+        
+        for (i32 i = 0; i < files.len(); i++) {
+            string line, err e = files[i].read_line();
+            if (e == ok) {
+                line_parts.push(line);
+                any_data = true;
+            } else {
+                line_parts.push("");
+            }
+        }
+        
+        if (!any_data) {
+            break;
+        }
+        
+        // Join with tabs
+        string output = "";
+        for (i32 i = 0; i < line_parts.len(); i++) {
+            if (i > 0) {
+                output += "\t";
+            }
+            output += line_parts[i];
+        }
+        fmt.println(output);
+    }
+    
+    // Close files
+    for f in files {
+        f.close();
+    }
+    
+    return 0;
+}

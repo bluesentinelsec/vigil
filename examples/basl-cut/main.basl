@@ -1,0 +1,53 @@
+import "io";
+import "fmt";
+import "args";
+
+fn main() -> i32 {
+    ArgParser p = args.parser("cut", "Extract fields from lines");
+    p.flag("f", "string", "", "field number (1-indexed)");
+    p.flag("d", "string", "\t", "field delimiter");
+    map<string, string> opts, err e = p.parse();
+    
+    if (e != ok) {
+        fmt.eprintln(f"cut: {e}");
+        return 1;
+    }
+    
+    if (opts["f"] == "") {
+        fmt.eprintln("cut: -f required");
+        return 1;
+    }
+    
+    string field_str = opts["f"];
+    i32 field = 0;
+    
+    // Parse field number
+    for (i32 i = 0; i < field_str.len(); i++) {
+        u8 c = field_str.bytes()[i];
+        if (c >= u8(48) && c <= u8(57)) {  // '0'-'9'
+            field = field * 10 + (i32(c) - 48);
+        }
+    }
+    
+    if (field < 1) {
+        fmt.eprintln("cut: invalid field number");
+        return 1;
+    }
+    
+    string delim = opts["d"];
+    
+    while (true) {
+        string line, err e2 = io.read_line();
+        if (e2 != ok) {
+            break;
+        }
+        
+        array<string> fields = line.split(delim);
+        
+        if (field <= fields.len()) {
+            fmt.println(fields[field - 1]);
+        }
+    }
+    
+    return 0;
+}
