@@ -1,0 +1,7 @@
+pub class MyClass {
+    pub string value;
+    
+    fn init() -> void {
+        self.value = "hello";
+    }
+}

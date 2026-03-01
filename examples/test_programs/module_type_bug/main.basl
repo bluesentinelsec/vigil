@@ -1,0 +1,11 @@
+import "mymodule";
+import "fmt";
+
+fn main() -> i32 {
+    // This should work but fails with:
+    // error[runtime]: type mismatch — expected mymodule.MyClass, received MyClass
+    mymodule.MyClass obj = mymodule.MyClass();
+    
+    fmt.println(obj.value);
+    return 0;
+}
