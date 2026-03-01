@@ -37,6 +37,8 @@ fn main() -> i32 {
         mode = "a";
     }
     
+    bool had_error = false;
+    
     for path in files {
         File f, err e2 = file.open(path, mode);
         if (e2 != ok) {
@@ -51,7 +53,15 @@ fn main() -> i32 {
             return 1;
         }
         
-        f.close();
+        err e4 = f.close();
+        if (e4 != ok) {
+            fmt.eprintln(f"basl-tee: {path}: close: {e4}");
+            had_error = true;
+        }
+    }
+    
+    if (had_error) {
+        return 1;
     }
     
     return 0;

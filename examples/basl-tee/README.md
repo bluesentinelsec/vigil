@@ -52,8 +52,8 @@ ls -la | basl main.basl listing.txt | grep ".txt"
 - ✅ Exact byte preservation (no normalization)
 - ✅ Multiple output files
 - ✅ Append mode (`-a`)
-- ✅ Proper error handling and exit codes
-- ✅ Cross-platform (Unix and Windows)
+- ✅ Proper error handling and exit codes (including close errors)
+- ✅ Cross-platform implementation (standard BASL APIs)
 
 ### Comparison to Unix tee
 
@@ -79,9 +79,9 @@ Tests validate:
 - Append mode
 - Empty input
 - Stdout mirroring
-- Cross-platform execution
+- Path-independent execution (repo root and example directory)
 
-**Note**: Tests use shell redirection and are skipped on Windows.
+**Note**: Tests use shell redirection (\`sh -c\`) and are skipped on Windows. The implementation itself is cross-platform (uses standard BASL APIs), but automated testing currently requires Unix shell.
 
 ## Gaps Identified
 
