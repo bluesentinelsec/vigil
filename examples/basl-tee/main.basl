@@ -1,0 +1,58 @@
+import "os";
+import "fmt";
+import "file";
+import "io";
+
+fn main() -> i32 {
+    array<string> argv = os.args();
+    
+    bool append_mode = false;
+    array<string> files = [];
+    
+    // Parse arguments
+    for (i32 i = 0; i < argv.len(); i++) {
+        string arg = argv[i];
+        if (arg == "-a" || arg == "--append") {
+            append_mode = true;
+        } else {
+            files.push(arg);
+        }
+    }
+    
+    // Read all stdin
+    // Note: BASL currently lacks chunked stdin reading (io.read(count))
+    // so we must buffer the entire input. This is a known limitation.
+    string content, err e = io.read_all();
+    if (e != ok) {
+        fmt.eprintln(f"basl-tee: stdin: {e}");
+        return 1;
+    }
+    
+    // Write to stdout
+    fmt.print(content);
+    
+    // Write to all files
+    string mode = "w";
+    if (append_mode) {
+        mode = "a";
+    }
+    
+    for path in files {
+        File f, err e2 = file.open(path, mode);
+        if (e2 != ok) {
+            fmt.eprintln(f"basl-tee: {path}: {e2}");
+            return 1;
+        }
+        
+        err e3 = f.write(content);
+        if (e3 != ok) {
+            fmt.eprintln(f"basl-tee: {path}: {e3}");
+            f.close();
+            return 1;
+        }
+        
+        f.close();
+    }
+    
+    return 0;
+}
