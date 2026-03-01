@@ -77,4 +77,4 @@ if (e != ok) {
 fmt.print(content);
 ```
 
-**Note**: This reads the entire stdin into memory. For large inputs, consider line-by-line processing with `io.read_line()`.
+**Note**: This reads the entire stdin into memory. For large inputs where exact byte-for-byte output is not required, consider line-by-line processing. Be aware that `io.read_line()` strips newlines, so it is not suitable for stream-copy tools like `cat`.

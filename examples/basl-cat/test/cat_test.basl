@@ -3,7 +3,6 @@ import "file";
 import "os";
 import "path";
 
-// Helper to get a temp file path that works cross-platform
 fn get_temp_path(string filename) -> string {
     string platform = os.platform();
     if (platform == "windows") {
@@ -12,23 +11,39 @@ fn get_temp_path(string filename) -> string {
     return path.join("/tmp", filename);
 }
 
+fn find_basl_and_main() -> (string, string) {
+    // Try repo root first (when run from repo root)
+    if (file.exists("basl") && file.exists("examples/basl-cat/main.basl")) {
+        return ("./basl", "examples/basl-cat/main.basl");
+    }
+    // Try from examples/basl-cat
+    if (file.exists("../../basl") && file.exists("main.basl")) {
+        return ("../../basl", "main.basl");
+    }
+    return ("", "");
+}
+
 fn test_cat_single_file() -> void {
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
     string test_file = get_temp_path("basl_cat_test1.txt");
     string test_content = "test content\n";
     err e = file.write_all(test_file, test_content);
     t.assert(e == ok, "should write test file");
     
-    // Run basl-cat on the file
-    string stdout, string stderr, err e2 = os.exec("../../basl", "main.basl", test_file);
+    string stdout, string stderr, err e2 = os.exec(basl_bin, main_script, test_file);
     t.assert(e2 == ok, "basl-cat should succeed");
     t.assert(stdout == test_content, "output should match file content");
     t.assert(stderr == "", "stderr should be empty on success");
     
-    // Cleanup
     file.remove(test_file);
 }
 
 fn test_cat_multiple_files() -> void {
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
     string file1 = get_temp_path("basl_cat_test2a.txt");
     string file2 = get_temp_path("basl_cat_test2b.txt");
     
@@ -36,45 +51,75 @@ fn test_cat_multiple_files() -> void {
     err e2 = file.write_all(file2, "file2\n");
     t.assert(e1 == ok && e2 == ok, "should write test files");
     
-    // Run basl-cat on both files
-    string stdout, string stderr, err e3 = os.exec("../../basl", "main.basl", file1, file2);
+    string stdout, string stderr, err e3 = os.exec(basl_bin, main_script, file1, file2);
     t.assert(e3 == ok, "basl-cat should succeed");
     t.assert(stdout == "file1\nfile2\n", "output should concatenate both files");
     t.assert(stderr == "", "stderr should be empty on success");
     
-    // Cleanup
     file.remove(file1);
     file.remove(file2);
 }
 
 fn test_cat_missing_file() -> void {
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
     string missing = get_temp_path("nonexistent_basl_cat_test.txt");
     
-    // Run basl-cat on missing file - should fail
-    string stdout, string stderr, err e = os.exec("../../basl", "main.basl", missing);
+    string stdout, string stderr, err e = os.exec(basl_bin, main_script, missing);
     t.assert(e != ok, "basl-cat should fail on missing file");
     t.assert(stderr.len() > 0, "stderr should contain error message");
     t.assert(stderr.contains("basl-cat:"), "error should be from basl-cat");
 }
 
 fn test_cat_empty_file() -> void {
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
     string test_file = get_temp_path("basl_cat_test_empty.txt");
     err e = file.write_all(test_file, "");
     t.assert(e == ok, "should write empty file");
     
-    // Run basl-cat on empty file
-    string stdout, string stderr, err e2 = os.exec("../../basl", "main.basl", test_file);
+    string stdout, string stderr, err e2 = os.exec(basl_bin, main_script, test_file);
     t.assert(e2 == ok, "basl-cat should succeed on empty file");
     t.assert(stdout == "", "output should be empty");
     t.assert(stderr == "", "stderr should be empty");
     
-    // Cleanup
+    file.remove(test_file);
+}
+
+fn test_cat_stdin_dash() -> void {
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
+    string test_file = get_temp_path("basl_cat_stdin_test.txt");
+    string test_content = "stdin test\n";
+    err e = file.write_all(test_file, test_content);
+    t.assert(e == ok, "should write test file");
+    
+    // Test "-" reads from stdin by using shell redirection
+    string sh_cmd = basl_bin + " " + main_script + " - < " + test_file;
+    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    t.assert(e2 == ok, "basl-cat with - should succeed");
+    t.assert(stdout == test_content, "output should match stdin");
+    
     file.remove(test_file);
 }
 
 fn test_cat_no_args_stdin() -> void {
-    // Test that no args reads from stdin
-    // Note: This is harder to test with os.exec since we can't pipe stdin
-    // For now, just verify the file-based tests work
-    t.assert(true, "stdin behavior tested manually");
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
+    string test_file = get_temp_path("basl_cat_noargs_test.txt");
+    string test_content = "no args stdin\n";
+    err e = file.write_all(test_file, test_content);
+    t.assert(e == ok, "should write test file");
+    
+    // Test no args reads from stdin
+    string sh_cmd = basl_bin + " " + main_script + " < " + test_file;
+    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    t.assert(e2 == ok, "basl-cat with no args should succeed");
+    t.assert(stdout == test_content, "output should match stdin");
+    
+    file.remove(test_file);
 }
