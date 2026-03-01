@@ -212,6 +212,10 @@ func escapeFStringText(s string) string {
 			sb.WriteString("\\\\")
 		case '"':
 			sb.WriteString("\\\"")
+		case '{':
+			sb.WriteString("{{") // Escape literal { as {{
+		case '}':
+			sb.WriteString("}}") // Escape literal } as }}
 		default:
 			sb.WriteRune(ch)
 		}
