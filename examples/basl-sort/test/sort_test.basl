@@ -1,0 +1,17 @@
+import "t";
+import "os";
+import "file";
+
+fn test_sort_basic() -> void {
+    os.exec("sh", "-c", "printf 'zebra\\napple\\nbanana' > /tmp/basl_sort_in.txt");
+    
+    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-sort/main.basl < /tmp/basl_sort_in.txt > /tmp/basl_sort_out.txt");
+    t.assert(string(e) == "ok", "sort should exit 0");
+    
+    string output, err e2 = file.read_all("/tmp/basl_sort_out.txt");
+    t.assert(output.contains("apple"), "should contain apple");
+}
+
+fn main() -> i32 {
+    return 0;
+}

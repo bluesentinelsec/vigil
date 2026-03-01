@@ -6,8 +6,8 @@ import "os";
 fn main() -> i32 {
     array<string> argv = os.args();
     
-    if (argv.len() < 2) {
-        fmt.eprintln("usage: paste FILE1 FILE2 [...]");
+    if (argv.len() < 1) {
+        fmt.eprintln("usage: paste FILE1 [FILE2 ...]");
         return 1;
     }
     

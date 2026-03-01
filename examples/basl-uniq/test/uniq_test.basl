@@ -1,0 +1,17 @@
+import "t";
+import "os";
+import "file";
+
+fn test_uniq_basic() -> void {
+    os.exec("sh", "-c", "printf 'a\\na\\nb\\nb\\nb\\nc' > /tmp/basl_uniq_in.txt");
+    
+    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-uniq/main.basl < /tmp/basl_uniq_in.txt > /tmp/basl_uniq_out.txt");
+    t.assert(string(e) == "ok", "uniq should exit 0");
+    
+    string output, err e2 = file.read_all("/tmp/basl_uniq_out.txt");
+    t.assert(output.contains("a"), "should contain a");
+}
+
+fn main() -> i32 {
+    return 0;
+}

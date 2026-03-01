@@ -21,12 +21,19 @@ fn main() -> i32 {
     string field_str = opts["f"];
     i32 field = 0;
     
-    // Parse field number
+    // Parse field number - must be all digits
+    if (field_str.len() == 0) {
+        fmt.eprintln("cut: field number required");
+        return 1;
+    }
+    
     for (i32 i = 0; i < field_str.len(); i++) {
         u8 c = field_str.bytes()[i];
-        if (c >= u8(48) && c <= u8(57)) {  // '0'-'9'
-            field = field * 10 + (i32(c) - 48);
+        if (c < u8(48) || c > u8(57)) {  // not '0'-'9'
+            fmt.eprintln(f"cut: invalid field number: {field_str}");
+            return 1;
         }
+        field = field * 10 + (i32(c) - 48);
     }
     
     if (field < 1) {
