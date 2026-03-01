@@ -1,0 +1,85 @@
+import "os";
+import "file";
+import "fmt";
+import "args";
+
+fn format_mode(i32 mode) -> string {
+    string result = "";
+    i32 perms = mode & 0o777;
+    
+    // Owner
+    if ((perms & 0o400) != 0) { result += "r"; } else { result += "-"; }
+    if ((perms & 0o200) != 0) { result += "w"; } else { result += "-"; }
+    if ((perms & 0o100) != 0) { result += "x"; } else { result += "-"; }
+    
+    // Group
+    if ((perms & 0o040) != 0) { result += "r"; } else { result += "-"; }
+    if ((perms & 0o020) != 0) { result += "w"; } else { result += "-"; }
+    if ((perms & 0o010) != 0) { result += "x"; } else { result += "-"; }
+    
+    // Other
+    if ((perms & 0o004) != 0) { result += "r"; } else { result += "-"; }
+    if ((perms & 0o002) != 0) { result += "w"; } else { result += "-"; }
+    if ((perms & 0o001) != 0) { result += "x"; } else { result += "-"; }
+    
+    return result;
+}
+
+fn main() -> i32 {
+    ArgParser p = args.parser("basl-ls", "list directory contents");
+    p.flag("long", "bool", "false", "use a long listing format");
+    p.flag("all", "bool", "false", "do not ignore entries starting with .");
+    map<string, string> result, err e = p.parse();
+    
+    if (e != ok) {
+        fmt.eprintln(f"basl-ls: {e.message()}");
+        return 1;
+    }
+    
+    array<string> args = os.args();
+    string dir = ".";
+    if (args.len() > 0) {
+        dir = args[0];
+    }
+    
+    bool long_format = result["long"] == "true";
+    bool show_all = result["all"] == "true";
+    
+    array<string> entries, err e2 = file.list_dir(dir);
+    if (e2 != ok) {
+        fmt.eprintln(f"basl-ls: {dir}: {e2.message()}");
+        return 1;
+    }
+    
+    for (i32 i = 0; i < entries.len(); i++) {
+        string name = entries[i];
+        
+        // Skip hidden files unless -a
+        if (!show_all && name.len() > 0) {
+            string first_char, err ec = name.char_at(0);
+            if (ec == ok && first_char == ".") {
+                continue;
+            }
+        }
+        
+        if (long_format) {
+            string path = dir + "/" + name;
+            FileStat info, err e3 = file.stat(path);
+            if (e3 != ok) {
+                fmt.eprintln(f"basl-ls: {path}: {e3.message()}");
+                continue;
+            }
+            
+            string type_char = "-";
+            if (info.is_dir) {
+                type_char = "d";
+            }
+            string perms = format_mode(info.mode);
+            fmt.println(f"{type_char}{perms} {info.size} {info.mod_time} {name}");
+        } else {
+            fmt.println(name);
+        }
+    }
+    
+    return 0;
+}

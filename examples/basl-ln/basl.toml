@@ -1,0 +1,4 @@
+[package]
+name = "basl-ln"
+version = "0.1.0"
+entry = "main.basl"
