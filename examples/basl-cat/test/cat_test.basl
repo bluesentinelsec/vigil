@@ -89,6 +89,12 @@ fn test_cat_empty_file() -> void {
 }
 
 fn test_cat_stdin_dash() -> void {
+    string platform = os.platform();
+    if (platform == "windows") {
+        // Skip: shell redirection requires sh which is not available on Windows
+        return;
+    }
+    
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -107,6 +113,12 @@ fn test_cat_stdin_dash() -> void {
 }
 
 fn test_cat_no_args_stdin() -> void {
+    string platform = os.platform();
+    if (platform == "windows") {
+        // Skip: shell redirection requires sh which is not available on Windows
+        return;
+    }
+    
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
