@@ -609,7 +609,21 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 	case value.TypeErr:
 		if e.Field == "message" {
 			return value.NewNativeFunc("err.message", func(args []value.Value) (value.Value, error) {
+				if len(args) != 0 {
+					return value.Void, fmt.Errorf("err.message: expected 0 arguments, got %d", len(args))
+				}
 				return value.NewString(obj.AsErr().Message), nil
+			}), nil
+		}
+		if e.Field == "is_eof" {
+			return value.NewNativeFunc("err.is_eof", func(args []value.Value) (value.Value, error) {
+				if len(args) != 0 {
+					return value.Void, fmt.Errorf("err.is_eof: expected 0 arguments, got %d", len(args))
+				}
+				if obj.AsErr().IsEOF {
+					return value.True, nil
+				}
+				return value.False, nil
 			}), nil
 		}
 	case value.TypeObject:

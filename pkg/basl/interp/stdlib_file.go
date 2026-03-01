@@ -238,7 +238,7 @@ func (interp *Interpreter) fileMethod(obj value.Value, method string, line int) 
 						if len(line) > 0 {
 							break
 						}
-						return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF")}}
+						return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
 					}
 					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 				}

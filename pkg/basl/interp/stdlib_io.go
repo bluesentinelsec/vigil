@@ -28,7 +28,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 					if len(line) > 0 {
 						break
 					}
-					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF")}}
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
 				}
 				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 			}
@@ -56,7 +56,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 					if len(line) > 0 {
 						break
 					}
-					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF")}}
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
 				}
 				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 			}
@@ -94,6 +94,9 @@ func (interp *Interpreter) makeIoModule() *Env {
 		}
 		s, err := readLine(args[0].AsString())
 		if err != nil {
+			if err == io.EOF {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewEOF()}}
+			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewErr(err.Error())}}
 		}
 		v, err := strconv.ParseFloat(s, 64)
@@ -109,6 +112,9 @@ func (interp *Interpreter) makeIoModule() *Env {
 		}
 		s, err := readLine(args[0].AsString())
 		if err != nil {
+			if err == io.EOF {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewEOF()}}
+			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewErr(err.Error())}}
 		}
 		v, err := strconv.Atoi(s)
@@ -124,6 +130,9 @@ func (interp *Interpreter) makeIoModule() *Env {
 		}
 		s, err := readLine(args[0].AsString())
 		if err != nil {
+			if err == io.EOF {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
+			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(s), value.Ok}}
