@@ -89,3 +89,56 @@ fn test_wc_empty_file() -> void {
     
     file.remove(test_file);
 }
+
+fn test_wc_missing_file() -> void {
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
+    string missing = get_temp_path("basl_wc_nonexistent.txt");
+    
+    string stdout, string stderr, err e = os.exec(basl_bin, main_script, missing);
+    t.assert(e != ok, "basl-wc should fail on missing file");
+    t.assert(stderr.contains("basl-wc:"), "should show error on stderr");
+}
+
+fn test_wc_stdin_dash() -> void {
+    string platform = os.platform();
+    if (platform == "windows") {
+        return;
+    }
+    
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
+    string test_file = get_temp_path("basl_wc_stdin_test.txt");
+    err e = file.write_all(test_file, "stdin test\n");
+    t.assert(e == ok, "should write test file");
+    
+    string sh_cmd = basl_bin + " " + main_script + " - < " + test_file;
+    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    t.assert(e2 == ok, "basl-wc with - should succeed");
+    t.assert(stdout.contains("1 2 11"), "should count stdin correctly");
+    
+    file.remove(test_file);
+}
+
+fn test_wc_no_args_stdin() -> void {
+    string platform = os.platform();
+    if (platform == "windows") {
+        return;
+    }
+    
+    string basl_bin, string main_script = find_basl_and_main();
+    t.assert(basl_bin != "", "should find basl binary");
+    
+    string test_file = get_temp_path("basl_wc_noargs_test.txt");
+    err e = file.write_all(test_file, "no args\n");
+    t.assert(e == ok, "should write test file");
+    
+    string sh_cmd = basl_bin + " " + main_script + " < " + test_file;
+    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    t.assert(e2 == ok, "basl-wc with no args should succeed");
+    t.assert(stdout.contains("1 2 8"), "should count stdin correctly");
+    
+    file.remove(test_file);
+}
