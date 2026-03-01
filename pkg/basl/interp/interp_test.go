@@ -1,6 +1,7 @@
 package interp
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2138,4 +2139,67 @@ func TestExec_TypeConversionErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExec_ModuleClassTypeQualification(t *testing.T) {
+	// Test that module-qualified class types work correctly
+	// This is a regression test for issue #1
+
+	// Create a temporary module file
+	tmpDir := t.TempDir()
+	modPath := filepath.Join(tmpDir, "lib")
+	if err := os.MkdirAll(modPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write module with a class
+	modFile := filepath.Join(modPath, "testmod.basl")
+	modSrc := `pub class TestClass {
+    pub string value;
+    
+    fn init() -> void {
+        self.value = "initialized";
+    }
+}`
+	if err := os.WriteFile(modFile, []byte(modSrc), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test program that uses module-qualified type annotation
+	mainSrc := `import "testmod";
+import "fmt";
+
+fn main() -> i32 {
+    testmod.TestClass obj = testmod.TestClass();
+    fmt.print(obj.value);
+    return 0;
+}`
+
+	// Parse and execute
+	lex := lexer.New(mainSrc)
+	tokens, err := lex.Tokenize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := parser.New(tokens)
+	prog, err := p.Parse()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	interp := New()
+	interp.AddSearchPath(modPath) // Add the lib directory to search path
+	var lines []string
+	interp.PrintFn = func(s string) { lines = append(lines, strings.TrimRight(s, "\n")) }
+
+	code, err := interp.Exec(prog)
+	if err != nil {
+		t.Fatalf("execution error: %v", err)
+	}
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+
+	want := []string{"initialized"}
+	checkOutput(t, lines, want)
 }

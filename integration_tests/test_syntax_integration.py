@@ -397,8 +397,8 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             import "models";
 
             fn main() -> i32 {
-                Point p = models.Point(2, 3);
-                Segment s = models.Segment(models.Point(2, 3), models.Point(9, 6));
+                models.Point p = models.Point(2, 3);
+                models.Segment s = models.Segment(models.Point(2, 3), models.Point(9, 6));
                 fmt.print(string(p.x) + ":" + string(s.a.y) + ":" + string(s.dx()));
                 return 0;
             }
