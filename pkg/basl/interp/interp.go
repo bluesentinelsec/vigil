@@ -3,6 +3,7 @@ package interp
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"sort"
 	"sync"
 
@@ -136,6 +137,7 @@ type Interpreter struct {
 	interfaces     map[string]*value.InterfaceVal // registered interfaces
 	loader         *ModuleLoader
 	PrintFn        func(string)
+	ErrFn          func(string)            // stderr output; nil = default os.Stderr
 	LogFn          func(level, msg string) // host-side log handler; nil = default stderr
 	scriptArgs     []string
 	ffiPolicy      *ffi.Policy
@@ -151,6 +153,7 @@ func New() *Interpreter {
 		builtinModules: make(map[string]*Env),
 		interfaces:     make(map[string]*value.InterfaceVal),
 		PrintFn:        func(s string) { fmt.Print(s) },
+		ErrFn:          func(s string) { fmt.Fprint(os.Stderr, s) },
 		ffiPolicy:      &ffi.Policy{Enabled: true},
 	}
 	interp.loader = newModuleLoader(interp)

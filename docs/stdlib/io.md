@@ -60,3 +60,21 @@ Prints `prompt`, reads a line. Equivalent to `io.input`.
 ```c
 string val, err e = io.read_string("Enter value: ");
 ```
+
+### io.read_all() -> (string, err)
+
+Reads all of stdin into a string. Useful for reading piped input or implementing Unix-style filters.
+
+- Returns `(content, ok)` on success.
+- Returns `("", err(message))` on failure.
+
+```c
+string content, err e = io.read_all();
+if (e != ok) {
+    fmt.println("failed to read stdin");
+    return 1;
+}
+fmt.print(content);
+```
+
+**Note**: This reads the entire stdin into memory. For large inputs where exact byte-for-byte output is not required, consider line-by-line processing. Be aware that `io.read_line()` strips newlines, so it is not suitable for stream-copy tools like `cat`.
