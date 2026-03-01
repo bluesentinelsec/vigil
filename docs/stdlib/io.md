@@ -61,6 +61,45 @@ Prints `prompt`, reads a line. Equivalent to `io.input`.
 string val, err e = io.read_string("Enter value: ");
 ```
 
+### io.read(i32 count) -> (string, err)
+
+Reads up to `count` bytes from stdin. Returns the actual data read, which may be less than `count` for any reason (EOF, pipe buffering, terminal input, etc.).
+
+- Returns `(data, ok)` on success, where `0 <= data.len() <= count`
+- Returns `("", ok)` at EOF with no data remaining
+- Returns `("", err(message))` on I/O errors (not EOF)
+
+Matches `File.read()` semantics. Check for empty result to detect EOF:
+
+```c
+// Read and process stdin incrementally
+while (true) {
+    string chunk, err e = io.read(4096);
+    if (e != ok) {
+        fmt.eprintln(f"Error: {e}");
+        break;
+    }
+    if (chunk.len() == 0) {
+        break;  // EOF
+    }
+    // Process chunk (may be less than 4096 bytes)
+    fmt.print(chunk);
+}
+```
+
+**Example: Streaming tee**
+```c
+File f, err e = file.open("output.txt", "w");
+while (true) {
+    string chunk, err e2 = io.read(4096);
+    if (e2 != ok) { break; }
+    if (chunk.len() == 0) { break; }
+    fmt.print(chunk);      // stdout
+    f.write(chunk);        // file
+}
+f.close();
+```
+
 ### io.read_all() -> (string, err)
 
 Reads all of stdin into a string. Useful for reading piped input or implementing Unix-style filters.
@@ -77,4 +116,4 @@ if (e != ok) {
 fmt.print(content);
 ```
 
-**Note**: This reads the entire stdin into memory. For large inputs where exact byte-for-byte output is not required, consider line-by-line processing. Be aware that `io.read_line()` strips newlines, so it is not suitable for stream-copy tools like `cat`.
+**Note**: This reads the entire stdin into memory. For large inputs, use `io.read(count)` to process data incrementally. `io.read_line()` strips newlines, so it is not suitable for stream-copy tools like `cat`.
