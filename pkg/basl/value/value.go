@@ -119,6 +119,7 @@ type ObjectVal struct {
 // ClassVal is a class descriptor — calling it constructs an instance.
 type ClassVal struct {
 	Name       string
+	ModuleName string   // module this class belongs to (empty for top-level)
 	Implements []string // interface names
 	Fields     []ClassFieldDef
 	Methods    map[string]*FuncVal

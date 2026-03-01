@@ -1,0 +1,10 @@
+import "mymodule";
+import "fmt";
+
+fn main() -> i32 {
+    // This should now work with the fix
+    mymodule.MyClass obj = mymodule.MyClass();
+    
+    fmt.println(obj.value);
+    return 0;
+}

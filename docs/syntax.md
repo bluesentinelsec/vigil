@@ -460,6 +460,22 @@ Point p = Point(3, 4);
 f64 d = p.distance();
 ```
 
+### Module Classes
+
+Classes from modules must use module-qualified type names:
+
+```c
+import "models";
+
+// Correct: module-qualified type
+models.Point p = models.Point(3, 4);
+
+// Error: unqualified type doesn't match module class
+Point p = models.Point(3, 4);  // type mismatch
+```
+
+This ensures type safety and prevents ambiguity when multiple modules define classes with the same name.
+
 ### Fallible Construction
 
 If `init` returns `err`, construction uses tuple binding:

@@ -1108,8 +1108,14 @@ func (interp *Interpreter) evalIndex(e *ast.IndexExpr, env *Env) (value.Value, e
 
 // constructObject creates a new class instance and calls init if present.
 func (interp *Interpreter) constructObject(cls *value.ClassVal, args []value.Value) (value.Value, error) {
+	// Use fully-qualified name if class is from a module
+	className := cls.Name
+	if cls.ModuleName != "" {
+		className = cls.ModuleName + "." + cls.Name
+	}
+
 	obj := &value.ObjectVal{
-		ClassName:  cls.Name,
+		ClassName:  className,
 		Implements: cls.Implements,
 		Fields:     make(map[string]value.Value),
 		Methods:    cls.Methods,
