@@ -113,12 +113,14 @@ func (l *Lexer) readString() (Token, error) {
 				buf = append(buf, '\n')
 			case 't':
 				buf = append(buf, '\t')
+			case 'r':
+				buf = append(buf, '\r')
 			case '\\':
 				buf = append(buf, '\\')
 			case '"':
 				buf = append(buf, '"')
 			default:
-				return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c — valid escapes are \\n, \\t, \\\\, \\\"", l.line, l.col, esc)
+				return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c — valid escapes are \\n, \\t, \\r, \\\\, \\\"", l.line, l.col, esc)
 			}
 		} else {
 			buf = append(buf, ch)
@@ -237,12 +239,14 @@ func (l *Lexer) readFString() (Token, error) {
 				buf = append(buf, '\n')
 			case 't':
 				buf = append(buf, '\t')
+			case 'r':
+				buf = append(buf, '\r')
 			case '\\':
 				buf = append(buf, '\\')
 			case '"':
 				buf = append(buf, '"')
 			default:
-				return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c in f-string — valid escapes are \\n, \\t, \\\\, \\\"", l.line, l.col, esc)
+				return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c in f-string — valid escapes are \\n, \\t, \\r, \\\\, \\\"", l.line, l.col, esc)
 			}
 			l.advance()
 			continue
