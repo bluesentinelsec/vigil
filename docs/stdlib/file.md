@@ -73,6 +73,18 @@ Renames (moves) a file.
 err e = file.rename("old.txt", "new.txt");
 ```
 
+### file.copy(string src, string dst) -> err
+
+Copies a file from `src` to `dst`. Uses efficient streaming copy.
+
+- Returns `ok` on success.
+- Returns `err(message)` on failure.
+- Overwrites destination if it exists.
+
+```c
+err e = file.copy("source.txt", "dest.txt");
+```
+
 ### file.mkdir(string path) -> err
 
 Creates a directory and all necessary parents (like `mkdir -p`). Directory permissions: `0755`.
