@@ -60,9 +60,9 @@ basl-wc/
 ## Testing
 
 ```bash
-basl test                  # Run all tests (10 tests)
-basl test test/lib/        # Run unit tests only (6 tests)
-basl test test/wc_test.basl  # Run integration tests only (4 tests)
+basl test                  # Run all tests (15 tests)
+basl test test/lib/        # Run unit tests only (8 tests)
+basl test test/wc_test.basl  # Run integration tests only (7 tests)
 ```
 
 Tests validate:
@@ -71,6 +71,9 @@ Tests validate:
 - Multiple files with totals
 - Flag handling (`-l`)
 - Empty files
+- Missing file error handling
+- Stdin via `-` argument
+- Stdin via no arguments
 - Error propagation
 - Path-independent execution
 
@@ -92,7 +95,9 @@ This separation enables:
 ### Counting Logic
 
 - **Lines**: Count of newline characters (`\n`)
-- **Words**: Sequences of non-whitespace characters (space, tab, newline)
+- **Words**: Sequences of non-whitespace characters (Unix `wc` semantics)
+  - Whitespace: space, tab, newline, carriage return
+  - Everything else (including punctuation) is part of a word
 - **Bytes**: `string.len()` which returns byte length (UTF-8)
 
 ### Error Handling

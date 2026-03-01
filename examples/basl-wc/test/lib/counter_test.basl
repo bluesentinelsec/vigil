@@ -48,3 +48,19 @@ fn test_count_only_whitespace() -> void {
     t.assert(words == 0, "whitespace only = 0 words");
     t.assert(bytes == 5, "should have 5 bytes");
 }
+
+fn test_count_punctuation() -> void {
+    i32 lines, i32 words, i32 bytes, err e = counter.count_content("!!!\n");
+    t.assert(e == ok, "should succeed");
+    t.assert(lines == 1, "should have 1 line");
+    t.assert(words == 1, "punctuation counts as word");
+    t.assert(bytes == 4, "should have 4 bytes");
+}
+
+fn test_count_punctuation_in_words() -> void {
+    i32 lines, i32 words, i32 bytes, err e = counter.count_content("foo,bar\n");
+    t.assert(e == ok, "should succeed");
+    t.assert(lines == 1, "should have 1 line");
+    t.assert(words == 1, "comma doesn't split words");
+    t.assert(bytes == 8, "should have 8 bytes");
+}
