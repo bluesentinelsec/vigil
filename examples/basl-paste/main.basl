@@ -34,6 +34,10 @@ fn main() -> i32 {
                 line_parts.push(line);
                 any_data = true;
             } else {
+                // LANGUAGE GAP: No documented way to distinguish EOF from other errors
+                // without relying on string(err) formatting. This checks the literal
+                // string representation, which works but is fragile.
+                // Ideally: err.is_eof() or pattern matching on err types.
                 string err_str = string(e);
                 if (err_str == "err(\"EOF\")") {
                     line_parts.push("");

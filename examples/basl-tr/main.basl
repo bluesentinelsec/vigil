@@ -21,7 +21,8 @@ fn main() -> i32 {
     while (true) {
         string chunk, err e = io.read(4096);
         if (e != ok) {
-            break;
+            fmt.eprintln(f"tr: read error: {e}");
+            return 1;
         }
         if (chunk.len() == 0) {
             break;

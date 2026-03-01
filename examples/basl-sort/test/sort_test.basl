@@ -2,12 +2,17 @@ import "t";
 import "os";
 import "file";
 
+// Note: Tests use sh for stdin redirection, which requires Unix-like shell.
+// Windows users should run tests in WSL, Git Bash, or similar environment.
+
 fn test_sort_basic() -> void {
-    os.exec("sh", "-c", "printf 'zebra\\napple\\nbanana\\n' > /tmp/basl_sort_in.txt");
+    file.write_all("test_sort_in.txt", "zebra\napple\nbanana\n");
     
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-sort/main.basl < /tmp/basl_sort_in.txt");
+    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-sort/main.basl < test_sort_in.txt");
     t.assert(string(e) == "ok", "sort should exit 0");
     t.assert(out == "apple\nbanana\nzebra\n", "should sort lines alphabetically");
+    
+    file.remove("test_sort_in.txt");
 }
 
 fn main() -> i32 {

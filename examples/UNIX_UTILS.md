@@ -60,13 +60,20 @@ Merges lines from multiple files side-by-side.
 **Found in:** basl-tr (needs to process large streams efficiently)  
 **Resolution:** Using `io.read(4096)` for chunked processing
 
-### 3. Type casting verbosity
+### 3. No documented way to distinguish EOF from other errors ⚠️
+**Impact:** Medium  
+**Issue:** Must rely on `string(err) == "err(\"EOF\")"` to detect EOF vs I/O errors  
+**Found in:** basl-paste (needs to distinguish EOF from read failures)  
+**Workaround:** Check string representation of error (fragile, depends on formatting)  
+**Ideal solution:** `err.is_eof()` method or pattern matching on err types
+
+### 4. Type casting verbosity
 **Impact:** Low  
 **Example:** `c >= u8(48) && c <= u8(57)` requires explicit casts  
 **Found in:** basl-cut (parsing field numbers)  
 **Note:** This is by design for type safety
 
-### 4. No string interpolation in map access
+### 5. No string interpolation in map access
 **Impact:** Low  
 **Example:** Cannot use `f"{opts['f']}"` directly in f-strings  
 **Workaround:** Assign to variable first: `string val = opts["f"]; fmt.println(f"{val}");`  
@@ -130,12 +137,14 @@ All utilities have automated test suites using the BASL test framework (`t.asser
 ./basl test examples/basl-paste/test/
 ```
 
+**Platform note:** Most tests require a Unix-like shell (`sh`) for stdin redirection and pipes. Windows users should run tests in WSL, Git Bash, or similar environment. The `paste` test is fully cross-platform (uses file arguments only).
+
 **Test coverage:**
 - Exact output validation (full string equality, not substring checks)
 - Error case handling (invalid inputs, malformed arguments)
 - Edge cases (empty input, single file, uneven files)
 - Exit code verification
-- I/O error handling (paste distinguishes EOF from read errors)
+- I/O error handling (tr and paste distinguish EOF from read errors)
 
 **Example test assertions:**
 ```c
