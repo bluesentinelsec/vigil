@@ -153,21 +153,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 		buf := make([]byte, count)
 		n, err := os.Stdin.Read(buf)
 
-		if err == io.EOF {
-			if n > 0 {
-				// Return partial data with ok
-				return value.Void, &MultiReturnVal{Values: []value.Value{
-					value.NewString(string(buf[:n])),
-					value.Ok,
-				}}
-			}
-			// EOF with no data
-			return value.Void, &MultiReturnVal{Values: []value.Value{
-				value.NewString(""),
-				value.NewErr("EOF"),
-			}}
-		}
-		if err != nil {
+		if err != nil && err != io.EOF {
 			return value.Void, &MultiReturnVal{Values: []value.Value{
 				value.NewString(""),
 				value.NewErr(err.Error()),

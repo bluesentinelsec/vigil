@@ -79,10 +79,30 @@ func TestIORead(t *testing.T) {
 						return 1;
 					}
 					string data2, err e2 = io.read(10);
-					if (e2 == ok) {
+					if (e2 != ok || data2 != "") {
 						return 1;
 					}
 					return 0;
+				}
+			`,
+			expected: 0,
+		},
+		{
+			name:  "short read before EOF",
+			input: "test",
+			code: `
+				import "io";
+				fn main() -> i32 {
+					// Request 100 bytes but only 4 available
+					string data, err e = io.read(100);
+					if (e != ok) {
+						return 1;
+					}
+					// Should get short read with ok
+					if (data.len() > 0 && data.len() <= 100) {
+						return 0;
+					}
+					return 1;
 				}
 			`,
 			expected: 0,
@@ -117,6 +137,54 @@ func TestIORead(t *testing.T) {
 				t.Errorf("expected exit code %d, got %d", tt.expected, exitCode)
 			}
 		})
+	}
+}
+
+func TestIOReadShortReads(t *testing.T) {
+	// Test that short reads can happen before EOF
+	oldStdin := os.Stdin
+	defer func() { os.Stdin = oldStdin }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+
+	// Write data in small increments with delays
+	go func() {
+		w.Write([]byte("abc"))
+		w.Write([]byte("def"))
+		w.Close()
+	}()
+
+	code := `
+		import "io";
+		fn main() -> i32 {
+			i32 total = 0;
+			while (true) {
+				string chunk, err e = io.read(100);
+				if (e != ok) {
+					return 1;
+				}
+				if (chunk.len() == 0) {
+					break;
+				}
+				total += chunk.len();
+			}
+			if (total == 6) {
+				return 0;
+			}
+			return 1;
+		}
+	`
+
+	exitCode, _, err := evalBASL(code)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 }
 

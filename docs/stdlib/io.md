@@ -63,23 +63,26 @@ string val, err e = io.read_string("Enter value: ");
 
 ### io.read(i32 count) -> (string, err)
 
-Reads up to `count` bytes from stdin. Returns the data read (may be less than `count` at EOF).
+Reads up to `count` bytes from stdin. Returns the actual data read, which may be less than `count` for any reason (EOF, pipe buffering, terminal input, etc.).
 
-- Returns `(data, ok)` on success, where `data.len() <= count`
-- Returns `("", err("EOF"))` at end of input with no data
-- Returns `("", err(message))` on other errors
-- If EOF is reached after reading some data, returns `(data, ok)` with partial data
+- Returns `(data, ok)` on success, where `0 <= data.len() <= count`
+- Returns `("", ok)` at EOF with no data remaining
+- Returns `("", err(message))` on I/O errors (not EOF)
 
-Useful for processing large inputs incrementally without buffering everything in memory.
+Matches `File.read()` semantics. Check for empty result to detect EOF:
 
 ```c
-// Read and process stdin in 4KB chunks
+// Read and process stdin incrementally
 while (true) {
     string chunk, err e = io.read(4096);
     if (e != ok) {
-        break;  // EOF or error
+        fmt.eprintln(f"Error: {e}");
+        break;
     }
-    // Process chunk
+    if (chunk.len() == 0) {
+        break;  // EOF
+    }
+    // Process chunk (may be less than 4096 bytes)
     fmt.print(chunk);
 }
 ```
@@ -90,6 +93,7 @@ File f, err e = file.open("output.txt", "w");
 while (true) {
     string chunk, err e2 = io.read(4096);
     if (e2 != ok) { break; }
+    if (chunk.len() == 0) { break; }
     fmt.print(chunk);      // stdout
     f.write(chunk);        // file
 }
