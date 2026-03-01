@@ -245,6 +245,14 @@ func (interp *Interpreter) evalBinary(e *ast.BinaryExpr, env *Env) (value.Value,
 			return value.NewBool(left.AsString() == right.AsString()), nil
 		case "!=":
 			return value.NewBool(left.AsString() != right.AsString()), nil
+		case "<":
+			return value.NewBool(left.AsString() < right.AsString()), nil
+		case "<=":
+			return value.NewBool(left.AsString() <= right.AsString()), nil
+		case ">":
+			return value.NewBool(left.AsString() > right.AsString()), nil
+		case ">=":
+			return value.NewBool(left.AsString() >= right.AsString()), nil
 		}
 	}
 
