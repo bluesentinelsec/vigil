@@ -97,6 +97,31 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		return value.Ok, nil
 	}))
+	env.Define("copy", value.NewNativeFunc("file.copy", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.copy: expected (string src, string dst)")
+		}
+		src := args[0].AsString()
+		dst := args[1].AsString()
+
+		srcFile, err := os.Open(src)
+		if err != nil {
+			return value.NewErr(fileErr(err, src)), nil
+		}
+		defer srcFile.Close()
+
+		dstFile, err := os.Create(dst)
+		if err != nil {
+			return value.NewErr(fileErr(err, dst)), nil
+		}
+		defer dstFile.Close()
+
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			return value.NewErr(fileErr(err, dst)), nil
+		}
+
+		return value.Ok, nil
+	}))
 	env.Define("mkdir", value.NewNativeFunc("file.mkdir", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("file.mkdir: expected string path")
