@@ -26,6 +26,7 @@ fn main() -> i32 {
     while (true) {
         array<string> line_parts = [];
         bool any_data = false;
+        bool had_error = false;
         
         for (i32 i = 0; i < files.len(); i++) {
             string line, err e = files[i].read_line();
@@ -33,8 +34,22 @@ fn main() -> i32 {
                 line_parts.push(line);
                 any_data = true;
             } else {
-                line_parts.push("");
+                string err_str = string(e);
+                if (err_str == "err(\"EOF\")") {
+                    line_parts.push("");
+                } else {
+                    fmt.eprintln(f"paste: read error: {e}");
+                    had_error = true;
+                    break;
+                }
             }
+        }
+        
+        if (had_error) {
+            for f in files {
+                f.close();
+            }
+            return 1;
         }
         
         if (!any_data) {

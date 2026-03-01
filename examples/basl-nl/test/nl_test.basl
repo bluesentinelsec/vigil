@@ -1,15 +1,10 @@
 import "t";
 import "os";
-import "file";
 
 fn test_nl_basic() -> void {
-    os.exec("sh", "-c", "printf 'hello\\nworld' > /tmp/basl_nl_in.txt");
-    
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-nl/main.basl < /tmp/basl_nl_in.txt > /tmp/basl_nl_out.txt");
+    string out, string errs, err e = os.exec("sh", "-c", "printf 'hello\\nworld\\n' | ./basl examples/basl-nl/main.basl");
     t.assert(string(e) == "ok", "nl should exit 0");
-    
-    string output, err e2 = file.read_all("/tmp/basl_nl_out.txt");
-    t.assert(output.contains("1\t"), "should number first line");
+    t.assert(out == "     1\thello\n     2\tworld\n", "should number lines with formatting");
 }
 
 fn main() -> i32 {

@@ -1,21 +1,16 @@
 import "t";
 import "os";
-import "file";
 
 fn test_cut_basic() -> void {
-    os.exec("sh", "-c", "printf 'a:b:c\\nd:e:f' > /tmp/basl_cut_in.txt");
+    os.exec("sh", "-c", "printf 'a:b:c\\nd:e:f\\n' > /tmp/basl_cut_in.txt");
     
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f 2 --d : < /tmp/basl_cut_in.txt > /tmp/basl_cut_out.txt");
+    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f 2 --d : < /tmp/basl_cut_in.txt");
     t.assert(string(e) == "ok", "cut should exit 0");
-    
-    string output, err e2 = file.read_all("/tmp/basl_cut_out.txt");
-    t.assert(output.contains("b"), "should extract field 2");
+    t.assert(out == "b\ne\n", "should extract field 2 from both lines");
 }
 
 fn test_cut_invalid_field() -> void {
-    os.exec("sh", "-c", "echo 'a:b:c' > /tmp/basl_cut_invalid.txt");
-    
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f x2 --d : < /tmp/basl_cut_invalid.txt 2>&1");
+    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f x2 --d : < /dev/null 2>&1");
     t.assert(string(e) != "ok", "cut should reject invalid field spec");
 }
 

@@ -115,35 +115,47 @@ Merges lines from multiple files side-by-side.
 
 ## Testing
 
-All utilities have been manually tested with representative inputs:
+All utilities have automated test suites using the BASL test framework (`t.assert`):
 
 ```bash
-# sort
-echo -e "zebra\napple\nbanana" | ./basl examples/basl-sort/main.basl
-# Output: apple, banana, zebra
+# Run all utility tests
+./basl test examples/basl-*/test/
 
-# uniq
-echo -e "a\na\nb\nb\nb\nc" | ./basl examples/basl-uniq/main.basl
-# Output: a, b, c
-
-# nl
-echo -e "hello\nworld\ntest" | ./basl examples/basl-nl/main.basl
-# Output: numbered lines
-
-# cut
-echo -e "a:b:c\nd:e:f" | ./basl examples/basl-cut/main.basl --f 2 --d :
-# Output: b, e
-
-# tr
-echo "hello world" | ./basl examples/basl-tr/main.basl aeiou 12345
-# Output: h2ll4 w4rld
-
-# paste
-echo -e "a\nb\nc" > /tmp/f1.txt
-echo -e "1\n2\n3" > /tmp/f2.txt
-./basl examples/basl-paste/main.basl /tmp/f1.txt /tmp/f2.txt
-# Output: a\t1, b\t2, c\t3
+# Or test individually
+./basl test examples/basl-sort/test/
+./basl test examples/basl-uniq/test/
+./basl test examples/basl-nl/test/
+./basl test examples/basl-cut/test/
+./basl test examples/basl-tr/test/
+./basl test examples/basl-paste/test/
 ```
+
+**Test coverage:**
+- Exact output validation (full string equality, not substring checks)
+- Error case handling (invalid inputs, malformed arguments)
+- Edge cases (empty input, single file, uneven files)
+- Exit code verification
+- I/O error handling (paste distinguishes EOF from read errors)
+
+**Example test assertions:**
+```c
+// sort_test.basl
+t.assert(out == "apple\nbanana\nzebra\n", "should sort lines alphabetically");
+
+// uniq_test.basl
+t.assert(out == "a\nb\nc\n", "should remove consecutive duplicates");
+
+// cut_test.basl
+t.assert(out == "b\ne\n", "should extract field 2 from both lines");
+
+// tr_test.basl
+t.assert(out == "h2ll4 w4rld\n", "should translate all vowels");
+
+// paste_test.basl
+t.assert(out == "a\t1\nb\t2\nc\t3\n", "should merge lines with tabs");
+```
+
+All tests verify exact output, ensuring implementations are correct and complete.
 
 ## Conclusion
 

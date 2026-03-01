@@ -7,7 +7,7 @@ fn test_paste_two_files() -> void {
     
     string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-paste/main.basl /tmp/basl_paste_f1.txt /tmp/basl_paste_f2.txt");
     t.assert(string(e) == "ok", "paste should exit 0");
-    t.assert(out.contains("a\t1"), "should merge lines");
+    t.assert(out == "a\t1\nb\t2\nc\t3\n", "should merge lines with tabs");
 }
 
 fn test_paste_single_file() -> void {
@@ -15,7 +15,7 @@ fn test_paste_single_file() -> void {
     
     string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-paste/main.basl /tmp/basl_paste_single.txt");
     t.assert(string(e) == "ok", "paste with single file should exit 0");
-    t.assert(out.contains("a"), "should contain input");
+    t.assert(out == "a\nb\nc\n", "single file should pass through unchanged");
 }
 
 fn main() -> i32 {

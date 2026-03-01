@@ -1,21 +1,14 @@
 import "t";
 import "os";
-import "file";
 
 fn test_tr_basic() -> void {
-    os.exec("sh", "-c", "echo 'hello world' > /tmp/basl_tr_in.txt");
-    
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-tr/main.basl aeiou 12345 < /tmp/basl_tr_in.txt > /tmp/basl_tr_out.txt");
+    string out, string errs, err e = os.exec("sh", "-c", "printf 'hello world\\n' | ./basl examples/basl-tr/main.basl aeiou 12345");
     t.assert(string(e) == "ok", "tr should exit 0");
-    
-    string output, err e2 = file.read_all("/tmp/basl_tr_out.txt");
-    t.assert(output.contains("h2ll4"), "should translate vowels");
+    t.assert(out == "h2ll4 w4rld\n", "should translate all vowels");
 }
 
 fn test_tr_length_mismatch() -> void {
-    os.exec("sh", "-c", "echo 'test' > /tmp/basl_tr_mismatch.txt");
-    
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-tr/main.basl abc 12 < /tmp/basl_tr_mismatch.txt 2>&1");
+    string out, string errs, err e = os.exec("sh", "-c", "printf 'test\\n' | ./basl examples/basl-tr/main.basl abc 12 2>&1");
     t.assert(string(e) != "ok", "tr should reject mismatched set lengths");
 }
 
