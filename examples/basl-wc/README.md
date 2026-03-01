@@ -60,8 +60,8 @@ basl-wc/
 ## Testing
 
 ```bash
-basl test                  # Run all tests (15 tests)
-basl test test/lib/        # Run unit tests only (8 tests)
+basl test                  # Run all tests (16 tests)
+basl test test/lib/        # Run unit tests only (9 tests)
 basl test test/wc_test.basl  # Run integration tests only (7 tests)
 ```
 
@@ -96,8 +96,9 @@ This separation enables:
 
 - **Lines**: Count of newline characters (`\n`)
 - **Words**: Sequences of non-whitespace characters (Unix `wc` semantics)
-  - Whitespace: space, tab, newline, carriage return
-  - Everything else (including punctuation) is part of a word
+  - Whitespace: space, tab, newline
+  - Everything else (including punctuation and UTF-8) is part of a word
+  - **Limitation**: Carriage return (`\r`) is not treated as whitespace due to BASL lacking `\r` escape sequence and byte access. This means CRLF files may have slightly different word counts than Unix `wc` if CR appears between words.
 - **Bytes**: `string.len()` which returns byte length (UTF-8)
 
 ### Error Handling

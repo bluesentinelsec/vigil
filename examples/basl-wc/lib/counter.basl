@@ -1,33 +1,5 @@
 // Counter logic for wc utility
 
-fn is_whitespace(string ch) -> bool {
-    if (ch.len() != 1) {
-        return false;
-    }
-    
-    // Whitespace: space, tab, newline, carriage return
-    // Note: BASL doesn't support \r escape, but CR bytes in files are handled
-    // by checking against known whitespace chars. Any single-byte char that's
-    // not space/tab/newline and not printable is likely a control char.
-    if (ch == " " || ch == "\t" || ch == "\n") {
-        return true;
-    }
-    
-    // Check if it's a CR by elimination: single byte, not any printable ASCII
-    // This is a workaround for missing \r escape and byte access
-    // We check if it's NOT any common printable character
-    bool is_letter = (ch == "A" || ch == "B" || ch == "C" || ch == "D" || ch == "E" || ch == "F" || ch == "G" || ch == "H" || ch == "I" || ch == "J" || ch == "K" || ch == "L" || ch == "M" || ch == "N" || ch == "O" || ch == "P" || ch == "Q" || ch == "R" || ch == "S" || ch == "T" || ch == "U" || ch == "V" || ch == "W" || ch == "X" || ch == "Y" || ch == "Z" || ch == "a" || ch == "b" || ch == "c" || ch == "d" || ch == "e" || ch == "f" || ch == "g" || ch == "h" || ch == "i" || ch == "j" || ch == "k" || ch == "l" || ch == "m" || ch == "n" || ch == "o" || ch == "p" || ch == "q" || ch == "r" || ch == "s" || ch == "t" || ch == "u" || ch == "v" || ch == "w" || ch == "x" || ch == "y" || ch == "z");
-    bool is_digit = (ch == "0" || ch == "1" || ch == "2" || ch == "3" || ch == "4" || ch == "5" || ch == "6" || ch == "7" || ch == "8" || ch == "9");
-    bool is_punct = (ch == "!" || ch == "\"" || ch == "#" || ch == "$" || ch == "%" || ch == "&" || ch == "'" || ch == "(" || ch == ")" || ch == "*" || ch == "+" || ch == "," || ch == "-" || ch == "." || ch == "/" || ch == ":" || ch == ";" || ch == "<" || ch == "=" || ch == ">" || ch == "?" || ch == "@" || ch == "[" || ch == "\\" || ch == "]" || ch == "^" || ch == "_" || ch == "`" || ch == "{" || ch == "|" || ch == "}" || ch == "~");
-    
-    // If it's not any printable char, it's likely a control char (like CR)
-    if (!is_letter && !is_digit && !is_punct) {
-        return true;
-    }
-    
-    return false;
-}
-
 pub fn count_content(string content) -> (i32, i32, i32, err) {
     i32 lines = 0;
     i32 words = 0;
@@ -44,8 +16,15 @@ pub fn count_content(string content) -> (i32, i32, i32, err) {
             lines++;
         }
         
-        // Unix wc semantics: any non-whitespace sequence is a word
-        if (is_whitespace(ch)) {
+        // Unix wc semantics: whitespace separates words
+        // Note: BASL lacks \r escape and byte access, so we can only check
+        // for space, tab, and newline explicitly. This means:
+        // - CR (carriage return) will be counted as part of words
+        // - UTF-8 multi-byte characters work correctly
+        // This is a tradeoff: we prioritize UTF-8 correctness over CR handling.
+        bool is_space = (ch == " " || ch == "\t" || ch == "\n");
+        
+        if (is_space) {
             in_word = false;
         } else {
             if (!in_word) {

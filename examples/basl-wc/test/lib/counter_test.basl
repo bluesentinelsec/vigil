@@ -64,3 +64,11 @@ fn test_count_punctuation_in_words() -> void {
     t.assert(words == 1, "comma doesn't split words");
     t.assert(bytes == 8, "should have 8 bytes");
 }
+
+fn test_count_utf8() -> void {
+    i32 lines, i32 words, i32 bytes, err e = counter.count_content("café\n");
+    t.assert(e == ok, "should succeed");
+    t.assert(lines == 1, "should have 1 line");
+    t.assert(words == 1, "UTF-8 should count as word");
+    t.assert(bytes == 6, "UTF-8 é is 2 bytes, total 6");
+}
