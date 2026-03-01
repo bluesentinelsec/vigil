@@ -96,9 +96,8 @@ This separation enables:
 
 - **Lines**: Count of newline characters (`\n`)
 - **Words**: Sequences of non-whitespace characters (Unix `wc` semantics)
-  - Whitespace: space, tab, newline
+  - Whitespace: space, tab, newline, carriage return
   - Everything else (including punctuation and UTF-8) is part of a word
-  - **Limitation**: Carriage return (`\r`) is not treated as whitespace due to BASL lacking `\r` escape sequence and byte access. This means CRLF files may have slightly different word counts than Unix `wc` if CR appears between words.
 - **Bytes**: `string.len()` which returns byte length (UTF-8)
 
 ### Error Handling

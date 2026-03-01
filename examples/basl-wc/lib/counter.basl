@@ -5,24 +5,23 @@ pub fn count_content(string content) -> (i32, i32, i32, err) {
     i32 words = 0;
     i32 bytes = content.len();
     
+    array<u8> byte_array = content.bytes();
+    
     bool in_word = false;
-    for (i32 i = 0; i < content.len(); i++) {
-        string ch, err e = content.substr(i, 1);
+    for (i32 i = 0; i < byte_array.len(); i++) {
+        u8 b, err e = byte_array.get(i);
         if (e != ok) {
             return (0, 0, 0, e);
         }
         
-        if (ch == "\n") {
+        // Count newlines
+        if (b == u8(10)) {  // \n
             lines++;
         }
         
         // Unix wc semantics: whitespace separates words
-        // Note: BASL lacks \r escape and byte access, so we can only check
-        // for space, tab, and newline explicitly. This means:
-        // - CR (carriage return) will be counted as part of words
-        // - UTF-8 multi-byte characters work correctly
-        // This is a tradeoff: we prioritize UTF-8 correctness over CR handling.
-        bool is_space = (ch == " " || ch == "\t" || ch == "\n");
+        // Whitespace: space (32), tab (9), newline (10), carriage return (13)
+        bool is_space = (b == u8(32) || b == u8(9) || b == u8(10) || b == u8(13));
         
         if (is_space) {
             in_word = false;
