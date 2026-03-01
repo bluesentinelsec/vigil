@@ -2,7 +2,6 @@ package interp
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
@@ -53,14 +52,14 @@ func (interp *Interpreter) makeFmtModule() *Env {
 		if len(args) != 1 {
 			return value.Void, fmt.Errorf("fmt.eprint: expected 1 argument, got %d", len(args))
 		}
-		fmt.Fprint(os.Stderr, args[0].String())
+		interp.ErrFn(args[0].String())
 		return value.Ok, nil
 	}))
 	env.Define("eprintln", value.NewNativeFunc("fmt.eprintln", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 {
 			return value.Void, fmt.Errorf("fmt.eprintln: expected 1 argument, got %d", len(args))
 		}
-		fmt.Fprintln(os.Stderr, args[0].String())
+		interp.ErrFn(args[0].String() + "\n")
 		return value.Ok, nil
 	}))
 	return env

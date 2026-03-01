@@ -130,6 +130,9 @@ func (interp *Interpreter) makeIoModule() *Env {
 	}))
 
 	env.Define("read_all", value.NewNativeFunc("io.read_all", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("io.read_all: expected 0 arguments, got %d", len(args))
+		}
 		// Read all of stdin
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {

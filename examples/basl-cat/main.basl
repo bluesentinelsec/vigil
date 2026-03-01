@@ -6,10 +6,15 @@ import "fmt";
 fn main() -> i32 {
     array<string> args = os.args();
     
-    // Check if we have files to process
+    // No args: read from stdin (classic cat behavior)
     if (args.len() == 0) {
-        fmt.eprintln("usage: basl-cat file...");
-        return 1;
+        string content, err e = io.read_all();
+        if (e != ok) {
+            fmt.eprintln(f"basl-cat: stdin: {e.message()}");
+            return 1;
+        }
+        fmt.print(content);
+        return 0;
     }
     
     // Process each file

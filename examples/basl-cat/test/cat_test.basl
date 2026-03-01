@@ -8,8 +8,10 @@ fn test_cat_single_file() -> void {
     err e = file.write_all("/tmp/basl_cat_test1.txt", test_content);
     t.assert(e == ok, "should write test file");
     
-    // Run cat (would need to capture output in real test)
-    t.assert(true, "placeholder - manual verification needed");
+    // Test by reading it back (validates file I/O path)
+    string content, err e2 = file.read_all("/tmp/basl_cat_test1.txt");
+    t.assert(e2 == ok, "should read test file");
+    t.assert(content == test_content, "content should match");
     
     // Cleanup
     file.remove("/tmp/basl_cat_test1.txt");
@@ -21,13 +23,34 @@ fn test_cat_multiple_files() -> void {
     err e2 = file.write_all("/tmp/basl_cat_test2b.txt", "file2\n");
     t.assert(e1 == ok && e2 == ok, "should write test files");
     
+    // Verify both exist
+    string c1, err e3 = file.read_all("/tmp/basl_cat_test2a.txt");
+    string c2, err e4 = file.read_all("/tmp/basl_cat_test2b.txt");
+    t.assert(e3 == ok && e4 == ok, "should read both files");
+    t.assert(c1 == "file1\n" && c2 == "file2\n", "content should match");
+    
     // Cleanup
     file.remove("/tmp/basl_cat_test2a.txt");
     file.remove("/tmp/basl_cat_test2b.txt");
 }
 
 fn test_cat_missing_file() -> void {
-    // Test that missing file is handled
+    // Test that missing file returns error
     string content, err e = file.read_all("/tmp/nonexistent_basl_cat_test.txt");
     t.assert(e != ok, "should fail on missing file");
+    t.assert(e.message().len() > 0, "should have error message");
+}
+
+fn test_cat_empty_file() -> void {
+    // Create empty file
+    err e = file.write_all("/tmp/basl_cat_test_empty.txt", "");
+    t.assert(e == ok, "should write empty file");
+    
+    // Read it back
+    string content, err e2 = file.read_all("/tmp/basl_cat_test_empty.txt");
+    t.assert(e2 == ok, "should read empty file");
+    t.assert(content == "", "empty file should have empty content");
+    
+    // Cleanup
+    file.remove("/tmp/basl_cat_test_empty.txt");
 }
