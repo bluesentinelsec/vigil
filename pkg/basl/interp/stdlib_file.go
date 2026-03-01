@@ -180,12 +180,25 @@ func (interp *Interpreter) makeFileModule() *Env {
 				"is_dir":   value.NewBool(info.IsDir()),
 				"mod_time": value.NewString(info.ModTime().Format("2006-01-02T15:04:05Z07:00")),
 				"name":     value.NewString(info.Name()),
+				"mode":     value.NewI32(int32(info.Mode())),
 			},
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{
 			{T: value.TypeObject, Data: obj},
 			value.Ok,
 		}}
+	}))
+
+	env.Define("chmod", value.NewNativeFunc("file.chmod", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeI32 {
+			return value.Void, fmt.Errorf("file.chmod: expected (string path, i32 mode)")
+		}
+		path := args[0].AsString()
+		mode := os.FileMode(args[1].AsI32())
+		if err := os.Chmod(path, mode); err != nil {
+			return value.NewErr(fileErr(err, path)), nil
+		}
+		return value.Ok, nil
 	}))
 
 	return env
