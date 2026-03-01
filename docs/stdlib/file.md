@@ -73,53 +73,6 @@ Renames (moves) a file.
 err e = file.rename("old.txt", "new.txt");
 ```
 
-### file.copy(string src, string dst) -> err
-
-Copies a file from `src` to `dst`. Uses efficient streaming copy.
-
-- Returns `ok` on success.
-- Returns `err(message)` on failure.
-- Overwrites destination if it exists.
-
-```c
-err e = file.copy("source.txt", "dest.txt");
-```
-
-### file.symlink(string target, string link) -> err
-
-Creates a symbolic link pointing to `target`.
-
-- Returns `ok` on success.
-- Returns `err(message)` on failure.
-- **Windows:** Requires administrator privileges or Developer Mode enabled.
-
-```c
-err e = file.symlink("target.txt", "link.txt");
-```
-
-### file.link(string target, string link) -> err
-
-Creates a hard link to `target`.
-
-- Returns `ok` on success.
-- Returns `err(message)` on failure.
-- Hard links share the same inode as the target.
-
-```c
-err e = file.link("target.txt", "hardlink.txt");
-```
-
-### file.readlink(string path) -> (string, err)
-
-Reads the target of a symbolic link.
-
-- Returns `(target, ok)` on success.
-- Returns `("", err(message))` on failure or if path is not a symlink.
-
-```c
-string target, err e = file.readlink("link.txt");
-```
-
 ### file.mkdir(string path) -> err
 
 Creates a directory and all necessary parents (like `mkdir -p`). Directory permissions: `0755`.
@@ -183,6 +136,7 @@ FileStat fields:
 | `size` | `i32` | File size in bytes |
 | `is_dir` | `bool` | Whether it's a directory |
 | `mod_time` | `string` | Last modified time (ISO 8601: `"2006-01-02T15:04:05Z07:00"`) |
+| `mode` | `i32` | File mode/permissions (Unix permission bits) |
 
 ```c
 FileStat info, err e = file.stat("data.txt");
@@ -190,7 +144,27 @@ fmt.println(info.name);      // "data.txt"
 fmt.println(info.size);      // 1234
 fmt.println(info.is_dir);    // false
 fmt.println(info.mod_time);  // "2024-01-15T10:30:00-05:00"
+fmt.println(info.mode);      // 420 (0644 in octal)
 ```
+
+### file.chmod(string path, i32 mode) -> err
+
+Changes file permissions.
+
+- Returns `ok` on success.
+- Returns `err(message)` on failure.
+- Mode uses Unix permission bits (e.g., `0644` = `420` decimal).
+- **Windows:** Limited support (read-only flag only).
+
+```c
+err e = file.chmod("script.sh", 0o755);  // rwxr-xr-x
+```
+
+Common modes:
+- `0o644` (420) - rw-r--r-- (regular file)
+- `0o755` (493) - rwxr-xr-x (executable)
+- `0o600` (384) - rw------- (private file)
+- `0o777` (511) - rwxrwxrwx (all permissions)
 
 ## File Methods
 
