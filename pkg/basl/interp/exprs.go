@@ -30,6 +30,8 @@ func (interp *Interpreter) evalExpr(expr ast.Expr, env *Env) (value.Value, error
 		return interp.evalUnary(e, env)
 	case *ast.BinaryExpr:
 		return interp.evalBinary(e, env)
+	case *ast.TernaryExpr:
+		return interp.evalTernary(e, env)
 	case *ast.CallExpr:
 		return interp.evalCall(e, env)
 	case *ast.MemberExpr:
@@ -152,6 +154,22 @@ func (interp *Interpreter) evalUnary(e *ast.UnaryExpr, env *Env) (value.Value, e
 		}
 	}
 	return value.Void, fmt.Errorf("line %d: unknown unary op %q", e.Line, e.Op)
+}
+
+func (interp *Interpreter) evalTernary(e *ast.TernaryExpr, env *Env) (value.Value, error) {
+	condition, err := interp.evalExpr(e.Condition, env)
+	if err != nil {
+		return value.Void, err
+	}
+
+	if condition.T != value.TypeBool {
+		return value.Void, fmt.Errorf("line %d: ternary condition must be bool, got %s", e.Line, condition.T)
+	}
+
+	if condition.AsBool() {
+		return interp.evalExpr(e.TrueExpr, env)
+	}
+	return interp.evalExpr(e.FalseExpr, env)
 }
 
 func (interp *Interpreter) evalBinary(e *ast.BinaryExpr, env *Env) (value.Value, error) {

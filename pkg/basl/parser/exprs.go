@@ -11,7 +11,39 @@ import (
 
 // Precedence levels (lowest to highest)
 func (p *Parser) parseExpr() (ast.Expr, error) {
-	return p.parseOr()
+	return p.parseTernary()
+}
+
+func (p *Parser) parseTernary() (ast.Expr, error) {
+	condition, err := p.parseOr()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for ternary operator: condition ? trueExpr : falseExpr
+	if p.peek().Type == lexer.TOKEN_QUESTION {
+		line := p.advance().Line
+		trueExpr, err := p.parseOr()
+		if err != nil {
+			return nil, err
+		}
+		if p.peek().Type != lexer.TOKEN_COLON {
+			return nil, fmt.Errorf("line %d: expected ':' in ternary expression", p.peek().Line)
+		}
+		p.advance() // consume ':'
+		falseExpr, err := p.parseOr()
+		if err != nil {
+			return nil, err
+		}
+		return &ast.TernaryExpr{
+			Condition: condition,
+			TrueExpr:  trueExpr,
+			FalseExpr: falseExpr,
+			Line:      line,
+		}, nil
+	}
+
+	return condition, nil
 }
 
 func (p *Parser) parseOr() (ast.Expr, error) {
