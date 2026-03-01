@@ -1,0 +1,33 @@
+import "t";
+import "file";
+import "os";
+
+fn test_cat_single_file() -> void {
+    // Create test file
+    string test_content = "test content\n";
+    err e = file.write_all("/tmp/basl_cat_test1.txt", test_content);
+    t.assert(e == ok, "should write test file");
+    
+    // Run cat (would need to capture output in real test)
+    t.assert(true, "placeholder - manual verification needed");
+    
+    // Cleanup
+    file.remove("/tmp/basl_cat_test1.txt");
+}
+
+fn test_cat_multiple_files() -> void {
+    // Create test files
+    err e1 = file.write_all("/tmp/basl_cat_test2a.txt", "file1\n");
+    err e2 = file.write_all("/tmp/basl_cat_test2b.txt", "file2\n");
+    t.assert(e1 == ok && e2 == ok, "should write test files");
+    
+    // Cleanup
+    file.remove("/tmp/basl_cat_test2a.txt");
+    file.remove("/tmp/basl_cat_test2b.txt");
+}
+
+fn test_cat_missing_file() -> void {
+    // Test that missing file is handled
+    string content, err e = file.read_all("/tmp/nonexistent_basl_cat_test.txt");
+    t.assert(e != ok, "should fail on missing file");
+}

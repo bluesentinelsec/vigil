@@ -129,5 +129,14 @@ func (interp *Interpreter) makeIoModule() *Env {
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(s), value.Ok}}
 	}))
 
+	env.Define("read_all", value.NewNativeFunc("io.read_all", func(args []value.Value) (value.Value, error) {
+		// Read all of stdin
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(data)), value.Ok}}
+	}))
+
 	return env
 }
