@@ -612,6 +612,14 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 				return value.NewString(obj.AsErr().Message), nil
 			}), nil
 		}
+		if e.Field == "is_eof" {
+			return value.NewNativeFunc("err.is_eof", func(args []value.Value) (value.Value, error) {
+				if obj.AsErr().Message == "EOF" {
+					return value.True, nil
+				}
+				return value.False, nil
+			}), nil
+		}
 	case value.TypeObject:
 		o := obj.AsObject()
 		// Dispatch to json.Value / xml.Value methods
