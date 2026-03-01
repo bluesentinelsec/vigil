@@ -166,6 +166,15 @@ obj.field = v; // field assignment
 ### Comparison
 `==`, `!=`, `<`, `>`, `<=`, `>=`
 
+- Numeric types: standard arithmetic comparison
+- Strings: lexicographic (byte-wise) comparison
+  - `"a" < "b"` is `true`
+  - `"apple" < "banana"` is `true`
+  - Useful for character ranges: `ch >= "a" && ch <= "z"`
+  - UTF-8 safe: compares byte values, not locale-aware
+- Booleans: only `==` and `!=` supported
+- `err` type: only `==` and `!=` supported
+
 ### Logical
 `&&`, `||`, `!`
 
