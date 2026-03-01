@@ -39,6 +39,12 @@ func TestErrIsEOF(t *testing.T) {
 				return 5;
 			}
 			
+			// Test that user-created err("EOF") is NOT treated as EOF
+			err e4 = err("EOF");
+			if (e4.is_eof()) {
+				return 6;
+			}
+			
 			return 0;
 		}
 	`
@@ -78,4 +84,37 @@ func TestErrMessage(t *testing.T) {
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
+}
+
+func TestErrIsEOFArityCheck(t *testing.T) {
+	code := `
+		import "file";
+		
+		fn main() -> i32 {
+			File f, err e = file.open("nonexistent_file_xyz.txt", "r");
+			bool b = e.is_eof(123);
+			return 0;
+		}
+	`
+
+	_, _, err := evalBASL(code)
+	if err == nil {
+		t.Fatal("expected error for is_eof with arguments, got none")
+	}
+	if !contains(err.Error(), "expected 0 arguments") {
+		t.Errorf("expected arity error, got: %v", err)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

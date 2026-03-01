@@ -524,6 +524,8 @@ The `err` type has two states: `ok` for success, or `err("message")` for failure
 | `e.message()`   | `string`| Get error message              |
 | `e.is_eof()`    | `bool`  | Check if error is EOF          |
 
+**Note:** `is_eof()` only returns true for EOF errors created by stdlib I/O functions. User-created `err("EOF")` values are not treated as EOF.
+
 ```c
 string line, err e = io.read_line();
 if (e != ok) {
@@ -533,6 +535,10 @@ if (e != ok) {
         fmt.eprintln(f"error: {e.message()}");
     }
 }
+
+// User-created err("EOF") is NOT treated as EOF
+err e2 = err("EOF");
+bool is_eof = e2.is_eof();  // false
 ```
 
 ## defer

@@ -614,7 +614,10 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 		}
 		if e.Field == "is_eof" {
 			return value.NewNativeFunc("err.is_eof", func(args []value.Value) (value.Value, error) {
-				if obj.AsErr().Message == "EOF" {
+				if len(args) != 0 {
+					return value.Void, fmt.Errorf("err.is_eof: expected 0 arguments, got %d", len(args))
+				}
+				if obj.AsErr().IsEOF {
 					return value.True, nil
 				}
 				return value.False, nil
