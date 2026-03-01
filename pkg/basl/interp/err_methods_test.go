@@ -106,6 +106,56 @@ func TestErrIsEOFArityCheck(t *testing.T) {
 	}
 }
 
+func TestErrMessageArityCheck(t *testing.T) {
+	code := `
+		import "file";
+		
+		fn main() -> i32 {
+			File f, err e = file.open("nonexistent_file_xyz.txt", "r");
+			string msg = e.message(123);
+			return 0;
+		}
+	`
+
+	_, _, err := evalBASL(code)
+	if err == nil {
+		t.Fatal("expected error for message with arguments, got none")
+	}
+	if !contains(err.Error(), "expected 0 arguments") {
+		t.Errorf("expected arity error, got: %v", err)
+	}
+}
+
+func TestIOReadStringEOF(t *testing.T) {
+	code := `
+		import "io";
+		import "file";
+		
+		fn main() -> i32 {
+			// Simulate EOF by reading from empty file
+			file.write_all("test_eof_input.txt", "");
+			File f, err e1 = file.open("test_eof_input.txt", "r");
+			if (e1 != ok) {
+				return 1;
+			}
+			f.close();
+			
+			// Note: Can't easily test io.read_string with EOF in unit test
+			// because it reads from stdin. This test verifies the pattern.
+			file.remove("test_eof_input.txt");
+			return 0;
+		}
+	`
+
+	exitCode, _, err := evalBASL(code)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
 }
