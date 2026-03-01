@@ -1,0 +1,37 @@
+import "io";
+import "os";
+import "fmt";
+
+// Helper script that reads a file and pipes it to basl-cat via stdin
+// Usage: basl stdin_helper.basl <input_file> <basl_binary> <main_script> [args...]
+fn main() -> i32 {
+    array<string> argv = os.args();
+    if (argv.len() < 4) {
+        fmt.eprintln("usage: stdin_helper.basl <input_file> <basl_binary> <main_script> [args...]");
+        return 1;
+    }
+    
+    string input_file = argv[1];
+    string basl_bin = argv[2];
+    string main_script = argv[3];
+    
+    // Read input file
+    string content, err e = io.read_file(input_file);
+    if (e != ok) {
+        fmt.eprintln(f"failed to read input: {e}");
+        return 1;
+    }
+    
+    // Build command args
+    array<string> cmd_args = [main_script];
+    for (i32 i = 4; i < argv.len(); i++) {
+        cmd_args.push(argv[i]);
+    }
+    
+    // Execute basl-cat with stdin
+    i32 exit_code, string stdout, string stderr = os.exec_with_stdin(basl_bin, cmd_args, content);
+    
+    fmt.print(stdout);
+    fmt.eprint(stderr);
+    return exit_code;
+}

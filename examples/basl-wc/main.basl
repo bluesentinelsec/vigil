@@ -1,0 +1,131 @@
+import "os";
+import "fmt";
+import "file";
+import "io";
+
+fn count_content(string content) -> (i32, i32, i32) {
+    i32 lines = 0;
+    i32 words = 0;
+    i32 bytes = content.len();
+    
+    bool in_word = false;
+    for (i32 i = 0; i < content.len(); i++) {
+        string ch = content.substr(i, 1);
+        if (ch == "\n") {
+            lines++;
+        }
+        bool is_space = (ch == " " || ch == "\t" || ch == "\n");
+        if (is_space) {
+            in_word = false;
+        } else {
+            if (!in_word) {
+                words++;
+                in_word = true;
+            }
+        }
+    }
+    
+    return (lines, words, bytes);
+}
+
+fn print_counts(i32 lines, i32 words, i32 bytes, string label, bool show_lines, bool show_words, bool show_bytes) -> void {
+    if (show_lines) {
+        fmt.print(f"{lines} ");
+    }
+    if (show_words) {
+        fmt.print(f"{words} ");
+    }
+    if (show_bytes) {
+        fmt.print(f"{bytes} ");
+    }
+    fmt.println(label);
+}
+
+fn process_file(string path, bool show_lines, bool show_words, bool show_bytes) -> (i32, i32, i32, err) {
+    string content, err e = file.read_all(path);
+    if (e != ok) {
+        return (0, 0, 0, e);
+    }
+    
+    i32 lines, i32 words, i32 bytes = count_content(content);
+    print_counts(lines, words, bytes, path, show_lines, show_words, show_bytes);
+    
+    return (lines, words, bytes, ok);
+}
+
+fn process_stdin(bool show_lines, bool show_words, bool show_bytes, string label) -> (i32, i32, i32) {
+    string content, err e = io.read_all();
+    if (e != ok) {
+        fmt.eprintln(f"basl-wc: stdin: {e}");
+        return (0, 0, 0);
+    }
+    
+    i32 lines, i32 words, i32 bytes = count_content(content);
+    print_counts(lines, words, bytes, label, show_lines, show_words, show_bytes);
+    
+    return (lines, words, bytes);
+}
+
+fn main() -> i32 {
+    array<string> argv = os.args();
+    
+    bool show_lines = false;
+    bool show_words = false;
+    bool show_bytes = false;
+    array<string> files = [];
+    
+    for (i32 i = 0; i < argv.len(); i++) {
+        string arg = argv[i];
+        if (arg == "-l" || arg == "--lines") {
+            show_lines = true;
+        } else if (arg == "-w" || arg == "--words") {
+            show_words = true;
+        } else if (arg == "-c" || arg == "--bytes") {
+            show_bytes = true;
+        } else {
+            files.push(arg);
+        }
+    }
+    
+    if (!show_lines && !show_words && !show_bytes) {
+        show_lines = true;
+        show_words = true;
+        show_bytes = true;
+    }
+    
+    if (files.len() == 0) {
+        process_stdin(show_lines, show_words, show_bytes, "");
+        return 0;
+    }
+    
+    i32 total_lines = 0;
+    i32 total_words = 0;
+    i32 total_bytes = 0;
+    i32 file_count = 0;
+    
+    for path in files {
+        if (path == "-") {
+            i32 l, i32 w, i32 b = process_stdin(show_lines, show_words, show_bytes, "-");
+            total_lines += l;
+            total_words += w;
+            total_bytes += b;
+            file_count++;
+        } else {
+            i32 l, i32 w, i32 b, err e2 = process_file(path, show_lines, show_words, show_bytes);
+            if (e2 != ok) {
+                fmt.eprintln(f"basl-wc: {path}: {e2}");
+                return 1;
+            }
+            total_lines += l;
+            total_words += w;
+            total_bytes += b;
+            file_count++;
+        }
+    }
+    
+    if (file_count > 1) {
+        print_counts(total_lines, total_words, total_bytes, "total", show_lines, show_words, show_bytes);
+    }
+    
+    return 0;
+}
