@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func runNew(args []string) int {
@@ -33,6 +34,10 @@ func runNew(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: basl new <project-name> [--lib]")
 		return 2
 	}
+
+	// Strip trailing slashes for cleaner output
+	name = strings.TrimSuffix(name, "/")
+	name = strings.TrimSuffix(name, "\\") // Windows
 
 	root, _ := filepath.Abs(name)
 
@@ -75,7 +80,7 @@ func runNew(args []string) int {
 			"import \"fmt\";\n\nfn main() -> i32 {\n    fmt.println(\"hello, world!\");\n    return 0;\n}\n")
 	}
 
-	fmt.Printf("created %s/\n", name)
+	fmt.Printf("created %s\n", name)
 	if lib {
 		fmt.Printf("  basl.toml\n  lib/%s.basl\n  test/%s_test.basl\n  .gitignore\n", baseName, baseName)
 	} else {
