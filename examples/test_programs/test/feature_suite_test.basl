@@ -1,0 +1,30 @@
+import "feature_suite";
+import "t";
+
+fn assert_ok(err e, string label) -> void {
+    t.assert(e == ok, f"{label}: {e}");
+}
+
+fn test_core_language_section() -> void {
+    assert_ok(feature_suite.test_core_language(), "core language");
+}
+
+fn test_control_flow_section() -> void {
+    assert_ok(feature_suite.test_control_flow(), "control flow");
+}
+
+fn test_collections_and_methods_section() -> void {
+    assert_ok(feature_suite.test_collections_and_methods(), "collections and methods");
+}
+
+fn test_oop_and_errors_section() -> void {
+    assert_ok(feature_suite.test_oop_and_errors(), "oop and errors");
+}
+
+fn test_runtime_modules_section() -> void {
+    assert_ok(feature_suite.test_runtime_modules(), "runtime modules");
+}
+
+fn test_unsafe_features_section() -> void {
+    assert_ok(feature_suite.test_unsafe_features(), "unsafe features");
+}

@@ -1,0 +1,5 @@
+import "feature_suite";
+
+fn main() -> i32 {
+    return feature_suite.run_demo();
+}
