@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
@@ -105,6 +106,34 @@ func (interp *Interpreter) makeFileModule() *Env {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return value.NewErr(fileErr(err, path)), nil
 		}
+		return value.Ok, nil
+	}))
+	env.Define("touch", value.NewNativeFunc("file.touch", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.touch: expected string path")
+		}
+		path := args[0].AsString()
+
+		// Check if file exists
+		_, err := os.Stat(path)
+		if err == nil {
+			// File exists, update timestamp
+			now := time.Now()
+			if err := os.Chtimes(path, now, now); err != nil {
+				return value.NewErr(fileErr(err, path)), nil
+			}
+		} else if errors.Is(err, os.ErrNotExist) {
+			// File doesn't exist, create it
+			f, err := os.Create(path)
+			if err != nil {
+				return value.NewErr(fileErr(err, path)), nil
+			}
+			f.Close()
+		} else {
+			// Other error
+			return value.NewErr(fileErr(err, path)), nil
+		}
+
 		return value.Ok, nil
 	}))
 	env.Define("list_dir", value.NewNativeFunc("file.list_dir", func(args []value.Value) (value.Value, error) {
