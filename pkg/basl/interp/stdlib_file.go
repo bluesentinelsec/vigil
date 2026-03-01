@@ -122,6 +122,39 @@ func (interp *Interpreter) makeFileModule() *Env {
 
 		return value.Ok, nil
 	}))
+	env.Define("symlink", value.NewNativeFunc("file.symlink", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.symlink: expected (string target, string link)")
+		}
+		target := args[0].AsString()
+		link := args[1].AsString()
+		if err := os.Symlink(target, link); err != nil {
+			return value.NewErr(fileErr(err, link)), nil
+		}
+		return value.Ok, nil
+	}))
+	env.Define("link", value.NewNativeFunc("file.link", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.link: expected (string target, string link)")
+		}
+		target := args[0].AsString()
+		link := args[1].AsString()
+		if err := os.Link(target, link); err != nil {
+			return value.NewErr(fileErr(err, link)), nil
+		}
+		return value.Ok, nil
+	}))
+	env.Define("readlink", value.NewNativeFunc("file.readlink", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.readlink: expected string path")
+		}
+		path := args[0].AsString()
+		target, err := os.Readlink(path)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(fileErr(err, path))}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(target), value.Ok}}
+	}))
 	env.Define("mkdir", value.NewNativeFunc("file.mkdir", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("file.mkdir: expected string path")
