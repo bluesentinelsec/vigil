@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
@@ -107,6 +108,34 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		return value.Ok, nil
 	}))
+	env.Define("touch", value.NewNativeFunc("file.touch", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.touch: expected string path")
+		}
+		path := args[0].AsString()
+
+		// Check if file exists
+		_, err := os.Stat(path)
+		if err == nil {
+			// File exists, update timestamp
+			now := time.Now()
+			if err := os.Chtimes(path, now, now); err != nil {
+				return value.NewErr(fileErr(err, path)), nil
+			}
+		} else if errors.Is(err, os.ErrNotExist) {
+			// File doesn't exist, create it
+			f, err := os.Create(path)
+			if err != nil {
+				return value.NewErr(fileErr(err, path)), nil
+			}
+			f.Close()
+		} else {
+			// Other error
+			return value.NewErr(fileErr(err, path)), nil
+		}
+
+		return value.Ok, nil
+	}))
 	env.Define("list_dir", value.NewNativeFunc("file.list_dir", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("file.list_dir: expected string path")
@@ -180,25 +209,12 @@ func (interp *Interpreter) makeFileModule() *Env {
 				"is_dir":   value.NewBool(info.IsDir()),
 				"mod_time": value.NewString(info.ModTime().Format("2006-01-02T15:04:05Z07:00")),
 				"name":     value.NewString(info.Name()),
-				"mode":     value.NewI32(int32(info.Mode())),
 			},
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{
 			{T: value.TypeObject, Data: obj},
 			value.Ok,
 		}}
-	}))
-
-	env.Define("chmod", value.NewNativeFunc("file.chmod", func(args []value.Value) (value.Value, error) {
-		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeI32 {
-			return value.Void, fmt.Errorf("file.chmod: expected (string path, i32 mode)")
-		}
-		path := args[0].AsString()
-		mode := os.FileMode(args[1].AsI32())
-		if err := os.Chmod(path, mode); err != nil {
-			return value.NewErr(fileErr(err, path)), nil
-		}
-		return value.Ok, nil
 	}))
 
 	return env

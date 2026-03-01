@@ -81,6 +81,19 @@ Creates a directory and all necessary parents (like `mkdir -p`). Directory permi
 err e = file.mkdir("a/b/c");
 ```
 
+### file.touch(string path) -> err
+
+Creates an empty file or updates the modification time of an existing file.
+
+- Returns `ok` on success.
+- Returns `err(message)` on failure.
+- If file doesn't exist, creates it with permissions `0644`.
+- If file exists, updates access and modification times to current time.
+
+```c
+err e = file.touch("newfile.txt");
+```
+
 ### file.list_dir(string path) -> (array\<string\>, err)
 
 Lists the names of entries in a directory.
@@ -136,7 +149,6 @@ FileStat fields:
 | `size` | `i32` | File size in bytes |
 | `is_dir` | `bool` | Whether it's a directory |
 | `mod_time` | `string` | Last modified time (ISO 8601: `"2006-01-02T15:04:05Z07:00"`) |
-| `mode` | `i32` | File mode/permissions (Unix permission bits) |
 
 ```c
 FileStat info, err e = file.stat("data.txt");
@@ -144,27 +156,7 @@ fmt.println(info.name);      // "data.txt"
 fmt.println(info.size);      // 1234
 fmt.println(info.is_dir);    // false
 fmt.println(info.mod_time);  // "2024-01-15T10:30:00-05:00"
-fmt.println(info.mode);      // 420 (0644 in octal)
 ```
-
-### file.chmod(string path, i32 mode) -> err
-
-Changes file permissions.
-
-- Returns `ok` on success.
-- Returns `err(message)` on failure.
-- Mode uses Unix permission bits (e.g., `0644` = `420` decimal).
-- **Windows:** Limited support (read-only flag only).
-
-```c
-err e = file.chmod("script.sh", 0o755);  // rwxr-xr-x
-```
-
-Common modes:
-- `0o644` (420) - rw-r--r-- (regular file)
-- `0o755` (493) - rwxr-xr-x (executable)
-- `0o600` (384) - rw------- (private file)
-- `0o777` (511) - rwxrwxrwx (all permissions)
 
 ## File Methods
 
