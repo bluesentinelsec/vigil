@@ -65,7 +65,7 @@ func TestNumericTypeMismatchHints(t *testing.T) {
 				return 0;
 			}`,
 			wantErrPart: "cannot apply \"<\" to i32 and u32",
-			wantHint:    "cast both operands to a common type (mixing signed/unsigned requires care)",
+			wantHint:    "", // No hint for unsafe signed/unsigned mixing
 		},
 		{
 			name: "modulo_float_no_hint",

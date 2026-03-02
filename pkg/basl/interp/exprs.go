@@ -342,9 +342,9 @@ func canConvert(from, to value.Type) bool {
 }
 
 func suggestNumericCast(left, right value.Type, op string) string {
-	// Don't suggest mixing signed and unsigned (unsafe conversions)
+	// Don't suggest mixing signed and unsigned (no safe conversion path)
 	if (isSigned(left) && isUnsigned(right)) || (isUnsigned(left) && isSigned(right)) {
-		return "cast both operands to a common type (mixing signed/unsigned requires care)"
+		return "" // No hint for unsafe conversions
 	}
 
 	// Determine wider type
