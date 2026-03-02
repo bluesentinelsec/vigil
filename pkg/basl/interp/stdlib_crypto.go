@@ -29,11 +29,11 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		block, err := aes.NewCipher(key)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		gcm, err := cipher.NewGCM(block)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		nonce := make([]byte, gcm.NonceSize())
 		if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
@@ -58,11 +58,11 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		block, err := aes.NewCipher(key)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		gcm, err := cipher.NewGCM(block)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		ns := gcm.NonceSize()
 		if len(ct) < ns {
@@ -70,7 +70,7 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		pt, err := gcm.Open(nil, ct[:ns], ct[ns:], nil)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(pt)), value.Ok}}
 	}))
@@ -101,7 +101,7 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		pub, err := parseRSAPublicKey(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		ct, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, pub, []byte(args[1].AsString()), nil)
 		if err != nil {
@@ -117,7 +117,7 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		priv, err := parseRSAPrivateKey(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		ct, err := hex.DecodeString(args[1].AsString())
 		if err != nil {
@@ -125,7 +125,7 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		pt, err := rsa.DecryptOAEP(sha256.New(), rand.Reader, priv, ct, nil)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(pt)), value.Ok}}
 	}))
@@ -137,7 +137,7 @@ func (interp *Interpreter) makeCryptoModule() *Env {
 		}
 		priv, err := parseRSAPrivateKey(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindArg)}}
 		}
 		h := sha256.Sum256([]byte(args[1].AsString()))
 		sig, err := rsa.SignPKCS1v15(rand.Reader, priv, 0, h[:])
