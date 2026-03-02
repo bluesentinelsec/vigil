@@ -53,5 +53,10 @@
     "prefix": "switch",
     "body": ["switch (${1:expr}) {", "\tcase ${2:val}:", "\t\t$0", "\tdefault:", "\t\t"],
     "description": "Switch statement"
+  },
+  "anonfn": {
+    "prefix": "anonfn",
+    "body": ["fn(${1:params}) -> ${2:void} { ${0} }"],
+    "description": "Anonymous function"
   }
 }

@@ -319,7 +319,28 @@ fn main() -> i32 {
 }
 ```
 
-There are no anonymous functions or lambdas. Only named functions.
+### Anonymous Functions
+
+Anonymous functions are defined inline with `fn(params) -> ret { body }`:
+
+```c
+fn main() -> i32 {
+    // Inline callback
+    i32 result = apply(fn(i32 x) -> i32 { return x * 3; }, 5);
+
+    // Stored in variable
+    fn doubler = fn(i32 x) -> i32 { return x * 2; };
+
+    // Closure — captures enclosing scope
+    i32 factor = 10;
+    fn scale = fn(i32 x) -> i32 { return x * factor; };
+    scale(4);  // 40
+
+    return 0;
+}
+```
+
+Anonymous functions capture the enclosing scope (closures). They can be passed as callbacks, stored in `fn` variables, and returned from functions.
 
 ### Local Functions
 
@@ -702,7 +723,7 @@ See `design.md` for full unsafe/FFI documentation.
 - **One way to do anything.** No operator overloading, no multiple inheritance, no implicit conversions.
 - **No null** in safe code. Missing values use multi-return: `(T, err)` or `(T, bool)`.
 - **No exceptions.** Errors are values.
-- **No anonymous functions.** Only named functions, passed by reference.
+- **Functions are values.** Named functions and anonymous closures, passed by reference.
 - **No implicit conversions.** All type conversions are explicit.
 - **No truthiness.** `if` requires `bool`. `if x` where x is `i32` is a compile error.
 - **Unsafe is gated.** Pointers, FFI, and raw memory require `import "unsafe"`.

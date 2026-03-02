@@ -139,8 +139,8 @@ func (f *formatter) stmt(s ast.Stmt) {
 }
 
 func (f *formatter) varStmt(s *ast.VarStmt) {
-	// Check if this is a local function declaration
-	if fnLit, ok := s.Init.(*ast.FnLitExpr); ok && fnLit.Decl != nil {
+	// Check if this is a local function declaration (named, not anonymous)
+	if fnLit, ok := s.Init.(*ast.FnLitExpr); ok && fnLit.Decl != nil && fnLit.Decl.Name != "" {
 		// Format as: fn name(params) -> ret { body }
 		f.fnDecl(fnLit.Decl, "")
 		return

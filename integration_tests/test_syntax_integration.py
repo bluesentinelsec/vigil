@@ -1884,11 +1884,6 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 "undefined variable",
             ),
             (
-                "no_anonymous_functions",
-                "fn main() -> i32 { fn(i32) -> i32 f = fn(i32 x) -> i32 { return x; }; return f(1); }",
-                "unexpected fn",
-            ),
-            (
                 "no_class_inheritance",
                 "class A { } class B extends A { } fn main() -> i32 { return 0; }",
                 "expected {",
