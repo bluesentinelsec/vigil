@@ -136,7 +136,7 @@ func (l *Lexer) readCharLiteral() (Token, error) {
 		return Token{}, fmt.Errorf("%d:%d: unterminated character literal — expected character after '", startLine, startCol)
 	}
 
-	var ch byte
+	var value string
 	if l.peek() == '\\' {
 		// Escape sequence
 		l.advance() // skip \
@@ -146,20 +146,27 @@ func (l *Lexer) readCharLiteral() (Token, error) {
 		esc := l.advance()
 		switch esc {
 		case 'n':
-			ch = '\n'
+			value = "\n"
 		case 't':
-			ch = '\t'
+			value = "\t"
 		case 'r':
-			ch = '\r'
+			value = "\r"
 		case '\\':
-			ch = '\\'
+			value = "\\"
 		case '\'':
-			ch = '\''
+			value = "'"
 		default:
 			return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c in character literal — valid escapes are \\n, \\t, \\r, \\\\, \\'", startLine, startCol, esc)
 		}
 	} else {
-		ch = l.advance()
+		// Read one UTF-8 character (rune)
+		start := l.pos
+		l.advance() // consume at least one byte
+		// Continue consuming bytes that are UTF-8 continuation bytes (10xxxxxx)
+		for l.pos < len(l.input) && (l.input[l.pos]&0xC0) == 0x80 {
+			l.advance()
+		}
+		value = string(l.input[start:l.pos])
 	}
 
 	if l.pos >= len(l.input) || l.peek() != '\'' {
@@ -168,7 +175,7 @@ func (l *Lexer) readCharLiteral() (Token, error) {
 	l.advance() // skip closing '
 
 	// Character literals are syntactic sugar for single-character strings
-	return Token{TOKEN_STRING, string(ch), startLine, startCol}, nil
+	return Token{TOKEN_STRING, value, startLine, startCol}, nil
 }
 
 func (l *Lexer) readRawString() (Token, error) {

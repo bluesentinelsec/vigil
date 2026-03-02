@@ -693,3 +693,25 @@ return 0;
 		t.Errorf("char vs string:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestFormatCharLiteralUTF8(t *testing.T) {
+	// UTF-8 characters should be formatted as char literals
+	src := `fn main() -> i32 {
+string e="é";
+string euro="€";
+string emoji="😀";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string e = 'é';
+    string euro = '€';
+    string emoji = '😀';
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("UTF-8 char literals:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}

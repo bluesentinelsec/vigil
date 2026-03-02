@@ -29,8 +29,10 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		return s
 	case *ast.StringLit:
 		// Use single quotes for single-character strings (character literals)
-		if len(e.Value) == 1 {
-			ch := e.Value[0]
+		// Count runes (Unicode characters), not bytes
+		runes := []rune(e.Value)
+		if len(runes) == 1 {
+			ch := runes[0]
 			switch ch {
 			case '\n':
 				return `'\n'`
