@@ -1,198 +1,94 @@
 # basl-grep
 
-A full-featured implementation of `grep` in BASL, demonstrating regex, file I/O, and command-line argument parsing.
+A grep implementation in BASL demonstrating regex, file I/O, and CLI parsing.
 
-## Features
+## Purpose
 
-- ✅ Pattern matching with regular expressions
-- ✅ Case-insensitive search (`--ignore-case`)
-- ✅ Invert match (`--invert-match`)
-- ✅ Line numbers (`--line-number`)
-- ✅ Count matches (`--count`)
-- ✅ List matching files (`--files-with-matches`)
-- ✅ List non-matching files (`--files-without-match`)
-- ✅ Recursive directory search (`--recursive`)
-- ✅ Context lines (`--before-context`, `--after-context`, `--context`)
-- ✅ Multiple file support
-- ✅ Stdin support
-- ✅ Quiet mode (`--quiet`)
-- ✅ Filename control (`--no-filename`, `--with-filename`)
+This tool validates BASL's standard library functionality and exposes language limitations for Unix-style tool development. See [LIMITATIONS.md](LIMITATIONS.md) for detailed analysis of gaps discovered.
+
+## Features Implemented
+
+✅ **Basic pattern matching** with regular expressions  
+✅ **Case-insensitive search** (`-i`, `--ignore-case`)  
+✅ **Invert match** (`-v`, `--invert-match`) - show non-matching lines  
+✅ **Line numbers** (`-n`, `--line-number`)  
+✅ **Count matches** (`-c`, `--count`)  
+✅ **List matching files** (`-l`, `--files-with-matches`)  
+✅ **Multiple file support** with filename prefixes  
+✅ **Proper exit codes** (0=match found, 1=no match, 2=error)
+
+## Features NOT Implemented
+
+❌ **Recursive search** (`-r`) - Blocked by type namespace mismatch (see LIMITATIONS.md #1)  
+❌ **Stdin input** - Not implemented  
+❌ **Context lines** (`-A`, `-B`, `-C`) - Not implemented  
+❌ **Extended regex** (`-E`) - Not implemented  
+❌ **Fixed strings** (`-F`) - Not implemented  
+❌ **Color output** - Not implemented  
+❌ **Binary file handling** - Not implemented
 
 ## Usage
 
-### Basic Pattern Matching
 ```bash
+# Basic search
 basl main.basl "pattern" file.txt
+
+# Case-insensitive
+basl main.basl -i "PATTERN" file.txt
+
+# With line numbers
+basl main.basl -n "pattern" file.txt
+
+# Count matches
+basl main.basl -c "pattern" file.txt
+
+# Invert match (show non-matching lines)
+basl main.basl -v "pattern" file.txt
+
+# List files with matches
+basl main.basl -l "pattern" file1.txt file2.txt
+
+# Combine flags
+basl main.basl -i -n "pattern" file.txt
 ```
 
-### Case-Insensitive Search
-```bash
-basl main.basl --ignore-case "pattern" file.txt
-```
+## Standard Library Validation
 
-### Show Line Numbers
-```bash
-basl main.basl --line-number "pattern" file.txt
-```
+This implementation tests:
 
-### Count Matches
-```bash
-basl main.basl --count "pattern" file.txt
-```
+- ✅ `regex.match()` - Pattern matching works
+- ✅ `file.read_all()` - File reading works
+- ✅ `os.args()` - Command-line args work (returns array without script name)
+- ✅ `fmt.println()` / `fmt.eprintln()` - Output works
+- ✅ F-string interpolation works
+- ✅ String `.split()` method works
 
-### Invert Match (Show Non-Matching Lines)
-```bash
-basl main.basl --invert-match "pattern" file.txt
-```
+## Known Issues
 
-### List Files With Matches
-```bash
-basl main.basl --files-with-matches "pattern" *.txt
-```
+1. **Recursive search disabled** - `file.stat()` returns `FileStat` but type annotation requires `file.FileStat` (runtime type mismatch)
+2. **Manual flag parsing** - `args.ArgParser` doesn't support short flags (`-i`) or variadic positionals (`[FILE...]`)
+3. **Performance issue** - `regex.match()` recompiles pattern on every call (no compiled regex objects)
+4. **No integration tests** - BASL lacks subprocess API for black-box CLI testing
 
-### Recursive Search
-```bash
-basl main.basl --recursive "pattern" directory/
-```
+See [LIMITATIONS.md](LIMITATIONS.md) for detailed analysis.
 
-### Context Lines
-```bash
-# Show 2 lines before and after each match
-basl main.basl --context 2 "pattern" file.txt
-
-# Show 3 lines before each match
-basl main.basl --before-context 3 "pattern" file.txt
-
-# Show 1 line after each match
-basl main.basl --after-context 1 "pattern" file.txt
-```
-
-### Search Multiple Files
-```bash
-basl main.basl "pattern" file1.txt file2.txt file3.txt
-```
-
-### Read from Stdin
-```bash
-cat file.txt | basl main.basl "pattern"
-echo "hello world" | basl main.basl "hello"
-```
-
-### Quiet Mode (Exit Status Only)
-```bash
-basl main.basl --quiet "pattern" file.txt
-echo $?  # 0 if match found, 1 if not
-```
-
-## Exit Status
+## Exit Codes
 
 - `0` - Match found
 - `1` - No match found
-- `2` - Error occurred
-
-## Examples
-
-### Find all TODO comments in source files
-```bash
-basl main.basl --recursive "TODO" src/
-```
-
-### Count occurrences of "error" in log files
-```bash
-basl main.basl --count "error" *.log
-```
-
-### Find files containing "import" but not "export"
-```bash
-basl main.basl --files-with-matches "import" *.js | \
-  xargs basl main.basl --files-without-match "export"
-```
-
-### Search with context
-```bash
-basl main.basl --context 3 "function main" *.basl
-```
-
-### Case-insensitive search for "error" with line numbers
-```bash
-basl main.basl --ignore-case --line-number "error" app.log
-```
-
-## Standard Library Usage
-
-This implementation demonstrates the following BASL stdlib modules:
-
-- **args**: Command-line argument parsing with flags and positional arguments
-- **regex**: Pattern matching with regular expressions
-- **file**: File reading, directory traversal, file stats
-- **io**: Reading from stdin line by line
-- **strings**: String manipulation (split, starts_with, etc.)
-- **path**: Path joining for recursive search
-- **fmt**: Formatted output to stdout and stderr
-- **os**: Command-line arguments and system interaction
-
-## Testing
-
-Run the test suite:
-
-```bash
-cd test
-basl grep_test.basl
-```
-
-Tests cover:
-- Basic pattern matching
-- Case-insensitive search
-- Invert match
-- Line numbers
-- Count mode
-- Multiple files
-- Files with matches
-- Context lines
-- Recursive search
+- `2` - Error (missing args, file not found, etc.)
 
 ## Implementation Notes
 
-### Regex Support
-Uses BASL's `regex` module which supports standard regex syntax. Case-insensitive matching is achieved with the `(?i)` flag.
+- Uses `regex.match()` directly (no compile step available)
+- Case-insensitive via `(?i)` regex prefix
+- Manual `os.args()` parsing due to `args` module limitations
+- Pattern recompiles on every line (performance bottleneck)
 
-### Context Lines
-Maintains a circular buffer for before-context and a counter for after-context. Handles overlapping context regions correctly.
+## Value
 
-### Recursive Search
-Traverses directories recursively, skipping `.` and `..` entries. Always prints filenames in recursive mode.
-
-### Stdin Handling
-Detects when no files are provided and reads from stdin. Handles EOF correctly.
-
-### Performance
-Reads entire files into memory for simplicity. For very large files, consider streaming line-by-line.
-
-## Comparison with GNU grep
-
-This implementation covers the most commonly used grep features:
-
-**Supported:**
-- Basic pattern matching
-- Case-insensitive (`-i`)
-- Invert match (`-v`)
-- Line numbers (`-n`)
-- Count (`-c`)
-- Files with matches (`-l`)
-- Recursive (`-r`)
-- Context lines (`-A`, `-B`, `-C`)
-- Multiple files
-- Stdin input
-
-**Not Implemented:**
-- Extended regex (`-E`)
-- Fixed strings (`-F`)
-- Perl regex (`-P`)
-- Binary file handling (`-a`, `-I`)
-- Exclude patterns (`--exclude`)
-- Color output (`--color`)
-- Max count (`-m`)
-
-## License
-
-Part of the BASL examples collection.
+This implementation:
+1. **Validates stdlib functionality** - Tests regex, file, os, fmt modules
+2. **Exposes language gaps** - Documents real limitations for Unix-tool development
+3. **Provides practical example** - Shows what's possible and what's missing
+4. **Guides future work** - Clear list of needed stdlib improvements

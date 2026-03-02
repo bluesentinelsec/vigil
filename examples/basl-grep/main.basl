@@ -1,7 +1,6 @@
 import "file";
 import "fmt";
 import "os";
-import "path";
 import "regex";
 
 fn main() -> i32 {
@@ -75,13 +74,10 @@ fn main() -> i32 {
     for (i32 i = 0; i < files.len(); i++) {
         string filepath = files[i];
         
+        // NOTE: Recursive search disabled - see grep_recursive() comment for limitations
         if (recursive) {
-            file.FileStat stat, err statErr = file.stat(filepath);
-            if (statErr == ok && stat.is_dir) {
-                i32 matches = grep_recursive(filepath, regexPattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
-                totalMatches = totalMatches + matches;
-                continue;
-            }
+            fmt.eprintln("Error: recursive search not yet supported (BASL type namespace limitation)");
+            return 2;
         }
         
         i32 matches = grep_file(filepath, regexPattern, invertMatch, lineNumber, countOnly, filesWithMatches, printFilename);
@@ -147,36 +143,42 @@ fn grep_file(string filepath, string pattern, bool invertMatch, bool lineNumber,
     return matchCount;
 }
 
-fn grep_recursive(string dirpath, string pattern, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
-    array<string> entries, err readErr = file.read_dir(dirpath);
-    if (readErr != ok) {
-        fmt.eprintln(f"grep: {dirpath}: {readErr}");
-        return 0;
-    }
-    
-    i32 totalMatches = 0;
-    
-    for (i32 i = 0; i < entries.len(); i++) {
-        string entry = entries[i];
-        if (entry == "." || entry == "..") {
-            continue;
-        }
-        
-        string fullpath = path.join(dirpath, entry);
-        
-        file.FileStat stat, err statErr = file.stat(fullpath);
-        if (statErr != ok) {
-            continue;
-        }
-        
-        if (stat.is_dir) {
-            i32 matches = grep_recursive(fullpath, pattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
-            totalMatches = totalMatches + matches;
-        } else {
-            i32 matches = grep_file(fullpath, pattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
-            totalMatches = totalMatches + matches;
-        }
-    }
-    
-    return totalMatches;
-}
+// NOTE: Recursive search disabled due to BASL limitations:
+// 1. file.stat() returns FileStat, but type annotation requires file.FileStat (namespace mismatch)
+// 2. file.read_dir() doesn't exist - API is file.list_dir()
+// 3. No compiled regex objects - pattern recompiles on every line (performance issue)
+//
+// fn grep_recursive(string dirpath, string pattern, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
+//     array<string> entries, err readErr = file.list_dir(dirpath);
+//     if (readErr != ok) {
+//         fmt.eprintln(f"grep: {dirpath}: {readErr}");
+//         return 0;
+//     }
+//     
+//     i32 totalMatches = 0;
+//     
+//     for (i32 i = 0; i < entries.len(); i++) {
+//         string entry = entries[i];
+//         if (entry == "." || entry == "..") {
+//             continue;
+//         }
+//         
+//         string fullpath = path.join(dirpath, entry);
+//         
+//         // BUG: file.stat() returns FileStat, not file.FileStat
+//         // FileStat stat, err statErr = file.stat(fullpath);
+//         // if (statErr != ok) {
+//         //     continue;
+//         // }
+//         // 
+//         // if (stat.is_dir) {
+//         //     i32 matches = grep_recursive(fullpath, pattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+//         //     totalMatches = totalMatches + matches;
+//         // } else {
+//         //     i32 matches = grep_file(fullpath, pattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+//         //     totalMatches = totalMatches + matches;
+//         // }
+//     }
+//     
+//     return totalMatches;
+// }
