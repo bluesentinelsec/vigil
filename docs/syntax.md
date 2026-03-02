@@ -187,12 +187,14 @@ condition ? trueValue : falseValue
 
 The condition must be a boolean expression. Returns `trueValue` if condition is true, otherwise `falseValue`.
 
+The operator is right-associative, allowing chained ternaries without parentheses.
+
 ```c
 i32 max = a > b ? a : b;
 string status = age >= 18 ? "adult" : "minor";
 
-// Nested ternary
-string size = x < 10 ? "small" : (x < 100 ? "medium" : "large");
+// Chained ternary (right-associative, no parentheses needed)
+string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
 ```
 
 ### Bitwise

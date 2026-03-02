@@ -23,7 +23,7 @@ func (p *Parser) parseTernary() (ast.Expr, error) {
 	// Check for ternary operator: condition ? trueExpr : falseExpr
 	if p.peek().Type == lexer.TOKEN_QUESTION {
 		line := p.advance().Line
-		trueExpr, err := p.parseOr()
+		trueExpr, err := p.parseTernary()
 		if err != nil {
 			return nil, err
 		}
@@ -31,7 +31,7 @@ func (p *Parser) parseTernary() (ast.Expr, error) {
 			return nil, fmt.Errorf("line %d: expected ':' in ternary expression", p.peek().Line)
 		}
 		p.advance() // consume ':'
-		falseExpr, err := p.parseOr()
+		falseExpr, err := p.parseTernary()
 		if err != nil {
 			return nil, err
 		}
