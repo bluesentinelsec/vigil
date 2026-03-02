@@ -1,6 +1,6 @@
-# test (t)
+# test
 
-Built-in test framework. Available only in `_test.basl` files via `import "t";`.
+Built-in test framework. Available only in `_test.basl` files via `import "test";`.
 
 ## Running Tests
 
@@ -15,30 +15,39 @@ basl test -v                       # verbose: print each test name
 
 Exit code: 0 if all pass, 1 if any fail.
 
+**Working directory:** Tests run with the working directory set to the test file's directory, so relative paths in tests are relative to the test file.
+
 ## Conventions
 
 - Test files end in `_test.basl`.
-- Test functions start with `test_`, take zero parameters, return `void`.
+- Test functions start with `test_`, return `void`.
+- Test functions take a single `test.T` parameter.
 - Each test runs in a fresh interpreter — no shared state between tests.
 - Non-test functions (helpers) in test files are available but not run as tests.
 
+## Example
+
 ```c
-import "t";
+import "test";
 import "math";
 
-fn test_sqrt() -> void {
+fn test_sqrt(test.T t) -> void {
     t.assert(math.sqrt(9.0) == 3.0, "sqrt(9) should be 3");
+}
+
+fn test_pow(test.T t) -> void {
+    t.assert(math.pow(2.0, 3.0) == 8.0, "2^3 should be 8");
 }
 ```
 
-## Functions
+## Methods
 
 ### t.assert(bool condition, string message)
 
 Fails the current test if `condition` is false. The test stops immediately.
 
 ```c
-fn test_example() -> void {
+fn test_example(test.T t) -> void {
     t.assert(1 + 1 == 2, "basic math");
 }
 ```
@@ -48,7 +57,7 @@ fn test_example() -> void {
 Fails the current test unconditionally. The test stops immediately.
 
 ```c
-fn test_not_implemented() -> void {
+fn test_not_implemented(test.T t) -> void {
     t.fail("TODO: implement this");
 }
 ```

@@ -31,7 +31,7 @@ fn remove_recursive(string path) -> err {
 }
 
 fn main() -> i32 {
-    ArgParser p = args.parser("basl-rm", "remove files or directories");
+    args.ArgParser p = args.parser("basl-rm", "remove files or directories");
     p.flag("recursive", "bool", "false", "remove directories and their contents recursively");
     p.flag("force", "bool", "false", "ignore nonexistent files");
     map<string, string> result, err e = p.parse();

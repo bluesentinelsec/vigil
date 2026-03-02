@@ -59,6 +59,27 @@ func (interp *Interpreter) makeOsModule() *Env {
 	env.Define("platform", value.NewNativeFunc("os.platform", func(args []value.Value) (value.Value, error) {
 		return value.NewString(runtime.GOOS), nil
 	}))
+	env.Define("temp_dir", value.NewNativeFunc("os.temp_dir", func(args []value.Value) (value.Value, error) {
+		return value.NewString(os.TempDir()), nil
+	}))
+	env.Define("mkdir", value.NewNativeFunc("os.mkdir", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("os.mkdir: expected string path")
+		}
+		if err := os.Mkdir(args[0].AsString(), 0755); err != nil {
+			return value.NewErr(err.Error()), nil
+		}
+		return value.Ok, nil
+	}))
+	env.Define("rmdir", value.NewNativeFunc("os.rmdir", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("os.rmdir: expected string path")
+		}
+		if err := os.Remove(args[0].AsString()); err != nil {
+			return value.NewErr(err.Error()), nil
+		}
+		return value.Ok, nil
+	}))
 	env.Define("exec", value.NewNativeFunc("os.exec", func(args []value.Value) (value.Value, error) {
 		if len(args) < 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("os.exec: expected (string cmd, ...string args)")
@@ -76,16 +97,67 @@ func (interp *Interpreter) makeOsModule() *Env {
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		err := cmd.Run()
+
+		exitCode := 0
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{
-				value.NewString(stdout.String()),
-				value.NewString(stderr.String()),
-				value.NewErr(err.Error()),
-			}}
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				// Command failed to start
+				return value.Void, &MultiReturnVal{Values: []value.Value{
+					value.NewString(""),
+					value.NewString(""),
+					value.NewI32(0),
+					value.NewErr(err.Error()),
+				}}
+			}
 		}
+
 		return value.Void, &MultiReturnVal{Values: []value.Value{
 			value.NewString(stdout.String()),
 			value.NewString(stderr.String()),
+			value.NewI32(int32(exitCode)),
+			value.Ok,
+		}}
+	}))
+
+	// system: Execute command through shell
+	env.Define("system", value.NewNativeFunc("os.system", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("os.system: expected string command")
+		}
+		cmdStr := args[0].AsString()
+
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("cmd", "/C", cmdStr)
+		} else {
+			cmd = exec.Command("sh", "-c", cmdStr)
+		}
+
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+
+		exitCode := 0
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				return value.Void, &MultiReturnVal{Values: []value.Value{
+					value.NewString(""),
+					value.NewString(""),
+					value.NewI32(0),
+					value.NewErr(err.Error()),
+				}}
+			}
+		}
+
+		return value.Void, &MultiReturnVal{Values: []value.Value{
+			value.NewString(stdout.String()),
+			value.NewString(stderr.String()),
+			value.NewI32(int32(exitCode)),
 			value.Ok,
 		}}
 	}))

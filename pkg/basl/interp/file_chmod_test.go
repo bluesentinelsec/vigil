@@ -28,7 +28,7 @@ func TestFileChmod(t *testing.T) {
 			}
 			
 			// Verify mode changed
-			FileStat info, err e3 = file.stat("test_chmod.txt");
+			file.FileStat info, err e3 = file.stat("test_chmod.txt");
 			if (e3 != ok) {
 				file.remove("test_chmod.txt");
 				return 3;
@@ -69,7 +69,7 @@ func TestFileStatMode(t *testing.T) {
 			}
 			
 			// Get stat
-			FileStat info, err e2 = file.stat("test_stat_mode.txt");
+			file.FileStat info, err e2 = file.stat("test_stat_mode.txt");
 			if (e2 != ok) {
 				file.remove("test_stat_mode.txt");
 				return 2;
@@ -116,7 +116,7 @@ func TestFileChmodExecutable(t *testing.T) {
 			}
 			
 			// Verify
-			FileStat info, err e2 = file.stat("test_chmod_exec.txt");
+			file.FileStat info, err e2 = file.stat("test_chmod_exec.txt");
 			if (e2 != ok) {
 				file.remove("test_chmod_exec.txt");
 				return 2;

@@ -1,0 +1,163 @@
+import "args";
+import "file";
+import "fmt";
+import "path";
+import "regex";
+
+fn main() -> i32 {
+    args.ArgParser parser = args.parser("grep", "Search for patterns in files");
+    
+    parser.flag("ignore-case", "bool", "false", "Case-insensitive search", "i");
+    parser.flag("invert-match", "bool", "false", "Select non-matching lines", "v");
+    parser.flag("line-number", "bool", "false", "Print line numbers", "n");
+    parser.flag("count", "bool", "false", "Only print count of matches", "c");
+    parser.flag("files-with-matches", "bool", "false", "Only print filenames", "l");
+    parser.flag("recursive", "bool", "false", "Recursively search directories", "r");
+    
+    parser.arg("pattern", "string", "Pattern to search for");
+    parser.arg("files", "string", "Files to search", true);
+    
+    args.Result result, err parseErr = parser.parse_result();
+    if (parseErr != ok) {
+        fmt.eprintln(f"Error: {parseErr}");
+        return 2;
+    }
+    
+    string pattern = result.get_string("pattern");
+    if (pattern == "") {
+        fmt.eprintln("Error: pattern required");
+        return 2;
+    }
+    
+    array<string> files = result.get_list("files");
+    if (files.len() == 0) {
+        fmt.eprintln("Error: at least one file required");
+        return 2;
+    }
+    
+    bool ignoreCase = result.get_bool("ignore-case");
+    bool invertMatch = result.get_bool("invert-match");
+    bool lineNumber = result.get_bool("line-number");
+    bool countOnly = result.get_bool("count");
+    bool filesWithMatches = result.get_bool("files-with-matches");
+    bool recursive = result.get_bool("recursive");
+    
+    string regexPattern = pattern;
+    if (ignoreCase) {
+        regexPattern = "(?i)" + pattern;
+    }
+    
+    regex.Regex re, err compileErr = regex.compile(regexPattern);
+    if (compileErr != ok) {
+        fmt.eprintln(f"grep: invalid pattern: {compileErr}");
+        return 2;
+    }
+    
+    i32 totalMatches = 0;
+    bool printFilename = files.len() > 1;
+    
+    for (i32 i = 0; i < files.len(); i++) {
+        string filepath = files[i];
+        
+        if (recursive) {
+            file.FileStat stat, err statErr = file.stat(filepath);
+            if (statErr == ok && stat.is_dir) {
+                i32 matches = grep_recursive(filepath, re, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+                totalMatches = totalMatches + matches;
+                continue;
+            }
+        }
+        
+        i32 matches = grep_file(filepath, re, invertMatch, lineNumber, countOnly, filesWithMatches, printFilename);
+        totalMatches = totalMatches + matches;
+    }
+    
+    if (totalMatches > 0) {
+        return 0;
+    }
+    return 1;
+}
+
+fn grep_file(string filepath, regex.Regex re, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
+    string content, err readErr = file.read_all(filepath);
+    if (readErr != ok) {
+        fmt.eprintln(f"grep: {filepath}: {readErr}");
+        return 0;
+    }
+    
+    array<string> lines = content.split("\n");
+    i32 matchCount = 0;
+    
+    for (i32 i = 0; i < lines.len(); i++) {
+        string line = lines[i];
+        i32 lineNum = i + 1;
+        
+        bool matches = re.match(line);
+        if (invertMatch) {
+            matches = !matches;
+        }
+        
+        if (matches) {
+            matchCount++;
+            
+            if (!countOnly && !filesWithMatches) {
+                string prefix = "";
+                if (printFilename) {
+                    prefix = f"{filepath}:";
+                }
+                if (lineNumber) {
+                    fmt.println(f"{prefix}{lineNum}:{line}");
+                } else {
+                    fmt.println(f"{prefix}{line}");
+                }
+            }
+        }
+    }
+    
+    if (filesWithMatches && matchCount > 0) {
+        fmt.println(filepath);
+    }
+    if (countOnly) {
+        if (printFilename) {
+            fmt.println(f"{filepath}:{matchCount}");
+        } else {
+            fmt.println(f"{matchCount}");
+        }
+    }
+    
+    return matchCount;
+}
+
+fn grep_recursive(string dirpath, regex.Regex re, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
+    array<string> entries, err readErr = file.read_dir(dirpath);
+    if (readErr != ok) {
+        fmt.eprintln(f"grep: {dirpath}: {readErr}");
+        return 0;
+    }
+    
+    i32 totalMatches = 0;
+    
+    for (i32 i = 0; i < entries.len(); i++) {
+        string entry = entries[i];
+        if (entry == "." || entry == "..") {
+            continue;
+        }
+        
+        string fullpath = path.join(dirpath, entry);
+        
+        file.FileStat stat, err statErr = file.stat(fullpath);
+        if (statErr != ok) {
+            continue;
+        }
+        
+        if (stat.is_dir) {
+            i32 matches = grep_recursive(fullpath, re, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+            totalMatches = totalMatches + matches;
+        } else {
+            i32 matches = grep_file(fullpath, re, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+            totalMatches = totalMatches + matches;
+        }
+    }
+    
+    return totalMatches;
+}

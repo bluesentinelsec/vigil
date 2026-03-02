@@ -38,7 +38,7 @@ fn copy_recursive(string src, string dst) -> err {
 }
 
 fn main() -> i32 {
-    ArgParser p = args.parser("basl-cp", "copy files and directories");
+    args.ArgParser p = args.parser("basl-cp", "copy files and directories");
     p.flag("recursive", "bool", "false", "copy directories recursively");
     map<string, string> result, err e = p.parse();
     

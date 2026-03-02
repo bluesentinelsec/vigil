@@ -3,7 +3,7 @@ import "fmt";
 import "args";
 
 fn main() -> i32 {
-    ArgParser p = args.parser("cut", "Extract fields from lines");
+    args.ArgParser p = args.parser("cut", "Extract fields from lines");
     p.flag("f", "string", "", "field number (1-indexed)");
     p.flag("d", "string", "\t", "field delimiter");
     map<string, string> opts, err e = p.parse();

@@ -1,6 +1,8 @@
 package interp
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -8,6 +10,7 @@ import (
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
 	"github.com/bluesentinelsec/basl/pkg/basl/lexer"
 	"github.com/bluesentinelsec/basl/pkg/basl/parser"
+	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
 
 // TestResult holds the outcome of a single test function.
@@ -38,7 +41,8 @@ func ExecTestFile(path string, src []byte, filter string, searchPaths []string) 
 		if !ok || !strings.HasPrefix(fn.Name, "test_") {
 			continue
 		}
-		if len(fn.Params) != 0 {
+		// Accept only single test.T parameter
+		if len(fn.Params) != 1 {
 			continue
 		}
 		if filter != "" && !matchFilter(fn.Name, filter) {
@@ -58,13 +62,24 @@ func ExecTestFile(path string, src []byte, filter string, searchPaths []string) 
 }
 
 func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string) TestResult {
+	// Change to test file directory so relative paths work
+	origDir, err := os.Getwd()
+	if err != nil {
+		return TestResult{Name: name, Passed: false, Message: fmt.Sprintf("failed to get cwd: %v", err)}
+	}
+	if err := os.Chdir(dir); err != nil {
+		return TestResult{Name: name, Passed: false, Message: fmt.Sprintf("failed to chdir to %s: %v", dir, err)}
+	}
+	defer os.Chdir(origDir)
+
 	vm := New()
 	vm.AddSearchPath(dir)
 	for _, sp := range searchPaths {
 		vm.AddSearchPath(sp)
 	}
-	// Register the test module as "t"
-	vm.builtinModules["t"] = vm.makeTestModule()
+	// Register the test module as "test"
+	testMod := vm.makeTestModule()
+	vm.builtinModules["test"] = testMod
 
 	vm.gil.Lock()
 	defer vm.gil.Unlock()
@@ -81,15 +96,22 @@ func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string
 		return TestResult{Name: name, Passed: false, Message: "test function not found"}
 	}
 
+	// Create a test.T object
+	tObj := &value.ObjectVal{
+		ClassName: "test.T",
+		Fields:    map[string]value.Value{},
+	}
+	callArgs := []value.Value{{T: value.TypeObject, Data: tObj}}
+
 	start := time.Now()
-	_, err := vm.callFunc(fnVal, nil)
+	_, callErr := vm.callFunc(fnVal, callArgs)
 	elapsed := time.Since(start)
 
-	if err != nil {
-		if tf, ok := err.(*signalTestFail); ok {
+	if callErr != nil {
+		if tf, ok := callErr.(*signalTestFail); ok {
 			return TestResult{Name: name, Passed: false, Message: tf.Message, Elapsed: elapsed}
 		}
-		return TestResult{Name: name, Passed: false, Message: err.Error(), Elapsed: elapsed}
+		return TestResult{Name: name, Passed: false, Message: callErr.Error(), Elapsed: elapsed}
 	}
 	return TestResult{Name: name, Passed: true, Elapsed: elapsed}
 }
@@ -103,7 +125,7 @@ func matchFilter(name, filter string) bool {
 	return false
 }
 
-// EnableTestModule registers the "t" module so test files can import "t".
+// EnableTestModule registers the "test" module so test files can import "test".
 func (interp *Interpreter) EnableTestModule() {
-	interp.builtinModules["t"] = interp.makeTestModule()
+	interp.builtinModules["test"] = interp.makeTestModule()
 }
