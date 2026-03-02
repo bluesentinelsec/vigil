@@ -245,6 +245,7 @@ var topicHelp = map[string]helpEntry{
 		},
 		Description: []string{
 			"The first positional BASL file is treated as the script entrypoint.",
+			"Scripts must use the .basl file extension.",
 			"Arguments after the script path are forwarded to os.args() inside the script.",
 			"When the script is inside a BASL project, imports automatically resolve from the project lib/ and deps/ directories.",
 			"Use -- to stop CLI option parsing and force the remaining values to be script arguments.",

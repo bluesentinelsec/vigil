@@ -56,6 +56,8 @@ Run it:
 basl hello.basl
 ```
 
+All scripts must use the `.basl` file extension.
+
 ### Interactive REPL
 
 ```bash

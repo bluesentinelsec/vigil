@@ -4,6 +4,8 @@ BASL (Blazingly Awesome Scripting Language) is a statically-typed, C-syntax scri
 
 ## Program Structure
 
+All source files must use the `.basl` file extension.
+
 Every BASL program has a `main` function that returns `i32`:
 
 ```c
