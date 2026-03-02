@@ -24,6 +24,7 @@ func TestTokenize_Literals(t *testing.T) {
 		{"float", "3.14", []TokenType{TOKEN_FLOAT, TOKEN_EOF}},
 		{"float_exp", "1e6", []TokenType{TOKEN_FLOAT, TOKEN_EOF}},
 		{"string", `"hello"`, []TokenType{TOKEN_STRING, TOKEN_EOF}},
+		{"char", `'a'`, []TokenType{TOKEN_STRING, TOKEN_EOF}},
 		{"ident", "foo", []TokenType{TOKEN_IDENT, TOKEN_EOF}},
 	}
 	for _, tt := range tests {
@@ -220,5 +221,71 @@ func TestTokenize_Errors(t *testing.T) {
 				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErrSub)
 			}
 		})
+	}
+}
+
+func TestCharLiterals(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"simple", `'a'`, "a", false},
+		{"digit", `'5'`, "5", false},
+		{"space", `' '`, " ", false},
+		{"escape_n", `'\n'`, "\n", false},
+		{"escape_t", `'\t'`, "\t", false},
+		{"escape_r", `'\r'`, "\r", false},
+		{"escape_backslash", `'\\'`, "\\", false},
+		{"escape_quote", `'\''`, "'", false},
+		{"unterminated", `'a`, "", true},
+		{"empty", `''`, "", true},
+		{"multi_char", `'ab'`, "", true},
+		{"invalid_escape", `'\x'`, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokens, err := New(tt.input).Tokenize()
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(tokens) < 1 {
+				t.Fatalf("expected at least 1 token, got %d", len(tokens))
+			}
+			if tokens[0].Type != TOKEN_STRING {
+				t.Errorf("token type = %v, want TOKEN_STRING", tokens[0].Type)
+			}
+			if tokens[0].Literal != tt.want {
+				t.Errorf("token literal = %q, want %q", tokens[0].Literal, tt.want)
+			}
+		})
+	}
+}
+
+func TestCharLiteralInExpression(t *testing.T) {
+	input := `ch == 'a'`
+	tokens, err := New(input).Tokenize()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []TokenType{TOKEN_IDENT, TOKEN_EQ, TOKEN_STRING, TOKEN_EOF}
+	got := tokenTypes(tokens)
+	if len(got) != len(want) {
+		t.Fatalf("got %d tokens, want %d", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("token[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+	if tokens[2].Literal != "a" {
+		t.Errorf("char literal = %q, want %q", tokens[2].Literal, "a")
 	}
 }

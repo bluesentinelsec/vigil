@@ -98,6 +98,18 @@ string raw = `no \n escapes`;  // backtick: raw/multi-line, no escape processing
 string msg = f"hello {name}";  // f-string: expressions in {} are evaluated
 ```
 
+### Character Literals
+
+Single-character strings can be written with single quotes for clarity:
+
+```c
+string ch = 'a';               // equivalent to "a"
+string newline = '\n';         // escape sequences work
+if (ch == 'x') { ... }         // clearer than ch == "x"
+```
+
+Character literals are syntactic sugar — they create single-character strings, not a separate type. Supported escapes: `\n`, `\t`, `\r`, `\\`, `\'`.
+
 ### String Interpolation
 
 F-strings evaluate expressions inside `{}` and convert them to strings:

@@ -128,6 +128,49 @@ func (l *Lexer) readString() (Token, error) {
 	}
 }
 
+func (l *Lexer) readCharLiteral() (Token, error) {
+	startLine, startCol := l.line, l.col
+	l.advance() // skip opening '
+
+	if l.pos >= len(l.input) {
+		return Token{}, fmt.Errorf("%d:%d: unterminated character literal — expected character after '", startLine, startCol)
+	}
+
+	var ch byte
+	if l.peek() == '\\' {
+		// Escape sequence
+		l.advance() // skip \
+		if l.pos >= len(l.input) {
+			return Token{}, fmt.Errorf("%d:%d: unterminated escape sequence in character literal", startLine, startCol)
+		}
+		esc := l.advance()
+		switch esc {
+		case 'n':
+			ch = '\n'
+		case 't':
+			ch = '\t'
+		case 'r':
+			ch = '\r'
+		case '\\':
+			ch = '\\'
+		case '\'':
+			ch = '\''
+		default:
+			return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c in character literal — valid escapes are \\n, \\t, \\r, \\\\, \\'", startLine, startCol, esc)
+		}
+	} else {
+		ch = l.advance()
+	}
+
+	if l.pos >= len(l.input) || l.peek() != '\'' {
+		return Token{}, fmt.Errorf("%d:%d: unterminated character literal — expected closing ' after character", startLine, startCol)
+	}
+	l.advance() // skip closing '
+
+	// Character literals are syntactic sugar for single-character strings
+	return Token{TOKEN_STRING, string(ch), startLine, startCol}, nil
+}
+
 func (l *Lexer) readRawString() (Token, error) {
 	startLine, startCol := l.line, l.col
 	l.advance() // consume opening backtick
@@ -371,6 +414,11 @@ func (l *Lexer) nextToken() (Token, error) {
 	// string
 	if ch == '"' {
 		return l.readString()
+	}
+
+	// character literal (single quotes)
+	if ch == '\'' {
+		return l.readCharLiteral()
 	}
 
 	// raw string (backtick)

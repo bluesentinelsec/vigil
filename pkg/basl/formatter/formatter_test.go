@@ -625,3 +625,71 @@ func TestFormatTernaryAllContexts(t *testing.T) {
 		t.Errorf("ternary all contexts:\ngot:\n%s\nwant:\n%s", got, src)
 	}
 }
+
+func TestFormatCharLiterals(t *testing.T) {
+	src := `fn main() -> i32 {
+string ch='a';
+if(ch=='a'){
+fmt.println("match");
+}
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string ch = 'a';
+    if (ch == 'a') {
+        fmt.println("match");
+    }
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("char literals:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatCharLiteralEscapes(t *testing.T) {
+	src := `fn main() -> i32 {
+string n='\n';
+string t='\t';
+string r='\r';
+string bs='\\';
+string sq='\'';
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string n = '\n';
+    string t = '\t';
+    string r = '\r';
+    string bs = '\\';
+    string sq = '\'';
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("char literal escapes:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatCharVsString(t *testing.T) {
+	// Single-char strings formatted as char literals, multi-char as strings
+	src := `fn main() -> i32 {
+string ch="a";
+string str="hello";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string ch = 'a';
+    string str = "hello";
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("char vs string:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
