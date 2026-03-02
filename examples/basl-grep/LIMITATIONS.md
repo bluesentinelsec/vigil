@@ -1,175 +1,105 @@
-# BASL Limitations Exposed by grep Implementation
+# BASL Limitations Exposed and Fixed
 
 **STATUS: ALL 5 FIXED! ✅**
 
-This document records the language and stdlib limitations that were discovered while implementing grep, and documents how they were fixed.
-
-**Summary:**
-- ✅ Type namespace mismatch - FIXED
-- ✅ Subprocess API - FIXED
-- ✅ CLI parsing - FIXED (short flags + variadic as space-separated string)
-- ✅ Compiled regex - FIXED
-- ✅ API consistency - FIXED
+This document records the language and stdlib limitations discovered while implementing grep, and how they were fixed.
 
 ---
 
 ## 1. Type Namespace Mismatch - FIXED ✅
 
-**Issue:** Module functions returned unqualified type names, but type annotations required module-qualified names.
+**Issue:** Module functions returned unqualified type names.
 
-**Example of the problem:**
-```basl
-import "file";
+**Fix:** All stdlib types now use module-qualified names:
+- `file.FileStat`, `file.File`, `args.ArgParser`, `args.Result`, `regex.Regex`
 
-fn main() -> i32 {
-    // file.stat() returns FileStat, not file.FileStat
-    file.FileStat stat, err e = file.stat("test.txt");  // Runtime error!
-    // Error: type mismatch - expected file.FileStat, received FileStat
-    return 0;
-}
-```
-
-**Fix:** Changed all stdlib types to use module-qualified names:
-- `file.FileStat` (was `FileStat`)
-- `file.File` (was `File`)
-- `args.ArgParser` (was `ArgParser`)
-- `regex.Regex` (new type)
-
-**Result:** Type annotations now match runtime types. Coherent namespaced-type model for stdlib.
+**Result:** Type annotations match runtime types.
 
 ---
 
-## 2. No Subprocess API - FIXED ✅
+## 2. Subprocess API - FIXED ✅
 
-**Issue:** No way to execute shell commands and capture output/exit codes for integration testing.
+**Issue:** No way to get exit codes from subprocesses.
 
 **Fix:** Enhanced `os.exec()` and added `os.system()`:
-
 ```basl
-// os.exec() now returns exit code
-string stdout, string stderr, i32 exitCode, err e = os.exec("cmd", "arg1");
-
-// os.system() for shell execution
-string stdout, string stderr, i32 exitCode, err e = os.system("grep hello *.txt");
+string out, string err, i32 exitCode, err e = os.exec("cmd", "arg");
+string out, string err, i32 exitCode, err e = os.system("shell command");
 ```
 
-**Result:** Integration testing now possible in BASL. Exit codes properly captured.
+**Result:** Exit codes available. Non-zero exit is NOT an error.
 
 ---
 
 ## 3. CLI Parsing - FIXED ✅
 
-**Issue:** `args.ArgParser` only handled long flags and fixed positional args.
+**Issue:** No short flags, no variadic args, no validation.
 
-**Fix:** Added short flag and variadic support:
-
+**Fix:** Professional `args.Result` API with typed getters:
 ```basl
-import "args";
-
-fn main() -> i32 {
-    args.ArgParser parser = args.parser("grep", "Search tool");
-    
-    // Short flags now supported
-    parser.flag("verbose", "bool", "false", "Verbose output", "v");
-    parser.flag("count", "string", "10", "Count", "c");
-    
-    // Variadic positionals now supported (as space-separated string)
-    parser.arg("files", "string", "Files to process", true);
-    
-    map<string, string> result, err e = parser.parse();
-    // Can now parse: grep -v -c 20 file1.txt file2.txt file3.txt
-    
-    // Split variadic string to get individual files
-    array<string> fileList = result["files"].split(" ");
-    
-    return 0;
-}
+args.Result result, err e = parser.parse_result();
+string pattern = result.get_string("pattern");
+bool verbose = result.get_bool("verbose");
+array<string> files = result.get_list("files");  // Native array!
 ```
 
-**Result:** Unix-style CLI parsing now works. Short flags (`-i`, `-n`) and variadic args both supported.
+**Features:**
+- Short flags (`-i`, `-n`)
+- Long flags (`--ignore-case`)
+- Variadic positionals (native `array<string>`)
+- Unknown flag validation
+- Missing value validation
+- `--` end-of-options support
 
-**Implementation:** Variadic args are collected as space-separated string, keeping the map homogeneous (all string values). User splits the string to get individual values. This is a practical solution that works within BASL's type system.
+**Result:** Professional, production-ready CLI parsing.
 
 ---
 
-## 4. No Compiled Regex - FIXED ✅
+## 4. Compiled Regex - FIXED ✅
 
-**Issue:** Every `regex.match()` call recompiled the pattern (O(n) overhead).
+**Issue:** Every `regex.match()` recompiled the pattern.
 
 **Fix:** Added `regex.compile()` and `regex.Regex` type:
-
 ```basl
-import "regex";
-
-fn main() -> i32 {
-    // Compile once
-    regex.Regex re, err e = regex.compile("hello.*world");
-    if (e != ok) {
-        return 1;
-    }
-    
-    // Reuse compiled regex (no recompilation!)
-    for line in lines {
-        bool matches = re.match(line);
-        if (matches) {
-            fmt.println(line);
-        }
-    }
-    
-    return 0;
+regex.Regex re, err e = regex.compile("pattern");
+for line in lines {
+    bool matches = re.match(line);  // No recompilation!
 }
 ```
 
-**Methods available:**
-- `re.match(s)` -> bool
-- `re.find(s)` -> string
-- `re.find_all(s)` -> array<string>
-- `re.replace(s, repl)` -> string
-- `re.split(s)` -> array<string>
-
-**Result:** Grep-style tools no longer have O(n) pattern recompilation overhead. Major performance improvement.
+**Result:** No O(n) recompilation overhead. Major performance improvement.
 
 ---
 
-## 5. API Inconsistency - FIXED ✅
+## 5. API Consistency - FIXED ✅
 
-**Issue:** Similar operations had inconsistent names.
+**Issue:** Inconsistent naming (`file.list_dir` vs `file.read_all`).
 
-**Example:** `file.list_dir()` vs natural `file.read_dir()`
+**Fix:** Added `file.read_dir()` as alias for `file.list_dir()`.
 
-**Fix:** Added `file.read_dir()` as alias for `file.list_dir()`:
-
-```basl
-// Both now work
-array<string> entries1, err e1 = file.list_dir(".");
-array<string> entries2, err e2 = file.read_dir(".");  // New alias
-```
-
-**Result:** Consistent naming with `file.read_all()`. Better discoverability.
+**Result:** Consistent naming conventions.
 
 ---
 
 ## Summary
 
-All 5 limitations have been fixed:
+All 5 limitations fixed:
 
-1. ✅ **Type namespacing** - Coherent model for stdlib record types
-2. ✅ **Subprocess API** - Shell execution, exit codes, output capture
-3. ✅ **CLI parsing** - Short flags + variadic (as space-separated string)
+1. ✅ **Type namespacing** - Coherent model for stdlib types
+2. ✅ **Subprocess API** - Exit codes, shell execution
+3. ✅ **CLI parsing** - Professional API with native arrays
 4. ✅ **Compiled regex** - Reusable pattern objects
-5. ✅ **API consistency** - Predictable naming conventions
+5. ✅ **API consistency** - Predictable naming
 
-**Variadic Solution:** Variadic positionals are collected as space-separated string, keeping maps homogeneous. User calls `.split(" ")` to get individual values. This is a practical solution that works within BASL's type system and is suitable for production use.
+These fixes enable production-ready Unix-tool development in BASL.
 
-These fixes enable idiomatic Unix-tool development in BASL.
+## grep Implementation
 
-## grep Implementation Status
-
-The grep implementation now uses all these features:
-- ✅ Compiled regex for performance
-- ✅ Recursive search with `file.FileStat`
-- ✅ Proper type namespacing
-- ✅ All features working
+The grep implementation demonstrates all fixes:
+- Uses `args.Result` with typed getters
+- Uses `regex.compile()` for performance
+- Uses proper type namespacing
+- Handles all edge cases (spaces, special chars, etc.)
+- Production-ready code
 
 See [README.md](README.md) for usage examples.
-

@@ -12,7 +12,7 @@ fn test_tr_basic() -> void {
 
 fn test_tr_length_mismatch() -> void {
     string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "printf 'test\\n' | ./basl examples/basl-tr/main.basl abc 12 2>&1");
-    t.assert(string(e) != "ok", "tr should reject mismatched set lengths");
+    t.assert(exitCode != 0, "tr should reject mismatched set lengths");
 }
 
 fn main() -> i32 {

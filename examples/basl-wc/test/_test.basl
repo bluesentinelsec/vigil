@@ -97,7 +97,7 @@ fn test_wc_missing_file() -> void {
     string missing = get_temp_path("basl_wc_nonexistent.txt");
     
     string stdout, string stderr, i32 exitCode, err e = os.exec(basl_bin, main_script, missing);
-    t.assert(e != ok, "basl-wc should fail on missing file");
+    t.assert(exitCode != 0, "basl-wc should fail on missing file");
     t.assert(stderr.contains("basl-wc:"), "should show error on stderr");
 }
 

@@ -1,23 +1,20 @@
 # basl-grep
 
-A full-featured grep implementation in BASL demonstrating stdlib capabilities.
-
-## Purpose
-
-This tool validates BASL's standard library functionality through real-world Unix tool implementation. All originally identified limitations have been fixed!
+A full-featured grep implementation in BASL demonstrating professional CLI parsing, compiled regex, and file I/O.
 
 ## Features Implemented
 
 ✅ **Basic pattern matching** with regular expressions  
 ✅ **Case-insensitive search** (`-i`, `--ignore-case`)  
-✅ **Invert match** (`-v`, `--invert-match`) - show non-matching lines  
+✅ **Invert match** (`-v`, `--invert-match`)  
 ✅ **Line numbers** (`-n`, `--line-number`)  
 ✅ **Count matches** (`-c`, `--count`)  
 ✅ **List matching files** (`-l`, `--files-with-matches`)  
-✅ **Recursive search** (`-r`, `--recursive`) - NOW WORKING!  
-✅ **Multiple file support** with filename prefixes  
+✅ **Recursive search** (`-r`, `--recursive`)  
+✅ **Multiple file support** (variadic, handles spaces)  
 ✅ **Proper exit codes** (0=match found, 1=no match, 2=error)  
-✅ **Compiled regex** - Pattern compiled once, reused for all lines
+✅ **Compiled regex** - Pattern compiled once, reused  
+✅ **Professional args parsing** - Uses `args.Result` with typed getters  
 
 ## Usage
 
@@ -25,70 +22,51 @@ This tool validates BASL's standard library functionality through real-world Uni
 # Basic search
 basl main.basl "pattern" file.txt
 
-# Case-insensitive
-basl main.basl -i "PATTERN" file.txt
+# Filenames with spaces work correctly
+basl main.basl "hello" "/tmp/my file.txt"
 
-# With line numbers
-basl main.basl -n "pattern" file.txt
-
-# Count matches
-basl main.basl -c "pattern" file.txt
-
-# Invert match (show non-matching lines)
-basl main.basl -v "pattern" file.txt
-
-# List files with matches
-basl main.basl -l "pattern" file1.txt file2.txt
+# Short flags with multiple files
+basl main.basl -i -n "PATTERN" file1.txt file2.txt file3.txt
 
 # Recursive search
 basl main.basl -r "pattern" directory/
 
-# Combine flags
-basl main.basl -i -n "pattern" file.txt
+# Files starting with - (use --)
+basl main.basl "pattern" -- -weird.txt
+
+# All features combined
+basl main.basl -i -n -c "pattern" *.txt
 ```
 
-## Standard Library Validation
+## Implementation Highlights
 
-This implementation validates:
+**Professional Args Parsing:**
+```basl
+args.Result result, err e = parser.parse_result();
+array<string> files = result.get_list("files");  // Native array!
+bool verbose = result.get_bool("verbose");
+```
 
-### regex module ✅
-- `regex.compile(pattern)` - Compile regex once
-- `re.match(string)` - Reusable compiled regex
-- Case-insensitive with `(?i)` flag
-- No recompilation overhead
+**Compiled Regex:**
+```basl
+regex.Regex re, err e = regex.compile(pattern);
+// Pattern compiled once, reused for all lines
+```
 
-### file module ✅
-- `file.read_all(path)` - Read file contents
-- `file.read_dir(path)` - List directory (new alias!)
-- `file.stat(path)` - Get file/directory info
-- `file.FileStat` type with proper namespace
+**Type Namespacing:**
+```basl
+file.FileStat stat, err e = file.stat(filepath);
+```
 
-### path module ✅
-- `path.join(dir, file)` - Build paths correctly
+## BASL Features Validated
 
-### os module ✅
-- `os.args()` - Command-line arguments
-- Returns array without script name
+This implementation validates all 5 stdlib improvements:
 
-### fmt module ✅
-- `fmt.println()` / `fmt.eprintln()` - Output
-- F-string interpolation
-
-## Performance
-
-Uses compiled regex objects - pattern is compiled once and reused for all lines. This eliminates the O(n) recompilation overhead that would occur with `regex.match()` on every line.
-
-## BASL Improvements Validated
-
-This implementation validates the fixes for all 5 limitations:
-
-1. ✅ **Type Namespace** - `file.FileStat` works correctly
-2. ✅ **Subprocess API** - `os.system()` and enhanced `os.exec()` available
-3. ✅ **CLI Parsing** - Short flags and variadic args both work
+1. ✅ **Type Namespace** - `file.FileStat`, `args.ArgParser`, `args.Result`
+2. ✅ **Subprocess API** - `os.system()` and `os.exec()` with exit codes
+3. ✅ **CLI Parsing** - Professional `args.Result` with native array variadics
 4. ✅ **Compiled Regex** - `regex.compile()` and `regex.Regex` type
-5. ✅ **API Consistency** - `file.read_dir()` alias added
-
-**Note:** This implementation now uses `args.ArgParser` with variadic support. Variadic args are returned as space-separated string, which is split to get individual files.
+5. ✅ **API Consistency** - `file.read_dir()` alias
 
 See [LIMITATIONS.md](LIMITATIONS.md) for detailed analysis.
 
@@ -98,18 +76,10 @@ See [LIMITATIONS.md](LIMITATIONS.md) for detailed analysis.
 - `1` - No match found
 - `2` - Error (missing args, file not found, invalid pattern, etc.)
 
-## Implementation Notes
-
-- Compiles regex once using `regex.compile()`
-- Uses `file.FileStat` with proper module qualification
-- Uses `file.read_dir()` for directory listing
-- Recursive search fully functional
-- Pattern reused across all lines (no recompilation)
-
 ## Value
 
-This implementation:
-1. **Validates stdlib** - All modules work correctly
-2. **Demonstrates capabilities** - BASL can implement real Unix tools
-3. **Validates fixes** - All 5 limitations have been resolved
-4. **Provides example** - Developers can learn from working code
+This implementation demonstrates:
+1. **Professional CLI parsing** - Clean, typed API
+2. **Performance** - Compiled regex, no recompilation overhead
+3. **Robustness** - Handles spaces, special characters, edge cases
+4. **Production-ready** - All features work correctly
