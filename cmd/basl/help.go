@@ -161,15 +161,17 @@ var commandHelp = map[string]helpEntry{
 	},
 	"package": {
 		Name:    "package",
-		Summary: "Build or inspect standalone BASL executables",
+		Summary: "Package a BASL project as an executable or library",
 		Usage: []string{
 			"basl package [-o output] [--path dir] [<entry.basl|project-dir>]",
 			"basl package --inspect <binary>",
 		},
 		Description: []string{
-			"Creates a standalone executable by copying the current basl binary and appending a bundled BASL payload.",
+			"Auto-detects project type and packages accordingly.",
+			"Applications (with main.basl) become standalone executables.",
+			"Libraries (without main.basl) become distributable directory bundles.",
 			"In a BASL project root, `basl package` defaults to ./main.basl and resolves imports from lib/ and deps/ automatically.",
-			"Use --inspect to show the packaged entrypoint and bundled BASL files.",
+			"Use --inspect to show the packaged entrypoint and embedded BASL files.",
 		},
 		Examples: []string{
 			"basl package",
@@ -277,14 +279,14 @@ var topicHelp = map[string]helpEntry{
 	},
 	"packaging": {
 		Name:    "packaging",
-		Summary: "How standalone BASL executables are built",
+		Summary: "How BASL projects are packaged",
 		Usage: []string{
 			"basl package -o myapp ./app/main.basl",
 			"basl package --inspect ./myapp",
 		},
 		Description: []string{
-			"The packaged output is a copy of the current basl executable plus an appended BASL payload.",
-			"The payload contains the entry script and reachable BASL source imports, rewritten to internal bundle paths.",
+			"Applications (with main.basl) become standalone executables containing the basl interpreter and your source.",
+			"Libraries (without main.basl) become distributable directory bundles.",
 			"In a BASL project root, packaging defaults to main.basl and searches lib/ and deps/ automatically.",
 			"Cross-compilation is intentionally unsupported.",
 		},

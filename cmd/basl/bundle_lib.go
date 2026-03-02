@@ -8,22 +8,6 @@ import (
 	"strings"
 )
 
-func runBundle(args []string) int {
-	var outputDir string
-	var projectDir string
-
-	for i := 0; i < len(args); i++ {
-		if args[i] == "-o" && i+1 < len(args) {
-			outputDir = args[i+1]
-			i++
-		} else {
-			projectDir = args[i]
-		}
-	}
-
-	return runLibraryBundle(projectDir, outputDir)
-}
-
 func runLibraryBundle(projectDir, outputDir string) int {
 	if projectDir == "" {
 		projectDir = "."
