@@ -17,7 +17,7 @@ func (interp *Interpreter) makeRegexModule() *Env {
 		}
 		re, err := regexp.Compile(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		obj := &value.ObjectVal{
 			ClassName: "regex.Regex",
@@ -35,7 +35,7 @@ func (interp *Interpreter) makeRegexModule() *Env {
 		}
 		matched, err := regexp.MatchString(args[0].AsString(), args[1].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.False, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.False, value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewBool(matched), value.Ok}}
 	}))
@@ -45,7 +45,7 @@ func (interp *Interpreter) makeRegexModule() *Env {
 		}
 		re, err := regexp.Compile(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		m := re.FindString(args[1].AsString())
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(m), value.Ok}}
@@ -56,7 +56,7 @@ func (interp *Interpreter) makeRegexModule() *Env {
 		}
 		re, err := regexp.Compile(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		matches := re.FindAllString(args[1].AsString(), -1)
 		elems := make([]value.Value, len(matches))
@@ -71,7 +71,7 @@ func (interp *Interpreter) makeRegexModule() *Env {
 		}
 		re, err := regexp.Compile(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(re.ReplaceAllString(args[1].AsString(), args[2].AsString())), value.Ok}}
 	}))
@@ -81,7 +81,7 @@ func (interp *Interpreter) makeRegexModule() *Env {
 		}
 		re, err := regexp.Compile(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		parts := re.Split(args[1].AsString(), -1)
 		elems := make([]value.Value, len(parts))

@@ -21,7 +21,7 @@ string h = hex.encode("AB");  // "4142"
 Decodes a hexadecimal string.
 
 - Returns `(decoded, ok)` on success.
-- Returns `("", err(message))` on invalid hex input (odd length, non-hex chars).
+- Returns `("", err(message, err.parse))` on invalid hex input (odd length, non-hex chars).
 
 ```c
 string decoded, err e = hex.decode("4142");  // decoded = "AB"

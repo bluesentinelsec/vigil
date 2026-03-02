@@ -24,7 +24,7 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 		files := args[1].AsArray()
 		out, err := os.Create(outPath)
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		defer out.Close()
 		tw := tar.NewWriter(out)
@@ -33,23 +33,23 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 			p := fv.AsString()
 			info, err := os.Stat(p)
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			hdr, err := tar.FileInfoHeader(info, "")
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			hdr.Name = filepath.Base(p)
 			if err := tw.WriteHeader(hdr); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			if !info.IsDir() {
 				data, err := os.ReadFile(p)
 				if err != nil {
-					return value.NewErr(err.Error()), nil
+					return value.NewErr(err.Error(), value.ErrKindIO), nil
 				}
 				if _, err := tw.Write(data); err != nil {
-					return value.NewErr(err.Error()), nil
+					return value.NewErr(err.Error(), value.ErrKindIO), nil
 				}
 			}
 		}
@@ -62,7 +62,7 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 		}
 		f, err := os.Open(args[0].AsString())
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		defer f.Close()
 		dest := args[1].AsString()
@@ -73,7 +73,7 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 				break
 			}
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			target := filepath.Join(dest, hdr.Name)
 			if hdr.Typeflag == tar.TypeDir {
@@ -83,10 +83,10 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 			os.MkdirAll(filepath.Dir(target), 0755)
 			data, err := io.ReadAll(tr)
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			if err := os.WriteFile(target, data, os.FileMode(hdr.Mode)); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 		}
 		return value.Ok, nil
@@ -100,7 +100,7 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 		files := args[1].AsArray()
 		out, err := os.Create(outPath)
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		defer out.Close()
 		zw := zip.NewWriter(out)
@@ -109,14 +109,14 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 			p := fv.AsString()
 			data, err := os.ReadFile(p)
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			w, err := zw.Create(filepath.Base(p))
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			if _, err := w.Write(data); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 		}
 		return value.Ok, nil
@@ -128,7 +128,7 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 		}
 		r, err := zip.OpenReader(args[0].AsString())
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		defer r.Close()
 		dest := args[1].AsString()
@@ -141,15 +141,15 @@ func (interp *Interpreter) makeArchiveModule() *Env {
 			os.MkdirAll(filepath.Dir(target), 0755)
 			rc, err := f.Open()
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			data, err := io.ReadAll(rc)
 			rc.Close()
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			if err := os.WriteFile(target, data, f.Mode()); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 		}
 		return value.Ok, nil

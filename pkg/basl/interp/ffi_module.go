@@ -17,7 +17,7 @@ func (interp *Interpreter) makeFfiModule() *Env {
 		}
 		lib, err := ffi.Open(args[0].AsString(), interp.ffiPolicy)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapFfiLib(lib), value.Ok}}
 	}))
@@ -56,7 +56,7 @@ func (interp *Interpreter) makeFfiModule() *Env {
 
 		bound, err := lib.Bind(symName, retType, paramTypes)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapBoundFunc(bound), value.Ok}}
 	}))
@@ -75,7 +75,7 @@ func (interp *Interpreter) wrapFfiLib(lib *ffi.Lib) value.Value {
 
 	obj.Fields["close"] = value.NewNativeFunc("ffi.Lib.close", func(args []value.Value) (value.Value, error) {
 		if err := lib.Close(); err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		return value.Ok, nil
 	})
@@ -129,7 +129,7 @@ func (interp *Interpreter) wrapBoundFunc(bf *ffi.BoundFunc) value.Value {
 		result, err := bf.Call(goArgs)
 		if err != nil {
 			def := defaultForType(bf.RetType)
-			return value.Void, &MultiReturnVal{Values: []value.Value{def, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{def, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 
 		retVal := marshalReturn(result, bf.RetType)
@@ -164,13 +164,13 @@ func callGeneric(bf *ffi.BoundFunc, args []value.Value) (value.Value, error) {
 	result, err := bf.CallGeneric(goArgs)
 	if err != nil {
 		def := defaultForType(bf.RetType)
-		return value.Void, &MultiReturnVal{Values: []value.Value{def, value.NewErr(err.Error())}}
+		return value.Void, &MultiReturnVal{Values: []value.Value{def, value.NewErr(err.Error(), value.ErrKindIO)}}
 	}
 
 	switch bf.RetType {
 	case "ptr":
 		if result == 0 {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NullPtr, value.NewErr("returned null")}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NullPtr, value.NewErr("returned null", value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewPtr(result), value.Ok}}
 	case "i32":

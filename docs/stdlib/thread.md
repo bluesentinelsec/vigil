@@ -27,7 +27,7 @@ Spawns a new OS thread that executes `func` with the given arguments.
 - The function and arguments are snapshot-copied for the new thread.
 - The spawned thread acquires the GIL before executing BASL code.
 - Returns `(thread, ok)` on success.
-- Returns `(void, err(message))` on failure (e.g., callback slot exhaustion, pthread_create failure).
+- Returns `(void, err(message, err.io))` on failure (e.g., callback slot exhaustion, pthread_create failure).
 
 ```c
 fn worker(i32 x) -> i32 {
@@ -55,8 +55,8 @@ Blocks until the thread completes and returns its result.
 
 - Releases the GIL while waiting, allowing the joined thread to run.
 - Returns `(result, ok)` on success, where `result` is the return value of the spawned function.
-- Returns `(void, err(message))` on failure (pthread_join failure, or if the spawned function errored).
-- Joining a thread that was already joined returns `err("thread already joined")`.
+- Returns `(void, err(message, err.state))` on failure (pthread_join failure, or if the spawned function errored).
+- Joining a thread that was already joined returns `err("thread already joined", err.state)`.
 - Frees the callback slot after joining.
 
 ```c

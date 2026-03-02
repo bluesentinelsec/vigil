@@ -19,7 +19,7 @@ func (interp *Interpreter) makeCsvModule() *Env {
 		r := csv.NewReader(strings.NewReader(args[0].AsString()))
 		records, err := r.ReadAll()
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		rows := make([]value.Value, len(records))
 		for i, rec := range records {

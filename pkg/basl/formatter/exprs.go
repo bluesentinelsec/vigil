@@ -124,7 +124,7 @@ func (f *formatter) exprStr(e ast.Expr) string {
 	case *ast.TypeConvExpr:
 		return typeExprStr(e.Target) + "(" + f.exprStr(e.Arg) + ")"
 	case *ast.ErrExpr:
-		return "err(" + f.exprStr(e.Msg) + ")"
+		return "err(" + f.exprStr(e.Msg) + ", " + f.exprStr(e.Kind) + ")"
 	case *ast.FnLitExpr:
 		return f.fnLitStr(e)
 	case *ast.FStringExpr:

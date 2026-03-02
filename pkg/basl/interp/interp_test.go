@@ -123,10 +123,10 @@ func TestExec_MultiReturn(t *testing.T) {
 		wantOutput []string
 	}{
 		{"ok_path", `import "fmt";
-fn parse(string s) -> (i32, err) { if (s == "42") { return (42, ok); } return (0, err("bad")); }
+fn parse(string s) -> (i32, err) { if (s == "42") { return (42, ok); } return (0, err("bad", err.parse)); }
 fn main() -> i32 { i32 n, err e = parse("42"); fmt.print(string(n)); return 0; }`, []string{"42"}},
 		{"err_path", `import "fmt";
-fn parse(string s) -> (i32, err) { if (s == "42") { return (42, ok); } return (0, err("bad")); }
+fn parse(string s) -> (i32, err) { if (s == "42") { return (42, ok); } return (0, err("bad", err.parse)); }
 fn main() -> i32 { i32 n, err e = parse("x"); fmt.print(e.message()); return 0; }`, []string{"bad"}},
 	}
 	for _, tt := range tests {

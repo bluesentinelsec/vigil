@@ -20,7 +20,7 @@ func (interp *Interpreter) makeTcpModule() *Env {
 		}
 		ln, err := net.Listen("tcp", args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		obj := &value.ObjectVal{
 			ClassName: "TcpListener",
@@ -35,7 +35,7 @@ func (interp *Interpreter) makeTcpModule() *Env {
 		}
 		conn, err := net.DialTimeout("tcp", args[0].AsString(), 10*time.Second)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{makeTcpConn(conn), value.Ok}}
 	}))
@@ -62,14 +62,14 @@ func (interp *Interpreter) tcpListenerMethod(obj value.Value, method string, lin
 		return value.NewNativeFunc("TcpListener.accept", func(args []value.Value) (value.Value, error) {
 			conn, err := ln.Accept()
 			if err != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{makeTcpConn(conn), value.Ok}}
 		}), nil
 	case "close":
 		return value.NewNativeFunc("TcpListener.close", func(args []value.Value) (value.Value, error) {
 			if err := ln.Close(); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil
@@ -92,7 +92,7 @@ func (interp *Interpreter) tcpConnMethod(obj value.Value, method string, line in
 			}
 			_, err := c.Write([]byte(args[0].AsString()))
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil
@@ -104,14 +104,14 @@ func (interp *Interpreter) tcpConnMethod(obj value.Value, method string, line in
 			buf := make([]byte, args[0].AsI32())
 			n, err := c.Read(buf)
 			if err != nil && err != io.EOF {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(buf[:n])), value.Ok}}
 		}), nil
 	case "close":
 		return value.NewNativeFunc("TcpConn.close", func(args []value.Value) (value.Value, error) {
 			if err := c.Close(); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil

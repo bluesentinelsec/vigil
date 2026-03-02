@@ -95,7 +95,7 @@ func (interp *Interpreter) makeHttpModule() *Env {
 		})
 		err := http.ListenAndServe(addr, handler)
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		return value.Ok, nil
 	}))
@@ -110,7 +110,7 @@ func doHTTP(method, url, body string, headers map[string]string) (value.Value, e
 	}
 	req, err := http.NewRequest(method, url, bodyReader)
 	if err != nil {
-		return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -118,12 +118,12 @@ func doHTTP(method, url, body string, headers map[string]string) (value.Value, e
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 	}
 	hdrs := &value.MapVal{}
 	for k := range resp.Header {

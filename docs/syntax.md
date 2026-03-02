@@ -42,7 +42,7 @@ Modules export only `pub` declarations.
 | `u64`    | 64-bit unsigned integer      | `u64(42)`        |
 | `bool`   | Boolean                      | `true`, `false`  |
 | `string` | UTF-8 string                 | `"hello"`        |
-| `err`    | Error value                  | `err("failed")`  |
+| `err`    | Error value                  | `err("failed", err.io)` |
 | `void`   | No value                     |                  |
 
 ### Composite Types
@@ -285,7 +285,7 @@ Functions can return multiple values:
 ```c
 fn divide(i32 a, i32 b) -> (i32, err) {
     if (b == 0) {
-        return (0, err("division by zero"));
+        return (0, err("division by zero", err.arg));
     }
     return (a / b, ok);
 }
@@ -592,30 +592,62 @@ if (e != ok) {
 }
 ```
 
-The `err` type has two states: `ok` for success, or `err("message")` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
+The `err` type has two states: `ok` for success, or `err(message, kind)` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
+
+### Creating Errors
+
+Errors require a message and a kind:
+
+```c
+err("file not found", err.not_found)
+err("bad JSON at line 3", err.parse)
+err("index 5 out of range", err.bounds)
+```
+
+The kind must be one of the standard error kinds. Invalid kinds produce a runtime error.
 
 ### Error Methods
 
-| Method          | Returns | Description                    |
-|-----------------|---------|--------------------------------|
-| `e.message()`   | `string`| Get error message              |
-| `e.is_eof()`    | `bool`  | Check if error is EOF          |
+| Method          | Returns  | Description                    |
+|-----------------|----------|--------------------------------|
+| `e.message()`   | `string` | Get error message              |
+| `e.kind()`      | `string` | Get error kind                 |
 
-**Note:** `is_eof()` only returns true for EOF errors created by stdlib I/O functions. User-created `err("EOF")` values are not treated as EOF.
+### Error Kinds
+
+Standard error kinds are available as constants on the `err` namespace:
+
+| Constant          | Meaning                                      |
+|-------------------|----------------------------------------------|
+| `err.not_found`   | Resource doesn't exist                       |
+| `err.permission`  | Access denied                                |
+| `err.exists`      | Already exists                               |
+| `err.eof`         | End of input                                 |
+| `err.io`          | General I/O failure                          |
+| `err.parse`       | Malformed input                              |
+| `err.bounds`      | Index out of range                           |
+| `err.type`        | Type conversion failure                      |
+| `err.arg`         | Invalid argument                             |
+| `err.timeout`     | Operation timed out                          |
+| `err.closed`      | Resource already closed                      |
+| `err.state`       | Invalid state                                |
+
+### Routing Errors by Kind
+
+Use `switch` on `e.kind()` to handle errors by type:
 
 ```c
-string line, err e = io.read_line();
+string data, err e = file.read_all("config.txt");
 if (e != ok) {
-    if (e.is_eof()) {
-        fmt.println("end of input");
-    } else {
-        fmt.eprintln(f"error: {e.message()}");
+    switch (e.kind()) {
+        case err.not_found:
+            fmt.println("file missing, using defaults");
+        case err.permission:
+            fmt.println("access denied");
+        default:
+            fmt.eprintln(f"error: {e.message()}");
     }
 }
-
-// User-created err("EOF") is NOT treated as EOF
-err e2 = err("EOF");
-bool is_eof = e2.is_eof();  // false
 ```
 
 ## defer

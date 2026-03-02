@@ -34,7 +34,7 @@ fn main() -> i32 {
                 line_parts.push(line);
                 any_data = true;
             } else {
-                if (e.is_eof()) {
+                if (e.kind() == err.eof) {
                     line_parts.push("");
                 } else {
                     fmt.eprintln(f"paste: read error: {e}");

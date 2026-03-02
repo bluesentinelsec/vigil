@@ -39,7 +39,7 @@ func (interp *Interpreter) jsonMethod(obj value.Value, method string, line int) 
 			}
 			v, ok := m[args[0].AsString()]
 			if !ok {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("key not found: " + args[0].AsString())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("key not found: "+args[0].AsString(), value.ErrKindNotFound)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapJsonValue(v), value.Ok}}
 		}), nil
@@ -123,7 +123,7 @@ func (interp *Interpreter) jsonMethod(obj value.Value, method string, line int) 
 			}
 			idx := int(args[0].AsI32())
 			if idx < 0 || idx >= len(arr) {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("index out of bounds")}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("index out of bounds", value.ErrKindBounds)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapJsonValue(arr[idx]), value.Ok}}
 		}), nil
@@ -241,7 +241,7 @@ func (interp *Interpreter) makeJsonModule() *Env {
 		}
 		var data interface{}
 		if err := json.Unmarshal([]byte(args[0].AsString()), &data); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapJsonValue(data), value.Ok}}
 	}))
@@ -257,7 +257,7 @@ func (interp *Interpreter) makeJsonModule() *Env {
 		}
 		b, err := json.Marshal(data)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(b)), value.Ok}}
 	}))

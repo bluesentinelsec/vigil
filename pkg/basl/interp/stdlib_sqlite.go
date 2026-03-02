@@ -20,10 +20,10 @@ func (interp *Interpreter) makeSqliteModule() *Env {
 		}
 		db, err := sql.Open("sqlite", args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		if err := db.Ping(); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		obj := &value.ObjectVal{
 			ClassName: "SqliteDB",
@@ -50,7 +50,7 @@ func (interp *Interpreter) sqliteDBMethod(obj value.Value, method string, line i
 			params := toSqlParams(args[1:])
 			_, err := db.Exec(args[0].AsString(), params...)
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil
@@ -62,7 +62,7 @@ func (interp *Interpreter) sqliteDBMethod(obj value.Value, method string, line i
 			params := toSqlParams(args[1:])
 			rows, err := db.Query(args[0].AsString(), params...)
 			if err != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 			}
 			cols, _ := rows.Columns()
 			rObj := &value.ObjectVal{
@@ -77,7 +77,7 @@ func (interp *Interpreter) sqliteDBMethod(obj value.Value, method string, line i
 	case "close":
 		return value.NewNativeFunc("SqliteDB.close", func(args []value.Value) (value.Value, error) {
 			if err := db.Close(); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil

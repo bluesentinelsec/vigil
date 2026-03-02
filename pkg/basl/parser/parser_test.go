@@ -363,7 +363,7 @@ func TestParse_FString(t *testing.T) {
 }
 
 func TestParse_ReturnMultipleValues(t *testing.T) {
-	src := `fn f() -> (i32, err) { return (42, err("fail")); }`
+	src := `fn f() -> (i32, err) { return (42, err("fail", err.parse)); }`
 	if _, err := parseSource(src); err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
