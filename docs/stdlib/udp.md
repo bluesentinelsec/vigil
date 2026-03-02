@@ -14,7 +14,7 @@ Sends a UDP datagram to the given address. Creates a new connection per call and
 
 - `addr` format: `"host:port"`.
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 err e = udp.send("127.0.0.1:5000", "hello");
@@ -25,7 +25,7 @@ err e = udp.send("127.0.0.1:5000", "hello");
 Binds a UDP socket to the given address for receiving datagrams.
 
 - Returns `(conn, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 
 ```c
 UdpConn conn, err e = udp.listen("0.0.0.0:5000");
@@ -38,7 +38,7 @@ UdpConn conn, err e = udp.listen("0.0.0.0:5000");
 Blocks until a datagram is received. Returns up to `max_bytes` of data.
 
 - Returns `(data, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ### conn.close() -> err
 

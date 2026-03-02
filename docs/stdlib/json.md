@@ -13,7 +13,7 @@ import "json";
 Parses a JSON string into a `json.Value`.
 
 - Returns `(value, ok)` on success.
-- Returns `(void, err(message))` on invalid JSON.
+- Returns `(void, err(message, err.parse))` on invalid JSON.
 
 ```c
 json.Value v, err e = json.parse("{\"name\":\"alice\",\"age\":30}");

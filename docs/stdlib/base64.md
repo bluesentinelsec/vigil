@@ -21,7 +21,7 @@ string encoded = base64.encode("hello world");  // "aGVsbG8gd29ybGQ="
 Decodes a base64 string.
 
 - Returns `(decoded, ok)` on success.
-- Returns `("", err(message))` on invalid base64 input.
+- Returns `("", err(message, err.parse))` on invalid base64 input.
 
 ```c
 string decoded, err e = base64.decode("aGVsbG8gd29ybGQ=");

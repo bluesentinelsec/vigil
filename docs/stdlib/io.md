@@ -67,7 +67,7 @@ Reads up to `count` bytes from stdin. Returns the actual data read, which may be
 
 - Returns `(data, ok)` on success, where `0 <= data.len() <= count`
 - Returns `("", ok)` at EOF with no data remaining
-- Returns `("", err(message))` on I/O errors (not EOF)
+- Returns `("", err(message, err.io))` on I/O errors (not EOF)
 
 Matches `File.read()` semantics. Check for empty result to detect EOF:
 
@@ -105,7 +105,7 @@ f.close();
 Reads all of stdin into a string. Useful for reading piped input or implementing Unix-style filters.
 
 - Returns `(content, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string content, err e = io.read_all();

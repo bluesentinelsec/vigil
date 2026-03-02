@@ -21,7 +21,7 @@ Filesystem errors are translated to user-friendly messages:
 Reads the entire file contents as a string.
 
 - Returns `(contents, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string data, err e = file.read_all("config.txt");
@@ -32,7 +32,7 @@ string data, err e = file.read_all("config.txt");
 Writes `data` to the file, creating it if it doesn't exist, truncating if it does. File permissions: `0644`.
 
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 err e = file.write_all("out.txt", "hello");
@@ -51,7 +51,7 @@ err e = file.append("log.txt", "new line\n");
 Reads the file and splits into lines. Trims trailing newline before splitting.
 
 - Returns `(lines, ok)` on success.
-- Returns `([], err(message))` on failure.
+- Returns `([], err(message, err.io))` on failure.
 
 ```c
 array<string> lines, err e = file.read_lines("data.txt");
@@ -86,7 +86,7 @@ err e = file.mkdir("a/b/c");
 Creates an empty file or updates the modification time of an existing file.
 
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 - If file doesn't exist, creates it with permissions `0644`.
 - If file exists, updates access and modification times to current time.
 
@@ -99,7 +99,7 @@ err e = file.touch("newfile.txt");
 Lists the names of entries in a directory.
 
 - Returns `(names, ok)` on success.
-- Returns `([], err(message))` on failure.
+- Returns `([], err(message, err.io))` on failure.
 
 ```c
 array<string> entries, err e = file.list_dir(".");
@@ -128,7 +128,7 @@ Modes:
 | `"rw"` | Read-write, create |
 
 - Returns `(File, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 - Invalid mode returns `err("file.open: invalid mode: MODE", err.arg)`.
 
 ```c
@@ -140,7 +140,7 @@ File f, err e = file.open("data.txt", "r");
 Returns file metadata.
 
 - Returns `(FileStat, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 
 FileStat fields:
 | Field | Type | Description |
@@ -188,4 +188,4 @@ f.close();
 
 ### File.close() -> err
 
-Closes the file handle. Returns `err(message)` if the close fails.
+Closes the file handle. Returns `err(message, err.io)` if the close fails.

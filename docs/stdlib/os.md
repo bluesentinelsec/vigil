@@ -34,7 +34,7 @@ if (found) { fmt.println(val); }
 Sets an environment variable for the current process.
 
 - Returns `ok` on success.
-- Returns `err(message)` if the OS rejects the call.
+- Returns `err(message, err.io)` if the OS rejects the call.
 - Error if args are not two strings: `"os.set_env: expected (string key, string value)"`.
 
 ```c
@@ -57,7 +57,7 @@ os.exit(1);
 Returns the current working directory.
 
 - Returns `(path, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string dir, err e = os.cwd();
@@ -68,7 +68,7 @@ string dir, err e = os.cwd();
 Returns the system hostname.
 
 - Returns `(hostname, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string host, err e = os.hostname();
@@ -88,7 +88,7 @@ Executes an external command and captures its output and exit code.
 
 - Returns `(stdout, stderr, exitCode, ok)` on successful execution.
 - Returns `(stdout, stderr, exitCode, ok)` even on non-zero exit (exit code indicates success/failure).
-- Returns `("", "", 0, err(message))` if command cannot be started.
+- Returns `("", "", 0, err(message, err.io))` if command cannot be started.
 - stdout and stderr are always populated.
 - Error if first arg is not a string: `"os.exec: expected (string cmd, ...string args)"`.
 - Error if any subsequent arg is not a string: `"os.exec: arg N must be string"`.
@@ -108,7 +108,7 @@ Executes a shell command and captures its output and exit code.
 - Runs command through system shell (`sh -c` on Unix, `cmd /C` on Windows).
 - Returns `(stdout, stderr, exitCode, ok)` on successful execution.
 - Returns `(stdout, stderr, exitCode, ok)` even on non-zero exit.
-- Returns `("", "", 0, err(message))` if shell cannot be started.
+- Returns `("", "", 0, err(message, err.io))` if shell cannot be started.
 - Supports shell features like pipes, redirection, wildcards.
 
 ```c

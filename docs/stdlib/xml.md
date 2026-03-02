@@ -14,7 +14,7 @@ Parses an XML string and returns the first root element.
 
 - Returns `(root, ok)` on success.
 - Returns `(void, err("empty XML", err.parse))` if the input has no elements.
-- Returns `(void, err(message))` on malformed XML.
+- Returns `(void, err(message, err.parse))` on malformed XML.
 - Internal `__text` nodes are created for text content but filtered from `children()`.
 
 ```c
