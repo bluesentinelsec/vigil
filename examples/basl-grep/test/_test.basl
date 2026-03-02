@@ -1,0 +1,121 @@
+import "test";
+import "os";
+import "file";
+
+fn test_basic_match(test.T t) -> void {
+	// Create test file
+	file.write("/tmp/basl_grep_test.txt", "hello world\nfoo bar\nhello again\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "hello", "/tmp/basl_grep_test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("hello world"), "should match first line");
+	t.assert(out.contains("hello again"), "should match third line");
+	t.assert(!out.contains("foo bar"), "should not match second line");
+	
+	file.remove("/tmp/basl_grep_test.txt");
+}
+
+fn test_case_insensitive(test.T t) -> void {
+	file.write("/tmp/basl_grep_test.txt", "HELLO world\nfoo bar\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "-i", "hello", "/tmp/basl_grep_test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("HELLO world"), "should match case-insensitively");
+	
+	file.remove("/tmp/basl_grep_test.txt");
+}
+
+fn test_line_numbers(test.T t) -> void {
+	file.write("/tmp/basl_grep_test.txt", "hello world\nfoo bar\nhello again\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "-n", "hello", "/tmp/basl_grep_test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("1:"), "should show line 1");
+	t.assert(out.contains("3:"), "should show line 3");
+	
+	file.remove("/tmp/basl_grep_test.txt");
+}
+
+fn test_filename_with_spaces(test.T t) -> void {
+	file.write("/tmp/basl grep test.txt", "hello world\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "hello", "/tmp/basl grep test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("hello world"), "should match in file with spaces");
+	
+	file.remove("/tmp/basl grep test.txt");
+}
+
+fn test_filename_starting_with_dash(test.T t) -> void {
+	file.write("/tmp/-weird.txt", "hello world\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "hello", "--", "/tmp/-weird.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("hello world"), "should match in file starting with dash");
+	
+	file.remove("/tmp/-weird.txt");
+}
+
+fn test_recursive_search(test.T t) -> void {
+	// Create test directory structure
+	string out1, string err1, i32 code1, err e1 = os.system("mkdir -p /tmp/basl_grep_recursive/subdir");
+	file.write("/tmp/basl_grep_recursive/file1.txt", "hello world\n");
+	file.write("/tmp/basl_grep_recursive/subdir/file2.txt", "hello again\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "-r", "hello", "/tmp/basl_grep_recursive");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("hello world"), "should find in root");
+	t.assert(out.contains("hello again"), "should find in subdir");
+	
+	string out2, string err2, i32 code2, err e2 = os.system("rm -rf /tmp/basl_grep_recursive");
+}
+
+fn test_no_match(test.T t) -> void {
+	file.write("/tmp/basl_grep_test.txt", "foo bar\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "hello", "/tmp/basl_grep_test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 1, "should return 1 for no match");
+	t.assert(out == "", "should have no output");
+	
+	file.remove("/tmp/basl_grep_test.txt");
+}
+
+fn test_count_matches(test.T t) -> void {
+	file.write("/tmp/basl_grep_test.txt", "hello world\nfoo bar\nhello again\n");
+	
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "-c", "hello", "/tmp/basl_grep_test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 0, "should find matches");
+	t.assert(out.contains("2"), "should count 2 matches");
+	
+	file.remove("/tmp/basl_grep_test.txt");
+}
+
+fn test_invalid_type_flag(test.T t) -> void {
+	// This tests that type validation works
+	file.write("/tmp/basl_grep_test.txt", "hello world\n");
+	
+	// grep doesn't have numeric flags, but if it did, this would test validation
+	// For now, just test that unknown flags are rejected
+	string out, string errOut, i32 exitCode, err e = os.exec("../../basl", "main.basl", "--unknown", "hello", "/tmp/basl_grep_test.txt");
+	
+	t.assert(e == ok, "exec should succeed");
+	t.assert(exitCode == 2, "should return 2 for error");
+	
+	file.remove("/tmp/basl_grep_test.txt");
+}

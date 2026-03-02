@@ -2,10 +2,40 @@ package interp
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
+
+// validateArgType validates a string value against a declared type
+func validateArgType(val, typ, name string) error {
+	switch typ {
+	case "bool", "string":
+		return nil
+	case "i32":
+		if _, err := strconv.ParseInt(val, 10, 32); err != nil {
+			return fmt.Errorf("flag --%s expects i32, got: %s", name, val)
+		}
+	case "i64":
+		if _, err := strconv.ParseInt(val, 10, 64); err != nil {
+			return fmt.Errorf("flag --%s expects i64, got: %s", name, val)
+		}
+	case "u32":
+		if _, err := strconv.ParseUint(val, 10, 32); err != nil {
+			return fmt.Errorf("flag --%s expects u32, got: %s", name, val)
+		}
+	case "u64":
+		if _, err := strconv.ParseUint(val, 10, 64); err != nil {
+			return fmt.Errorf("flag --%s expects u64, got: %s", name, val)
+		}
+	case "f64":
+		if _, err := strconv.ParseFloat(val, 64); err != nil {
+			return fmt.Errorf("flag --%s expects f64, got: %s", name, val)
+		}
+	}
+	return nil
+}
 
 func (interp *Interpreter) makeArgsModule() *Env {
 	env := NewEnv(nil)
@@ -45,6 +75,14 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 			if len(args) != 4 && len(args) != 5 {
 				return value.Void, fmt.Errorf("ArgParser.flag: expected (string name, string type, string default, string help[, string short])")
 			}
+			// Validate default value against type
+			name := args[0].AsString()
+			typ := args[1].AsString()
+			defVal := args[2].AsString()
+			if err := validateArgType(defVal, typ, name); err != nil {
+				return value.NewErr(err.Error()), nil
+			}
+
 			flagArr := o.Fields["__flags"].Data.(*value.ArrayVal)
 			def := &value.ObjectVal{
 				ClassName: "__argdef",
@@ -126,7 +164,15 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 								flagValues[key] = value.NewString("true")
 							} else if i+1 < len(cliArgs) {
 								i++
-								flagValues[key] = value.NewString(cliArgs[i])
+								val := cliArgs[i]
+								// Validate type
+								if err := validateArgType(val, typ, key); err != nil {
+									return value.Void, &MultiReturnVal{Values: []value.Value{
+										value.Void,
+										value.NewErr(err.Error()),
+									}}
+								}
+								flagValues[key] = value.NewString(val)
 							} else {
 								return value.Void, &MultiReturnVal{Values: []value.Value{
 									value.Void,
@@ -153,7 +199,15 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 							flagValues[name] = value.NewString("true")
 						} else if i+1 < len(cliArgs) {
 							i++
-							flagValues[name] = value.NewString(cliArgs[i])
+							val := cliArgs[i]
+							// Validate type
+							if err := validateArgType(val, typ, name); err != nil {
+								return value.Void, &MultiReturnVal{Values: []value.Value{
+									value.Void,
+									value.NewErr(err.Error()),
+								}}
+							}
+							flagValues[name] = value.NewString(val)
 						} else {
 							return value.Void, &MultiReturnVal{Values: []value.Value{
 								value.Void,
@@ -395,6 +449,63 @@ func (interp *Interpreter) argsResultMethod(obj value.Value, method string, line
 				}
 			}
 			return value.NewArray(nil), nil
+		}), nil
+	case "get_i32":
+		return value.NewNativeFunc("Result.get_i32", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_i32: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					val := flagsMap.Values[i].AsString()
+					n, err := strconv.ParseInt(val, 10, 32)
+					if err != nil {
+						return value.Void, fmt.Errorf("Result.get_i32: '%s' is not a valid i32: %s", key, val)
+					}
+					return value.NewI32(int32(n)), nil
+				}
+			}
+			return value.NewI32(0), nil
+		}), nil
+	case "get_i64":
+		return value.NewNativeFunc("Result.get_i64", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_i64: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					val := flagsMap.Values[i].AsString()
+					n, err := strconv.ParseInt(val, 10, 64)
+					if err != nil {
+						return value.Void, fmt.Errorf("Result.get_i64: '%s' is not a valid i64: %s", key, val)
+					}
+					return value.NewI64(n), nil
+				}
+			}
+			return value.NewI64(0), nil
+		}), nil
+	case "get_f64":
+		return value.NewNativeFunc("Result.get_f64", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_f64: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					val := flagsMap.Values[i].AsString()
+					n, err := strconv.ParseFloat(val, 64)
+					if err != nil {
+						return value.Void, fmt.Errorf("Result.get_f64: '%s' is not a valid f64: %s", key, val)
+					}
+					return value.NewF64(n), nil
+				}
+			}
+			return value.NewF64(0.0), nil
 		}), nil
 	default:
 		return value.Void, fmt.Errorf("line %d: Result has no method '%s'", line, method)

@@ -56,21 +56,31 @@ args.ArgParser p = args.parser("myapp", "A tool that does things");
 
 ### p.flag(string name, string type, string default, string help[, string short]) -> err
 
-Defines a named flag.
+Defines a named flag with **enforced type validation**.
 
 **Parameters:**
 - `name`: Flag name (used as `--name`)
-- `type`: Type hint - `"bool"`, `"string"`, `"i32"`, etc.
-- `default`: Default value as string
+- `type`: Type - `"bool"`, `"string"`, `"i32"`, `"i64"`, `"u32"`, `"u64"`, `"f64"`
+- `default`: Default value as string (validated against type)
 - `help`: Help text
 - `short` (optional): Single-character short flag (e.g., `"v"` for `-v`)
 
+**Type Validation:**
+- Default values are validated at flag declaration time
+- Flag values are validated at parse time
+- Invalid values return error with clear message
+- Supported types: `bool`, `string`, `i32`, `i64`, `u32`, `u64`, `f64`
+
 **Bool flags:** Presence sets to `"true"`, no argument consumed.
-**Other flags:** Consume next argument as value.
+**Other flags:** Consume next argument as value, validated against declared type.
 
 ```c
 p.flag("verbose", "bool", "false", "Enable verbose output", "v");
-p.flag("output", "string", "out.txt", "Output file", "o");
+p.flag("count", "i32", "10", "Number of items", "c");
+p.flag("ratio", "f64", "1.5", "Scaling ratio");
+
+// Invalid default caught immediately:
+err e = p.flag("count", "i32", "abc", "count");  // Returns error
 ```
 
 ### p.arg(string name, string type, string help[, bool variadic]) -> err
@@ -139,6 +149,30 @@ bool verbose = result.get_bool("verbose");
 bool recursive = result.get_bool("recursive");
 ```
 
+### result.get_i32(string name) -> i32
+
+Get i32 value (for i32 flags). Validates and parses the stored string.
+
+```c
+i32 count = result.get_i32("count");
+```
+
+### result.get_i64(string name) -> i64
+
+Get i64 value (for i64 flags). Validates and parses the stored string.
+
+```c
+i64 size = result.get_i64("size");
+```
+
+### result.get_f64(string name) -> f64
+
+Get f64 value (for f64 flags). Validates and parses the stored string.
+
+```c
+f64 ratio = result.get_f64("ratio");
+```
+
 ### result.get_list(string name) -> array<string>
 
 Get array of strings (for variadic positional args).
@@ -197,6 +231,7 @@ fn main() -> i32 {
     
     p.flag("ignore-case", "bool", "false", "Case-insensitive", "i");
     p.flag("line-number", "bool", "false", "Show line numbers", "n");
+    p.flag("context", "i32", "0", "Context lines", "C");
     p.arg("pattern", "string", "Pattern to search");
     p.arg("files", "string", "Files to search", true);
     
@@ -209,16 +244,49 @@ fn main() -> i32 {
     string pattern = result.get_string("pattern");
     bool ignoreCase = result.get_bool("ignore-case");
     bool lineNumber = result.get_bool("line-number");
+    i32 context = result.get_i32("context");
     array<string> files = result.get_list("files");
     
     fmt.println(f"Pattern: {pattern}");
     fmt.println(f"Ignore case: {ignoreCase}");
     fmt.println(f"Line numbers: {lineNumber}");
+    fmt.println(f"Context: {context}");
     fmt.println(f"Files: {files.len()}");
     
     return 0;
 }
 ```
+
+## Type Validation
+
+The parser **enforces declared types** at both declaration and parse time:
+
+**At flag declaration:**
+```c
+// This fails immediately - invalid default
+err e = p.flag("count", "i32", "abc", "count");
+if (e != ok) {
+    fmt.println(f"Error: {e}");  // "flag --count expects i32, got: abc"
+}
+```
+
+**At parse time:**
+```c
+// User runs: --count not_a_number
+args.Result result, err e = p.parse_result();
+if (e != ok) {
+    fmt.println(f"Error: {e}");  // "flag --count expects i32, got: not_a_number"
+}
+```
+
+**Supported validated types:**
+- `i32` - 32-bit signed integer
+- `i64` - 64-bit signed integer
+- `u32` - 32-bit unsigned integer
+- `u64` - 64-bit unsigned integer
+- `f64` - 64-bit floating point
+- `bool` - Boolean (no validation needed)
+- `string` - String (no validation needed)
 
 ## Features
 
@@ -226,6 +294,8 @@ fn main() -> i32 {
 ✅ Long flags (`--ignore-case`)  
 ✅ Bool flags (no value consumed)  
 ✅ Value flags (consumes next arg)  
+✅ **Type validation** (i32, i64, f64, u32, u64)  
+✅ **Numeric getters** (get_i32, get_i64, get_f64)  
 ✅ Variadic positionals (native `array<string>`)  
 ✅ Unknown flag validation  
 ✅ Missing value validation  
