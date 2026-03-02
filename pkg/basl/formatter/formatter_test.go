@@ -391,3 +391,60 @@ return 0;
 		t.Errorf("array/map types:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestFormatTernaryOperator(t *testing.T) {
+	src := `fn main() -> i32 {
+i32 x=true?1:2;
+string s=x>3?"big":"small";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = true ? 1 : 2;
+    string s = x > 3 ? "big" : "small";
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatChainedTernary(t *testing.T) {
+	src := `fn main() -> i32 {
+string size=x<10?"small":x<100?"medium":"large";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("chained ternary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatTernaryRoundTrip(t *testing.T) {
+	// Test that formatting is idempotent (round-trip)
+	src := `fn main() -> i32 {
+    i32 max = a > b ? a : b;
+    string status = age >= 18 ? "adult" : "minor";
+    string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
+    return 0;
+}
+`
+	got := fmtSource(src)
+	if got != src {
+		t.Errorf("ternary round-trip failed:\ngot:\n%s\nwant:\n%s", got, src)
+	}
+
+	// Format again to ensure idempotency
+	got2 := fmtSource(got)
+	if got2 != got {
+		t.Errorf("ternary not idempotent:\nfirst:\n%s\nsecond:\n%s", got, got2)
+	}
+}

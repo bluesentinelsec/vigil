@@ -37,6 +37,8 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		return e.Op + f.exprStr(e.Operand)
 	case *ast.BinaryExpr:
 		return f.binaryStr(e)
+	case *ast.TernaryExpr:
+		return f.exprStr(e.Condition) + " ? " + f.exprStr(e.TrueExpr) + " : " + f.exprStr(e.FalseExpr)
 	case *ast.CallExpr:
 		args := make([]string, len(e.Args))
 		for i, a := range e.Args {
