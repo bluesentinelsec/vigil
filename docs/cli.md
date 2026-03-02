@@ -27,7 +27,7 @@ basl script.basl
 basl script.basl arg1 arg2      # Pass arguments
 ```
 
-Arguments are available via `os.args()` in the script.
+All scripts must use the `.basl` file extension. Arguments are available via `os.args()` in the script.
 
 ### Interactive REPL
 
