@@ -441,6 +441,8 @@ func (l *Lexer) nextToken() (Token, error) {
 		return Token{TOKEN_SEMICOLON, ";", line, col}, nil
 	case ':':
 		return Token{TOKEN_COLON, ":", line, col}, nil
+	case '?':
+		return Token{TOKEN_QUESTION, "?", line, col}, nil
 	case '-':
 		if l.pos < len(l.input) && l.input[l.pos] == '>' {
 			l.advance()

@@ -180,6 +180,29 @@ obj.field = v; // field assignment
 
 Short-circuit evaluation: `&&` stops on false, `||` stops on true.
 
+### Ternary Operator
+```c
+condition ? trueValue : falseValue
+```
+
+The condition must be a boolean expression. Returns `trueValue` if condition is true, otherwise `falseValue`.
+
+The ternary operator has the lowest precedence of all expression operators (lower than `||`, `&&`, arithmetic, etc.), so it typically requires parentheses when used as a subexpression.
+
+The operator is right-associative, allowing chained ternaries without parentheses.
+
+```c
+i32 max = a > b ? a : b;
+string status = age >= 18 ? "adult" : "minor";
+
+// Chained ternary (right-associative, no parentheses needed)
+string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
+
+// Ternary as subexpression requires parentheses
+i32 result = 10 + (flag ? 1 : 2);
+i32 negated = -(flag ? 1 : 2);
+```
+
 ### Bitwise
 `&` (AND), `|` (OR), `^` (XOR), `~` (NOT), `<<` (shift left), `>>` (shift right)
 

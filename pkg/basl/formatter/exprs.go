@@ -34,19 +34,46 @@ func (f *formatter) exprStr(e ast.Expr) string {
 	case *ast.SelfExpr:
 		return "self"
 	case *ast.UnaryExpr:
-		return e.Op + f.exprStr(e.Operand)
+		operand := f.exprStr(e.Operand)
+		// Parenthesize ternary in unary operand
+		if _, ok := e.Operand.(*ast.TernaryExpr); ok {
+			operand = "(" + operand + ")"
+		}
+		return e.Op + operand
 	case *ast.BinaryExpr:
 		return f.binaryStr(e)
+	case *ast.TernaryExpr:
+		cond := f.exprStr(e.Condition)
+		// Parenthesize ternary used as condition
+		if _, ok := e.Condition.(*ast.TernaryExpr); ok {
+			cond = "(" + cond + ")"
+		}
+		return cond + " ? " + f.exprStr(e.TrueExpr) + " : " + f.exprStr(e.FalseExpr)
 	case *ast.CallExpr:
 		args := make([]string, len(e.Args))
 		for i, a := range e.Args {
 			args[i] = f.exprStr(a)
 		}
-		return f.exprStr(e.Callee) + "(" + joinComma(args) + ")"
+		callee := f.exprStr(e.Callee)
+		// Parenthesize ternary used as callee
+		if _, ok := e.Callee.(*ast.TernaryExpr); ok {
+			callee = "(" + callee + ")"
+		}
+		return callee + "(" + joinComma(args) + ")"
 	case *ast.MemberExpr:
-		return f.exprStr(e.Object) + "." + e.Field
+		obj := f.exprStr(e.Object)
+		// Parenthesize ternary used as object
+		if _, ok := e.Object.(*ast.TernaryExpr); ok {
+			obj = "(" + obj + ")"
+		}
+		return obj + "." + e.Field
 	case *ast.IndexExpr:
-		return f.exprStr(e.Object) + "[" + f.exprStr(e.Index) + "]"
+		obj := f.exprStr(e.Object)
+		// Parenthesize ternary used as object
+		if _, ok := e.Object.(*ast.TernaryExpr); ok {
+			obj = "(" + obj + ")"
+		}
+		return obj + "[" + f.exprStr(e.Index) + "]"
 	case *ast.ArrayLit:
 		elems := make([]string, len(e.Elems))
 		for i, el := range e.Elems {
@@ -91,7 +118,15 @@ func (f *formatter) binaryStr(e *ast.BinaryExpr) string {
 	if inner, ok := e.Left.(*ast.BinaryExpr); ok && precedence(inner.Op) < precedence(e.Op) {
 		left = "(" + left + ")"
 	}
+	// Parenthesize ternary in left operand (ternary has lowest precedence)
+	if _, ok := e.Left.(*ast.TernaryExpr); ok {
+		left = "(" + left + ")"
+	}
 	if inner, ok := e.Right.(*ast.BinaryExpr); ok && precedence(inner.Op) < precedence(e.Op) {
+		right = "(" + right + ")"
+	}
+	// Parenthesize ternary in right operand (ternary has lowest precedence)
+	if _, ok := e.Right.(*ast.TernaryExpr); ok {
 		right = "(" + right + ")"
 	}
 	return left + " " + e.Op + " " + right
