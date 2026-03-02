@@ -34,7 +34,12 @@ func (f *formatter) exprStr(e ast.Expr) string {
 	case *ast.SelfExpr:
 		return "self"
 	case *ast.UnaryExpr:
-		return e.Op + f.exprStr(e.Operand)
+		operand := f.exprStr(e.Operand)
+		// Parenthesize ternary in unary operand
+		if _, ok := e.Operand.(*ast.TernaryExpr); ok {
+			operand = "(" + operand + ")"
+		}
+		return e.Op + operand
 	case *ast.BinaryExpr:
 		return f.binaryStr(e)
 	case *ast.TernaryExpr:
@@ -49,11 +54,26 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		for i, a := range e.Args {
 			args[i] = f.exprStr(a)
 		}
-		return f.exprStr(e.Callee) + "(" + joinComma(args) + ")"
+		callee := f.exprStr(e.Callee)
+		// Parenthesize ternary used as callee
+		if _, ok := e.Callee.(*ast.TernaryExpr); ok {
+			callee = "(" + callee + ")"
+		}
+		return callee + "(" + joinComma(args) + ")"
 	case *ast.MemberExpr:
-		return f.exprStr(e.Object) + "." + e.Field
+		obj := f.exprStr(e.Object)
+		// Parenthesize ternary used as object
+		if _, ok := e.Object.(*ast.TernaryExpr); ok {
+			obj = "(" + obj + ")"
+		}
+		return obj + "." + e.Field
 	case *ast.IndexExpr:
-		return f.exprStr(e.Object) + "[" + f.exprStr(e.Index) + "]"
+		obj := f.exprStr(e.Object)
+		// Parenthesize ternary used as object
+		if _, ok := e.Object.(*ast.TernaryExpr); ok {
+			obj = "(" + obj + ")"
+		}
+		return obj + "[" + f.exprStr(e.Index) + "]"
 	case *ast.ArrayLit:
 		elems := make([]string, len(e.Elems))
 		for i, el := range e.Elems {
