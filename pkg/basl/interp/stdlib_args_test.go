@@ -325,6 +325,76 @@ fn main() -> i32 {
 	}
 }
 
+func TestArgsParseResultInvalidBoolDefault(t *testing.T) {
+	src := `import "fmt"; import "args";
+fn main() -> i32 {
+	args.ArgParser p = args.parser("app", "desc");
+	err e = p.flag("verbose", "bool", "maybe", "verbose");
+	if (e != ok) {
+		fmt.print("error");
+		return 0;
+	}
+	fmt.print("ok");
+	return 0;
+}`
+	interp := New()
+	var lines []string
+	interp.PrintFn = func(s string) { lines = append(lines, strings.TrimRight(s, "\n")) }
+
+	lex := lexer.New(src)
+	tokens, err := lex.Tokenize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := parser.New(tokens)
+	prog, err := p.Parse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = interp.Exec(prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0] != "error" {
+		t.Fatalf("expected error for invalid bool default, got %v", lines)
+	}
+}
+
+func TestArgsParseResultUnsupportedType(t *testing.T) {
+	src := `import "fmt"; import "args";
+fn main() -> i32 {
+	args.ArgParser p = args.parser("app", "desc");
+	err e = p.flag("count", "i16", "1", "count");
+	if (e != ok) {
+		fmt.print("error");
+		return 0;
+	}
+	fmt.print("ok");
+	return 0;
+}`
+	interp := New()
+	var lines []string
+	interp.PrintFn = func(s string) { lines = append(lines, strings.TrimRight(s, "\n")) }
+
+	lex := lexer.New(src)
+	tokens, err := lex.Tokenize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := parser.New(tokens)
+	prog, err := p.Parse()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = interp.Exec(prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0] != "error" {
+		t.Fatalf("expected error for unsupported type, got %v", lines)
+	}
+}
+
 func TestArgsParseResultNumericGetters(t *testing.T) {
 	src := `import "fmt"; import "args";
 fn main() -> i32 {

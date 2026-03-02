@@ -11,8 +11,12 @@ import (
 // validateArgType validates a string value against a declared type
 func validateArgType(val, typ, name string) error {
 	switch typ {
-	case "bool", "string":
+	case "string":
 		return nil
+	case "bool":
+		if val != "true" && val != "false" {
+			return fmt.Errorf("flag --%s expects bool (true/false), got: %s", name, val)
+		}
 	case "i32":
 		if _, err := strconv.ParseInt(val, 10, 32); err != nil {
 			return fmt.Errorf("flag --%s expects i32, got: %s", name, val)
@@ -33,6 +37,8 @@ func validateArgType(val, typ, name string) error {
 		if _, err := strconv.ParseFloat(val, 64); err != nil {
 			return fmt.Errorf("flag --%s expects f64, got: %s", name, val)
 		}
+	default:
+		return fmt.Errorf("flag --%s: unsupported type '%s' (supported: bool, string, i32, i64, u32, u64, f64)", name, typ)
 	}
 	return nil
 }
