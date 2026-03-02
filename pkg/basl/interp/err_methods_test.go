@@ -312,3 +312,50 @@ fn main() -> i32 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 }
+
+func TestBase64DecodeReturnsErrParse(t *testing.T) {
+	src := `
+import "base64";
+fn main() -> i32 {
+    string decoded, err e = base64.decode("%%%");
+    if (e == ok) {
+        return 1;
+    }
+    if (e.kind() != err.parse) {
+        return 2;
+    }
+    return 0;
+}
+`
+	exitCode, _, err := evalBASL(src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}
+
+func TestCsvParseReturnsErrParse(t *testing.T) {
+	src := `
+import "csv";
+fn main() -> i32 {
+    // Unterminated quote is malformed CSV
+    array<array<string>> rows, err e = csv.parse("\"unterminated");
+    if (e == ok) {
+        return 1;
+    }
+    if (e.kind() != err.parse) {
+        return 2;
+    }
+    return 0;
+}
+`
+	exitCode, _, err := evalBASL(src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}

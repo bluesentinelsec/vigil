@@ -23,7 +23,7 @@ func (interp *Interpreter) makeBase64Module() *Env {
 		}
 		b, err := base64.StdEncoding.DecodeString(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(b)), value.Ok}}
 	}))

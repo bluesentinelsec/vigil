@@ -169,7 +169,7 @@ func (interp *Interpreter) threadMethod(obj value.Value, method string, line int
 			result := *o.Fields["__result"].Data.(*value.Value)
 			resultErr := *o.Fields["__err"].Data.(*error)
 			if resultErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{result, value.NewErr(resultErr.Error(), value.ErrKindIO)}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{result, value.NewErr(resultErr.Error(), value.ErrKindState)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{result, value.Ok}}
 		}), nil
