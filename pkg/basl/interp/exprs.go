@@ -768,8 +768,11 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 		if o.ClassName == "xml.Value" {
 			return interp.xmlMethod(obj, e.Field, e.Line)
 		}
-		if o.ClassName == "File" {
+		if o.ClassName == "file.File" {
 			return interp.fileMethod(obj, e.Field, e.Line)
+		}
+		if o.ClassName == "regex.Regex" {
+			return interp.regexMethod(obj, e.Field, e.Line)
 		}
 		if o.ClassName == "TcpListener" {
 			return interp.tcpListenerMethod(obj, e.Field, e.Line)
@@ -786,7 +789,7 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 		if o.ClassName == "SqliteRows" {
 			return interp.sqliteRowsMethod(obj, e.Field, e.Line)
 		}
-		if o.ClassName == "ArgParser" {
+		if o.ClassName == "args.ArgParser" {
 			return interp.argParserMethod(obj, e.Field, e.Line)
 		}
 		if o.ClassName == "Thread" {

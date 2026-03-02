@@ -58,7 +58,7 @@ func TestFileTouchUpdate(t *testing.T) {
 			}
 			
 			// Get initial mod time
-			FileStat info1, err e2 = file.stat("test_touch_update.txt");
+			file.FileStat info1, err e2 = file.stat("test_touch_update.txt");
 			if (e2 != ok) {
 				file.remove("test_touch_update.txt");
 				return 2;
@@ -80,7 +80,7 @@ func TestFileTouchUpdate(t *testing.T) {
 			}
 			
 			// Get new mod time
-			FileStat info2, err e5 = file.stat("test_touch_update.txt");
+			file.FileStat info2, err e5 = file.stat("test_touch_update.txt");
 			if (e5 != ok) {
 				file.remove("test_touch_update.txt");
 				return 5;

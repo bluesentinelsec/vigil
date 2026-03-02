@@ -115,6 +115,7 @@ type ObjectVal struct {
 	Implements []string // interface names this class implements
 	Fields     map[string]Value
 	Methods    map[string]*FuncVal
+	NativeData interface{} // For storing native Go objects (e.g., *regexp.Regexp)
 }
 
 // ClassVal is a class descriptor — calling it constructs an instance.

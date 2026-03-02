@@ -220,6 +220,22 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(elems), value.Ok}}
 	}))
+	// Alias for consistency with read_all
+	env.Define("read_dir", value.NewNativeFunc("file.read_dir", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.read_dir: expected string path")
+		}
+		path := args[0].AsString()
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(fileErr(err, path))}}
+		}
+		elems := make([]value.Value, len(entries))
+		for i, e := range entries {
+			elems[i] = value.NewString(e.Name())
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(elems), value.Ok}}
+	}))
 	env.Define("exists", value.NewNativeFunc("file.exists", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("file.exists: expected string path")
@@ -253,7 +269,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
 		}
 		obj := &value.ObjectVal{
-			ClassName: "File",
+			ClassName: "file.File",
 			Fields:    map[string]value.Value{"__file": {T: value.TypeI32, Data: nil}},
 		}
 		obj.Fields["__file"] = value.Value{T: value.TypeString, Data: f}
@@ -272,7 +288,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
 		}
 		obj := &value.ObjectVal{
-			ClassName: "FileStat",
+			ClassName: "file.FileStat",
 			Fields: map[string]value.Value{
 				"size":     value.NewI32(int32(info.Size())),
 				"is_dir":   value.NewBool(info.IsDir()),

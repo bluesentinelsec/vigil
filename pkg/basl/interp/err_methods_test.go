@@ -13,7 +13,7 @@ func TestErrIsEOF(t *testing.T) {
 		fn main() -> i32 {
 			// Test with io.read_line EOF
 			file.write_all("test_eof.txt", "");
-			File f, err e1 = file.open("test_eof.txt", "r");
+			file.File f, err e1 = file.open("test_eof.txt", "r");
 			if (e1 != ok) {
 				return 1;
 			}
@@ -31,7 +31,7 @@ func TestErrIsEOF(t *testing.T) {
 			file.remove("test_eof.txt");
 			
 			// Test with non-EOF error
-			File f2, err e3 = file.open("nonexistent_file_xyz.txt", "r");
+			file.File f2, err e3 = file.open("nonexistent_file_xyz.txt", "r");
 			if (e3 == ok) {
 				return 4;
 			}
@@ -64,7 +64,7 @@ func TestErrMessage(t *testing.T) {
 		import "file";
 		
 		fn main() -> i32 {
-			File f, err e = file.open("nonexistent_file_xyz.txt", "r");
+			file.File f, err e = file.open("nonexistent_file_xyz.txt", "r");
 			if (e == ok) {
 				return 1;
 			}
@@ -92,7 +92,7 @@ func TestErrIsEOFArityCheck(t *testing.T) {
 		import "file";
 		
 		fn main() -> i32 {
-			File f, err e = file.open("nonexistent_file_xyz.txt", "r");
+			file.File f, err e = file.open("nonexistent_file_xyz.txt", "r");
 			bool b = e.is_eof(123);
 			return 0;
 		}
@@ -112,7 +112,7 @@ func TestErrMessageArityCheck(t *testing.T) {
 		import "file";
 		
 		fn main() -> i32 {
-			File f, err e = file.open("nonexistent_file_xyz.txt", "r");
+			file.File f, err e = file.open("nonexistent_file_xyz.txt", "r");
 			string msg = e.message(123);
 			return 0;
 		}

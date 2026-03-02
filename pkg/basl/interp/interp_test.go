@@ -600,13 +600,13 @@ func TestExec_OsModule(t *testing.T) {
 			return 0;
 		}`, []string{"false"}},
 		{"exec_echo", `import "fmt"; import "os"; fn main() -> i32 {
-			string out, string errout, err e = os.exec("echo", "hello");
+			string out, string errout, i32 exitCode, err e = os.exec("echo", "hello");
 			fmt.print(out.trim());
 			return 0;
 		}`, []string{"hello"}},
 		{"exec_fail", `import "fmt"; import "os"; fn main() -> i32 {
-			string out, string errout, err e = os.exec("false");
-			if (e != ok) { fmt.print("failed"); }
+			string out, string errout, i32 exitCode, err e = os.exec("false");
+			if (exitCode != 0) { fmt.print("failed"); }
 			return 0;
 		}`, []string{"failed"}},
 	}
@@ -1135,10 +1135,10 @@ func TestExec_FileHandleModule(t *testing.T) {
 		{"file open write read close", func() string {
 			path := escPath(filepath.Join(tmpDir, "fh.txt"))
 			return `import "file"; import "fmt"; fn main() -> i32 {
-				File f, err e = file.open("` + path + `", "w");
+				file.File f, err e = file.open("` + path + `", "w");
 				err e2 = f.write("hello world");
 				err e3 = f.close();
-				File f2, err e4 = file.open("` + path + `", "r");
+				file.File f2, err e4 = file.open("` + path + `", "r");
 				string data, err e5 = f2.read(11);
 				err e6 = f2.close();
 				fmt.print(data);
@@ -1150,7 +1150,7 @@ func TestExec_FileHandleModule(t *testing.T) {
 			path := escPath(filepath.Join(tmpDir, "stat.txt"))
 			return `import "file"; import "fmt"; fn main() -> i32 {
 				file.write_all("` + path + `", "abc");
-				FileStat s, err e = file.stat("` + path + `");
+				file.FileStat s, err e = file.stat("` + path + `");
 				fmt.print(s.name);
 				fmt.print(fmt.sprintf("%d", s.size));
 				fmt.print(fmt.sprintf("%t", s.is_dir));
@@ -1162,7 +1162,7 @@ func TestExec_FileHandleModule(t *testing.T) {
 			path := escPath(filepath.Join(tmpDir, "rl.txt"))
 			return `import "file"; import "fmt"; fn main() -> i32 {
 				file.write_all("` + path + `", "line1\nline2\nline3");
-				File f, err e = file.open("` + path + `", "r");
+				file.File f, err e = file.open("` + path + `", "r");
 				string l1, err e2 = f.read_line();
 				string l2, err e3 = f.read_line();
 				err e4 = f.close();
@@ -1541,7 +1541,7 @@ func TestExec_SqliteModule(t *testing.T) {
 func TestExec_ArgsModule(t *testing.T) {
 	// Just test that the module loads and parser can be created
 	_, out, err := evalBASL(`import "args"; import "fmt"; fn main() -> i32 {
-		ArgParser p = args.parser("test", "a test program");
+		args.ArgParser p = args.parser("test", "a test program");
 		p.flag("verbose", "bool", "false", "enable verbose output");
 		p.arg("file", "string", "input file");
 		fmt.print("args ok");

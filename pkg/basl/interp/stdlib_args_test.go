@@ -5,7 +5,7 @@ import "testing"
 func TestArgsParserCreate(t *testing.T) {
 	src := `import "fmt"; import "args";
 fn main() -> i32 {
-	ArgParser p = args.parser("myapp", "a test app");
+	args.ArgParser p = args.parser("myapp", "a test app");
 	fmt.print("created");
 	return 0;
 }`
@@ -21,7 +21,7 @@ fn main() -> i32 {
 func TestArgsParserFlagDefaults(t *testing.T) {
 	src := `import "fmt"; import "args";
 fn main() -> i32 {
-	ArgParser p = args.parser("app", "desc");
+	args.ArgParser p = args.parser("app", "desc");
 	p.flag("verbose", "bool", "false", "enable verbose");
 	p.flag("count", "string", "10", "item count");
 	map<string, string> result, err e = p.parse();
