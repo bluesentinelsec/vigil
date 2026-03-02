@@ -150,3 +150,12 @@ func TestNewErrPanicsOnInvalidKind(t *testing.T) {
 	}()
 	NewErr("x", "bogus")
 }
+
+func TestNewErrPanicsOnEmptyMessage(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("NewErr with empty message should panic")
+		}
+	}()
+	NewErr("", ErrKindIO)
+}

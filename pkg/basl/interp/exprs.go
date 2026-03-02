@@ -82,7 +82,11 @@ func (interp *Interpreter) evalExpr(expr ast.Expr, env *Env) (value.Value, error
 		if !value.ValidErrKinds[kindStr] {
 			return value.Void, fmt.Errorf("line %d: unknown error kind %q — valid kinds: not_found, permission, exists, eof, io, parse, bounds, type, arg, timeout, closed, state", e.Line, kindStr)
 		}
-		return value.NewErr(msg.String(), kindStr), nil
+		msgStr := msg.String()
+		if msgStr == "" {
+			return value.Void, fmt.Errorf("line %d: error message must not be empty", e.Line)
+		}
+		return value.NewErr(msgStr, kindStr), nil
 	case *ast.SelfExpr:
 		v, ok := env.Get("self")
 		if !ok {

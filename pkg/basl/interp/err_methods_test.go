@@ -359,3 +359,19 @@ fn main() -> i32 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 }
+
+func TestErrEmptyMessageRejected(t *testing.T) {
+	src := `
+fn main() -> i32 {
+    err e = err("", err.io);
+    return 0;
+}
+`
+	_, _, err := evalBASL(src)
+	if err == nil {
+		t.Error("expected error for empty message")
+	}
+	if !contains(err.Error(), "empty") {
+		t.Errorf("expected 'empty' in error, got: %s", err.Error())
+	}
+}

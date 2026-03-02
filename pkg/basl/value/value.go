@@ -227,7 +227,10 @@ func NewBool(v bool) Value {
 	return False
 }
 func NewErr(msg, kind string) Value {
-	if kind != "" && !ValidErrKinds[kind] {
+	if msg == "" {
+		panic("error message must not be empty")
+	}
+	if !ValidErrKinds[kind] {
 		panic("invalid error kind: " + kind)
 	}
 	return Value{T: TypeErr, Data: &ErrVal{Message: msg, Kind: kind}}
