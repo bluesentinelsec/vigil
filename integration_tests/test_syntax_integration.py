@@ -1475,10 +1475,10 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             (root / "test" / "util_test.basl").write_text(
                 textwrap.dedent(
                     """
-                    import "t";
+                    import "test";
                     import "util";
 
-                    fn test_answer() -> void {
+                    fn test_answer(test.T t) -> void {
                         t.assert(util.answer() == "project", "util.answer should resolve from lib/");
                     }
                     """
@@ -2087,12 +2087,12 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             test_dir = root / "test"
             test_dir.mkdir()
             (test_dir / "math_test.basl").write_text(textwrap.dedent("""
-                import "t";
+                import "test";
                 import "math";
-                fn test_sqrt() -> void {
+                fn test_sqrt(test.T t) -> void {
                     t.assert(math.sqrt(4.0) == 2.0, "sqrt(4)=2");
                 }
-                fn test_floor() -> void {
+                fn test_floor(test.T t) -> void {
                     t.assert(math.floor(3.9) == 3.0, "floor");
                 }
             """).strip() + "\n")
@@ -2111,10 +2111,10 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="basl_it_") as td:
             root = Path(td)
             (root / "a_test.basl").write_text(textwrap.dedent("""
-                import "t";
-                fn test_alpha() -> void { t.assert(true, "ok"); }
-                fn test_beta() -> void { t.assert(true, "ok"); }
-                fn test_gamma() -> void { t.assert(true, "ok"); }
+                import "test";
+                fn test_alpha(test.T t) -> void { t.assert(true, "ok"); }
+                fn test_beta(test.T t) -> void { t.assert(true, "ok"); }
+                fn test_gamma(test.T t) -> void { t.assert(true, "ok"); }
             """).strip() + "\n")
 
             proc = subprocess.run(
@@ -2132,9 +2132,9 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="basl_it_") as td:
             root = Path(td)
             (root / "fail_test.basl").write_text(textwrap.dedent("""
-                import "t";
-                fn test_good() -> void { t.assert(true, "ok"); }
-                fn test_bad() -> void { t.assert(false, "this broke"); }
+                import "test";
+                fn test_good(test.T t) -> void { t.assert(true, "ok"); }
+                fn test_bad(test.T t) -> void { t.assert(false, "this broke"); }
             """).strip() + "\n")
 
             proc = subprocess.run(

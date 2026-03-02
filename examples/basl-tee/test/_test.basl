@@ -1,4 +1,4 @@
-import "t";
+import "test";
 import "file";
 import "os";
 
@@ -20,7 +20,7 @@ fn find_basl_and_main() -> (string, string) {
     return ("", "");
 }
 
-fn test_tee_single_file() -> void {
+fn test_tee_single_file(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -49,7 +49,7 @@ fn test_tee_single_file() -> void {
     file.remove(input_file);
 }
 
-fn test_tee_multiple_files() -> void {
+fn test_tee_multiple_files(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -82,7 +82,7 @@ fn test_tee_multiple_files() -> void {
     file.remove(input_file);
 }
 
-fn test_tee_append_mode() -> void {
+fn test_tee_append_mode(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -114,7 +114,7 @@ fn test_tee_append_mode() -> void {
     file.remove(input_file);
 }
 
-fn test_tee_empty_input() -> void {
+fn test_tee_empty_input(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;

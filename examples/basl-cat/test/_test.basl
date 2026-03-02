@@ -1,4 +1,4 @@
-import "t";
+import "test";
 import "file";
 import "os";
 import "path";
@@ -23,7 +23,7 @@ fn find_basl_and_main() -> (string, string) {
     return ("", "");
 }
 
-fn test_cat_single_file() -> void {
+fn test_cat_single_file(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -40,7 +40,7 @@ fn test_cat_single_file() -> void {
     file.remove(test_file);
 }
 
-fn test_cat_multiple_files() -> void {
+fn test_cat_multiple_files(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -60,7 +60,7 @@ fn test_cat_multiple_files() -> void {
     file.remove(file2);
 }
 
-fn test_cat_missing_file() -> void {
+fn test_cat_missing_file(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -72,7 +72,7 @@ fn test_cat_missing_file() -> void {
     t.assert(stderr.contains("basl-cat:"), "error should be from basl-cat");
 }
 
-fn test_cat_empty_file() -> void {
+fn test_cat_empty_file(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -88,7 +88,7 @@ fn test_cat_empty_file() -> void {
     file.remove(test_file);
 }
 
-fn test_cat_stdin_dash() -> void {
+fn test_cat_stdin_dash(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         // Skip: shell redirection requires sh which is not available on Windows
@@ -112,7 +112,7 @@ fn test_cat_stdin_dash() -> void {
     file.remove(test_file);
 }
 
-fn test_cat_no_args_stdin() -> void {
+fn test_cat_no_args_stdin(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         // Skip: shell redirection requires sh which is not available on Windows

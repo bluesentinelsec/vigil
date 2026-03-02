@@ -1,10 +1,10 @@
-import "t";
+import "test";
 import "os";
 import "file";
 
 // Note: Tests require file I/O which is cross-platform.
 
-fn test_paste_two_files() -> void {
+fn test_paste_two_files(test.T t) -> void {
     file.write_all("test_paste_f1.txt", "a\nb\nc\n");
     file.write_all("test_paste_f2.txt", "1\n2\n3\n");
     
@@ -16,7 +16,7 @@ fn test_paste_two_files() -> void {
     file.remove("test_paste_f2.txt");
 }
 
-fn test_paste_single_file() -> void {
+fn test_paste_single_file(test.T t) -> void {
     file.write_all("test_paste_single.txt", "a\nb\nc\n");
     
     string out, string errs, i32 exitCode, err e = os.exec("./basl", "examples/basl-paste/main.basl", "test_paste_single.txt");

@@ -1,11 +1,11 @@
-import "t";
+import "test";
 import "os";
 import "file";
 
 // Note: Tests use sh for stdin redirection, which requires Unix-like shell.
 // Windows users should run tests in WSL, Git Bash, or similar environment.
 
-fn test_cut_basic() -> void {
+fn test_cut_basic(test.T t) -> void {
     file.write_all("test_cut_in.txt", "a:b:c\nd:e:f\n");
     
     string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f 2 --d : < test_cut_in.txt");
@@ -15,7 +15,7 @@ fn test_cut_basic() -> void {
     file.remove("test_cut_in.txt");
 }
 
-fn test_cut_invalid_field() -> void {
+fn test_cut_invalid_field(test.T t) -> void {
     string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "echo '' | ./basl examples/basl-cut/main.basl --f x2 --d : 2>&1");
     t.assert(exitCode != 0, "cut should reject invalid field spec");
 }

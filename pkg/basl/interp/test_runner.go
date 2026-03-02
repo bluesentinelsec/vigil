@@ -41,8 +41,8 @@ func ExecTestFile(path string, src []byte, filter string, searchPaths []string) 
 		if !ok || !strings.HasPrefix(fn.Name, "test_") {
 			continue
 		}
-		// Accept both zero params and single test.T param
-		if len(fn.Params) != 0 && len(fn.Params) != 1 {
+		// Accept only single test.T parameter
+		if len(fn.Params) != 1 {
 			continue
 		}
 		if filter != "" && !matchFilter(fn.Name, filter) {
@@ -77,9 +77,8 @@ func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string
 	for _, sp := range searchPaths {
 		vm.AddSearchPath(sp)
 	}
-	// Register the test module as both "t" and "test"
+	// Register the test module as "test"
 	testMod := vm.makeTestModule()
-	vm.builtinModules["t"] = testMod
 	vm.builtinModules["test"] = testMod
 
 	vm.gil.Lock()
@@ -97,21 +96,12 @@ func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string
 		return TestResult{Name: name, Passed: false, Message: "test function not found"}
 	}
 
-	// Check if function expects a test.T parameter
-	var callArgs []value.Value
-	for _, d := range prog.Decls {
-		if fn, ok := d.(*ast.FnDecl); ok && fn.Name == name {
-			if len(fn.Params) == 1 {
-				// Create a test.T object
-				tObj := &value.ObjectVal{
-					ClassName: "test.T",
-					Fields:    map[string]value.Value{},
-				}
-				callArgs = []value.Value{{T: value.TypeObject, Data: tObj}}
-			}
-			break
-		}
+	// Create a test.T object
+	tObj := &value.ObjectVal{
+		ClassName: "test.T",
+		Fields:    map[string]value.Value{},
 	}
+	callArgs := []value.Value{{T: value.TypeObject, Data: tObj}}
 
 	start := time.Now()
 	_, callErr := vm.callFunc(fnVal, callArgs)
@@ -135,7 +125,7 @@ func matchFilter(name, filter string) bool {
 	return false
 }
 
-// EnableTestModule registers the "t" module so test files can import "t".
+// EnableTestModule registers the "test" module so test files can import "test".
 func (interp *Interpreter) EnableTestModule() {
-	interp.builtinModules["t"] = interp.makeTestModule()
+	interp.builtinModules["test"] = interp.makeTestModule()
 }

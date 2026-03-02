@@ -1,4 +1,4 @@
-import "t";
+import "test";
 import "file";
 import "os";
 
@@ -20,7 +20,7 @@ fn find_basl_and_main() -> (string, string) {
     return ("", "");
 }
 
-fn test_wc_single_file() -> void {
+fn test_wc_single_file(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -38,7 +38,7 @@ fn test_wc_single_file() -> void {
     file.remove(test_file);
 }
 
-fn test_wc_multiple_files() -> void {
+fn test_wc_multiple_files(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -58,7 +58,7 @@ fn test_wc_multiple_files() -> void {
     file.remove(file2);
 }
 
-fn test_wc_lines_only() -> void {
+fn test_wc_lines_only(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -75,7 +75,7 @@ fn test_wc_lines_only() -> void {
     file.remove(test_file);
 }
 
-fn test_wc_empty_file() -> void {
+fn test_wc_empty_file(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -90,7 +90,7 @@ fn test_wc_empty_file() -> void {
     file.remove(test_file);
 }
 
-fn test_wc_missing_file() -> void {
+fn test_wc_missing_file(test.T t) -> void {
     string basl_bin, string main_script = find_basl_and_main();
     t.assert(basl_bin != "", "should find basl binary");
     
@@ -101,7 +101,7 @@ fn test_wc_missing_file() -> void {
     t.assert(stderr.contains("basl-wc:"), "should show error on stderr");
 }
 
-fn test_wc_stdin_dash() -> void {
+fn test_wc_stdin_dash(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -122,7 +122,7 @@ fn test_wc_stdin_dash() -> void {
     file.remove(test_file);
 }
 
-fn test_wc_no_args_stdin() -> void {
+fn test_wc_no_args_stdin(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
