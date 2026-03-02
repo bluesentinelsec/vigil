@@ -74,15 +74,16 @@ The `ArgParser` type is returned by `args.parser()` and provides methods for def
 ArgParser p = args.parser("app", "desc");  // Correct
 ```
 
-### p.flag(string name, string type, string default, string help) -> err
+### p.flag(string name, string type, string default, string help[, string short]) -> err
 
-Defines a named flag (`--name`).
+Defines a named flag (`--name` or `-s`).
 
 **Parameters:**
 - `name`: Flag name (used as `--name` on command line)
 - `type`: Type hint - `"bool"`, `"string"`, `"i32"`, `"f64"`, etc.
 - `default`: Default value as a string (e.g., `"false"`, `"0"`, `""`)
 - `help`: Help text describing the flag
+- `short` (optional): Single-character short flag (e.g., `"v"` for `-v`)
 
 **Returns:** `ok` on success, `err` on failure
 
@@ -91,12 +92,12 @@ Defines a named flag (`--name`).
 **Other flags:** Consume the next command-line argument as the value.
 
 ```c
-p.flag("verbose", "bool", "false", "Enable verbose output");
-p.flag("output", "string", "out.txt", "Output file path");
-p.flag("count", "i32", "10", "Number of iterations");
+p.flag("verbose", "bool", "false", "Enable verbose output", "v");
+p.flag("output", "string", "out.txt", "Output file path", "o");
+p.flag("count", "i32", "10", "Number of iterations", "c");
 ```
 
-### p.arg(string name, string type, string help) -> err
+### p.arg(string name, string type, string help[, bool variadic]) -> err
 
 Defines a positional argument.
 
@@ -104,14 +105,17 @@ Defines a positional argument.
 - `name`: Argument name (used as key in result map)
 - `type`: Type hint - `"string"`, `"i32"`, etc.
 - `help`: Help text describing the argument
+- `variadic` (optional): If `true`, collects all remaining args as space-separated string
 
 **Returns:** `ok` on success, `err` on failure
 
 Positional arguments are matched in order after all flags are processed.
 
+**Variadic arguments:** When `variadic` is `true`, all remaining positional arguments are collected into a single space-separated string. Call `.split(" ")` to get individual values.
+
 ```c
 p.arg("input", "string", "Input file path");
-p.arg("output", "string", "Output file path");
+p.arg("files", "string", "Files to process", true);  // Variadic
 ```
 
 ### p.parse() -> (map\<string, string\>, err)
@@ -142,25 +146,38 @@ string input = result["input"];      // Access by arg name
 ## Parsing Rules
 
 **Flags:**
-- Prefixed with `--` (e.g., `--verbose`, `--output file.txt`)
-- Bool flags: `--verbose` sets value to `"true"` (no argument consumed)
-- Other flags: `--output file.txt` consumes next argument as value
+- Long form: `--name` (e.g., `--verbose`, `--output file.txt`)
+- Short form: `-s` (e.g., `-v`, `-o file.txt`)
+- Bool flags: `--verbose` or `-v` sets value to `"true"` (no argument consumed)
+- Other flags: `--output file.txt` or `-o file.txt` consumes next argument as value
 - Flags can appear anywhere on command line
+- Unknown flags return error
 
 **Positional arguments:**
 - Matched in order after flags are extracted
 - Missing positional arguments default to `""`
+- Variadic arguments collect all remaining args as space-separated string
 
 **Example command line:**
 ```bash
-basl script.basl --verbose --count 5 input.txt --output out.txt
+basl script.basl -v -c 5 input.txt --output out.txt file2.txt file3.txt
+```
+
+With variadic files:
+```c
+p.flag("verbose", "bool", "false", "Verbose", "v");
+p.flag("count", "string", "1", "Count", "c");
+p.flag("output", "string", "out.txt", "Output", "o");
+p.arg("input", "string", "Input file");
+p.arg("files", "string", "Additional files", true);  // Variadic
 ```
 
 Parsed as:
-- `verbose`: `"true"` (bool flag)
-- `count`: `"5"` (flag with value)
-- `output`: `"out.txt"` (flag with value)
-- First positional arg: `"input.txt"`
+- `verbose`: `"true"` (short bool flag)
+- `count`: `"5"` (short flag with value)
+- `output`: `"out.txt"` (long flag with value)
+- `input`: `"input.txt"` (first positional)
+- `files`: `"file2.txt file3.txt"` (variadic, space-separated)
 
 ## Type Conversion
 

@@ -151,14 +151,15 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 
 				// Check if variadic
 				if variadicVal, ok := aobj.Fields["variadic"]; ok && variadicVal.AsBool() {
-					// Collect remaining args into array
-					remaining := []value.Value{}
+					// Collect remaining args as space-separated string
+					// This keeps map homogeneous (all string values)
+					remaining := []string{}
 					for posIdx < len(positional) {
-						remaining = append(remaining, value.NewString(positional[posIdx]))
+						remaining = append(remaining, positional[posIdx])
 						posIdx++
 					}
 					result.Keys = append(result.Keys, value.NewString(name))
-					result.Values = append(result.Values, value.NewArray(remaining))
+					result.Values = append(result.Values, value.NewString(strings.Join(remaining, " ")))
 				} else {
 					val := ""
 					if posIdx < len(positional) {

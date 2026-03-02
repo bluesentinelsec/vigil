@@ -1,70 +1,51 @@
+import "args";
 import "file";
 import "fmt";
-import "os";
 import "path";
 import "regex";
 
 fn main() -> i32 {
-    array<string> args = os.args();
+    // Use ArgParser with variadic support
+    args.ArgParser parser = args.parser("grep", "Search for patterns in files");
     
-    if (args.len() < 1) {
-        fmt.eprintln("Usage: grep [OPTIONS] PATTERN [FILE...]");
-        fmt.eprintln("Options:");
-        fmt.eprintln("  -i, --ignore-case       Case-insensitive search");
-        fmt.eprintln("  -v, --invert-match      Select non-matching lines");
-        fmt.eprintln("  -n, --line-number       Print line numbers");
-        fmt.eprintln("  -c, --count             Only print count of matches");
-        fmt.eprintln("  -l, --files-with-matches Only print filenames with matches");
-        fmt.eprintln("  -r, --recursive         Recursively search directories");
+    parser.flag("ignore-case", "bool", "false", "Case-insensitive search", "i");
+    parser.flag("invert-match", "bool", "false", "Select non-matching lines", "v");
+    parser.flag("line-number", "bool", "false", "Print line numbers", "n");
+    parser.flag("count", "bool", "false", "Only print count of matches", "c");
+    parser.flag("files-with-matches", "bool", "false", "Only print filenames", "l");
+    parser.flag("recursive", "bool", "false", "Recursively search directories", "r");
+    
+    parser.arg("pattern", "string", "Pattern to search for");
+    parser.arg("files", "string", "Files to search", true);
+    
+    map<string, string> opts, err parseErr = parser.parse();
+    if (parseErr != ok) {
+        fmt.eprintln(f"Error: {parseErr}");
         return 2;
     }
     
-    // NOTE: Manual args parsing used instead of args.ArgParser because
-    // variadic positionals ([FILE...]) are not usable with ArgParser due to
-    // BASL's homogeneous map type system (cannot mix string and array values).
-    
-    // Parse flags
-    bool ignoreCase = false;
-    bool invertMatch = false;
-    bool lineNumber = false;
-    bool countOnly = false;
-    bool filesWithMatches = false;
-    bool recursive = false;
-    
-    string pattern = "";
-    array<string> files = [];
-    
-    for (i32 i = 0; i < args.len(); i++) {
-        string arg = args[i];
-        
-        if (arg == "-i" || arg == "--ignore-case") {
-            ignoreCase = true;
-        } else if (arg == "-v" || arg == "--invert-match") {
-            invertMatch = true;
-        } else if (arg == "-n" || arg == "--line-number") {
-            lineNumber = true;
-        } else if (arg == "-c" || arg == "--count") {
-            countOnly = true;
-        } else if (arg == "-l" || arg == "--files-with-matches") {
-            filesWithMatches = true;
-        } else if (arg == "-r" || arg == "--recursive") {
-            recursive = true;
-        } else if (pattern == "") {
-            pattern = arg;
-        } else {
-            files.push(arg);
-        }
-    }
-    
+    string pattern = opts["pattern"];
     if (pattern == "") {
         fmt.eprintln("Error: pattern required");
         return 2;
     }
     
-    if (files.len() == 0) {
+    string filesStr = opts["files"];
+    if (filesStr == "") {
         fmt.eprintln("Error: at least one file required");
         return 2;
     }
+    
+    // Parse flags
+    bool ignoreCase = opts["ignore-case"] == "true";
+    bool invertMatch = opts["invert-match"] == "true";
+    bool lineNumber = opts["line-number"] == "true";
+    bool countOnly = opts["count"] == "true";
+    bool filesWithMatches = opts["files-with-matches"] == "true";
+    bool recursive = opts["recursive"] == "true";
+    
+    // Split files
+    array<string> files = filesStr.split(" ");
     
     // Compile regex once (performance improvement!)
     string regexPattern = pattern;

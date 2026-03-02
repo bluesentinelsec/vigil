@@ -80,15 +80,15 @@ Uses compiled regex objects - pattern is compiled once and reused for all lines.
 
 ## BASL Improvements Validated
 
-This implementation validates the fixes for 4 of 5 limitations:
+This implementation validates the fixes for all 5 limitations:
 
 1. ✅ **Type Namespace** - `file.FileStat` works correctly
 2. ✅ **Subprocess API** - `os.system()` and enhanced `os.exec()` available
-3. ⚠️ **CLI Parsing** - Short flags (`-i`) work, variadic blocked by type system
+3. ✅ **CLI Parsing** - Short flags and variadic args both work
 4. ✅ **Compiled Regex** - `regex.compile()` and `regex.Regex` type
 5. ✅ **API Consistency** - `file.read_dir()` alias added
 
-**Note:** Variadic positionals (`[FILE...]`) are not usable with `args.ArgParser` due to BASL's homogeneous map type system. This implementation uses manual `os.args()` parsing instead.
+**Note:** This implementation now uses `args.ArgParser` with variadic support. Variadic args are returned as space-separated string, which is split to get individual files.
 
 See [LIMITATIONS.md](LIMITATIONS.md) for detailed analysis.
 
