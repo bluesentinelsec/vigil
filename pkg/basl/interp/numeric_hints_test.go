@@ -24,15 +24,15 @@ func TestNumericTypeMismatchHints(t *testing.T) {
 			wantHint:    "cast left operand: i64(left) < right",
 		},
 		{
-			name: "u8_vs_i32",
+			name: "u8_vs_u32",
 			src: `fn main() -> i32 {
 				u8 a = u8(10);
-				i32 b = 20;
+				u32 b = u32(20);
 				bool c = a < b;
 				return 0;
 			}`,
-			wantErrPart: "cannot apply \"<\" to u8 and i32",
-			wantHint:    "cast left operand: i32(left) < right",
+			wantErrPart: "cannot apply \"<\" to u8 and u32",
+			wantHint:    "cast left operand: u32(left) < right",
 		},
 		{
 			name: "i64_vs_i32",
@@ -56,6 +56,28 @@ func TestNumericTypeMismatchHints(t *testing.T) {
 			wantErrPart: "cannot apply \"==\" to f64 and i32",
 			wantHint:    "cast right operand: left == f64(right)",
 		},
+		{
+			name: "signed_vs_unsigned_no_hint",
+			src: `fn main() -> i32 {
+				i32 a = -1;
+				u32 b = u32(1);
+				bool c = a < b;
+				return 0;
+			}`,
+			wantErrPart: "cannot apply \"<\" to i32 and u32",
+			wantHint:    "cast both operands to a common type (mixing signed/unsigned requires care)",
+		},
+		{
+			name: "modulo_float_no_hint",
+			src: `fn main() -> i32 {
+				f64 a = 10.5;
+				i32 b = 3;
+				f64 c = a % b;
+				return 0;
+			}`,
+			wantErrPart: "cannot apply \"%\" to f64 and i32",
+			wantHint:    "", // No hint because % doesn't work on f64
+		},
 	}
 
 	for _, tt := range tests {
@@ -69,8 +91,15 @@ func TestNumericTypeMismatchHints(t *testing.T) {
 			if !strings.Contains(errStr, tt.wantErrPart) {
 				t.Errorf("error missing expected part\ngot: %s\nwant substring: %s", errStr, tt.wantErrPart)
 			}
-			if !strings.Contains(errStr, tt.wantHint) {
-				t.Errorf("error missing expected hint\ngot: %s\nwant substring: %s", errStr, tt.wantHint)
+			if tt.wantHint != "" {
+				if !strings.Contains(errStr, tt.wantHint) {
+					t.Errorf("error missing expected hint\ngot: %s\nwant substring: %s", errStr, tt.wantHint)
+				}
+			} else {
+				// Verify no hint is present
+				if strings.Contains(errStr, "hint:") {
+					t.Errorf("unexpected hint in error\ngot: %s", errStr)
+				}
 			}
 		})
 	}

@@ -276,8 +276,9 @@ func (interp *Interpreter) evalBinary(e *ast.BinaryExpr, env *Env) (value.Value,
 
 	// Provide helpful hint for numeric type mismatches
 	if isNumericType(left.T) && isNumericType(right.T) {
-		hint := suggestNumericCast(left.T, right.T, e.Op)
-		return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same type\n  hint: %s", e.Line, e.Op, left.T, right.T, hint)
+		if hint := suggestNumericCast(left.T, right.T, e.Op); hint != "" {
+			return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same type\n  hint: %s", e.Line, e.Op, left.T, right.T, hint)
+		}
 	}
 
 	return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same numeric type", e.Line, e.Op, left.T, right.T)
@@ -288,15 +289,51 @@ func isNumericType(t value.Type) bool {
 		t == value.TypeU8 || t == value.TypeU32 || t == value.TypeU64
 }
 
+func isSigned(t value.Type) bool {
+	return t == value.TypeI32 || t == value.TypeI64
+}
+
+func isUnsigned(t value.Type) bool {
+	return t == value.TypeU8 || t == value.TypeU32 || t == value.TypeU64
+}
+
+func isFloat(t value.Type) bool {
+	return t == value.TypeF64
+}
+
+func opSupportsType(op string, t value.Type) bool {
+	// Comparison operators work on all numeric types
+	if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" {
+		return true
+	}
+	// Arithmetic operators
+	if op == "+" || op == "-" || op == "*" || op == "/" {
+		return true
+	}
+	// Modulo and bitwise don't work on floats
+	if op == "%" || op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" {
+		return !isFloat(t)
+	}
+	return false
+}
+
 func suggestNumericCast(left, right value.Type, op string) string {
-	// Suggest casting to the wider type
+	// Don't suggest mixing signed and unsigned (unsafe conversions)
+	if (isSigned(left) && isUnsigned(right)) || (isUnsigned(left) && isSigned(right)) {
+		return "cast both operands to a common type (mixing signed/unsigned requires care)"
+	}
+
+	// Determine wider type
 	wider := right
 	castLeft := true
-
-	// Determine which is wider
 	if typeWidth(left) > typeWidth(right) {
 		wider = left
 		castLeft = false
+	}
+
+	// Check if operator is supported on the target type
+	if !opSupportsType(op, wider) {
+		return "" // No hint if the operator won't work anyway
 	}
 
 	if castLeft {
