@@ -128,6 +128,60 @@ func (l *Lexer) readString() (Token, error) {
 	}
 }
 
+func (l *Lexer) readCharLiteral() (Token, error) {
+	startLine, startCol := l.line, l.col
+	l.advance() // skip opening '
+
+	if l.pos >= len(l.input) {
+		return Token{}, fmt.Errorf("%d:%d: unterminated character literal — expected character after '", startLine, startCol)
+	}
+
+	var value string
+	if l.peek() == '\\' {
+		// Escape sequence
+		l.advance() // skip \
+		if l.pos >= len(l.input) {
+			return Token{}, fmt.Errorf("%d:%d: unterminated escape sequence in character literal", startLine, startCol)
+		}
+		esc := l.advance()
+		switch esc {
+		case 'n':
+			value = "\n"
+		case 't':
+			value = "\t"
+		case 'r':
+			value = "\r"
+		case '\\':
+			value = "\\"
+		case '\'':
+			value = "'"
+		default:
+			return Token{}, fmt.Errorf("%d:%d: unknown escape sequence \\%c in character literal — valid escapes are \\n, \\t, \\r, \\\\, \\'", startLine, startCol, esc)
+		}
+	} else {
+		// Read one UTF-8 character (rune)
+		// Reject raw newlines and carriage returns
+		if l.peek() == '\n' || l.peek() == '\r' {
+			return Token{}, fmt.Errorf("%d:%d: raw newline in character literal — use '\\n' for newline", startLine, startCol)
+		}
+		start := l.pos
+		l.advance() // consume at least one byte
+		// Continue consuming bytes that are UTF-8 continuation bytes (10xxxxxx)
+		for l.pos < len(l.input) && (l.input[l.pos]&0xC0) == 0x80 {
+			l.advance()
+		}
+		value = string(l.input[start:l.pos])
+	}
+
+	if l.pos >= len(l.input) || l.peek() != '\'' {
+		return Token{}, fmt.Errorf("%d:%d: unterminated character literal — expected closing ' after character", startLine, startCol)
+	}
+	l.advance() // skip closing '
+
+	// Character literals are syntactic sugar for single-character strings
+	return Token{TOKEN_STRING, value, startLine, startCol}, nil
+}
+
 func (l *Lexer) readRawString() (Token, error) {
 	startLine, startCol := l.line, l.col
 	l.advance() // consume opening backtick
@@ -371,6 +425,11 @@ func (l *Lexer) nextToken() (Token, error) {
 	// string
 	if ch == '"' {
 		return l.readString()
+	}
+
+	// character literal (single quotes)
+	if ch == '\'' {
+		return l.readCharLiteral()
 	}
 
 	// raw string (backtick)

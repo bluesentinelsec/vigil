@@ -8,6 +8,11 @@ import (
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
 )
 
+// stringLitStr formats a string literal, always using double quotes
+func stringLitStr(s string) string {
+	return strconv.Quote(s)
+}
+
 func (f *formatter) exprStr(e ast.Expr) string {
 	if e == nil {
 		return ""
@@ -23,6 +28,26 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		}
 		return s
 	case *ast.StringLit:
+		// Use single quotes for single-character strings (character literals)
+		// Count runes (Unicode characters), not bytes
+		runes := []rune(e.Value)
+		if len(runes) == 1 {
+			ch := runes[0]
+			switch ch {
+			case '\n':
+				return `'\n'`
+			case '\t':
+				return `'\t'`
+			case '\r':
+				return `'\r'`
+			case '\\':
+				return `'\\'`
+			case '\'':
+				return `'\''`
+			default:
+				return "'" + e.Value + "'"
+			}
+		}
 		return strconv.Quote(e.Value)
 	case *ast.BoolLit:
 		if e.Value {
@@ -86,7 +111,12 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		}
 		pairs := make([]string, len(e.Keys))
 		for i := range e.Keys {
-			pairs[i] = f.exprStr(e.Keys[i]) + ": " + f.exprStr(e.Values[i])
+			// Map keys should always be formatted as strings (double quotes)
+			key := f.exprStr(e.Keys[i])
+			if strLit, ok := e.Keys[i].(*ast.StringLit); ok {
+				key = stringLitStr(strLit.Value)
+			}
+			pairs[i] = key + ": " + f.exprStr(e.Values[i])
 		}
 		return "{" + joinComma(pairs) + "}"
 	case *ast.TupleExpr:
