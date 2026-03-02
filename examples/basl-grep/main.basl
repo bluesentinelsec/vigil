@@ -19,6 +19,10 @@ fn main() -> i32 {
         return 2;
     }
     
+    // NOTE: Manual args parsing used instead of args.ArgParser because
+    // variadic positionals ([FILE...]) are not usable with ArgParser due to
+    // BASL's homogeneous map type system (cannot mix string and array values).
+    
     // Parse flags
     bool ignoreCase = false;
     bool invertMatch = false;

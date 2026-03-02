@@ -1,8 +1,15 @@
 # BASL Limitations Exposed by grep Implementation
 
-**STATUS: ALL FIXED! ✅**
+**STATUS: 4 of 5 FIXED! ⚠️**
 
 This document records the language and stdlib limitations that were discovered while implementing grep, and documents how they were fixed.
+
+**Summary:**
+- ✅ Type namespace mismatch - FIXED
+- ✅ Subprocess API - FIXED
+- ⚠️ CLI parsing - SHORT FLAGS FIXED, variadic still limited
+- ✅ Compiled regex - FIXED
+- ✅ API consistency - FIXED
 
 ---
 
@@ -50,11 +57,11 @@ string stdout, string stderr, i32 exitCode, err e = os.system("grep hello *.txt"
 
 ---
 
-## 3. Weak CLI Parsing - FIXED ✅
+## 3. Weak CLI Parsing - PARTIALLY FIXED ⚠️
 
 **Issue:** `args.ArgParser` only handled long flags and fixed positional args.
 
-**Fix:** Added short flag and variadic support:
+**Fix:** Added short flag support:
 
 ```basl
 import "args";
@@ -66,19 +73,18 @@ fn main() -> i32 {
     parser.flag("verbose", "bool", "false", "Verbose output", "v");
     parser.flag("count", "string", "10", "Count", "c");
     
-    // Variadic positionals now supported
-    parser.arg("files", "array", "Files to process", true);
-    
     map<string, string> result, err e = parser.parse();
-    // Can now parse: grep -v -c 20 file1.txt file2.txt file3.txt
+    // Can now parse: grep -v -c 20 file.txt
     
     return 0;
 }
 ```
 
-**Result:** Unix-style CLI parsing now supported. Short flags (`-i`, `-n`) and variadic args work.
+**Result:** Short flags (`-i`, `-n`) now work.
 
-**Note:** Variadic returns array, but map type system requires homogeneous values. This is a deeper type system limitation that remains.
+**Remaining Limitation:** Variadic positionals are implemented in the parser but **not usable** due to BASL's homogeneous map type system. The parser can collect variadic args into an array, but `map<string, string>` cannot hold mixed types (string values + array values). This requires a deeper type system change.
+
+**Workaround:** Use manual `os.args()` parsing for variadic positionals like `[FILE...]`.
 
 ---
 
@@ -141,15 +147,17 @@ array<string> entries2, err e2 = file.read_dir(".");  // New alias
 
 ## Summary
 
-All 5 limitations have been fixed! BASL now supports:
+4 of 5 limitations have been fixed:
 
 1. ✅ **Type namespacing** - Coherent model for stdlib record types
 2. ✅ **Subprocess API** - Shell execution, exit codes, output capture
-3. ✅ **CLI parsing** - Short flags, variadic args, validation
+3. ⚠️ **CLI parsing** - Short flags work, variadic blocked by type system
 4. ✅ **Compiled regex** - Reusable pattern objects
 5. ✅ **API consistency** - Predictable naming conventions
 
-These fixes enable idiomatic Unix-tool development in BASL.
+**Remaining Issue:** Variadic positionals require heterogeneous map support (map that can hold both string and array values). This is a fundamental type system limitation.
+
+These fixes enable most Unix-tool development patterns in BASL. Variadic args require manual `os.args()` parsing.
 
 ## grep Implementation Status
 
