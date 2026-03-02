@@ -289,3 +289,26 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+func TestTimeParseReturnsErrParse(t *testing.T) {
+	src := `
+import "time";
+fn main() -> i32 {
+    i64 ms, err e = time.parse("2006-01-02", "not-a-date");
+    if (e == ok) {
+        return 1;
+    }
+    if (e.kind() != err.parse) {
+        return 2;
+    }
+    return 0;
+}
+`
+	exitCode, _, err := evalBASL(src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}

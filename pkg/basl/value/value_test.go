@@ -141,3 +141,12 @@ func TestConstants(t *testing.T) {
 		t.Error("Ok")
 	}
 }
+
+func TestNewErrPanicsOnInvalidKind(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("NewErr with invalid kind should panic")
+		}
+	}()
+	NewErr("x", "bogus")
+}
