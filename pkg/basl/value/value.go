@@ -227,6 +227,9 @@ func NewBool(v bool) Value {
 	return False
 }
 func NewErr(msg, kind string) Value {
+	if kind != "" && !ValidErrKinds[kind] {
+		panic("invalid error kind: " + kind)
+	}
 	return Value{T: TypeErr, Data: &ErrVal{Message: msg, Kind: kind}}
 }
 func NewArray(elems []Value) Value { return Value{T: TypeArray, Data: &ArrayVal{Elems: elems}} }
