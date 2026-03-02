@@ -110,21 +110,6 @@ Then import in their code:
 import "mylib/utils";
 ```
 
-## Package vs Bundle Command
-
-The `basl bundle` command still exists for explicit library packaging, but `basl package` now handles both automatically:
-
-```sh
-basl package    # Auto-detects application or library
-basl bundle     # Explicitly package as library
-```
-
-Use `basl package` for everything - it does the right thing.
-
-1. confirming the file is actually a BASL packaged binary
-2. seeing what BASL modules were embedded
-3. debugging import resolution during packaging
-
 ## How It Works
 
 The current implementation does not rebuild the interpreter or compile generated Go code.
