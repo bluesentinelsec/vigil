@@ -1,6 +1,6 @@
 # test (t)
 
-Built-in test framework. Available only in `_test.basl` files via `import "t";`.
+Built-in test framework. Available only in `_test.basl` files via `import "t";` or `import "test";`.
 
 ## Running Tests
 
@@ -15,13 +15,19 @@ basl test -v                       # verbose: print each test name
 
 Exit code: 0 if all pass, 1 if any fail.
 
+**Working directory:** Tests run with the working directory set to the test file's directory, so relative paths in tests are relative to the test file.
+
 ## Conventions
 
 - Test files end in `_test.basl`.
-- Test functions start with `test_`, take zero parameters, return `void`.
+- Test functions start with `test_`, return `void`.
+- Test functions may take zero parameters or a single `test.T` parameter.
 - Each test runs in a fresh interpreter — no shared state between tests.
 - Non-test functions (helpers) in test files are available but not run as tests.
 
+## Test Function Signatures
+
+**Simple style (import "t"):**
 ```c
 import "t";
 import "math";
@@ -31,7 +37,19 @@ fn test_sqrt() -> void {
 }
 ```
 
-## Functions
+**Typed style (import "test"):**
+```c
+import "test";
+import "math";
+
+fn test_sqrt(test.T t) -> void {
+    t.assert(math.sqrt(9.0) == 3.0, "sqrt(9) should be 3");
+}
+```
+
+Both styles work identically. Use the simple style for most tests. Use the typed style if you prefer explicit parameter types.
+
+## Functions (import "t")
 
 ### t.assert(bool condition, string message)
 
@@ -49,6 +67,26 @@ Fails the current test unconditionally. The test stops immediately.
 
 ```c
 fn test_not_implemented() -> void {
+    t.fail("TODO: implement this");
+}
+```
+
+## Methods (import "test", test.T parameter)
+
+When using the typed style with `import "test"`, the test.T parameter provides the same methods:
+
+### t.assert(bool condition, string message)
+
+```c
+fn test_example(test.T t) -> void {
+    t.assert(1 + 1 == 2, "basic math");
+}
+```
+
+### t.fail(string message)
+
+```c
+fn test_not_implemented(test.T t) -> void {
     t.fail("TODO: implement this");
 }
 ```

@@ -1,6 +1,8 @@
 package interp
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,6 +62,16 @@ func ExecTestFile(path string, src []byte, filter string, searchPaths []string) 
 }
 
 func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string) TestResult {
+	// Change to test file directory so relative paths work
+	origDir, err := os.Getwd()
+	if err != nil {
+		return TestResult{Name: name, Passed: false, Message: fmt.Sprintf("failed to get cwd: %v", err)}
+	}
+	if err := os.Chdir(dir); err != nil {
+		return TestResult{Name: name, Passed: false, Message: fmt.Sprintf("failed to chdir to %s: %v", dir, err)}
+	}
+	defer os.Chdir(origDir)
+
 	vm := New()
 	vm.AddSearchPath(dir)
 	for _, sp := range searchPaths {
@@ -102,14 +114,14 @@ func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string
 	}
 
 	start := time.Now()
-	_, err := vm.callFunc(fnVal, callArgs)
+	_, callErr := vm.callFunc(fnVal, callArgs)
 	elapsed := time.Since(start)
 
-	if err != nil {
-		if tf, ok := err.(*signalTestFail); ok {
+	if callErr != nil {
+		if tf, ok := callErr.(*signalTestFail); ok {
 			return TestResult{Name: name, Passed: false, Message: tf.Message, Elapsed: elapsed}
 		}
-		return TestResult{Name: name, Passed: false, Message: err.Error(), Elapsed: elapsed}
+		return TestResult{Name: name, Passed: false, Message: callErr.Error(), Elapsed: elapsed}
 	}
 	return TestResult{Name: name, Passed: true, Elapsed: elapsed}
 }
