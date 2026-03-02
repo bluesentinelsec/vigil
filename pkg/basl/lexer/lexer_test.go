@@ -272,6 +272,16 @@ func TestCharLiterals(t *testing.T) {
 	}
 }
 
+func TestCharLiteralRawNewline(t *testing.T) {
+	// Raw newlines should be rejected in character literals
+	input := `'
+'`
+	_, err := New(input).Tokenize()
+	if err == nil {
+		t.Errorf("expected error for raw newline in character literal, got none")
+	}
+}
+
 func TestCharLiteralInExpression(t *testing.T) {
 	input := `ch == 'a'`
 	tokens, err := New(input).Tokenize()

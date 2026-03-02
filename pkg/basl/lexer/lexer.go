@@ -160,6 +160,10 @@ func (l *Lexer) readCharLiteral() (Token, error) {
 		}
 	} else {
 		// Read one UTF-8 character (rune)
+		// Reject raw newlines and carriage returns
+		if l.peek() == '\n' || l.peek() == '\r' {
+			return Token{}, fmt.Errorf("%d:%d: raw newline in character literal — use '\\n' for newline", startLine, startCol)
+		}
 		start := l.pos
 		l.advance() // consume at least one byte
 		// Continue consuming bytes that are UTF-8 continuation bytes (10xxxxxx)
