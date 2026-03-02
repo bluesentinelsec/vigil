@@ -2203,3 +2203,34 @@ fn main() -> i32 {
 	want := []string{"initialized"}
 	checkOutput(t, lines, want)
 }
+
+func TestExec_AnonymousFunctions(t *testing.T) {
+	tests := []struct {
+		name       string
+		src        string
+		wantOutput []string
+	}{
+		{"inline_callback", `import "fmt";
+fn apply(fn f, i32 x) -> i32 { return f(x); }
+fn main() -> i32 { fmt.print(string(apply(fn(i32 x) -> i32 { return x * 3; }, 5))); return 0; }`,
+			[]string{"15"}},
+		{"variable_bound", `import "fmt";
+fn main() -> i32 { fn d = fn(i32 x) -> i32 { return x * 2; }; fmt.print(string(d(7))); return 0; }`,
+			[]string{"14"}},
+		{"closure_capture", `import "fmt";
+fn main() -> i32 { i32 m = 10; fn s = fn(i32 x) -> i32 { return x * m; }; fmt.print(string(s(4))); return 0; }`,
+			[]string{"40"}},
+		{"no_args_no_return", `import "fmt";
+fn main() -> i32 { fn f = fn() -> void { fmt.print("hi"); }; f(); return 0; }`,
+			[]string{"hi"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, lines, err := evalBASL(tt.src)
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
+			checkOutput(t, lines, tt.wantOutput)
+		})
+	}
+}

@@ -205,28 +205,32 @@ func (f *formatter) fnLitStr(e *ast.FnLitExpr) string {
 		sb.WriteString(" -> ")
 		sb.WriteString(returnTypeStr(d.Return))
 	}
-	sb.WriteString(" { ")
-	// Inline the body for short lambdas
+	// Try inline for single simple statements
 	if d.Body != nil && len(d.Body.Stmts) == 1 {
-		sb.WriteString(f.inlineStmt(d.Body.Stmts[0]))
-		sb.WriteString(" }")
-		return sb.String()
-	}
-	// Multi-statement: use block format
-	// This is a rare case for fn literals; just inline all stmts
-	if d.Body != nil {
-		for i, s := range d.Body.Stmts {
-			if i > 0 {
-				sb.WriteString(" ")
-			}
-			sb.WriteString(f.inlineStmt(s))
+		if inline := f.inlineStmt(d.Body.Stmts[0]); inline != "" {
+			sb.WriteString(" { ")
+			sb.WriteString(inline)
+			sb.WriteString(" }")
+			return sb.String()
 		}
 	}
-	sb.WriteString(" }")
+	// Fall back to multi-line block format
+	sb.WriteString(" {\n")
+	saved := f.indent
+	f.indent++
+	if d.Body != nil {
+		for _, s := range d.Body.Stmts {
+			sb.WriteString(f.stmtToString(s))
+			sb.WriteByte('\n')
+		}
+	}
+	f.indent = saved
+	sb.WriteString(strings.Repeat("    ", saved))
+	sb.WriteString("}")
 	return sb.String()
 }
 
-// inlineStmt returns a statement as a single-line string (for fn literals in expressions).
+// inlineStmt returns a statement as a single-line string, or "" if it can't be inlined.
 func (f *formatter) inlineStmt(s ast.Stmt) string {
 	switch s := s.(type) {
 	case *ast.ReturnStmt:
@@ -241,7 +245,7 @@ func (f *formatter) inlineStmt(s ast.Stmt) string {
 	case *ast.VarStmt:
 		return fmt.Sprintf("%s %s = %s;", typeExprStr(s.Type), s.Name, f.exprStr(s.Init))
 	}
-	return "/* ... */"
+	return ""
 }
 
 func (f *formatter) fstringStr(e *ast.FStringExpr) string {
