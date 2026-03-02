@@ -147,6 +147,15 @@ func main() {
 		os.Exit(2)
 	}
 
+	if !strings.HasSuffix(scriptPath, ".basl") {
+		if !strings.Contains(scriptPath, string(filepath.Separator)) && !strings.Contains(scriptPath, ".") {
+			fmt.Fprintf(os.Stderr, "error: unknown command %q. Run 'basl --help' for usage.\n", scriptPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "error: scripts must have a .basl extension: %s\n", scriptPath)
+		}
+		os.Exit(1)
+	}
+
 	src, err := os.ReadFile(scriptPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
