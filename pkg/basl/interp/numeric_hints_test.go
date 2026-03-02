@@ -78,6 +78,28 @@ func TestNumericTypeMismatchHints(t *testing.T) {
 			wantErrPart: "cannot apply \"%\" to f64 and i32",
 			wantHint:    "", // No hint because % doesn't work on f64
 		},
+		{
+			name: "u64_vs_f64_no_hint",
+			src: `fn main() -> i32 {
+				u64 a = u64(10);
+				f64 b = 10.0;
+				bool c = a == b;
+				return 0;
+			}`,
+			wantErrPart: "cannot apply \"==\" to u64 and f64",
+			wantHint:    "", // No hint because u64 cannot be converted to f64
+		},
+		{
+			name: "u32_vs_f64_no_hint",
+			src: `fn main() -> i32 {
+				u32 a = u32(10);
+				f64 b = 10.0;
+				bool c = a < b;
+				return 0;
+			}`,
+			wantErrPart: "cannot apply \"<\" to u32 and f64",
+			wantHint:    "", // No hint because u32 cannot be converted to f64
+		},
 	}
 
 	for _, tt := range tests {

@@ -317,6 +317,30 @@ func opSupportsType(op string, t value.Type) bool {
 	return false
 }
 
+func canConvert(from, to value.Type) bool {
+	// Same type is always OK
+	if from == to {
+		return true
+	}
+	// Check actual conversion support based on type conversion implementation
+	switch to {
+	case value.TypeI32:
+		return from == value.TypeString || from == value.TypeI64 || from == value.TypeU8
+	case value.TypeI64:
+		return from == value.TypeString || from == value.TypeI32
+	case value.TypeF64:
+		// f64 only accepts string, i32, i64 (NOT unsigned types)
+		return from == value.TypeString || from == value.TypeI32 || from == value.TypeI64
+	case value.TypeU8:
+		return from == value.TypeI32
+	case value.TypeU32:
+		return from == value.TypeI32 || from == value.TypeU8
+	case value.TypeU64:
+		return from == value.TypeI32 || from == value.TypeI64 || from == value.TypeU32
+	}
+	return false
+}
+
 func suggestNumericCast(left, right value.Type, op string) string {
 	// Don't suggest mixing signed and unsigned (unsafe conversions)
 	if (isSigned(left) && isUnsigned(right)) || (isUnsigned(left) && isSigned(right)) {
@@ -336,8 +360,15 @@ func suggestNumericCast(left, right value.Type, op string) string {
 		return "" // No hint if the operator won't work anyway
 	}
 
+	// Check if the conversion is actually supported
 	if castLeft {
+		if !canConvert(left, wider) {
+			return "" // Can't convert left to wider type
+		}
 		return fmt.Sprintf("cast left operand: %s(left) %s right", wider, op)
+	}
+	if !canConvert(right, wider) {
+		return "" // Can't convert right to wider type
 	}
 	return fmt.Sprintf("cast right operand: left %s %s(right)", op, wider)
 }

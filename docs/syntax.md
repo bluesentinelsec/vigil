@@ -96,12 +96,17 @@ if (a < b) { ... }
 if (i64(a) < b) { ... }
 ```
 
-When a type mismatch occurs, BASL provides a helpful hint suggesting the appropriate cast:
+When a type mismatch occurs, BASL may provide a helpful hint suggesting the appropriate cast (when a valid conversion exists):
 
 ```
 error: line 5: cannot apply "<" to i32 and i64 — operands must be the same type
   hint: cast left operand: i64(left) < right
 ```
+
+Hints are only provided when:
+- The conversion is actually supported by BASL
+- The operator works on the target type
+- The conversion is safe (e.g., no signed/unsigned mixing)
 
 This explicitness prevents subtle bugs from implicit conversions and makes type handling clear.
 
