@@ -81,6 +81,35 @@ Enforcement points:
 - Collection mutations (`push`, `set`, index assignment)
 - Collection literals (`array<i32>` checks each element, `map<K,V>` checks keys and values)
 
+### Numeric Type Comparisons
+
+BASL requires explicit type matching for numeric operations. Different numeric types cannot be compared or combined without explicit casting:
+
+```c
+i32 a = 10;
+i64 b = i64(20);
+
+// ERROR: cannot compare i32 and i64
+if (a < b) { ... }
+
+// OK: cast to common type
+if (i64(a) < b) { ... }
+```
+
+When a type mismatch occurs, BASL may provide a helpful hint suggesting the appropriate cast (when a valid conversion exists):
+
+```
+error: line 5: cannot apply "<" to i32 and i64 — operands must be the same type
+  hint: cast left operand: i64(left) < right
+```
+
+Hints are only provided when:
+- The conversion is actually supported by BASL
+- The operator works on the target type
+- The conversion is safe (e.g., no signed/unsigned mixing)
+
+This explicitness prevents subtle bugs from implicit conversions and makes type handling clear.
+
 ### Integer Literals
 
 ```c

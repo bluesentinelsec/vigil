@@ -274,7 +274,122 @@ func (interp *Interpreter) evalBinary(e *ast.BinaryExpr, env *Env) (value.Value,
 		}
 	}
 
+	// Provide helpful hint for numeric type mismatches
+	if isNumericType(left.T) && isNumericType(right.T) {
+		if hint := suggestNumericCast(left.T, right.T, e.Op); hint != "" {
+			return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same type\n  hint: %s", e.Line, e.Op, left.T, right.T, hint)
+		}
+	}
+
 	return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same numeric type", e.Line, e.Op, left.T, right.T)
+}
+
+func isNumericType(t value.Type) bool {
+	return t == value.TypeI32 || t == value.TypeI64 || t == value.TypeF64 ||
+		t == value.TypeU8 || t == value.TypeU32 || t == value.TypeU64
+}
+
+func isSigned(t value.Type) bool {
+	return t == value.TypeI32 || t == value.TypeI64
+}
+
+func isUnsigned(t value.Type) bool {
+	return t == value.TypeU8 || t == value.TypeU32 || t == value.TypeU64
+}
+
+func isFloat(t value.Type) bool {
+	return t == value.TypeF64
+}
+
+func opSupportsType(op string, t value.Type) bool {
+	// Comparison operators work on all numeric types
+	if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" {
+		return true
+	}
+	// Arithmetic operators
+	if op == "+" || op == "-" || op == "*" || op == "/" {
+		return true
+	}
+	// Modulo and bitwise don't work on floats
+	if op == "%" || op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>" {
+		return !isFloat(t)
+	}
+	return false
+}
+
+func canConvert(from, to value.Type) bool {
+	// Same type is always OK
+	if from == to {
+		return true
+	}
+	// Check actual conversion support based on type conversion implementation
+	switch to {
+	case value.TypeI32:
+		return from == value.TypeString || from == value.TypeI64 || from == value.TypeU8
+	case value.TypeI64:
+		return from == value.TypeString || from == value.TypeI32
+	case value.TypeF64:
+		// f64 only accepts string, i32, i64 (NOT unsigned types)
+		return from == value.TypeString || from == value.TypeI32 || from == value.TypeI64
+	case value.TypeU8:
+		return from == value.TypeI32
+	case value.TypeU32:
+		return from == value.TypeI32 || from == value.TypeU8
+	case value.TypeU64:
+		return from == value.TypeI32 || from == value.TypeU8 || from == value.TypeU32
+	}
+	return false
+}
+
+func suggestNumericCast(left, right value.Type, op string) string {
+	// Don't suggest mixing signed and unsigned (no safe conversion path)
+	if (isSigned(left) && isUnsigned(right)) || (isUnsigned(left) && isSigned(right)) {
+		return "" // No hint for unsafe conversions
+	}
+
+	// Determine wider type
+	wider := right
+	castLeft := true
+	if typeWidth(left) > typeWidth(right) {
+		wider = left
+		castLeft = false
+	}
+
+	// Check if operator is supported on the target type
+	if !opSupportsType(op, wider) {
+		return "" // No hint if the operator won't work anyway
+	}
+
+	// Check if the conversion is actually supported
+	if castLeft {
+		if !canConvert(left, wider) {
+			return "" // Can't convert left to wider type
+		}
+		return fmt.Sprintf("cast left operand: %s(left) %s right", wider, op)
+	}
+	if !canConvert(right, wider) {
+		return "" // Can't convert right to wider type
+	}
+	return fmt.Sprintf("cast right operand: left %s %s(right)", op, wider)
+}
+
+func typeWidth(t value.Type) int {
+	switch t {
+	case value.TypeU8:
+		return 1
+	case value.TypeI32:
+		return 2
+	case value.TypeU32:
+		return 3
+	case value.TypeI64:
+		return 4
+	case value.TypeU64:
+		return 5
+	case value.TypeF64:
+		return 6
+	default:
+		return 0
+	}
 }
 
 func evalI32BinOp(op string, a, b int32, line int) (value.Value, error) {
