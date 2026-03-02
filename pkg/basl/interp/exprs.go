@@ -336,7 +336,7 @@ func canConvert(from, to value.Type) bool {
 	case value.TypeU32:
 		return from == value.TypeI32 || from == value.TypeU8
 	case value.TypeU64:
-		return from == value.TypeI32 || from == value.TypeI64 || from == value.TypeU32
+		return from == value.TypeI32 || from == value.TypeI64 || from == value.TypeU8 || from == value.TypeU32
 	}
 	return false
 }

@@ -35,6 +35,17 @@ func TestNumericTypeMismatchHints(t *testing.T) {
 			wantHint:    "cast left operand: u32(left) < right",
 		},
 		{
+			name: "u8_vs_u64",
+			src: `fn main() -> i32 {
+				u8 a = u8(1);
+				u64 b = u64(2);
+				bool c = a < b;
+				return 0;
+			}`,
+			wantErrPart: "cannot apply \"<\" to u8 and u64",
+			wantHint:    "cast left operand: u64(left) < right",
+		},
+		{
 			name: "i64_vs_i32",
 			src: `fn main() -> i32 {
 				i64 a = i64(100);
