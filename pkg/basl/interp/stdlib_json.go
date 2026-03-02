@@ -134,7 +134,8 @@ func (interp *Interpreter) jsonMethod(obj value.Value, method string, line int) 
 			}
 			arr, ok := data.([]interface{})
 			if !ok {
-				return value.Void, fmt.Errorf("json.Value.at_i32: not an array")
+				// Not an array - return 0 as documented
+				return value.NewI32(0), nil
 			}
 			idx := int(args[0].AsI32())
 			if idx < 0 || idx >= len(arr) {
@@ -152,7 +153,8 @@ func (interp *Interpreter) jsonMethod(obj value.Value, method string, line int) 
 			}
 			arr, ok := data.([]interface{})
 			if !ok {
-				return value.Void, fmt.Errorf("json.Value.at_string: not an array")
+				// Not an array - return "" as documented
+				return value.NewString(""), nil
 			}
 			idx := int(args[0].AsI32())
 			if idx < 0 || idx >= len(arr) {

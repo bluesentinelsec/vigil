@@ -1,0 +1,23 @@
+import "io";
+import "fmt";
+import "sort";
+
+fn main() -> i32 {
+    array<string> lines = [];
+    
+    while (true) {
+        string line, err e = io.read_line();
+        if (e != ok) {
+            break;
+        }
+        lines.push(line);
+    }
+    
+    sort.strings(lines);
+    
+    for line in lines {
+        fmt.println(line);
+    }
+    
+    return 0;
+}

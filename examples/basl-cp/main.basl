@@ -1,0 +1,73 @@
+import "os";
+import "file";
+import "fmt";
+import "args";
+import "path";
+
+fn copy_recursive(string src, string dst) -> err {
+    FileStat info, err e1 = file.stat(src);
+    if (e1 != ok) {
+        return e1;
+    }
+    
+    if (!info.is_dir) {
+        return file.copy(src, dst);
+    }
+    
+    // Directory - create destination and copy contents
+    err e2 = file.mkdir(dst);
+    if (e2 != ok) {
+        return e2;
+    }
+    
+    array<string> entries, err e3 = file.list_dir(src);
+    if (e3 != ok) {
+        return e3;
+    }
+    
+    for (i32 i = 0; i < entries.len(); i++) {
+        string src_child = path.join(src, entries[i]);
+        string dst_child = path.join(dst, entries[i]);
+        err e4 = copy_recursive(src_child, dst_child);
+        if (e4 != ok) {
+            return e4;
+        }
+    }
+    
+    return ok;
+}
+
+fn main() -> i32 {
+    ArgParser p = args.parser("basl-cp", "copy files and directories");
+    p.flag("recursive", "bool", "false", "copy directories recursively");
+    map<string, string> result, err e = p.parse();
+    
+    if (e != ok) {
+        fmt.eprintln(f"basl-cp: {e.message()}");
+        return 1;
+    }
+    
+    array<string> args = os.args();
+    if (args.len() < 2) {
+        fmt.eprintln("basl-cp: missing file operand");
+        return 1;
+    }
+    
+    string src = args[0];
+    string dst = args[1];
+    bool recursive = result["recursive"] == "true";
+    
+    err e2 = ok;
+    if (recursive) {
+        e2 = copy_recursive(src, dst);
+    } else {
+        e2 = file.copy(src, dst);
+    }
+    
+    if (e2 != ok) {
+        fmt.eprintln(f"basl-cp: {e2.message()}");
+        return 1;
+    }
+    
+    return 0;
+}

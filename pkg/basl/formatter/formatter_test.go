@@ -391,3 +391,327 @@ return 0;
 		t.Errorf("array/map types:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestFormatTernaryOperator(t *testing.T) {
+	src := `fn main() -> i32 {
+i32 x=true?1:2;
+string s=x>3?"big":"small";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = true ? 1 : 2;
+    string s = x > 3 ? "big" : "small";
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatChainedTernary(t *testing.T) {
+	src := `fn main() -> i32 {
+string size=x<10?"small":x<100?"medium":"large";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("chained ternary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatTernaryRoundTrip(t *testing.T) {
+	// Test that formatting is idempotent (round-trip)
+	src := `fn main() -> i32 {
+    i32 max = a > b ? a : b;
+    string status = age >= 18 ? "adult" : "minor";
+    string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
+    return 0;
+}
+`
+	got := fmtSource(src)
+	if got != src {
+		t.Errorf("ternary round-trip failed:\ngot:\n%s\nwant:\n%s", got, src)
+	}
+
+	// Format again to ensure idempotency
+	got2 := fmtSource(got)
+	if got2 != got {
+		t.Errorf("ternary not idempotent:\nfirst:\n%s\nsecond:\n%s", got, got2)
+	}
+}
+
+func TestFormatTernaryInBinaryExpr(t *testing.T) {
+	// Ternary inside binary expression needs parentheses
+	src := `fn main() -> i32 {
+i32 x=10+(true?1:2);
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = 10 + (true ? 1 : 2);
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary in binary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary in binary not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryAsCondition(t *testing.T) {
+	// Ternary used as condition in another ternary needs parentheses
+	src := `fn main() -> i32 {
+i32 x=(true?1:0)?7:9;
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = (true ? 1 : 0) ? 7 : 9;
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary as condition:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary as condition not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryPrecedence(t *testing.T) {
+	// Multiple precedence-sensitive cases
+	src := `fn main() -> i32 {
+    i32 a = 5 * (x > 0 ? 1 : -1);
+    i32 b = (flag ? 10 : 20) + 5;
+    bool c = (x > 5 ? true : false) && y > 3;
+    return 0;
+}
+`
+	got := fmtSource(src)
+	if got != src {
+		t.Errorf("ternary precedence:\ngot:\n%s\nwant:\n%s", got, src)
+	}
+}
+
+func TestFormatTernaryInUnary(t *testing.T) {
+	// Ternary in unary expression needs parentheses
+	src := `fn main() -> i32 {
+i32 x=-(true?1:2);
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = -(true ? 1 : 2);
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary in unary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary in unary not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryInIndex(t *testing.T) {
+	// Ternary as indexed object needs parentheses
+	src := `fn main() -> i32 {
+i32 x=(true?a:b)[0];
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = (true ? a : b)[0];
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary in index:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary in index not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryInMember(t *testing.T) {
+	// Ternary as member access object needs parentheses
+	src := `fn main() -> i32 {
+i32 x=(true?obj1:obj2).field;
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = (true ? obj1 : obj2).field;
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary in member:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary in member not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryInCall(t *testing.T) {
+	// Ternary as callee needs parentheses
+	src := `fn main() -> i32 {
+i32 x=(true?fn1:fn2)(arg);
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = (true ? fn1 : fn2)(arg);
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary in call:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary in call not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryAllContexts(t *testing.T) {
+	// Comprehensive test of all contexts where ternary needs parentheses
+	src := `fn main() -> i32 {
+    i32 a = -(flag ? 1 : 2);
+    i32 b = (flag ? arr1 : arr2)[0];
+    i32 c = (flag ? obj1 : obj2).field;
+    i32 d = (flag ? fn1 : fn2)(arg);
+    i32 e = 10 + (flag ? 1 : 2);
+    i32 f = (flag1 ? true : false) ? 7 : 9;
+    return 0;
+}
+`
+	got := fmtSource(src)
+	if got != src {
+		t.Errorf("ternary all contexts:\ngot:\n%s\nwant:\n%s", got, src)
+	}
+}
+
+func TestFormatCharLiterals(t *testing.T) {
+	src := `fn main() -> i32 {
+string ch='a';
+if(ch=='a'){
+fmt.println("match");
+}
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string ch = 'a';
+    if (ch == 'a') {
+        fmt.println("match");
+    }
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("char literals:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatCharLiteralEscapes(t *testing.T) {
+	src := `fn main() -> i32 {
+string n='\n';
+string t='\t';
+string r='\r';
+string bs='\\';
+string sq='\'';
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string n = '\n';
+    string t = '\t';
+    string r = '\r';
+    string bs = '\\';
+    string sq = '\'';
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("char literal escapes:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatCharVsString(t *testing.T) {
+	// Single-char strings formatted as char literals, multi-char as strings
+	src := `fn main() -> i32 {
+string ch="a";
+string str="hello";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string ch = 'a';
+    string str = "hello";
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("char vs string:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatCharLiteralUTF8(t *testing.T) {
+	// UTF-8 characters should be formatted as char literals
+	src := `fn main() -> i32 {
+string e="é";
+string euro="€";
+string emoji="😀";
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    string e = 'é';
+    string euro = '€';
+    string emoji = '😀';
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("UTF-8 char literals:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}

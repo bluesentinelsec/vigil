@@ -81,6 +81,19 @@ Creates a directory and all necessary parents (like `mkdir -p`). Directory permi
 err e = file.mkdir("a/b/c");
 ```
 
+### file.touch(string path) -> err
+
+Creates an empty file or updates the modification time of an existing file.
+
+- Returns `ok` on success.
+- Returns `err(message)` on failure.
+- If file doesn't exist, creates it with permissions `0644`.
+- If file exists, updates access and modification times to current time.
+
+```c
+err e = file.touch("newfile.txt");
+```
+
 ### file.list_dir(string path) -> (array\<string\>, err)
 
 Lists the names of entries in a directory.

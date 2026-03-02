@@ -275,6 +275,13 @@ type BinaryExpr struct {
 	Line  int
 }
 
+type TernaryExpr struct {
+	Condition Expr
+	TrueExpr  Expr
+	FalseExpr Expr
+	Line      int
+}
+
 type CallExpr struct {
 	Callee Expr
 	Args   []Expr
@@ -349,6 +356,7 @@ func (*Ident) exprNode()        {}
 func (*SelfExpr) exprNode()     {}
 func (*UnaryExpr) exprNode()    {}
 func (*BinaryExpr) exprNode()   {}
+func (*TernaryExpr) exprNode()  {}
 func (*CallExpr) exprNode()     {}
 func (*MemberExpr) exprNode()   {}
 func (*IndexExpr) exprNode()    {}

@@ -62,3 +62,23 @@ string a = fmt.dollar(9.99);      // "$9.99"
 string b = fmt.dollar(5);         // "$5.00"
 string c = fmt.dollar(i64(100));  // "$100.00"
 ```
+
+### fmt.eprint(val) -> err
+
+Prints the string representation of `val` to stderr. No trailing newline.
+
+- Same behavior as `fmt.print` but outputs to stderr instead of stdout.
+- Useful for error messages in CLI tools.
+
+```c
+fmt.eprint("error: ");
+fmt.eprintln("file not found");
+```
+
+### fmt.eprintln(val) -> err
+
+Same as `fmt.eprint` but appends `\n` after the value.
+
+```c
+fmt.eprintln("error: file not found");
+```

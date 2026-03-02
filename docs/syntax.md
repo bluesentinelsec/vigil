@@ -81,6 +81,35 @@ Enforcement points:
 - Collection mutations (`push`, `set`, index assignment)
 - Collection literals (`array<i32>` checks each element, `map<K,V>` checks keys and values)
 
+### Numeric Type Comparisons
+
+BASL requires explicit type matching for numeric operations. Different numeric types cannot be compared or combined without explicit casting:
+
+```c
+i32 a = 10;
+i64 b = i64(20);
+
+// ERROR: cannot compare i32 and i64
+if (a < b) { ... }
+
+// OK: cast to common type
+if (i64(a) < b) { ... }
+```
+
+When a type mismatch occurs, BASL may provide a helpful hint suggesting the appropriate cast (when a valid conversion exists):
+
+```
+error: line 5: cannot apply "<" to i32 and i64 — operands must be the same type
+  hint: cast left operand: i64(left) < right
+```
+
+Hints are only provided when:
+- The conversion is actually supported by BASL
+- The operator works on the target type
+- The conversion is safe (e.g., no signed/unsigned mixing)
+
+This explicitness prevents subtle bugs from implicit conversions and makes type handling clear.
+
 ### Integer Literals
 
 ```c
@@ -96,6 +125,29 @@ i32 oct = 0o377;
 string s = "hello\nworld";     // escape sequences: \n \t \\ \"
 string raw = `no \n escapes`;  // backtick: raw/multi-line, no escape processing
 string msg = f"hello {name}";  // f-string: expressions in {} are evaluated
+```
+
+### Character Literals
+
+Single-character strings can be written with single quotes for clarity:
+
+```c
+string ch = 'a';               // equivalent to "a"
+string newline = '\n';         // escape sequences work
+if (ch == 'x') { ... }         // clearer than ch == "x"
+
+// UTF-8 characters work
+string euro = '€';
+string emoji = '😀';
+```
+
+Character literals are syntactic sugar — they create single-character strings, not a separate type. Supported escapes: `\n`, `\t`, `\r`, `\\`, `\'`.
+
+The formatter preserves character literal syntax for single-character strings, except in map literals where keys are always formatted with double quotes for consistency:
+
+```c
+string ch = 'a';               // formatted as 'a'
+map<string, i32> m = {'a': 1}; // formatted as {"a": 1}
 ```
 
 ### String Interpolation
@@ -166,10 +218,42 @@ obj.field = v; // field assignment
 ### Comparison
 `==`, `!=`, `<`, `>`, `<=`, `>=`
 
+- Numeric types: standard arithmetic comparison
+- Strings: lexicographic (byte-wise) comparison
+  - `"a" < "b"` is `true`
+  - `"apple" < "banana"` is `true`
+  - Useful for character ranges: `ch >= "a" && ch <= "z"`
+  - UTF-8 safe: compares byte values, not locale-aware
+- Booleans: only `==` and `!=` supported
+- `err` type: only `==` and `!=` supported
+
 ### Logical
 `&&`, `||`, `!`
 
 Short-circuit evaluation: `&&` stops on false, `||` stops on true.
+
+### Ternary Operator
+```c
+condition ? trueValue : falseValue
+```
+
+The condition must be a boolean expression. Returns `trueValue` if condition is true, otherwise `falseValue`.
+
+The ternary operator has the lowest precedence of all expression operators (lower than `||`, `&&`, arithmetic, etc.), so it typically requires parentheses when used as a subexpression.
+
+The operator is right-associative, allowing chained ternaries without parentheses.
+
+```c
+i32 max = a > b ? a : b;
+string status = age >= 18 ? "adult" : "minor";
+
+// Chained ternary (right-associative, no parentheses needed)
+string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
+
+// Ternary as subexpression requires parentheses
+i32 result = 10 + (flag ? 1 : 2);
+i32 negated = -(flag ? 1 : 2);
+```
 
 ### Bitwise
 `&` (AND), `|` (OR), `^` (XOR), `~` (NOT), `<<` (shift left), `>>` (shift right)
@@ -460,6 +544,22 @@ Point p = Point(3, 4);
 f64 d = p.distance();
 ```
 
+### Module Classes
+
+Classes from modules must use module-qualified type names:
+
+```c
+import "models";
+
+// Correct: module-qualified type
+models.Point p = models.Point(3, 4);
+
+// Error: unqualified type doesn't match module class
+Point p = models.Point(3, 4);  // type mismatch
+```
+
+This ensures type safety and prevents ambiguity when multiple modules define classes with the same name.
+
 ### Fallible Construction
 
 If `init` returns `err`, construction uses tuple binding:
@@ -491,6 +591,30 @@ if (e != ok) {
 ```
 
 The `err` type has two states: `ok` for success, or `err("message")` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
+
+### Error Methods
+
+| Method          | Returns | Description                    |
+|-----------------|---------|--------------------------------|
+| `e.message()`   | `string`| Get error message              |
+| `e.is_eof()`    | `bool`  | Check if error is EOF          |
+
+**Note:** `is_eof()` only returns true for EOF errors created by stdlib I/O functions. User-created `err("EOF")` values are not treated as EOF.
+
+```c
+string line, err e = io.read_line();
+if (e != ok) {
+    if (e.is_eof()) {
+        fmt.println("end of input");
+    } else {
+        fmt.eprintln(f"error: {e.message()}");
+    }
+}
+
+// User-created err("EOF") is NOT treated as EOF
+err e2 = err("EOF");
+bool is_eof = e2.is_eof();  // false
+```
 
 ## defer
 

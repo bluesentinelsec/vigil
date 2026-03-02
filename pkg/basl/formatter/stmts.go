@@ -139,6 +139,13 @@ func (f *formatter) stmt(s ast.Stmt) {
 }
 
 func (f *formatter) varStmt(s *ast.VarStmt) {
+	// Check if this is a local function declaration
+	if fnLit, ok := s.Init.(*ast.FnLitExpr); ok && fnLit.Decl != nil {
+		// Format as: fn name(params) -> ret { body }
+		f.fnDecl(fnLit.Decl, "")
+		return
+	}
+
 	prefix := ""
 	if s.Const {
 		prefix = "const "

@@ -75,6 +75,7 @@ type Value struct {
 // Concrete data types
 type ErrVal struct {
 	Message string // "" means ok
+	IsEOF   bool   // true if this is an EOF error
 }
 
 type ArrayVal struct {
@@ -119,6 +120,7 @@ type ObjectVal struct {
 // ClassVal is a class descriptor — calling it constructs an instance.
 type ClassVal struct {
 	Name       string
+	ModuleName string   // module this class belongs to (empty for top-level)
 	Implements []string // interface names
 	Fields     []ClassFieldDef
 	Methods    map[string]*FuncVal
@@ -190,7 +192,8 @@ func NewBool(v bool) Value {
 	}
 	return False
 }
-func NewErr(msg string) Value      { return Value{T: TypeErr, Data: &ErrVal{Message: msg}} }
+func NewErr(msg string) Value      { return Value{T: TypeErr, Data: &ErrVal{Message: msg, IsEOF: false}} }
+func NewEOF() Value                { return Value{T: TypeErr, Data: &ErrVal{Message: "EOF", IsEOF: true}} }
 func NewArray(elems []Value) Value { return Value{T: TypeArray, Data: &ArrayVal{Elems: elems}} }
 func NewMap() Value                { return Value{T: TypeMap, Data: &MapVal{}} }
 func NewFunc(f *FuncVal) Value     { return Value{T: TypeFunc, Data: f} }

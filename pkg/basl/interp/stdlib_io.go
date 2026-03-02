@@ -28,7 +28,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 					if len(line) > 0 {
 						break
 					}
-					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF")}}
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
 				}
 				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 			}
@@ -56,7 +56,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 					if len(line) > 0 {
 						break
 					}
-					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF")}}
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
 				}
 				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 			}
@@ -94,6 +94,9 @@ func (interp *Interpreter) makeIoModule() *Env {
 		}
 		s, err := readLine(args[0].AsString())
 		if err != nil {
+			if err == io.EOF {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewEOF()}}
+			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewErr(err.Error())}}
 		}
 		v, err := strconv.ParseFloat(s, 64)
@@ -109,6 +112,9 @@ func (interp *Interpreter) makeIoModule() *Env {
 		}
 		s, err := readLine(args[0].AsString())
 		if err != nil {
+			if err == io.EOF {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewEOF()}}
+			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewErr(err.Error())}}
 		}
 		v, err := strconv.Atoi(s)
@@ -124,9 +130,49 @@ func (interp *Interpreter) makeIoModule() *Env {
 		}
 		s, err := readLine(args[0].AsString())
 		if err != nil {
+			if err == io.EOF {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
+			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(s), value.Ok}}
+	}))
+
+	env.Define("read_all", value.NewNativeFunc("io.read_all", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("io.read_all: expected 0 arguments, got %d", len(args))
+		}
+		// Read all of stdin
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(data)), value.Ok}}
+	}))
+
+	env.Define("read", value.NewNativeFunc("io.read", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeI32 {
+			return value.Void, fmt.Errorf("io.read: expected (i32 count)")
+		}
+		count := args[0].AsI32()
+		if count <= 0 {
+			return value.Void, fmt.Errorf("io.read: count must be positive, got %d", count)
+		}
+
+		buf := make([]byte, count)
+		n, err := os.Stdin.Read(buf)
+
+		if err != nil && err != io.EOF {
+			return value.Void, &MultiReturnVal{Values: []value.Value{
+				value.NewString(""),
+				value.NewErr(err.Error()),
+			}}
+		}
+
+		return value.Void, &MultiReturnVal{Values: []value.Value{
+			value.NewString(string(buf[:n])),
+			value.Ok,
+		}}
 	}))
 
 	return env

@@ -27,7 +27,7 @@ BASL is a statically-typed, C-syntax scripting language that prioritizes readabi
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/basl.git
+git clone https://github.com/bluesentinelsec/basl.git
 cd basl
 
 # Build the binary
@@ -60,6 +60,7 @@ basl hello.basl
 
 ```bash
 basl
+>>> import "fmt";
 >>> i32 x = 42;
 >>> fmt.println(f"x = {x}");
 x = 42
@@ -246,7 +247,7 @@ basl editor vscode            # Install VS Code extension
 
 ### Documentation
 
-See [Doc Command](doc_cli.md) for details.
+See [Doc Command](docs/doc_cli.md) for details.
 
 ```bash
 basl doc lib/utils.basl         # Show module documentation

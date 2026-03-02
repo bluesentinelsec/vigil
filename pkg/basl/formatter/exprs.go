@@ -8,6 +8,11 @@ import (
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
 )
 
+// stringLitStr formats a string literal, always using double quotes
+func stringLitStr(s string) string {
+	return strconv.Quote(s)
+}
+
 func (f *formatter) exprStr(e ast.Expr) string {
 	if e == nil {
 		return ""
@@ -23,6 +28,26 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		}
 		return s
 	case *ast.StringLit:
+		// Use single quotes for single-character strings (character literals)
+		// Count runes (Unicode characters), not bytes
+		runes := []rune(e.Value)
+		if len(runes) == 1 {
+			ch := runes[0]
+			switch ch {
+			case '\n':
+				return `'\n'`
+			case '\t':
+				return `'\t'`
+			case '\r':
+				return `'\r'`
+			case '\\':
+				return `'\\'`
+			case '\'':
+				return `'\''`
+			default:
+				return "'" + e.Value + "'"
+			}
+		}
 		return strconv.Quote(e.Value)
 	case *ast.BoolLit:
 		if e.Value {
@@ -34,19 +59,46 @@ func (f *formatter) exprStr(e ast.Expr) string {
 	case *ast.SelfExpr:
 		return "self"
 	case *ast.UnaryExpr:
-		return e.Op + f.exprStr(e.Operand)
+		operand := f.exprStr(e.Operand)
+		// Parenthesize ternary in unary operand
+		if _, ok := e.Operand.(*ast.TernaryExpr); ok {
+			operand = "(" + operand + ")"
+		}
+		return e.Op + operand
 	case *ast.BinaryExpr:
 		return f.binaryStr(e)
+	case *ast.TernaryExpr:
+		cond := f.exprStr(e.Condition)
+		// Parenthesize ternary used as condition
+		if _, ok := e.Condition.(*ast.TernaryExpr); ok {
+			cond = "(" + cond + ")"
+		}
+		return cond + " ? " + f.exprStr(e.TrueExpr) + " : " + f.exprStr(e.FalseExpr)
 	case *ast.CallExpr:
 		args := make([]string, len(e.Args))
 		for i, a := range e.Args {
 			args[i] = f.exprStr(a)
 		}
-		return f.exprStr(e.Callee) + "(" + joinComma(args) + ")"
+		callee := f.exprStr(e.Callee)
+		// Parenthesize ternary used as callee
+		if _, ok := e.Callee.(*ast.TernaryExpr); ok {
+			callee = "(" + callee + ")"
+		}
+		return callee + "(" + joinComma(args) + ")"
 	case *ast.MemberExpr:
-		return f.exprStr(e.Object) + "." + e.Field
+		obj := f.exprStr(e.Object)
+		// Parenthesize ternary used as object
+		if _, ok := e.Object.(*ast.TernaryExpr); ok {
+			obj = "(" + obj + ")"
+		}
+		return obj + "." + e.Field
 	case *ast.IndexExpr:
-		return f.exprStr(e.Object) + "[" + f.exprStr(e.Index) + "]"
+		obj := f.exprStr(e.Object)
+		// Parenthesize ternary used as object
+		if _, ok := e.Object.(*ast.TernaryExpr); ok {
+			obj = "(" + obj + ")"
+		}
+		return obj + "[" + f.exprStr(e.Index) + "]"
 	case *ast.ArrayLit:
 		elems := make([]string, len(e.Elems))
 		for i, el := range e.Elems {
@@ -59,7 +111,12 @@ func (f *formatter) exprStr(e ast.Expr) string {
 		}
 		pairs := make([]string, len(e.Keys))
 		for i := range e.Keys {
-			pairs[i] = f.exprStr(e.Keys[i]) + ": " + f.exprStr(e.Values[i])
+			// Map keys should always be formatted as strings (double quotes)
+			key := f.exprStr(e.Keys[i])
+			if strLit, ok := e.Keys[i].(*ast.StringLit); ok {
+				key = stringLitStr(strLit.Value)
+			}
+			pairs[i] = key + ": " + f.exprStr(e.Values[i])
 		}
 		return "{" + joinComma(pairs) + "}"
 	case *ast.TupleExpr:
@@ -91,7 +148,15 @@ func (f *formatter) binaryStr(e *ast.BinaryExpr) string {
 	if inner, ok := e.Left.(*ast.BinaryExpr); ok && precedence(inner.Op) < precedence(e.Op) {
 		left = "(" + left + ")"
 	}
+	// Parenthesize ternary in left operand (ternary has lowest precedence)
+	if _, ok := e.Left.(*ast.TernaryExpr); ok {
+		left = "(" + left + ")"
+	}
 	if inner, ok := e.Right.(*ast.BinaryExpr); ok && precedence(inner.Op) < precedence(e.Op) {
+		right = "(" + right + ")"
+	}
+	// Parenthesize ternary in right operand (ternary has lowest precedence)
+	if _, ok := e.Right.(*ast.TernaryExpr); ok {
 		right = "(" + right + ")"
 	}
 	return left + " " + e.Op + " " + right
@@ -212,6 +277,10 @@ func escapeFStringText(s string) string {
 			sb.WriteString("\\\\")
 		case '"':
 			sb.WriteString("\\\"")
+		case '{':
+			sb.WriteString("{{") // Escape literal { as {{
+		case '}':
+			sb.WriteString("}}") // Escape literal } as }}
 		default:
 			sb.WriteRune(ch)
 		}

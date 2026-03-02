@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
@@ -97,6 +98,75 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		return value.Ok, nil
 	}))
+	env.Define("copy", value.NewNativeFunc("file.copy", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.copy: expected (string src, string dst)")
+		}
+		src := args[0].AsString()
+		dst := args[1].AsString()
+
+		srcFile, err := os.Open(src)
+		if err != nil {
+			return value.NewErr(fileErr(err, src)), nil
+		}
+		defer srcFile.Close()
+
+		dstFile, err := os.Create(dst)
+		if err != nil {
+			return value.NewErr(fileErr(err, dst)), nil
+		}
+		defer dstFile.Close()
+
+		if _, err := io.Copy(dstFile, srcFile); err != nil {
+			return value.NewErr(fileErr(err, dst)), nil
+		}
+
+		return value.Ok, nil
+	}))
+	env.Define("symlink", value.NewNativeFunc("file.symlink", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.symlink: expected (string target, string link)")
+		}
+		target := args[0].AsString()
+		link := args[1].AsString()
+		if err := os.Symlink(target, link); err != nil {
+			return value.NewErr(fileErr(err, link)), nil
+		}
+		return value.Ok, nil
+	}))
+	env.Define("link", value.NewNativeFunc("file.link", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.link: expected (string target, string link)")
+		}
+		target := args[0].AsString()
+		link := args[1].AsString()
+		if err := os.Link(target, link); err != nil {
+			return value.NewErr(fileErr(err, link)), nil
+		}
+		return value.Ok, nil
+	}))
+	env.Define("readlink", value.NewNativeFunc("file.readlink", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.readlink: expected string path")
+		}
+		path := args[0].AsString()
+		target, err := os.Readlink(path)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(fileErr(err, path))}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(target), value.Ok}}
+	}))
+	env.Define("chmod", value.NewNativeFunc("file.chmod", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeI32 {
+			return value.Void, fmt.Errorf("file.chmod: expected (string path, i32 mode)")
+		}
+		path := args[0].AsString()
+		mode := os.FileMode(args[1].AsI32())
+		if err := os.Chmod(path, mode); err != nil {
+			return value.NewErr(fileErr(err, path)), nil
+		}
+		return value.Ok, nil
+	}))
 	env.Define("mkdir", value.NewNativeFunc("file.mkdir", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("file.mkdir: expected string path")
@@ -105,6 +175,34 @@ func (interp *Interpreter) makeFileModule() *Env {
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return value.NewErr(fileErr(err, path)), nil
 		}
+		return value.Ok, nil
+	}))
+	env.Define("touch", value.NewNativeFunc("file.touch", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.touch: expected string path")
+		}
+		path := args[0].AsString()
+
+		// Check if file exists
+		_, err := os.Stat(path)
+		if err == nil {
+			// File exists, update timestamp
+			now := time.Now()
+			if err := os.Chtimes(path, now, now); err != nil {
+				return value.NewErr(fileErr(err, path)), nil
+			}
+		} else if errors.Is(err, os.ErrNotExist) {
+			// File doesn't exist, create it
+			f, err := os.Create(path)
+			if err != nil {
+				return value.NewErr(fileErr(err, path)), nil
+			}
+			f.Close()
+		} else {
+			// Other error
+			return value.NewErr(fileErr(err, path)), nil
+		}
+
 		return value.Ok, nil
 	}))
 	env.Define("list_dir", value.NewNativeFunc("file.list_dir", func(args []value.Value) (value.Value, error) {
@@ -180,6 +278,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 				"is_dir":   value.NewBool(info.IsDir()),
 				"mod_time": value.NewString(info.ModTime().Format("2006-01-02T15:04:05Z07:00")),
 				"name":     value.NewString(info.Name()),
+				"mode":     value.NewI32(int32(info.Mode())),
 			},
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{
@@ -238,7 +337,7 @@ func (interp *Interpreter) fileMethod(obj value.Value, method string, line int) 
 						if len(line) > 0 {
 							break
 						}
-						return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF")}}
+						return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
 					}
 					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
 				}

@@ -1,0 +1,39 @@
+import "os";
+import "file";
+import "fmt";
+import "args";
+
+fn main() -> i32 {
+    ArgParser p = args.parser("basl-ln", "create links between files");
+    p.flag("symbolic", "bool", "false", "make symbolic links instead of hard links");
+    map<string, string> result, err e = p.parse();
+    
+    if (e != ok) {
+        fmt.eprintln(f"basl-ln: {e.message()}");
+        return 1;
+    }
+    
+    array<string> args = os.args();
+    if (args.len() < 2) {
+        fmt.eprintln("basl-ln: missing file operand");
+        return 1;
+    }
+    
+    string target = args[0];
+    string link = args[1];
+    bool symbolic = result["symbolic"] == "true";
+    
+    err e2 = ok;
+    if (symbolic) {
+        e2 = file.symlink(target, link);
+    } else {
+        e2 = file.link(target, link);
+    }
+    
+    if (e2 != ok) {
+        fmt.eprintln(f"basl-ln: {e2.message()}");
+        return 1;
+    }
+    
+    return 0;
+}

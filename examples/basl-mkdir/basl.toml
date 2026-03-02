@@ -1,0 +1,4 @@
+[package]
+name = "basl-mkdir"
+version = "0.1.0"
+entry = "main.basl"

@@ -241,6 +241,11 @@ func (ml *ModuleLoader) loadSource(name string, src string) (*Env, error) {
 		case *ast.ClassDecl:
 			if d.Pub {
 				if v, ok := modEnv.Get(d.Name); ok {
+					// Set module name for proper namespacing
+					if v.T == value.TypeClass {
+						cls := v.AsClass()
+						cls.ModuleName = name
+					}
 					exports.Define(d.Name, v)
 				}
 			}

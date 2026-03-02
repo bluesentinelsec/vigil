@@ -106,6 +106,7 @@ const (
 	TOKEN_SEMICOLON // ;
 	TOKEN_ARROW     // ->
 	TOKEN_COLON     // :
+	TOKEN_QUESTION  // ?
 	TOKEN_FSTRING   // f"..."
 
 	// Comments (only emitted by TokenizeWithComments)
@@ -145,7 +146,7 @@ var tokenNames = map[TokenType]string{
 	TOKEN_AND: "&&", TOKEN_OR: "||", TOKEN_DOT: ".",
 	TOKEN_LPAREN: "(", TOKEN_RPAREN: ")", TOKEN_LBRACE: "{", TOKEN_RBRACE: "}",
 	TOKEN_LBRACKET: "[", TOKEN_RBRACKET: "]",
-	TOKEN_COMMA: ",", TOKEN_SEMICOLON: ";", TOKEN_ARROW: "->", TOKEN_COLON: ":",
+	TOKEN_COMMA: ",", TOKEN_SEMICOLON: ";", TOKEN_ARROW: "->", TOKEN_COLON: ":", TOKEN_QUESTION: "?",
 	TOKEN_FSTRING:       "FSTRING",
 	TOKEN_LINE_COMMENT:  "LINE_COMMENT",
 	TOKEN_BLOCK_COMMENT: "BLOCK_COMMENT",

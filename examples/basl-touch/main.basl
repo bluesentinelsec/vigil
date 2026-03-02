@@ -1,0 +1,22 @@
+import "os";
+import "file";
+import "fmt";
+
+fn main() -> i32 {
+    array<string> args = os.args();
+    
+    if (args.len() == 0) {
+        fmt.eprintln("basl-touch: missing file operand");
+        return 1;
+    }
+    
+    for (i32 i = 0; i < args.len(); i++) {
+        err e = file.touch(args[i]);
+        if (e != ok) {
+            fmt.eprintln(f"basl-touch: {args[i]}: {e.message()}");
+            return 1;
+        }
+    }
+    
+    return 0;
+}
