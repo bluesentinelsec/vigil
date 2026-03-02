@@ -792,6 +792,9 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 		if o.ClassName == "args.ArgParser" {
 			return interp.argParserMethod(obj, e.Field, e.Line)
 		}
+		if o.ClassName == "args.Result" {
+			return interp.argsResultMethod(obj, e.Field, e.Line)
+		}
 		if o.ClassName == "Thread" {
 			return interp.threadMethod(obj, e.Field, e.Line)
 		}

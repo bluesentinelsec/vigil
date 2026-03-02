@@ -17,7 +17,7 @@ fn test_cut_basic() -> void {
 
 fn test_cut_invalid_field() -> void {
     string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "echo '' | ./basl examples/basl-cut/main.basl --f x2 --d : 2>&1");
-    t.assert(string(e) != "ok", "cut should reject invalid field spec");
+    t.assert(exitCode != 0, "cut should reject invalid field spec");
 }
 
 fn main() -> i32 {

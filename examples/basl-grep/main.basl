@@ -5,7 +5,6 @@ import "path";
 import "regex";
 
 fn main() -> i32 {
-    // Use ArgParser with variadic support
     args.ArgParser parser = args.parser("grep", "Search for patterns in files");
     
     parser.flag("ignore-case", "bool", "false", "Case-insensitive search", "i");
@@ -18,36 +17,31 @@ fn main() -> i32 {
     parser.arg("pattern", "string", "Pattern to search for");
     parser.arg("files", "string", "Files to search", true);
     
-    map<string, string> opts, err parseErr = parser.parse();
+    args.Result result, err parseErr = parser.parse_result();
     if (parseErr != ok) {
         fmt.eprintln(f"Error: {parseErr}");
         return 2;
     }
     
-    string pattern = opts["pattern"];
+    string pattern = result.get_string("pattern");
     if (pattern == "") {
         fmt.eprintln("Error: pattern required");
         return 2;
     }
     
-    string filesStr = opts["files"];
-    if (filesStr == "") {
+    array<string> files = result.get_list("files");
+    if (files.len() == 0) {
         fmt.eprintln("Error: at least one file required");
         return 2;
     }
     
-    // Parse flags
-    bool ignoreCase = opts["ignore-case"] == "true";
-    bool invertMatch = opts["invert-match"] == "true";
-    bool lineNumber = opts["line-number"] == "true";
-    bool countOnly = opts["count"] == "true";
-    bool filesWithMatches = opts["files-with-matches"] == "true";
-    bool recursive = opts["recursive"] == "true";
+    bool ignoreCase = result.get_bool("ignore-case");
+    bool invertMatch = result.get_bool("invert-match");
+    bool lineNumber = result.get_bool("line-number");
+    bool countOnly = result.get_bool("count");
+    bool filesWithMatches = result.get_bool("files-with-matches");
+    bool recursive = result.get_bool("recursive");
     
-    // Split files (newline-separated for proper handling of filenames with spaces)
-    array<string> files = filesStr.split("\n");
-    
-    // Compile regex once (performance improvement!)
     string regexPattern = pattern;
     if (ignoreCase) {
         regexPattern = "(?i)" + pattern;
@@ -59,7 +53,6 @@ fn main() -> i32 {
         return 2;
     }
     
-    // Search files
     i32 totalMatches = 0;
     bool printFilename = files.len() > 1;
     

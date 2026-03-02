@@ -76,6 +76,160 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 			argArr.Elems = append(argArr.Elems, value.Value{T: value.TypeObject, Data: def})
 			return value.Ok, nil
 		}), nil
+	case "parse_result":
+		return value.NewNativeFunc("ArgParser.parse_result", func(args []value.Value) (value.Value, error) {
+			cliArgs := interp.scriptArgs
+			flagDefs := o.Fields["__flags"].Data.(*value.ArrayVal)
+			argDefs := o.Fields["__args"].Data.(*value.ArrayVal)
+
+			// Build short flag map
+			shortFlags := make(map[string]int)
+			for i, fd := range flagDefs.Elems {
+				fobj := fd.AsObject()
+				if shortVal, ok := fobj.Fields["short"]; ok {
+					shortFlags[shortVal.AsString()] = i
+				}
+			}
+
+			// Result storage
+			flagValues := make(map[string]value.Value)
+			argValues := make(map[string]value.Value)
+
+			// Set defaults for flags
+			for _, fd := range flagDefs.Elems {
+				fobj := fd.AsObject()
+				name := fobj.Fields["name"].AsString()
+				flagValues[name] = fobj.Fields["default"]
+			}
+
+			// Parse CLI args
+			positional := []string{}
+			endOfOptions := false
+			for i := 0; i < len(cliArgs); i++ {
+				a := cliArgs[i]
+
+				if a == "--" {
+					endOfOptions = true
+					continue
+				}
+
+				if !endOfOptions && strings.HasPrefix(a, "--") {
+					key := a[2:]
+					// Find flag def and set value
+					found := false
+					for _, fd := range flagDefs.Elems {
+						fobj := fd.AsObject()
+						if fobj.Fields["name"].AsString() == key {
+							found = true
+							typ := fobj.Fields["type"].AsString()
+							if typ == "bool" {
+								flagValues[key] = value.NewString("true")
+							} else if i+1 < len(cliArgs) {
+								i++
+								flagValues[key] = value.NewString(cliArgs[i])
+							} else {
+								return value.Void, &MultiReturnVal{Values: []value.Value{
+									value.Void,
+									value.NewErr(fmt.Sprintf("flag --%s requires a value", key)),
+								}}
+							}
+							break
+						}
+					}
+					if !found {
+						return value.Void, &MultiReturnVal{Values: []value.Value{
+							value.Void,
+							value.NewErr(fmt.Sprintf("unknown flag: %s", a)),
+						}}
+					}
+				} else if !endOfOptions && strings.HasPrefix(a, "-") && len(a) == 2 {
+					// Short flag
+					key := a[1:2]
+					if idx, ok := shortFlags[key]; ok {
+						fobj := flagDefs.Elems[idx].AsObject()
+						name := fobj.Fields["name"].AsString()
+						typ := fobj.Fields["type"].AsString()
+						if typ == "bool" {
+							flagValues[name] = value.NewString("true")
+						} else if i+1 < len(cliArgs) {
+							i++
+							flagValues[name] = value.NewString(cliArgs[i])
+						} else {
+							return value.Void, &MultiReturnVal{Values: []value.Value{
+								value.Void,
+								value.NewErr(fmt.Sprintf("flag -%s requires a value", key)),
+							}}
+						}
+					} else {
+						return value.Void, &MultiReturnVal{Values: []value.Value{
+							value.Void,
+							value.NewErr(fmt.Sprintf("unknown flag: %s", a)),
+						}}
+					}
+				} else {
+					positional = append(positional, a)
+				}
+			}
+
+			// Map positional args
+			posIdx := 0
+			for _, ad := range argDefs.Elems {
+				aobj := ad.AsObject()
+				name := aobj.Fields["name"].AsString()
+
+				// Check if variadic
+				if variadicVal, ok := aobj.Fields["variadic"]; ok && variadicVal.AsBool() {
+					// Collect remaining args as array
+					remaining := []value.Value{}
+					for posIdx < len(positional) {
+						remaining = append(remaining, value.NewString(positional[posIdx]))
+						posIdx++
+					}
+					argValues[name] = value.NewArray(remaining)
+				} else {
+					val := ""
+					if posIdx < len(positional) {
+						val = positional[posIdx]
+						posIdx++
+					}
+					argValues[name] = value.NewString(val)
+				}
+			}
+
+			// Create Result object
+			result := &value.ObjectVal{
+				ClassName: "args.Result",
+				Fields: map[string]value.Value{
+					"__flags": {T: value.TypeMap, Data: &value.MapVal{
+						Keys:   []value.Value{},
+						Values: []value.Value{},
+					}},
+					"__args": {T: value.TypeMap, Data: &value.MapVal{
+						Keys:   []value.Value{},
+						Values: []value.Value{},
+					}},
+				},
+			}
+
+			// Populate flags map
+			flagsMap := result.Fields["__flags"].Data.(*value.MapVal)
+			for k, v := range flagValues {
+				flagsMap.Keys = append(flagsMap.Keys, value.NewString(k))
+				flagsMap.Values = append(flagsMap.Values, v)
+			}
+
+			// Populate args map
+			argsMap := result.Fields["__args"].Data.(*value.MapVal)
+			for k, v := range argValues {
+				argsMap.Keys = append(argsMap.Keys, value.NewString(k))
+				argsMap.Values = append(argsMap.Values, v)
+			}
+
+			return value.Void, &MultiReturnVal{Values: []value.Value{
+				{T: value.TypeObject, Data: result},
+				value.Ok,
+			}}
+		}), nil
 	case "parse":
 		return value.NewNativeFunc("ArgParser.parse", func(args []value.Value) (value.Value, error) {
 			cliArgs := interp.scriptArgs
@@ -175,5 +329,74 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 		}), nil
 	default:
 		return value.Void, fmt.Errorf("line %d: ArgParser has no method '%s'", line, method)
+	}
+}
+
+// argsResultMethod handles methods on args.Result objects
+func (interp *Interpreter) argsResultMethod(obj value.Value, method string, line int) (value.Value, error) {
+	o := obj.AsObject()
+	flagsMap := o.Fields["__flags"].Data.(*value.MapVal)
+	argsMap := o.Fields["__args"].Data.(*value.MapVal)
+
+	switch method {
+	case "get_string":
+		return value.NewNativeFunc("Result.get_string", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_string: expected string key")
+			}
+			key := args[0].AsString()
+
+			// Check flags first
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					return flagsMap.Values[i], nil
+				}
+			}
+			// Check args
+			for i, k := range argsMap.Keys {
+				if k.AsString() == key {
+					v := argsMap.Values[i]
+					if v.T == value.TypeString {
+						return v, nil
+					}
+					return value.Void, fmt.Errorf("Result.get_string: '%s' is not a string", key)
+				}
+			}
+			return value.NewString(""), nil
+		}), nil
+	case "get_bool":
+		return value.NewNativeFunc("Result.get_bool", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_bool: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					return value.NewBool(flagsMap.Values[i].AsString() == "true"), nil
+				}
+			}
+			return value.False, nil
+		}), nil
+	case "get_list":
+		return value.NewNativeFunc("Result.get_list", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_list: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range argsMap.Keys {
+				if k.AsString() == key {
+					v := argsMap.Values[i]
+					if v.T == value.TypeArray {
+						return v, nil
+					}
+					return value.Void, fmt.Errorf("Result.get_list: '%s' is not a list", key)
+				}
+			}
+			return value.NewArray(nil), nil
+		}), nil
+	default:
+		return value.Void, fmt.Errorf("line %d: Result has no method '%s'", line, method)
 	}
 }

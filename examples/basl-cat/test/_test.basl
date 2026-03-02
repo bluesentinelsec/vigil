@@ -67,7 +67,7 @@ fn test_cat_missing_file() -> void {
     string missing = get_temp_path("nonexistent_basl_cat_test.txt");
     
     string stdout, string stderr, i32 exitCode, err e = os.exec(basl_bin, main_script, missing);
-    t.assert(e != ok, "basl-cat should fail on missing file");
+    t.assert(exitCode != 0, "basl-cat should fail on missing file");
     t.assert(stderr.len() > 0, "stderr should contain error message");
     t.assert(stderr.contains("basl-cat:"), "error should be from basl-cat");
 }
