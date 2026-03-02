@@ -448,3 +448,66 @@ func TestFormatTernaryRoundTrip(t *testing.T) {
 		t.Errorf("ternary not idempotent:\nfirst:\n%s\nsecond:\n%s", got, got2)
 	}
 }
+
+func TestFormatTernaryInBinaryExpr(t *testing.T) {
+	// Ternary inside binary expression needs parentheses
+	src := `fn main() -> i32 {
+i32 x=10+(true?1:2);
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = 10 + (true ? 1 : 2);
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary in binary:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary in binary not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryAsCondition(t *testing.T) {
+	// Ternary used as condition in another ternary needs parentheses
+	src := `fn main() -> i32 {
+i32 x=(true?1:0)?7:9;
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    i32 x = (true ? 1 : 0) ? 7 : 9;
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("ternary as condition:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// Verify round-trip
+	got2 := fmtSource(got)
+	if got2 != want {
+		t.Errorf("ternary as condition not idempotent:\ngot:\n%s\nwant:\n%s", got2, want)
+	}
+}
+
+func TestFormatTernaryPrecedence(t *testing.T) {
+	// Multiple precedence-sensitive cases
+	src := `fn main() -> i32 {
+    i32 a = 5 * (x > 0 ? 1 : -1);
+    i32 b = (flag ? 10 : 20) + 5;
+    bool c = (x > 5 ? true : false) && y > 3;
+    return 0;
+}
+`
+	got := fmtSource(src)
+	if got != src {
+		t.Errorf("ternary precedence:\ngot:\n%s\nwant:\n%s", got, src)
+	}
+}

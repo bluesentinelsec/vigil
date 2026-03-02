@@ -38,7 +38,12 @@ func (f *formatter) exprStr(e ast.Expr) string {
 	case *ast.BinaryExpr:
 		return f.binaryStr(e)
 	case *ast.TernaryExpr:
-		return f.exprStr(e.Condition) + " ? " + f.exprStr(e.TrueExpr) + " : " + f.exprStr(e.FalseExpr)
+		cond := f.exprStr(e.Condition)
+		// Parenthesize ternary used as condition
+		if _, ok := e.Condition.(*ast.TernaryExpr); ok {
+			cond = "(" + cond + ")"
+		}
+		return cond + " ? " + f.exprStr(e.TrueExpr) + " : " + f.exprStr(e.FalseExpr)
 	case *ast.CallExpr:
 		args := make([]string, len(e.Args))
 		for i, a := range e.Args {
@@ -93,7 +98,15 @@ func (f *formatter) binaryStr(e *ast.BinaryExpr) string {
 	if inner, ok := e.Left.(*ast.BinaryExpr); ok && precedence(inner.Op) < precedence(e.Op) {
 		left = "(" + left + ")"
 	}
+	// Parenthesize ternary in left operand (ternary has lowest precedence)
+	if _, ok := e.Left.(*ast.TernaryExpr); ok {
+		left = "(" + left + ")"
+	}
 	if inner, ok := e.Right.(*ast.BinaryExpr); ok && precedence(inner.Op) < precedence(e.Op) {
+		right = "(" + right + ")"
+	}
+	// Parenthesize ternary in right operand (ternary has lowest precedence)
+	if _, ok := e.Right.(*ast.TernaryExpr); ok {
 		right = "(" + right + ")"
 	}
 	return left + " " + e.Op + " " + right
