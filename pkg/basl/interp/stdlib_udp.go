@@ -18,11 +18,11 @@ func (interp *Interpreter) makeUdpModule() *Env {
 		}
 		addr, err := net.ResolveUDPAddr("udp", args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		conn, err := net.ListenUDP("udp", addr)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		obj := &value.ObjectVal{
 			ClassName: "UdpConn",
@@ -37,16 +37,16 @@ func (interp *Interpreter) makeUdpModule() *Env {
 		}
 		addr, err := net.ResolveUDPAddr("udp", args[0].AsString())
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		conn, err := net.DialUDP("udp", nil, addr)
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		defer conn.Close()
 		_, err = conn.Write([]byte(args[1].AsString()))
 		if err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		return value.Ok, nil
 	}))
@@ -69,14 +69,14 @@ func (interp *Interpreter) udpConnMethod(obj value.Value, method string, line in
 			buf := make([]byte, args[0].AsI32())
 			n, _, err := c.ReadFromUDP(buf)
 			if err != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(buf[:n])), value.Ok}}
 		}), nil
 	case "close":
 		return value.NewNativeFunc("UdpConn.close", func(args []value.Value) (value.Value, error) {
 			if err := c.Close(); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil

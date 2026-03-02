@@ -13,14 +13,14 @@ import "compress";
 Compresses data using gzip. The result is a binary string (not hex-encoded).
 
 - Returns `(compressed, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ### compress.gunzip(string data) -> (string, err)
 
 Decompresses gzip data.
 
 - Returns `(decompressed, ok)` on success.
-- Returns `("", err(message))` on invalid gzip data.
+- Returns `("", err(message, err.parse))` on invalid gzip data.
 
 ```c
 string compressed, err e1 = compress.gzip("hello world");
@@ -33,14 +33,14 @@ string original, err e2 = compress.gunzip(compressed);
 Compresses data using zlib. The result is a binary string.
 
 - Returns `(compressed, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ### compress.unzlib(string data) -> (string, err)
 
 Decompresses zlib data.
 
 - Returns `(decompressed, ok)` on success.
-- Returns `("", err(message))` on invalid zlib data.
+- Returns `("", err(message, err.parse))` on invalid zlib data.
 
 ```c
 string compressed, err e1 = compress.zlib("test data");

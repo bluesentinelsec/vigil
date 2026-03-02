@@ -19,6 +19,9 @@ syn keyword baslType        bool i32 i64 f64 u8 u32 u64 string void err array ma
 syn keyword baslBoolean     true false
 syn keyword baslConstant    ok
 
+" Error kind constants (err.not_found, err.permission, etc.)
+syn match   baslConstant    '\<err\.\(not_found\|permission\|exists\|eof\|io\|parse\|bounds\|type\|arg\|timeout\|closed\|state\)\>'
+
 " Numbers
 syn match   baslNumber      '\<\d\+\>'
 syn match   baslNumber      '\<0[xX][0-9a-fA-F]\+\>'

@@ -13,7 +13,7 @@ import "sqlite";
 Opens or creates a SQLite database file. Use `":memory:"` for an in-memory database.
 
 - Returns `(db, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 
 ```c
 SqliteDB db, err e = sqlite.open("app.db");
@@ -28,7 +28,7 @@ Executes a SQL statement (INSERT, UPDATE, DELETE, CREATE, etc.). Parameters are 
 
 - Parameters can be `string`, `i32`, `i64`, `f64`, or `bool`.
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 db.exec("CREATE TABLE users (id INTEGER, name TEXT)");
@@ -40,7 +40,7 @@ db.exec("INSERT INTO users VALUES (?, ?)", 1, "alice");
 Executes a SELECT query and returns a row iterator.
 
 - Returns `(rows, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 
 ```c
 SqliteRows rows, err e = db.query("SELECT name FROM users WHERE id = ?", 1);

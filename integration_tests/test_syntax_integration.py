@@ -250,7 +250,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             fn add(i32 a, i32 b) -> i32 { return a + b; }
 
             fn divide(i32 a, i32 b) -> (i32, err) {
-                if (b == 0) { return (0, err("div0")); }
+                if (b == 0) { return (0, err("div0", err.arg)); }
                 return (a / b, ok);
             }
 
@@ -291,7 +291,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 array<array<string>> grid = [["a"], ["b", "c"]];
                 grid[1].push("d");
 
-                err boom = err("boom");
+                err boom = err("boom", err.io);
                 i32 _, string kept, bool _ = many();
 
                 fmt.print(string(grid.len()) + ":" + string(grid[1].len()) + ":" + grid[1][1]);
@@ -1628,7 +1628,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             class Connection {
                 string host;
                 fn init(string host) -> err {
-                    if (host == "") { return err("missing host"); }
+                    if (host == "") { return err("missing host", err.arg); }
                     self.host = host;
                     return ok;
                 }
@@ -1673,7 +1673,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 i32 n, err e1 = i32("42");
                 i32 bad, err e2 = i32("x");
                 string _, err fe = file.read_all("definitely_missing_file.basl");
-                err manual = err("boom");
+                err manual = err("boom", err.io);
 
                 if (e1 == ok) { fmt.print(":ok"); }
                 if (e2 != ok) { fmt.print(":" + e2.message()); }

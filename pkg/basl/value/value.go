@@ -72,10 +72,43 @@ type Value struct {
 	Data interface{}
 }
 
+// Standard error kinds. These are the only valid kinds for err values.
+// User code accesses them as err.not_found, err.permission, etc.
+const (
+	ErrKindNotFound   = "not_found"
+	ErrKindPermission = "permission"
+	ErrKindExists     = "exists"
+	ErrKindEOF        = "eof"
+	ErrKindIO         = "io"
+	ErrKindParse      = "parse"
+	ErrKindBounds     = "bounds"
+	ErrKindType       = "type"
+	ErrKindArg        = "arg"
+	ErrKindTimeout    = "timeout"
+	ErrKindClosed     = "closed"
+	ErrKindState      = "state"
+)
+
+// ValidErrKinds is the set of valid error kinds.
+var ValidErrKinds = map[string]bool{
+	ErrKindNotFound:   true,
+	ErrKindPermission: true,
+	ErrKindExists:     true,
+	ErrKindEOF:        true,
+	ErrKindIO:         true,
+	ErrKindParse:      true,
+	ErrKindBounds:     true,
+	ErrKindType:       true,
+	ErrKindArg:        true,
+	ErrKindTimeout:    true,
+	ErrKindClosed:     true,
+	ErrKindState:      true,
+}
+
 // Concrete data types
 type ErrVal struct {
 	Message string // "" means ok
-	IsEOF   bool   // true if this is an EOF error
+	Kind    string // "" means ok, otherwise a standard error kind
 }
 
 type ArrayVal struct {
@@ -193,8 +226,15 @@ func NewBool(v bool) Value {
 	}
 	return False
 }
-func NewErr(msg string) Value      { return Value{T: TypeErr, Data: &ErrVal{Message: msg, IsEOF: false}} }
-func NewEOF() Value                { return Value{T: TypeErr, Data: &ErrVal{Message: "EOF", IsEOF: true}} }
+func NewErr(msg, kind string) Value {
+	if msg == "" {
+		panic("error message must not be empty")
+	}
+	if !ValidErrKinds[kind] {
+		panic("invalid error kind: " + kind)
+	}
+	return Value{T: TypeErr, Data: &ErrVal{Message: msg, Kind: kind}}
+}
 func NewArray(elems []Value) Value { return Value{T: TypeArray, Data: &ArrayVal{Elems: elems}} }
 func NewMap() Value                { return Value{T: TypeMap, Data: &MapVal{}} }
 func NewFunc(f *FuncVal) Value     { return Value{T: TypeFunc, Data: f} }
@@ -263,7 +303,7 @@ func (v Value) String() string {
 		if e.Message == "" {
 			return "ok"
 		}
-		return fmt.Sprintf("err(%q)", e.Message)
+		return fmt.Sprintf("err(%q, %q)", e.Message, e.Kind)
 	case TypeArray:
 		return fmt.Sprintf("array[%d]", len(v.AsArray().Elems))
 	case TypeMap:

@@ -30,7 +30,7 @@ func (interp *Interpreter) makeOsModule() *Env {
 			return value.Void, fmt.Errorf("os.set_env: expected (string key, string value)")
 		}
 		if err := os.Setenv(args[0].AsString(), args[1].AsString()); err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		return value.Ok, nil
 	}))
@@ -45,14 +45,14 @@ func (interp *Interpreter) makeOsModule() *Env {
 	env.Define("cwd", value.NewNativeFunc("os.cwd", func(args []value.Value) (value.Value, error) {
 		dir, err := os.Getwd()
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(dir), value.Ok}}
 	}))
 	env.Define("hostname", value.NewNativeFunc("os.hostname", func(args []value.Value) (value.Value, error) {
 		h, err := os.Hostname()
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(h), value.Ok}}
 	}))
@@ -67,7 +67,7 @@ func (interp *Interpreter) makeOsModule() *Env {
 			return value.Void, fmt.Errorf("os.mkdir: expected string path")
 		}
 		if err := os.Mkdir(args[0].AsString(), 0755); err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		return value.Ok, nil
 	}))
@@ -76,7 +76,7 @@ func (interp *Interpreter) makeOsModule() *Env {
 			return value.Void, fmt.Errorf("os.rmdir: expected string path")
 		}
 		if err := os.Remove(args[0].AsString()); err != nil {
-			return value.NewErr(err.Error()), nil
+			return value.NewErr(err.Error(), value.ErrKindIO), nil
 		}
 		return value.Ok, nil
 	}))
@@ -108,7 +108,7 @@ func (interp *Interpreter) makeOsModule() *Env {
 					value.NewString(""),
 					value.NewString(""),
 					value.NewI32(0),
-					value.NewErr(err.Error()),
+					value.NewErr(err.Error(), value.ErrKindIO),
 				}}
 			}
 		}
@@ -149,7 +149,7 @@ func (interp *Interpreter) makeOsModule() *Env {
 					value.NewString(""),
 					value.NewString(""),
 					value.NewI32(0),
-					value.NewErr(err.Error()),
+					value.NewErr(err.Error(), value.ErrKindIO),
 				}}
 			}
 		}

@@ -13,7 +13,7 @@ func TestMainHelpTextIncludesCommandsAndTopics(t *testing.T) {
 		"USAGE",
 		"COMMANDS",
 		"  fmt      Format BASL source files in place or check formatting",
-		"  package  Build or inspect standalone BASL executables",
+		"  package  Package a BASL project as an executable or library",
 		"  editor   List, install, or remove bundled editor integrations",
 		"TOPICS",
 		"  imports    How BASL resolves imported modules",
@@ -48,7 +48,7 @@ func TestHelpTextForPackageAndTopic(t *testing.T) {
 	for _, want := range []string{
 		"COMMAND\n  package",
 		"basl package --inspect <binary>",
-		"Creates a standalone executable by copying the current basl binary and appending a bundled BASL payload.",
+		"Auto-detects project type and packages accordingly.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("package help missing %q:\n%s", want, out)

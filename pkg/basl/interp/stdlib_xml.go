@@ -142,7 +142,7 @@ func (interp *Interpreter) xmlMethod(obj value.Value, method string, line int) (
 					return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapXmlNode(c), value.Ok}}
 				}
 			}
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("not found: " + tag)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("not found: "+tag, value.ErrKindNotFound)}}
 		}), nil
 	case "len":
 		return value.NewNativeFunc("xml.Value.len", func(args []value.Value) (value.Value, error) {
@@ -167,10 +167,10 @@ func (interp *Interpreter) makeXmlModule() *Env {
 		decoder := xml.NewDecoder(strings.NewReader(args[0].AsString()))
 		nodes, err := parseXmlNodes(decoder)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		if len(nodes) == 0 {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("empty XML")}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("empty XML", value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.wrapXmlNode(nodes[0]), value.Ok}}
 	}))

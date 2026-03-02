@@ -13,7 +13,7 @@ import "json";
 Parses a JSON string into a `json.Value`.
 
 - Returns `(value, ok)` on success.
-- Returns `(void, err(message))` on invalid JSON.
+- Returns `(void, err(message, err.parse))` on invalid JSON.
 
 ```c
 json.Value v, err e = json.parse("{\"name\":\"alice\",\"age\":30}");
@@ -61,7 +61,7 @@ string missing = v.get_string("nope"); // ""
 Returns a nested `json.Value` for the given key.
 
 - Returns `(value, ok)` if the key exists.
-- Returns `(void, err("key not found: KEY"))` if missing.
+- Returns `(void, err("key not found: KEY", err.not_found))` if missing.
 
 ```c
 json.Value inner, err e = v.get("address");
@@ -72,7 +72,7 @@ json.Value inner, err e = v.get("address");
 Accesses an element of a JSON array by index. Bounds-checked.
 
 - Returns `(value, ok)` on success.
-- Returns `(void, err("index out of range"))` if out of bounds.
+- Returns `(void, err("index out of range", err.bounds))` if out of bounds.
 
 ### v.at_i32(i32 index) -> i32
 

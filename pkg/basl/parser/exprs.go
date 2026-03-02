@@ -312,7 +312,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		p.advance()
 		return &ast.SelfExpr{Line: tok.Line}, nil
 	case lexer.TOKEN_ERR:
-		// err("message") builtin or just the identifier 'err' (for comparisons like e != ok)
+		// err("message", "kind") builtin or just the identifier 'err' (for comparisons like e != ok, or err.kind constants)
 		p.advance()
 		if p.peek().Type == lexer.TOKEN_LPAREN {
 			p.advance()
@@ -320,12 +320,32 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 			if err != nil {
 				return nil, err
 			}
+			if _, err := p.expect(lexer.TOKEN_COMMA); err != nil {
+				return nil, p.errAt(tok, "err() requires two arguments: err(message, kind)")
+			}
+			kind, err := p.parseExpr()
+			if err != nil {
+				return nil, err
+			}
 			if _, err := p.expect(lexer.TOKEN_RPAREN); err != nil {
 				return nil, err
 			}
-			return &ast.ErrExpr{Msg: msg, Line: tok.Line}, nil
+			return &ast.ErrExpr{Msg: msg, Kind: kind, Line: tok.Line}, nil
 		}
-		// Just the identifier 'err' — shouldn't normally appear as expression
+		// err.kind_name — access error kind constants
+		if p.peek().Type == lexer.TOKEN_DOT {
+			p.advance() // consume dot
+			name, err := p.expect(lexer.TOKEN_IDENT)
+			if err != nil {
+				return nil, p.errAt(tok, "expected error kind name after 'err.'")
+			}
+			return &ast.MemberExpr{
+				Object: &ast.Ident{Name: "err", Line: tok.Line},
+				Field:  name.Literal,
+				Line:   tok.Line,
+			}, nil
+		}
+		// Just the identifier 'err' — for type declarations
 		return &ast.Ident{Name: "err", Line: tok.Line}, nil
 	case lexer.TOKEN_FN:
 		// Anonymous function: fn(params) -> ret { body }

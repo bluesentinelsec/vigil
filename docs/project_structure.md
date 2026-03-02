@@ -1,6 +1,6 @@
 # Project Structure
 
-BASL enforces a standard directory layout for all projects. This makes tooling predictable — `basl test`, `basl fmt`, `basl build`, and a future package manager all work without configuration.
+BASL enforces a standard directory layout for all projects. This makes tooling predictable — `basl test`, `basl fmt`, `basl package`, and a future package manager all work without configuration.
 
 ## Layout
 
@@ -122,7 +122,7 @@ No relative paths (`../`) needed. No path configuration.
 | `basl fmt ./...` | Formats `lib/`, `test/`, and `main.basl` |
 | `basl embed` | Output conventionally goes to `lib/` |
 | `basl package` | Entry point is `main.basl` |
-| Future `basl deps` | Downloads into `deps/`, reads `basl.toml` |
+| `basl deps` | Downloads into `deps/`, reads `basl.toml` |
 
 ## Conventions
 

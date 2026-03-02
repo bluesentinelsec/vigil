@@ -3,7 +3,7 @@ import "fmt";
 // Function that returns an error
 fn divide(i32 a, i32 b) -> (i32, err) {
     if (b == 0) {
-        return (0, err("division by zero"));
+        return (0, err("division by zero", err.arg));
     }
     return (a / b, ok);
 }
@@ -11,10 +11,10 @@ fn divide(i32 a, i32 b) -> (i32, err) {
 // Function that validates input
 fn validate_age(i32 age) -> err {
     if (age < 0) {
-        return err("age cannot be negative");
+        return err("age cannot be negative", err.arg);
     }
     if (age > 150) {
-        return err("age is unrealistic");
+        return err("age is unrealistic", err.arg);
     }
     return ok;
 }

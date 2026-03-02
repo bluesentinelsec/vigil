@@ -39,7 +39,7 @@ func (interp *Interpreter) makeTimeModule() *Env {
 		}
 		t, err := time.Parse(args[0].AsString(), args[1].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(0), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(0), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(t.UnixMilli()), value.Ok}}
 	}))

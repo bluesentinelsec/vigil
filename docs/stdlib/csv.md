@@ -13,7 +13,7 @@ import "csv";
 Parses a CSV string into a 2D array of strings. Each inner array is one row.
 
 - Returns `(rows, ok)` on success.
-- Returns `([], err(message))` on malformed CSV.
+- Returns `([], err(message, err.parse))` on malformed CSV.
 
 ```c
 array<array<string>> rows, err e = csv.parse("a,b\n1,2\n");

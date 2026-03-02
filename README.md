@@ -56,6 +56,8 @@ Run it:
 basl hello.basl
 ```
 
+All scripts must use the `.basl` file extension.
+
 ### Interactive REPL
 
 ```bash
@@ -89,7 +91,7 @@ fn add(i32 a, i32 b) -> i32 {
 // Multi-return for error handling
 fn divide(i32 a, i32 b) -> (i32, err) {
     if (b == 0) {
-        return (0, err("division by zero"));
+        return (0, err("division by zero", err.arg));
     }
     return (a / b, ok);
 }

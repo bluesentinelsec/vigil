@@ -49,7 +49,7 @@ string f = path.ext("noext");        // ""
 Returns the absolute path.
 
 - Returns `(absolute_path, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string abs, err e = path.abs("relative/path");
