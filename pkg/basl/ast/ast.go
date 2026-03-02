@@ -327,6 +327,7 @@ type TypeConvExpr struct {
 // ErrExpr represents err("message") builtin
 type ErrExpr struct {
 	Msg  Expr
+	Kind Expr
 	Line int
 }
 

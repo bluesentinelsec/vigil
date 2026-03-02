@@ -5,13 +5,12 @@ import (
 	"testing"
 )
 
-func TestErrIsEOF(t *testing.T) {
+func TestErrKind(t *testing.T) {
 	code := `
-		import "io";
 		import "file";
 		
 		fn main() -> i32 {
-			// Test with io.read_line EOF
+			// Test with file EOF
 			file.write_all("test_eof.txt", "");
 			file.File f, err e1 = file.open("test_eof.txt", "r");
 			if (e1 != ok) {
@@ -23,26 +22,26 @@ func TestErrIsEOF(t *testing.T) {
 				return 2;
 			}
 			
-			if (!e2.is_eof()) {
+			if (e2.kind() != err.eof) {
 				return 3;
 			}
 			
 			f.close();
 			file.remove("test_eof.txt");
 			
-			// Test with non-EOF error
+			// Test with not_found error
 			file.File f2, err e3 = file.open("nonexistent_file_xyz.txt", "r");
 			if (e3 == ok) {
 				return 4;
 			}
 			
-			if (e3.is_eof()) {
+			if (e3.kind() != err.not_found) {
 				return 5;
 			}
 			
-			// Test that user-created err("EOF") is NOT treated as EOF
-			err e4 = err("EOF");
-			if (e4.is_eof()) {
+			// Test user-created error with kind
+			err e4 = err("bad input", err.arg);
+			if (e4.kind() != err.arg) {
 				return 6;
 			}
 			
@@ -87,20 +86,20 @@ func TestErrMessage(t *testing.T) {
 	}
 }
 
-func TestErrIsEOFArityCheck(t *testing.T) {
+func TestErrKindArityCheck(t *testing.T) {
 	code := `
 		import "file";
 		
 		fn main() -> i32 {
 			file.File f, err e = file.open("nonexistent_file_xyz.txt", "r");
-			bool b = e.is_eof(123);
+			string k = e.kind(123);
 			return 0;
 		}
 	`
 
 	_, _, err := evalBASL(code)
 	if err == nil {
-		t.Fatal("expected error for is_eof with arguments, got none")
+		t.Fatal("expected error for kind with arguments, got none")
 	}
 	if !contains(err.Error(), "expected 0 arguments") {
 		t.Errorf("expected arity error, got: %v", err)
@@ -127,18 +126,66 @@ func TestErrMessageArityCheck(t *testing.T) {
 	}
 }
 
+func TestErrKindSwitch(t *testing.T) {
+	code := `
+		import "fmt";
+		import "file";
+		
+		fn main() -> i32 {
+			file.File f, err e = file.open("nonexistent_file_xyz.txt", "r");
+			if (e != ok) {
+				switch (e.kind()) {
+					case err.not_found:
+						fmt.print("not_found");
+					case err.permission:
+						fmt.print("permission");
+					default:
+						fmt.print("other");
+				}
+			}
+			return 0;
+		}
+	`
+
+	exitCode, out, err := evalBASL(code)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+	if len(out) == 0 || out[0] != "not_found" {
+		t.Errorf("expected 'not_found', got %v", out)
+	}
+}
+
+func TestErrInvalidKind(t *testing.T) {
+	code := `
+		fn main() -> i32 {
+			err e = err("bad", "bogus");
+			return 0;
+		}
+	`
+
+	_, _, err := evalBASL(code)
+	if err == nil {
+		t.Fatal("expected error for invalid kind, got none")
+	}
+	if !contains(err.Error(), "unknown error kind") {
+		t.Errorf("expected unknown kind error, got: %v", err)
+	}
+}
+
 func TestIOReadStringEOF(t *testing.T) {
-	// Save original stdin
 	oldStdin := os.Stdin
 	defer func() { os.Stdin = oldStdin }()
 
-	// Create pipe with no data (immediate EOF)
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stdin = r
-	w.Close() // Close immediately to trigger EOF
+	w.Close()
 
 	code := `
 		import "io";
@@ -148,16 +195,16 @@ func TestIOReadStringEOF(t *testing.T) {
 			if (e == ok) {
 				return 1;
 			}
-			if (!e.is_eof()) {
+			if (e.kind() != err.eof) {
 				return 2;
 			}
 			return 0;
 		}
 	`
 
-	exitCode, _, err := evalBASL(code)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	exitCode, _, evalErr := evalBASL(code)
+	if evalErr != nil {
+		t.Fatalf("unexpected error: %v", evalErr)
 	}
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
@@ -165,17 +212,15 @@ func TestIOReadStringEOF(t *testing.T) {
 }
 
 func TestIOReadI32EOF(t *testing.T) {
-	// Save original stdin
 	oldStdin := os.Stdin
 	defer func() { os.Stdin = oldStdin }()
 
-	// Create pipe with no data (immediate EOF)
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stdin = r
-	w.Close() // Close immediately to trigger EOF
+	w.Close()
 
 	code := `
 		import "io";
@@ -185,16 +230,16 @@ func TestIOReadI32EOF(t *testing.T) {
 			if (e == ok) {
 				return 1;
 			}
-			if (!e.is_eof()) {
+			if (e.kind() != err.eof) {
 				return 2;
 			}
 			return 0;
 		}
 	`
 
-	exitCode, _, err := evalBASL(code)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	exitCode, _, evalErr := evalBASL(code)
+	if evalErr != nil {
+		t.Fatalf("unexpected error: %v", evalErr)
 	}
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
@@ -202,17 +247,15 @@ func TestIOReadI32EOF(t *testing.T) {
 }
 
 func TestIOReadF64EOF(t *testing.T) {
-	// Save original stdin
 	oldStdin := os.Stdin
 	defer func() { os.Stdin = oldStdin }()
 
-	// Create pipe with no data (immediate EOF)
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stdin = r
-	w.Close() // Close immediately to trigger EOF
+	w.Close()
 
 	code := `
 		import "io";
@@ -222,16 +265,16 @@ func TestIOReadF64EOF(t *testing.T) {
 			if (e == ok) {
 				return 1;
 			}
-			if (!e.is_eof()) {
+			if (e.kind() != err.eof) {
 				return 2;
 			}
 			return 0;
 		}
 	`
 
-	exitCode, _, err := evalBASL(code)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	exitCode, _, evalErr := evalBASL(code)
+	if evalErr != nil {
+		t.Fatalf("unexpected error: %v", evalErr)
 	}
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
@@ -239,10 +282,6 @@ func TestIOReadF64EOF(t *testing.T) {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
 			return true

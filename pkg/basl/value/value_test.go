@@ -14,7 +14,7 @@ func TestNewConstructors(t *testing.T) {
 		{"string", NewString("x"), TypeString},
 		{"bool_true", NewBool(true), TypeBool},
 		{"bool_false", NewBool(false), TypeBool},
-		{"err", NewErr("fail"), TypeErr},
+		{"err", NewErr("fail", ErrKindIO), TypeErr},
 		{"array", NewArray(nil), TypeArray},
 		{"map", NewMap(), TypeMap},
 		{"func", NewFunc(&FuncVal{Name: "f"}), TypeFunc},
@@ -46,8 +46,11 @@ func TestAccessors(t *testing.T) {
 	if NewBool(true).AsBool() != true {
 		t.Error("AsBool")
 	}
-	if NewErr("oops").AsErr().Message != "oops" {
+	if NewErr("oops", ErrKindIO).AsErr().Message != "oops" {
 		t.Error("AsErr")
+	}
+	if NewErr("oops", ErrKindIO).AsErr().Kind != ErrKindIO {
+		t.Error("AsErr Kind")
 	}
 }
 
@@ -58,7 +61,7 @@ func TestIsOk(t *testing.T) {
 		want bool
 	}{
 		{"ok", Ok, true},
-		{"err", NewErr("fail"), false},
+		{"err", NewErr("fail", ErrKindIO), false},
 		{"non_err_type", NewI32(0), false},
 	}
 	for _, tt := range tests {
@@ -84,7 +87,7 @@ func TestString(t *testing.T) {
 		{"f64", NewF64(3.14), "3.14"},
 		{"string", NewString("hello"), "hello"},
 		{"ok", Ok, "ok"},
-		{"err", NewErr("bad"), `err("bad")`},
+		{"err", NewErr("bad", ErrKindIO), `err("bad", "io")`},
 		{"array", NewArray([]Value{NewI32(1), NewI32(2)}), "array[2]"},
 		{"map", NewMap(), "map[0]"},
 		{"func", NewFunc(&FuncVal{Name: "foo"}), "fn<foo>"},

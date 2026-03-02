@@ -18,7 +18,7 @@ func (interp *Interpreter) makeRandModule() *Env {
 		}
 		buf := make([]byte, args[0].AsI32())
 		if _, err := io.ReadFull(rand.Reader, buf); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.NewString(hex.EncodeToString(buf)), nil
 	}))

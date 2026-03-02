@@ -10,7 +10,7 @@ fn parse_octal(string s) -> (i32, err) {
             return (0, ec);
         }
         if (c < "0" || c > "7") {
-            return (0, err("invalid octal digit"));
+            return (0, err("invalid octal digit", err.parse));
         }
         i32 digit = 0;
         if (c == "0") { digit = 0; }

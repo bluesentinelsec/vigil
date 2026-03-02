@@ -165,6 +165,14 @@ func New() *Interpreter {
 func (interp *Interpreter) registerBuiltins() {
 	// Language-level primitives only — no library functions as bare globals
 	interp.globals.Define("ok", value.Ok)
+
+	// Error kind constants: err.not_found, err.permission, etc.
+	errEnv := NewEnv(nil)
+	for kind := range value.ValidErrKinds {
+		errEnv.Define(kind, value.NewString(kind))
+	}
+	interp.globals.Define("err", value.Value{T: value.TypeModule, Data: errEnv})
+
 	interp.globals.Define("string_from_bytes", value.NewNativeFunc("string_from_bytes", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeArray {
 			return value.Void, fmt.Errorf("string_from_bytes: expected array<u8>")

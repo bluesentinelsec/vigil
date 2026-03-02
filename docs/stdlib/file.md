@@ -129,7 +129,7 @@ Modes:
 
 - Returns `(File, ok)` on success.
 - Returns `(void, err(message))` on failure.
-- Invalid mode returns `err("file.open: invalid mode: MODE")`.
+- Invalid mode returns `err("file.open: invalid mode: MODE", err.arg)`.
 
 ```c
 File f, err e = file.open("data.txt", "r");
@@ -172,7 +172,7 @@ Reads up to `count` bytes. Returns the data read (may be less than `count` at EO
 
 Reads one line (up to `\n`). The newline character is not included in the result.
 
-- At end of file with no remaining data: returns `("", err("EOF"))`.
+- At end of file with no remaining data: returns `("", err("EOF", err.eof))`.
 - At end of file with a partial line (no trailing newline): returns the partial line with `ok`.
 - Reads byte-by-byte internally.
 

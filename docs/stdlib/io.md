@@ -13,7 +13,7 @@ import "io";
 Reads one line from stdin (up to `\n`). The newline is not included. Carriage returns (`\r`) are trimmed.
 
 - Returns `(line, ok)` on success.
-- Returns `("", err("EOF"))` at end of input.
+- Returns `("", err("EOF", err.eof))` at end of input.
 
 ```c
 string line, err e = io.read_line();
@@ -24,7 +24,7 @@ string line, err e = io.read_line();
 Prints `prompt` to stdout, then reads one line from stdin.
 
 - Returns `(line, ok)` on success.
-- Returns `("", err("EOF"))` at end of input.
+- Returns `("", err("EOF", err.eof))` at end of input.
 
 ```c
 string name, err e = io.input("Enter name: ");
@@ -35,8 +35,8 @@ string name, err e = io.input("Enter name: ");
 Prints `prompt`, reads a line, and parses it as an integer.
 
 - Returns `(value, ok)` on success.
-- Returns `(0, err("invalid integer"))` if the input is not a valid integer.
-- Returns `(0, err("EOF"))` at end of input.
+- Returns `(0, err("invalid integer", err.parse))` if the input is not a valid integer.
+- Returns `(0, err("EOF", err.eof))` at end of input.
 
 ```c
 i32 age, err e = io.read_i32("Enter age: ");
@@ -47,7 +47,7 @@ i32 age, err e = io.read_i32("Enter age: ");
 Prints `prompt`, reads a line, and parses it as a float.
 
 - Returns `(value, ok)` on success.
-- Returns `(0.0, err("invalid number"))` if the input is not a valid number.
+- Returns `(0.0, err("invalid number", err.parse))` if the input is not a valid number.
 
 ```c
 f64 price, err e = io.read_f64("Enter price: ");

@@ -93,7 +93,7 @@ func (interp *Interpreter) makeThreadModule() *Env {
 			return 0
 		})
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 
 		// Create the OS thread via pthread_create
@@ -101,7 +101,7 @@ func (interp *Interpreter) makeThreadModule() *Env {
 		rc := C.basl_thread_create(&tid, (C.basl_cb_fn)(cbPtr), 0)
 		if rc != 0 {
 			ffi.FreeCallback(slot)
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(fmt.Sprintf("pthread_create failed: %d", rc))}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(fmt.Sprintf("pthread_create failed: %d", rc), value.ErrKindIO)}}
 		}
 
 		obj := &value.ObjectVal{
@@ -142,7 +142,7 @@ func (interp *Interpreter) threadMethod(obj value.Value, method string, line int
 	case "join":
 		return value.NewNativeFunc("Thread.join", func(args []value.Value) (value.Value, error) {
 			if joined, ok := o.Fields["__joined"]; ok && joined.T == value.TypeBool && joined.AsBool() {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("thread already joined")}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("thread already joined", value.ErrKindState)}}
 			}
 			tid, ok := o.Fields["__tid"].Data.(C.pthread_t)
 			if !ok {
@@ -158,7 +158,7 @@ func (interp *Interpreter) threadMethod(obj value.Value, method string, line int
 			rc := C.basl_thread_join(tid)
 			if rc != 0 {
 				interp.gil.Lock()
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(fmt.Sprintf("pthread_join failed: %d", rc))}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(fmt.Sprintf("pthread_join failed: %d", rc), value.ErrKindIO)}}
 			}
 			// Synchronize with the Go callback before reading result fields.
 			wg.Wait()
@@ -169,7 +169,7 @@ func (interp *Interpreter) threadMethod(obj value.Value, method string, line int
 			result := *o.Fields["__result"].Data.(*value.Value)
 			resultErr := *o.Fields["__err"].Data.(*error)
 			if resultErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{result, value.NewErr(resultErr.Error())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{result, value.NewErr(resultErr.Error(), value.ErrKindIO)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{result, value.Ok}}
 		}), nil
@@ -188,7 +188,7 @@ func (interp *Interpreter) makeMutexModule() *Env {
 		rc := C.basl_mutex_init(m)
 		if rc != 0 {
 			C.free(unsafe.Pointer(m))
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(fmt.Sprintf("mutex init failed: %d", rc))}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(fmt.Sprintf("mutex init failed: %d", rc), value.ErrKindIO)}}
 		}
 		obj := &value.ObjectVal{
 			ClassName: "Mutex",
@@ -213,29 +213,29 @@ func (interp *Interpreter) mutexMethod(obj value.Value, method string, line int)
 	case "lock":
 		return value.NewNativeFunc("Mutex.lock", func(args []value.Value) (value.Value, error) {
 			if destroyed, ok := o.Fields["__destroyed"]; ok && destroyed.T == value.TypeBool && destroyed.AsBool() {
-				return value.NewErr("mutex is destroyed"), nil
+				return value.NewErr("mutex is destroyed", value.ErrKindState), nil
 			}
 			rc := C.basl_mutex_lock(m)
 			if rc != 0 {
-				return value.NewErr(fmt.Sprintf("mutex lock failed: %d", rc)), nil
+				return value.NewErr(fmt.Sprintf("mutex lock failed: %d", rc), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil
 	case "unlock":
 		return value.NewNativeFunc("Mutex.unlock", func(args []value.Value) (value.Value, error) {
 			if destroyed, ok := o.Fields["__destroyed"]; ok && destroyed.T == value.TypeBool && destroyed.AsBool() {
-				return value.NewErr("mutex is destroyed"), nil
+				return value.NewErr("mutex is destroyed", value.ErrKindState), nil
 			}
 			rc := C.basl_mutex_unlock(m)
 			if rc != 0 {
-				return value.NewErr(fmt.Sprintf("mutex unlock failed: %d", rc)), nil
+				return value.NewErr(fmt.Sprintf("mutex unlock failed: %d", rc), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil
 	case "destroy":
 		return value.NewNativeFunc("Mutex.destroy", func(args []value.Value) (value.Value, error) {
 			if destroyed, ok := o.Fields["__destroyed"]; ok && destroyed.T == value.TypeBool && destroyed.AsBool() {
-				return value.NewErr("mutex already destroyed"), nil
+				return value.NewErr("mutex already destroyed", value.ErrKindState), nil
 			}
 			rc := C.basl_mutex_destroy(m)
 			if rc == 0 {
@@ -243,7 +243,7 @@ func (interp *Interpreter) mutexMethod(obj value.Value, method string, line int)
 				o.Fields["__destroyed"] = value.True
 			}
 			if rc != 0 {
-				return value.NewErr(fmt.Sprintf("mutex destroy failed: %d", rc)), nil
+				return value.NewErr(fmt.Sprintf("mutex destroy failed: %d", rc), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil

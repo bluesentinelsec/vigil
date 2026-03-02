@@ -56,7 +56,7 @@ Blocks until the thread completes and returns its result.
 - Releases the GIL while waiting, allowing the joined thread to run.
 - Returns `(result, ok)` on success, where `result` is the return value of the spawned function.
 - Returns `(void, err(message))` on failure (pthread_join failure, or if the spawned function errored).
-- Joining a thread that was already joined returns `err("thread already joined")`.
+- Joining a thread that was already joined returns `err("thread already joined", err.state)`.
 - Frees the callback slot after joining.
 
 ```c

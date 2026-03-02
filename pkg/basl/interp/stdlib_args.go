@@ -86,7 +86,7 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 			typ := args[1].AsString()
 			defVal := args[2].AsString()
 			if err := validateArgType(defVal, typ, name); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindArg), nil
 			}
 
 			flagArr := o.Fields["__flags"].Data.(*value.ArrayVal)
@@ -175,14 +175,14 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 								if err := validateArgType(val, typ, key); err != nil {
 									return value.Void, &MultiReturnVal{Values: []value.Value{
 										value.Void,
-										value.NewErr(err.Error()),
+										value.NewErr(err.Error(), value.ErrKindArg),
 									}}
 								}
 								flagValues[key] = value.NewString(val)
 							} else {
 								return value.Void, &MultiReturnVal{Values: []value.Value{
 									value.Void,
-									value.NewErr(fmt.Sprintf("flag --%s requires a value", key)),
+									value.NewErr(fmt.Sprintf("flag --%s requires a value", key), value.ErrKindArg),
 								}}
 							}
 							break
@@ -191,7 +191,7 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 					if !found {
 						return value.Void, &MultiReturnVal{Values: []value.Value{
 							value.Void,
-							value.NewErr(fmt.Sprintf("unknown flag: %s", a)),
+							value.NewErr(fmt.Sprintf("unknown flag: %s", a), value.ErrKindArg),
 						}}
 					}
 				} else if !endOfOptions && strings.HasPrefix(a, "-") && len(a) == 2 {
@@ -210,20 +210,20 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 							if err := validateArgType(val, typ, name); err != nil {
 								return value.Void, &MultiReturnVal{Values: []value.Value{
 									value.Void,
-									value.NewErr(err.Error()),
+									value.NewErr(err.Error(), value.ErrKindArg),
 								}}
 							}
 							flagValues[name] = value.NewString(val)
 						} else {
 							return value.Void, &MultiReturnVal{Values: []value.Value{
 								value.Void,
-								value.NewErr(fmt.Sprintf("flag -%s requires a value", key)),
+								value.NewErr(fmt.Sprintf("flag -%s requires a value", key), value.ErrKindArg),
 							}}
 						}
 					} else {
 						return value.Void, &MultiReturnVal{Values: []value.Value{
 							value.Void,
-							value.NewErr(fmt.Sprintf("unknown flag: %s", a)),
+							value.NewErr(fmt.Sprintf("unknown flag: %s", a), value.ErrKindArg),
 						}}
 					}
 				} else {
@@ -349,7 +349,7 @@ func (interp *Interpreter) argParserMethod(obj value.Value, method string, line 
 					} else {
 						return value.Void, &MultiReturnVal{Values: []value.Value{
 							{T: value.TypeMap, Data: result},
-							value.NewErr(fmt.Sprintf("unknown flag: %s", a)),
+							value.NewErr(fmt.Sprintf("unknown flag: %s", a), value.ErrKindArg),
 						}}
 					}
 				} else {

@@ -29,6 +29,7 @@
   "thread": ["spawn", "sleep"],
   "mutex": ["new"],
   "t": ["assert", "fail"],
+  "err": ["not_found", "permission", "exists", "eof", "io", "parse", "bounds", "type", "arg", "timeout", "closed", "state"],
   "rl": [
     "init_window", "close_window", "window_should_close", "set_target_fps", "get_fps", "get_frame_time", "get_time",
     "begin_drawing", "end_drawing", "clear_background", "begin_mode2d", "end_mode2d", "begin_mode3d", "end_mode3d",

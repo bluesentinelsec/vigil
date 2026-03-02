@@ -74,7 +74,15 @@ func (interp *Interpreter) evalExpr(expr ast.Expr, env *Env) (value.Value, error
 		if err != nil {
 			return value.Void, err
 		}
-		return value.NewErr(msg.String()), nil
+		kind, err := interp.evalExpr(e.Kind, env)
+		if err != nil {
+			return value.Void, err
+		}
+		kindStr := kind.String()
+		if !value.ValidErrKinds[kindStr] {
+			return value.Void, fmt.Errorf("line %d: unknown error kind %q — valid kinds: not_found, permission, exists, eof, io, parse, bounds, type, arg, timeout, closed, state", e.Line, kindStr)
+		}
+		return value.NewErr(msg.String(), kindStr), nil
 	case *ast.SelfExpr:
 		v, ok := env.Get("self")
 		if !ok {
@@ -748,15 +756,12 @@ func (interp *Interpreter) evalMember(e *ast.MemberExpr, env *Env) (value.Value,
 				return value.NewString(obj.AsErr().Message), nil
 			}), nil
 		}
-		if e.Field == "is_eof" {
-			return value.NewNativeFunc("err.is_eof", func(args []value.Value) (value.Value, error) {
+		if e.Field == "kind" {
+			return value.NewNativeFunc("err.kind", func(args []value.Value) (value.Value, error) {
 				if len(args) != 0 {
-					return value.Void, fmt.Errorf("err.is_eof: expected 0 arguments, got %d", len(args))
+					return value.Void, fmt.Errorf("err.kind: expected 0 arguments, got %d", len(args))
 				}
-				if obj.AsErr().IsEOF {
-					return value.True, nil
-				}
-				return value.False, nil
+				return value.NewString(obj.AsErr().Kind), nil
 			}), nil
 		}
 	case value.TypeObject:
@@ -914,7 +919,7 @@ func (interp *Interpreter) stringMethod(obj value.Value, method string, line int
 			start := int(args[0].AsI32())
 			length := int(args[1].AsI32())
 			if start < 0 || start > len(s) || start+length > len(s) || length < 0 {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("substr out of bounds")}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("substr out of bounds", value.ErrKindBounds)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(s[start : start+length]), value.Ok}}
 		}), nil
@@ -934,7 +939,7 @@ func (interp *Interpreter) stringMethod(obj value.Value, method string, line int
 			}
 			idx := int(args[0].AsI32())
 			if idx < 0 || idx >= len(s) {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("index out of bounds")}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("index out of bounds", value.ErrKindBounds)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(s[idx])), value.Ok}}
 		}), nil
@@ -970,7 +975,7 @@ func (interp *Interpreter) arrayMethod(obj value.Value, method string, line int)
 			idx := int(args[0].AsI32())
 			if idx < 0 || idx >= len(arr.Elems) {
 				return value.Void, &MultiReturnVal{Values: []value.Value{
-					value.DefaultValue(""), value.NewErr("index out of bounds"),
+					value.DefaultValue(""), value.NewErr("index out of bounds", value.ErrKindBounds),
 				}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{arr.Elems[idx], value.Ok}}
@@ -982,7 +987,7 @@ func (interp *Interpreter) arrayMethod(obj value.Value, method string, line int)
 			}
 			idx := int(args[0].AsI32())
 			if idx < 0 || idx >= len(arr.Elems) {
-				return value.NewErr("index out of bounds"), nil
+				return value.NewErr("index out of bounds", value.ErrKindBounds), nil
 			}
 			if arr.ElemType != "" {
 				if err := interp.checkTypeByName(arr.ElemType, args[1], 0); err != nil {
@@ -995,7 +1000,7 @@ func (interp *Interpreter) arrayMethod(obj value.Value, method string, line int)
 	case "pop":
 		return value.NewNativeFunc("array.pop", func(args []value.Value) (value.Value, error) {
 			if len(arr.Elems) == 0 {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("empty array")}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("empty array", value.ErrKindBounds)}}
 			}
 			last := arr.Elems[len(arr.Elems)-1]
 			arr.Elems = arr.Elems[:len(arr.Elems)-1]
@@ -1132,7 +1137,7 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeString {
 			n, parseErr := strconv.ParseInt(arg.AsString(), 10, 32)
 			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewErr("invalid i32: " + arg.AsString())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewErr("invalid i32: "+arg.AsString(), value.ErrKindType)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(int32(n)), value.Ok}}
 		}
@@ -1158,7 +1163,7 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeString {
 			n, parseErr := strconv.ParseInt(arg.AsString(), 10, 64)
 			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(0), value.NewErr("invalid i64: " + arg.AsString())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(0), value.NewErr("invalid i64: "+arg.AsString(), value.ErrKindType)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(n), value.Ok}}
 		}
@@ -1172,7 +1177,7 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeString {
 			n, parseErr := strconv.ParseFloat(arg.AsString(), 64)
 			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewErr("invalid f64: " + arg.AsString())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewErr("invalid f64: "+arg.AsString(), value.ErrKindType)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(n), value.Ok}}
 		}
@@ -1211,7 +1216,7 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeString {
 			n, parseErr := strconv.ParseUint(arg.AsString(), 10, 32)
 			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewU32(0), value.NewErr("invalid u32: " + arg.AsString())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewU32(0), value.NewErr("invalid u32: "+arg.AsString(), value.ErrKindType)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewU32(uint32(n)), value.Ok}}
 		}
