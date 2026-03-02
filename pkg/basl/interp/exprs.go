@@ -274,7 +274,54 @@ func (interp *Interpreter) evalBinary(e *ast.BinaryExpr, env *Env) (value.Value,
 		}
 	}
 
+	// Provide helpful hint for numeric type mismatches
+	if isNumericType(left.T) && isNumericType(right.T) {
+		hint := suggestNumericCast(left.T, right.T, e.Op)
+		return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same type\n  hint: %s", e.Line, e.Op, left.T, right.T, hint)
+	}
+
 	return value.Void, fmt.Errorf("line %d: cannot apply %q to %s and %s — operands must be the same numeric type", e.Line, e.Op, left.T, right.T)
+}
+
+func isNumericType(t value.Type) bool {
+	return t == value.TypeI32 || t == value.TypeI64 || t == value.TypeF64 ||
+		t == value.TypeU8 || t == value.TypeU32 || t == value.TypeU64
+}
+
+func suggestNumericCast(left, right value.Type, op string) string {
+	// Suggest casting to the wider type
+	wider := right
+	castLeft := true
+
+	// Determine which is wider
+	if typeWidth(left) > typeWidth(right) {
+		wider = left
+		castLeft = false
+	}
+
+	if castLeft {
+		return fmt.Sprintf("cast left operand: %s(left) %s right", wider, op)
+	}
+	return fmt.Sprintf("cast right operand: left %s %s(right)", op, wider)
+}
+
+func typeWidth(t value.Type) int {
+	switch t {
+	case value.TypeU8:
+		return 1
+	case value.TypeI32:
+		return 2
+	case value.TypeU32:
+		return 3
+	case value.TypeI64:
+		return 4
+	case value.TypeU64:
+		return 5
+	case value.TypeF64:
+		return 6
+	default:
+		return 0
+	}
 }
 
 func evalI32BinOp(op string, a, b int32, line int) (value.Value, error) {
