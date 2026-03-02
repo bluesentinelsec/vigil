@@ -1,0 +1,166 @@
+import "test";
+import "os";
+import "file";
+import "fmt";
+
+fn main() -> i32 {
+    test.run("grep basic pattern matching", test_basic_match);
+    test.run("grep case insensitive", test_case_insensitive);
+    test.run("grep invert match", test_invert_match);
+    test.run("grep line numbers", test_line_numbers);
+    test.run("grep count only", test_count_only);
+    test.run("grep multiple files", test_multiple_files);
+    test.run("grep files with matches", test_files_with_matches);
+    test.run("grep context lines", test_context_lines);
+    test.run("grep recursive", test_recursive);
+    
+    return 0;
+}
+
+fn test_basic_match() -> void {
+    // Create test file
+    file.write("test_basic.txt", "hello world\nfoo bar\nhello again\n");
+    
+    // Run grep
+    i32 status = os.system("../../basl ../main.basl hello test_basic.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "hello world\nhello again\n", "should match hello lines");
+    test.assert(status == 0, "should exit 0 on match");
+    
+    // Cleanup
+    file.remove("test_basic.txt");
+    file.remove("output.txt");
+}
+
+fn test_case_insensitive() -> void {
+    file.write("test_case.txt", "Hello World\nFOO BAR\nhello again\n");
+    
+    i32 status = os.system("../../basl ../main.basl --ignore-case hello test_case.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "Hello World\nhello again\n", "should match case insensitive");
+    
+    file.remove("test_case.txt");
+    file.remove("output.txt");
+}
+
+fn test_invert_match() -> void {
+    file.write("test_invert.txt", "hello world\nfoo bar\nhello again\n");
+    
+    os.system("../../basl ../main.basl --invert-match hello test_invert.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "foo bar\n", "should match non-hello lines");
+    
+    file.remove("test_invert.txt");
+    file.remove("output.txt");
+}
+
+fn test_line_numbers() -> void {
+    file.write("test_linenum.txt", "hello world\nfoo bar\nhello again\n");
+    
+    os.system("../../basl ../main.basl --line-number hello test_linenum.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "1:hello world\n3:hello again\n", "should include line numbers");
+    
+    file.remove("test_linenum.txt");
+    file.remove("output.txt");
+}
+
+fn test_count_only() -> void {
+    file.write("test_count.txt", "hello world\nfoo bar\nhello again\n");
+    
+    os.system("../../basl ../main.basl --count hello test_count.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "2\n", "should count matches");
+    
+    file.remove("test_count.txt");
+    file.remove("output.txt");
+}
+
+fn test_multiple_files() -> void {
+    file.write("test_multi1.txt", "hello world\n");
+    file.write("test_multi2.txt", "hello again\n");
+    
+    os.system("../../basl ../main.basl hello test_multi1.txt test_multi2.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "test_multi1.txt:hello world\ntest_multi2.txt:hello again\n", "should prefix with filename");
+    
+    file.remove("test_multi1.txt");
+    file.remove("test_multi2.txt");
+    file.remove("output.txt");
+}
+
+fn test_files_with_matches() -> void {
+    file.write("test_match1.txt", "hello world\n");
+    file.write("test_match2.txt", "foo bar\n");
+    file.write("test_match3.txt", "hello again\n");
+    
+    os.system("../../basl ../main.basl --files-with-matches hello test_match1.txt test_match2.txt test_match3.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    test.assert(output == "test_match1.txt\ntest_match3.txt\n", "should list matching files");
+    
+    file.remove("test_match1.txt");
+    file.remove("test_match2.txt");
+    file.remove("test_match3.txt");
+    file.remove("output.txt");
+}
+
+fn test_context_lines() -> void {
+    file.write("test_context.txt", "line1\nline2\nhello\nline4\nline5\n");
+    
+    os.system("../../basl ../main.basl --context 1 hello test_context.txt > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    
+    // Should include line before and after
+    bool hasLine2 = output.contains("line2");
+    bool hasHello = output.contains("hello");
+    bool hasLine4 = output.contains("line4");
+    
+    test.assert(hasLine2, "should include line before");
+    test.assert(hasHello, "should include matching line");
+    test.assert(hasLine4, "should include line after");
+    
+    file.remove("test_context.txt");
+    file.remove("output.txt");
+}
+
+fn test_recursive() -> void {
+    // Create directory structure
+    file.mkdir("test_dir");
+    file.write("test_dir/file1.txt", "hello world\n");
+    file.mkdir("test_dir/subdir");
+    file.write("test_dir/subdir/file2.txt", "hello again\n");
+    
+    os.system("../../basl ../main.basl --recursive hello test_dir > output.txt");
+    
+    string output, err e = file.read("output.txt");
+    test.assert(e == ok, "should read output");
+    
+    bool hasFile1 = output.contains("file1.txt");
+    bool hasFile2 = output.contains("file2.txt");
+    
+    test.assert(hasFile1, "should find file in root");
+    test.assert(hasFile2, "should find file in subdirectory");
+    
+    // Cleanup
+    file.remove("test_dir/subdir/file2.txt");
+    file.rmdir("test_dir/subdir");
+    file.remove("test_dir/file1.txt");
+    file.rmdir("test_dir");
+    file.remove("output.txt");
+}

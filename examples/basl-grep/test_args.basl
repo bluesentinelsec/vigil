@@ -1,0 +1,11 @@
+import "fmt";
+import "os";
+
+fn main() -> i32 {
+    array<string> args = os.args();
+    fmt.println(f"args.len() = {args.len()}");
+    for (i32 i = 0; i < args.len(); i++) {
+        fmt.println(f"args[{i}] = {args[i]}");
+    }
+    return 0;
+}
