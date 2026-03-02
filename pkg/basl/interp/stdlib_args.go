@@ -513,6 +513,44 @@ func (interp *Interpreter) argsResultMethod(obj value.Value, method string, line
 			}
 			return value.NewF64(0.0), nil
 		}), nil
+	case "get_u32":
+		return value.NewNativeFunc("Result.get_u32", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_u32: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					val := flagsMap.Values[i].AsString()
+					n, err := strconv.ParseUint(val, 10, 32)
+					if err != nil {
+						return value.Void, fmt.Errorf("Result.get_u32: '%s' is not a valid u32: %s", key, val)
+					}
+					return value.NewU32(uint32(n)), nil
+				}
+			}
+			return value.NewU32(0), nil
+		}), nil
+	case "get_u64":
+		return value.NewNativeFunc("Result.get_u64", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Result.get_u64: expected string key")
+			}
+			key := args[0].AsString()
+
+			for i, k := range flagsMap.Keys {
+				if k.AsString() == key {
+					val := flagsMap.Values[i].AsString()
+					n, err := strconv.ParseUint(val, 10, 64)
+					if err != nil {
+						return value.Void, fmt.Errorf("Result.get_u64: '%s' is not a valid u64: %s", key, val)
+					}
+					return value.NewU64(n), nil
+				}
+			}
+			return value.NewU64(0), nil
+		}), nil
 	default:
 		return value.Void, fmt.Errorf("line %d: Result has no method '%s'", line, method)
 	}

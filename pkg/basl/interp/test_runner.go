@@ -8,6 +8,7 @@ import (
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
 	"github.com/bluesentinelsec/basl/pkg/basl/lexer"
 	"github.com/bluesentinelsec/basl/pkg/basl/parser"
+	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
 
 // TestResult holds the outcome of a single test function.
@@ -38,7 +39,8 @@ func ExecTestFile(path string, src []byte, filter string, searchPaths []string) 
 		if !ok || !strings.HasPrefix(fn.Name, "test_") {
 			continue
 		}
-		if len(fn.Params) != 0 {
+		// Accept both zero params and single test.T param
+		if len(fn.Params) != 0 && len(fn.Params) != 1 {
 			continue
 		}
 		if filter != "" && !matchFilter(fn.Name, filter) {
@@ -63,8 +65,10 @@ func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string
 	for _, sp := range searchPaths {
 		vm.AddSearchPath(sp)
 	}
-	// Register the test module as "t"
-	vm.builtinModules["t"] = vm.makeTestModule()
+	// Register the test module as both "t" and "test"
+	testMod := vm.makeTestModule()
+	vm.builtinModules["t"] = testMod
+	vm.builtinModules["test"] = testMod
 
 	vm.gil.Lock()
 	defer vm.gil.Unlock()
@@ -81,8 +85,24 @@ func runOneTest(prog *ast.Program, name string, dir string, searchPaths []string
 		return TestResult{Name: name, Passed: false, Message: "test function not found"}
 	}
 
+	// Check if function expects a test.T parameter
+	var callArgs []value.Value
+	for _, d := range prog.Decls {
+		if fn, ok := d.(*ast.FnDecl); ok && fn.Name == name {
+			if len(fn.Params) == 1 {
+				// Create a test.T object
+				tObj := &value.ObjectVal{
+					ClassName: "test.T",
+					Fields:    map[string]value.Value{},
+				}
+				callArgs = []value.Value{{T: value.TypeObject, Data: tObj}}
+			}
+			break
+		}
+	}
+
 	start := time.Now()
-	_, err := vm.callFunc(fnVal, nil)
+	_, err := vm.callFunc(fnVal, callArgs)
 	elapsed := time.Since(start)
 
 	if err != nil {

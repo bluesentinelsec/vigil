@@ -402,6 +402,8 @@ fn main() -> i32 {
 	p.flag("count", "i32", "10", "count");
 	p.flag("size", "i64", "1000", "size");
 	p.flag("ratio", "f64", "3.14", "ratio");
+	p.flag("port", "u32", "8080", "port");
+	p.flag("bignum", "u64", "9999999", "bignum");
 	
 	args.Result result, err e = p.parse_result();
 	if (e != ok) {
@@ -412,14 +414,18 @@ fn main() -> i32 {
 	i32 c = result.get_i32("count");
 	i64 s = result.get_i64("size");
 	f64 r = result.get_f64("ratio");
+	u32 port = result.get_u32("port");
+	u64 big = result.get_u64("bignum");
 	
 	fmt.print(c);
 	fmt.print(s);
 	fmt.print(r);
+	fmt.print(port);
+	fmt.print(big);
 	return 0;
 }`
 	interp := New()
-	interp.scriptArgs = []string{"--count", "42", "--size", "9999", "--ratio", "2.71"}
+	interp.scriptArgs = []string{"--count", "42", "--size", "9999", "--ratio", "2.71", "--port", "3000", "--bignum", "123456789"}
 	var lines []string
 	interp.PrintFn = func(s string) { lines = append(lines, strings.TrimRight(s, "\n")) }
 
@@ -437,7 +443,7 @@ fn main() -> i32 {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != 3 || lines[0] != "42" || lines[1] != "9999" || lines[2] != "2.71" {
+	if len(lines) != 5 || lines[0] != "42" || lines[1] != "9999" || lines[2] != "2.71" || lines[3] != "3000" || lines[4] != "123456789" {
 		t.Fatalf("got %v", lines)
 	}
 }

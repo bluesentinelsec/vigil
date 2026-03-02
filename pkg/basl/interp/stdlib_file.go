@@ -48,6 +48,17 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		return value.Ok, nil
 	}))
+	// Alias for write_all
+	env.Define("write", value.NewNativeFunc("file.write", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.write: expected (string path, string data)")
+		}
+		path := args[0].AsString()
+		if err := os.WriteFile(path, []byte(args[1].AsString()), 0644); err != nil {
+			return value.NewErr(fileErr(err, path)), nil
+		}
+		return value.Ok, nil
+	}))
 	env.Define("append", value.NewNativeFunc("file.append", func(args []value.Value) (value.Value, error) {
 		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
 			return value.Void, fmt.Errorf("file.append: expected (string path, string data)")
