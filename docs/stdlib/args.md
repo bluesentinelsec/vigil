@@ -14,7 +14,7 @@ import "fmt";
 
 fn main() -> i32 {
     // Create parser
-    ArgParser p = args.parser("mytool", "A simple CLI tool");
+    args.ArgParser p = args.parser("mytool", "A simple CLI tool");
     
     // Define flags
     p.flag("verbose", "bool", "false", "Enable verbose output");
@@ -61,17 +61,17 @@ Creates a new argument parser.
 **Returns:** `ArgParser` object
 
 ```c
-ArgParser p = args.parser("myapp", "A tool that does things");
+args.ArgParser p = args.parser("myapp", "A tool that does things");
 ```
 
-## ArgParser Type
+## args.ArgParser Type
 
 The `ArgParser` type is returned by `args.parser()` and provides methods for defining and parsing arguments.
 
 **Important:** You must declare the variable type as `ArgParser`:
 
 ```c
-ArgParser p = args.parser("app", "desc");  // Correct
+args.ArgParser p = args.parser("app", "desc");  // Correct
 ```
 
 ### p.flag(string name, string type, string default, string help[, string short]) -> err
@@ -111,7 +111,7 @@ Defines a positional argument.
 
 Positional arguments are matched in order after all flags are processed.
 
-**Variadic arguments:** When `variadic` is `true`, all remaining positional arguments are collected into a single space-separated string. Call `.split(" ")` to get individual values.
+**Variadic arguments:** When `variadic` is `true`, all remaining positional arguments are collected into a single newline-separated string (`\n`). Call `.split("\n")` to get individual values. Newline is used because command-line arguments cannot contain literal newlines, ensuring proper handling of filenames with spaces.
 
 ```c
 p.arg("input", "string", "Input file path");
@@ -177,7 +177,14 @@ Parsed as:
 - `count`: `"5"` (short flag with value)
 - `output`: `"out.txt"` (long flag with value)
 - `input`: `"input.txt"` (first positional)
-- `files`: `"file2.txt file3.txt"` (variadic, space-separated)
+- `files`: `"file2.txt\nfile3.txt"` (variadic, newline-separated)
+
+To get individual files:
+```c
+array<string> fileList = result["files"].split("\n");
+// fileList[0] = "file2.txt"
+// fileList[1] = "file3.txt"
+```
 
 ## Type Conversion
 
@@ -201,7 +208,7 @@ import "os";
 
 fn main() -> i32 {
     // Create parser
-    ArgParser p = args.parser("grep", "Search for patterns in files");
+    args.ArgParser p = args.parser("grep", "Search for patterns in files");
     
     // Define flags
     p.flag("ignore-case", "bool", "false", "Case-insensitive search");

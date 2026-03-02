@@ -5,13 +5,13 @@ import "os";
 // Windows users should run tests in WSL, Git Bash, or similar environment.
 
 fn test_tr_basic() -> void {
-    string out, string errs, err e = os.exec("sh", "-c", "printf 'hello world\\n' | ./basl examples/basl-tr/main.basl aeiou 12345");
+    string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "printf 'hello world\\n' | ./basl examples/basl-tr/main.basl aeiou 12345");
     t.assert(string(e) == "ok", "tr should exit 0");
     t.assert(out == "h2ll4 w4rld\n", "should translate all vowels");
 }
 
 fn test_tr_length_mismatch() -> void {
-    string out, string errs, err e = os.exec("sh", "-c", "printf 'test\\n' | ./basl examples/basl-tr/main.basl abc 12 2>&1");
+    string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "printf 'test\\n' | ./basl examples/basl-tr/main.basl abc 12 2>&1");
     t.assert(string(e) != "ok", "tr should reject mismatched set lengths");
 }
 

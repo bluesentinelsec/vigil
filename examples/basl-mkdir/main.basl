@@ -4,7 +4,7 @@ import "fmt";
 import "args";
 
 fn main() -> i32 {
-    ArgParser p = args.parser("basl-mkdir", "create directories");
+    args.ArgParser p = args.parser("basl-mkdir", "create directories");
     p.flag("parents", "bool", "false", "make parent directories as needed");
     map<string, string> result, err e = p.parse();
     

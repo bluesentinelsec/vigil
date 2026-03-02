@@ -26,7 +26,7 @@ fn format_mode(i32 mode) -> string {
 }
 
 fn main() -> i32 {
-    ArgParser p = args.parser("basl-ls", "list directory contents");
+    args.ArgParser p = args.parser("basl-ls", "list directory contents");
     p.flag("long", "bool", "false", "use a long listing format");
     p.flag("all", "bool", "false", "do not ignore entries starting with .");
     map<string, string> result, err e = p.parse();

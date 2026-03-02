@@ -8,7 +8,7 @@ import "file";
 fn test_cut_basic() -> void {
     file.write_all("test_cut_in.txt", "a:b:c\nd:e:f\n");
     
-    string out, string errs, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f 2 --d : < test_cut_in.txt");
+    string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "./basl examples/basl-cut/main.basl --f 2 --d : < test_cut_in.txt");
     t.assert(string(e) == "ok", "cut should exit 0");
     t.assert(out == "b\ne\n", "should extract field 2 from both lines");
     
@@ -16,7 +16,7 @@ fn test_cut_basic() -> void {
 }
 
 fn test_cut_invalid_field() -> void {
-    string out, string errs, err e = os.exec("sh", "-c", "echo '' | ./basl examples/basl-cut/main.basl --f x2 --d : 2>&1");
+    string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "echo '' | ./basl examples/basl-cut/main.basl --f x2 --d : 2>&1");
     t.assert(string(e) != "ok", "cut should reject invalid field spec");
 }
 

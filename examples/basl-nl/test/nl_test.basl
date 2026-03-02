@@ -5,7 +5,7 @@ import "os";
 // Windows users should run tests in WSL, Git Bash, or similar environment.
 
 fn test_nl_basic() -> void {
-    string out, string errs, err e = os.exec("sh", "-c", "printf 'hello\\nworld\\n' | ./basl examples/basl-nl/main.basl");
+    string out, string errs, i32 exitCode, err e = os.exec("sh", "-c", "printf 'hello\\nworld\\n' | ./basl examples/basl-nl/main.basl");
     t.assert(string(e) == "ok", "nl should exit 0");
     t.assert(out == "     1\thello\n     2\tworld\n", "should number lines with formatting");
 }

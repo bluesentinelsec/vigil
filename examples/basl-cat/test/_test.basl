@@ -32,7 +32,7 @@ fn test_cat_single_file() -> void {
     err e = file.write_all(test_file, test_content);
     t.assert(e == ok, "should write test file");
     
-    string stdout, string stderr, err e2 = os.exec(basl_bin, main_script, test_file);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec(basl_bin, main_script, test_file);
     t.assert(e2 == ok, "basl-cat should succeed");
     t.assert(stdout == test_content, "output should match file content");
     t.assert(stderr == "", "stderr should be empty on success");
@@ -51,7 +51,7 @@ fn test_cat_multiple_files() -> void {
     err e2 = file.write_all(file2, "file2\n");
     t.assert(e1 == ok && e2 == ok, "should write test files");
     
-    string stdout, string stderr, err e3 = os.exec(basl_bin, main_script, file1, file2);
+    string stdout, string stderr, i32 exitCode, err e3 = os.exec(basl_bin, main_script, file1, file2);
     t.assert(e3 == ok, "basl-cat should succeed");
     t.assert(stdout == "file1\nfile2\n", "output should concatenate both files");
     t.assert(stderr == "", "stderr should be empty on success");
@@ -66,7 +66,7 @@ fn test_cat_missing_file() -> void {
     
     string missing = get_temp_path("nonexistent_basl_cat_test.txt");
     
-    string stdout, string stderr, err e = os.exec(basl_bin, main_script, missing);
+    string stdout, string stderr, i32 exitCode, err e = os.exec(basl_bin, main_script, missing);
     t.assert(e != ok, "basl-cat should fail on missing file");
     t.assert(stderr.len() > 0, "stderr should contain error message");
     t.assert(stderr.contains("basl-cat:"), "error should be from basl-cat");
@@ -80,7 +80,7 @@ fn test_cat_empty_file() -> void {
     err e = file.write_all(test_file, "");
     t.assert(e == ok, "should write empty file");
     
-    string stdout, string stderr, err e2 = os.exec(basl_bin, main_script, test_file);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec(basl_bin, main_script, test_file);
     t.assert(e2 == ok, "basl-cat should succeed on empty file");
     t.assert(stdout == "", "output should be empty");
     t.assert(stderr == "", "stderr should be empty");
@@ -105,7 +105,7 @@ fn test_cat_stdin_dash() -> void {
     
     // Test "-" reads from stdin by using shell redirection
     string sh_cmd = basl_bin + " " + main_script + " - < " + test_file;
-    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec("sh", "-c", sh_cmd);
     t.assert(e2 == ok, "basl-cat with - should succeed");
     t.assert(stdout == test_content, "output should match stdin");
     
@@ -129,7 +129,7 @@ fn test_cat_no_args_stdin() -> void {
     
     // Test no args reads from stdin
     string sh_cmd = basl_bin + " " + main_script + " < " + test_file;
-    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec("sh", "-c", sh_cmd);
     t.assert(e2 == ok, "basl-cat with no args should succeed");
     t.assert(stdout == test_content, "output should match stdin");
     

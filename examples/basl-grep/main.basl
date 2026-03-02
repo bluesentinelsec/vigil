@@ -44,8 +44,8 @@ fn main() -> i32 {
     bool filesWithMatches = opts["files-with-matches"] == "true";
     bool recursive = opts["recursive"] == "true";
     
-    // Split files
-    array<string> files = filesStr.split(" ");
+    // Split files (newline-separated for proper handling of filenames with spaces)
+    array<string> files = filesStr.split("\n");
     
     // Compile regex once (performance improvement!)
     string regexPattern = pattern;

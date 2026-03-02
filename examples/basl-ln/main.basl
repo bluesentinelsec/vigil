@@ -4,7 +4,7 @@ import "fmt";
 import "args";
 
 fn main() -> i32 {
-    ArgParser p = args.parser("basl-ln", "create links between files");
+    args.ArgParser p = args.parser("basl-ln", "create links between files");
     p.flag("symbolic", "bool", "false", "make symbolic links instead of hard links");
     map<string, string> result, err e = p.parse();
     
