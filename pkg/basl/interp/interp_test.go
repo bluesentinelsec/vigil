@@ -2226,6 +2226,9 @@ fn main() -> i32 { fn f = fn() -> void { fmt.print("hi"); }; f(); return 0; }`,
 		{"iife", `import "fmt";
 fn main() -> i32 { fn() -> void { fmt.print("iife"); }(); return 0; }`,
 			[]string{"iife"}},
+		{"iife_fn_param", `import "fmt";
+fn main() -> i32 { fn(fn(i32) -> i32 cb) -> void { fmt.print(string(cb(3))); }(fn(i32 x) -> i32 { return x * 2; }); return 0; }`,
+			[]string{"6"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

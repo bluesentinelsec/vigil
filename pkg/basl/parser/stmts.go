@@ -65,8 +65,13 @@ func (p *Parser) parseStmt() (ast.Stmt, error) {
 			}
 			return p.parseVarDeclStmt()
 		}
-		if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.TOKEN_LPAREN && p.looksLikeAnonFn() {
-			return p.parseExprOrAssignStmt()
+		// fn( — try anonymous function first, fall back to typed var decl
+		if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.TOKEN_LPAREN {
+			saved := p.pos
+			if stmt, err := p.parseExprOrAssignStmt(); err == nil {
+				return stmt, nil
+			}
+			p.pos = saved
 		}
 		return p.parseVarDeclStmt()
 	case lexer.TOKEN_LPAREN:
@@ -435,49 +440,6 @@ func (p *Parser) parseDeferStmt() (*ast.DeferStmt, error) {
 		return nil, err
 	}
 	return &ast.DeferStmt{Call: expr, Line: tok.Line}, nil
-}
-
-// looksLikeAnonFn checks if fn( starts an anonymous function (not a typed var decl).
-// fn() or fn(TYPE NAME ...) → anonymous function
-// fn(TYPE) or fn(TYPE, ...) → typed var decl
-func (p *Parser) looksLikeAnonFn() bool {
-	// p.pos is at fn, p.pos+1 is (
-	i := p.pos + 2 // first token inside parens
-	if i >= len(p.tokens) {
-		return false
-	}
-	// fn() → anonymous function (no params)
-	if p.tokens[i].Type == lexer.TOKEN_RPAREN {
-		return true
-	}
-	// Look at first param: if TYPE followed by IDENT (a name), it's an anonymous function
-	// If TYPE followed by , or ), it's a type-only signature (var decl)
-	if !isTypeToken(p.tokens[i].Type) {
-		return false
-	}
-	i++ // skip the type token
-	// Handle generic types like array<i32>
-	if i < len(p.tokens) && p.tokens[i].Type == lexer.TOKEN_LT {
-		depth := 1
-		i++
-		for i < len(p.tokens) && depth > 0 {
-			if p.tokens[i].Type == lexer.TOKEN_LT {
-				depth++
-			} else if p.tokens[i].Type == lexer.TOKEN_GT {
-				depth--
-			}
-			i++
-		}
-	}
-	// Handle module-qualified types like file.File
-	if i+1 < len(p.tokens) && p.tokens[i].Type == lexer.TOKEN_DOT && p.tokens[i+1].Type == lexer.TOKEN_IDENT {
-		i += 2
-	}
-	if i >= len(p.tokens) {
-		return false
-	}
-	// If next token is an IDENT, it's a param name → anonymous function
-	return p.tokens[i].Type == lexer.TOKEN_IDENT
 }
 
 func (p *Parser) parseLocalFnDecl() (ast.Stmt, error) {
