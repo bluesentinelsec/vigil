@@ -6,7 +6,7 @@ BASL (Blazingly Awesome Scripting Language) is a statically-typed, C-syntax scri
 
 All source files must use the `.basl` file extension.
 
-Every BASL program has a `main` function that returns `i32`:
+Executable BASL programs use a `main` function that returns `i32`:
 
 ```c
 fn main() -> i32 {
@@ -25,7 +25,9 @@ import "file" as fs;              // alias
 import "../shared/utils";         // relative path (alias: utils)
 ```
 
-Imports resolve to built-in stdlib modules or `.basl` files relative to the script's directory.
+Imports resolve to built-in stdlib modules or `.basl` files.
+For direct script execution, BASL searches the script's directory first.
+When the script is inside a BASL project, BASL also searches the project's `lib/` and `deps/` directories automatically.
 Modules export only `pub` declarations.
 
 ## Types

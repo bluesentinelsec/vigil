@@ -48,7 +48,7 @@ basl new mylib --lib        # library (no main.basl)
 
 ```sh
 $ basl new myapp
-created myapp/
+created myapp
   basl.toml
   main.basl
   lib/
@@ -70,7 +70,7 @@ fn main() -> i32 {
 
 ```sh
 $ basl new mylib --lib
-created mylib/
+created mylib
   basl.toml
   lib/mylib.basl
   test/mylib_test.basl
@@ -119,9 +119,9 @@ No relative paths (`../`) needed. No path configuration.
 |---------|----------|
 | `basl new` | Scaffolds the standard layout |
 | `basl test` | Runs everything in `test/` |
-| `basl fmt ./...` | Formats `lib/`, `test/`, and `main.basl` |
+| `basl fmt ./...` | Formats all `.basl` files under the target tree |
 | `basl embed` | Output conventionally goes to `lib/` |
-| `basl package` | Entry point is `main.basl` |
+| `basl package` | Packages an app (`main.basl`) or a library bundle |
 | `basl deps` | Downloads into `deps/`, reads `basl.toml` |
 
 ## Conventions
