@@ -15,10 +15,10 @@ BASL is a statically-typed, C-syntax scripting language that prioritizes readabi
   - `basl fmt` - Format code automatically
   - `basl test` - Run tests with built-in framework
   - `basl debug` - Interactive debugger with breakpoints
-  - `basl package` - Build standalone executables
+  - `basl package` - Build standalone executables or library bundles
   - `basl embed` - Embed assets as code
   - `basl doc` - Generate documentation
-  - `basl get/deps` - Dependency management
+  - `basl get`, `basl deps` - Dependency management
   - `basl editor` - Install editor integrations
 
 ## Quick Start
@@ -243,8 +243,8 @@ basl embed logo.png           # Generate BASL module from file
 See [Editor Setup](docs/editor_cli.md) for installation.
 
 ```bash
-basl editor vim               # Install Vim syntax highlighting
-basl editor vscode            # Install VS Code extension
+basl editor install vim       # Install Vim syntax highlighting
+basl editor install vscode    # Install VS Code extension
 ```
 
 ### Documentation
