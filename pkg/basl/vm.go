@@ -15,7 +15,7 @@ import (
 )
 
 // Version is the BASL version string.
-const Version = "0.1.1"
+const Version = "0.1.2"
 
 // VM is the BASL virtual machine (AST interpreter).
 type VM struct {
