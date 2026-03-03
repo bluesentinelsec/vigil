@@ -18,7 +18,7 @@ BASL is a statically-typed, C-syntax scripting language that prioritizes readabi
   - `basl package` - Build standalone executables or library bundles
   - `basl embed` - Embed assets as code
   - `basl doc` - Generate documentation
-  - `basl get/deps` - Dependency management
+  - `basl get`, `basl deps` - Dependency management
   - `basl editor` - Install editor integrations
 
 ## Quick Start
