@@ -737,6 +737,11 @@ func TestFormatAnonymousFunctions(t *testing.T) {
 			`fn apply(fn f, i32 x) -> i32 { return f(x); } fn main() -> i32 { i32 r = apply(fn(i32 x) -> i32 { return x * 3; }, 5); return 0; }`,
 			"fn(i32 x) -> i32 { return x * 3; }",
 		},
+		{
+			"iife_round_trip",
+			"import \"fmt\";\nfn main() -> i32 {\n    fn() -> void { fmt.println(\"x\"); }();\n    return 0;\n}",
+			"fn() -> void {",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
