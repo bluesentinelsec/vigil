@@ -85,7 +85,8 @@
     "constants": {
       "patterns": [
         { "name": "constant.language.boolean.basl", "match": "\\b(true|false)\\b" },
-        { "name": "constant.language.ok.basl", "match": "\\bok\\b" }
+        { "name": "constant.language.ok.basl", "match": "\\bok\\b" },
+        { "name": "constant.language.errkind.basl", "match": "\\berr\\.(not_found|permission|exists|eof|io|parse|bounds|type|arg|timeout|closed|state)\\b" }
       ]
     },
     "functions": {

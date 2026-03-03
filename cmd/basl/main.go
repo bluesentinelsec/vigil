@@ -58,10 +58,6 @@ func main() {
 		os.Exit(runPackage(args[1:]))
 		return
 	}
-	if args[0] == "bundle" {
-		os.Exit(runBundle(args[1:]))
-		return
-	}
 	if args[0] == "editor" {
 		os.Exit(runEditor(args[1:]))
 		return
@@ -149,6 +145,15 @@ func main() {
 	if scriptPath == "" {
 		fmt.Fprintln(os.Stderr, "error: no script file specified")
 		os.Exit(2)
+	}
+
+	if !strings.HasSuffix(scriptPath, ".basl") {
+		if !strings.Contains(scriptPath, string(filepath.Separator)) && !strings.Contains(scriptPath, ".") {
+			fmt.Fprintf(os.Stderr, "error: unknown command %q. Run 'basl --help' for usage.\n", scriptPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "error: scripts must have a .basl extension: %s\n", scriptPath)
+		}
+		os.Exit(1)
 	}
 
 	src, err := os.ReadFile(scriptPath)

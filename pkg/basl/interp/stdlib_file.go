@@ -11,18 +11,18 @@ import (
 	"github.com/bluesentinelsec/basl/pkg/basl/value"
 )
 
-// fileErr translates Go os errors into user-friendly BASL error messages.
-func fileErr(err error, path string) string {
+// fileErr translates Go os errors into a BASL error value with the appropriate kind.
+func fileErrVal(err error, path string) value.Value {
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Sprintf("file not found: %s", path)
+		return value.NewErr(fmt.Sprintf("file not found: %s", path), value.ErrKindNotFound)
 	}
 	if errors.Is(err, os.ErrPermission) {
-		return fmt.Sprintf("permission denied: %s", path)
+		return value.NewErr(fmt.Sprintf("permission denied: %s", path), value.ErrKindPermission)
 	}
 	if errors.Is(err, os.ErrExist) {
-		return fmt.Sprintf("file already exists: %s", path)
+		return value.NewErr(fmt.Sprintf("file already exists: %s", path), value.ErrKindExists)
 	}
-	return fmt.Sprintf("file error: %s", path)
+	return value.NewErr(fmt.Sprintf("file error: %s", path), value.ErrKindIO)
 }
 
 func (interp *Interpreter) makeFileModule() *Env {
@@ -34,7 +34,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		path := args[0].AsString()
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(fileErr(err, path))}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), fileErrVal(err, path)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(data)), value.Ok}}
 	}))
@@ -44,7 +44,18 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		path := args[0].AsString()
 		if err := os.WriteFile(path, []byte(args[1].AsString()), 0644); err != nil {
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
+		}
+		return value.Ok, nil
+	}))
+	// Alias for write_all
+	env.Define("write", value.NewNativeFunc("file.write", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.write: expected (string path, string data)")
+		}
+		path := args[0].AsString()
+		if err := os.WriteFile(path, []byte(args[1].AsString()), 0644); err != nil {
+			return fileErrVal(err, path), nil
 		}
 		return value.Ok, nil
 	}))
@@ -55,11 +66,11 @@ func (interp *Interpreter) makeFileModule() *Env {
 		path := args[0].AsString()
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
 		}
 		defer f.Close()
 		if _, err := f.WriteString(args[1].AsString()); err != nil {
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
 		}
 		return value.Ok, nil
 	}))
@@ -70,7 +81,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		path := args[0].AsString()
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(fileErr(err, path))}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), fileErrVal(err, path)}}
 		}
 		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 		elems := make([]value.Value, len(lines))
@@ -85,7 +96,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		path := args[0].AsString()
 		if err := os.Remove(path); err != nil {
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
 		}
 		return value.Ok, nil
 	}))
@@ -94,7 +105,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 			return value.Void, fmt.Errorf("file.rename: expected (string old, string new)")
 		}
 		if err := os.Rename(args[0].AsString(), args[1].AsString()); err != nil {
-			return value.NewErr(fileErr(err, args[0].AsString())), nil
+			return fileErrVal(err, args[0].AsString()), nil
 		}
 		return value.Ok, nil
 	}))
@@ -107,18 +118,18 @@ func (interp *Interpreter) makeFileModule() *Env {
 
 		srcFile, err := os.Open(src)
 		if err != nil {
-			return value.NewErr(fileErr(err, src)), nil
+			return fileErrVal(err, src), nil
 		}
 		defer srcFile.Close()
 
 		dstFile, err := os.Create(dst)
 		if err != nil {
-			return value.NewErr(fileErr(err, dst)), nil
+			return fileErrVal(err, dst), nil
 		}
 		defer dstFile.Close()
 
 		if _, err := io.Copy(dstFile, srcFile); err != nil {
-			return value.NewErr(fileErr(err, dst)), nil
+			return fileErrVal(err, dst), nil
 		}
 
 		return value.Ok, nil
@@ -130,7 +141,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		target := args[0].AsString()
 		link := args[1].AsString()
 		if err := os.Symlink(target, link); err != nil {
-			return value.NewErr(fileErr(err, link)), nil
+			return fileErrVal(err, link), nil
 		}
 		return value.Ok, nil
 	}))
@@ -141,7 +152,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		target := args[0].AsString()
 		link := args[1].AsString()
 		if err := os.Link(target, link); err != nil {
-			return value.NewErr(fileErr(err, link)), nil
+			return fileErrVal(err, link), nil
 		}
 		return value.Ok, nil
 	}))
@@ -152,7 +163,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		path := args[0].AsString()
 		target, err := os.Readlink(path)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(fileErr(err, path))}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), fileErrVal(err, path)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(target), value.Ok}}
 	}))
@@ -163,7 +174,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		path := args[0].AsString()
 		mode := os.FileMode(args[1].AsI32())
 		if err := os.Chmod(path, mode); err != nil {
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
 		}
 		return value.Ok, nil
 	}))
@@ -173,7 +184,7 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		path := args[0].AsString()
 		if err := os.MkdirAll(path, 0755); err != nil {
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
 		}
 		return value.Ok, nil
 	}))
@@ -189,18 +200,18 @@ func (interp *Interpreter) makeFileModule() *Env {
 			// File exists, update timestamp
 			now := time.Now()
 			if err := os.Chtimes(path, now, now); err != nil {
-				return value.NewErr(fileErr(err, path)), nil
+				return fileErrVal(err, path), nil
 			}
 		} else if errors.Is(err, os.ErrNotExist) {
 			// File doesn't exist, create it
 			f, err := os.Create(path)
 			if err != nil {
-				return value.NewErr(fileErr(err, path)), nil
+				return fileErrVal(err, path), nil
 			}
 			f.Close()
 		} else {
 			// Other error
-			return value.NewErr(fileErr(err, path)), nil
+			return fileErrVal(err, path), nil
 		}
 
 		return value.Ok, nil
@@ -212,7 +223,23 @@ func (interp *Interpreter) makeFileModule() *Env {
 		path := args[0].AsString()
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), value.NewErr(fileErr(err, path))}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), fileErrVal(err, path)}}
+		}
+		elems := make([]value.Value, len(entries))
+		for i, e := range entries {
+			elems[i] = value.NewString(e.Name())
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(elems), value.Ok}}
+	}))
+	// Alias for consistency with read_all
+	env.Define("read_dir", value.NewNativeFunc("file.read_dir", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.read_dir: expected string path")
+		}
+		path := args[0].AsString()
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), fileErrVal(err, path)}}
 		}
 		elems := make([]value.Value, len(entries))
 		for i, e := range entries {
@@ -246,14 +273,14 @@ func (interp *Interpreter) makeFileModule() *Env {
 		case "rw":
 			flag = os.O_RDWR | os.O_CREATE
 		default:
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("file.open: invalid mode: " + mode)}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr("file.open: invalid mode: "+mode, value.ErrKindArg)}}
 		}
 		f, err := os.OpenFile(path, flag, 0644)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, fileErrVal(err, path)}}
 		}
 		obj := &value.ObjectVal{
-			ClassName: "File",
+			ClassName: "file.File",
 			Fields:    map[string]value.Value{"__file": {T: value.TypeI32, Data: nil}},
 		}
 		obj.Fields["__file"] = value.Value{T: value.TypeString, Data: f}
@@ -269,10 +296,10 @@ func (interp *Interpreter) makeFileModule() *Env {
 		}
 		info, err := os.Stat(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, fileErrVal(err, args[0].AsString())}}
 		}
 		obj := &value.ObjectVal{
-			ClassName: "FileStat",
+			ClassName: "file.FileStat",
 			Fields: map[string]value.Value{
 				"size":     value.NewI32(int32(info.Size())),
 				"is_dir":   value.NewBool(info.IsDir()),
@@ -304,7 +331,7 @@ func (interp *Interpreter) fileMethod(obj value.Value, method string, line int) 
 			}
 			_, err := f.WriteString(args[0].AsString())
 			if err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil
@@ -316,7 +343,7 @@ func (interp *Interpreter) fileMethod(obj value.Value, method string, line int) 
 			buf := make([]byte, args[0].AsI32())
 			n, err := f.Read(buf)
 			if err != nil && err != io.EOF {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(buf[:n])), value.Ok}}
 		}), nil
@@ -337,9 +364,9 @@ func (interp *Interpreter) fileMethod(obj value.Value, method string, line int) 
 						if len(line) > 0 {
 							break
 						}
-						return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewEOF()}}
+						return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr("EOF", value.ErrKindEOF)}}
 					}
-					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 				}
 			}
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(line)), value.Ok}}
@@ -347,7 +374,7 @@ func (interp *Interpreter) fileMethod(obj value.Value, method string, line int) 
 	case "close":
 		return value.NewNativeFunc("File.close", func(args []value.Value) (value.Value, error) {
 			if err := f.Close(); err != nil {
-				return value.NewErr(err.Error()), nil
+				return value.NewErr(err.Error(), value.ErrKindIO), nil
 			}
 			return value.Ok, nil
 		}), nil

@@ -13,7 +13,7 @@ import "http";
 Sends an HTTP GET request.
 
 - Returns `(response, ok)` on success.
-- Returns `(void, err(message))` on failure (network error, timeout).
+- Returns `(void, err(message, err.io))` on failure (network error, timeout).
 
 ```c
 HttpResponse resp, err e = http.get("https://example.com/api");
@@ -25,7 +25,7 @@ fmt.println(resp.body);
 Sends an HTTP POST request with the given body.
 
 - Returns `(response, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 
 ```c
 HttpResponse resp, err e = http.post("https://example.com/api", "{\"key\":\"value\"}");
@@ -36,7 +36,7 @@ HttpResponse resp, err e = http.post("https://example.com/api", "{\"key\":\"valu
 Sends a custom HTTP request with full control over method, headers, and body.
 
 - Returns `(response, ok)` on success.
-- Returns `(void, err(message))` on failure.
+- Returns `(void, err(message, err.io))` on failure.
 
 ```c
 map<string, string> hdrs = {};

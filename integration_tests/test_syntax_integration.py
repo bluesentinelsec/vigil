@@ -250,7 +250,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             fn add(i32 a, i32 b) -> i32 { return a + b; }
 
             fn divide(i32 a, i32 b) -> (i32, err) {
-                if (b == 0) { return (0, err("div0")); }
+                if (b == 0) { return (0, err("div0", err.arg)); }
                 return (a / b, ok);
             }
 
@@ -279,6 +279,30 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         """
         self._assert_success(source, stdout="5:9:4:div0:12:0:7:true")
 
+    def test_anonymous_functions_and_closures(self) -> None:
+        source = """
+            import "fmt";
+
+            fn apply(fn(i32) -> i32 op, i32 x) -> i32 {
+                return op(x);
+            }
+
+            fn main() -> i32 {
+                i32 factor = 10;
+                fn scale = fn(i32 x) -> i32 { return x * factor; };
+
+                fmt.print(string(apply(fn(i32 x) -> i32 { return x + 1; }, 14)));
+                fmt.print(":" + string(scale(4)) + ":");
+
+                fn(fn(i32) -> i32 cb) -> void {
+                    fmt.print(string(cb(3)));
+                }(fn(i32 x) -> i32 { return x * 2; });
+
+                return 0;
+            }
+        """
+        self._assert_success(source, stdout="15:40:6")
+
     def test_nested_generics_err_literal_and_non_err_discards(self) -> None:
         source = """
             import "fmt";
@@ -291,7 +315,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 array<array<string>> grid = [["a"], ["b", "c"]];
                 grid[1].push("d");
 
-                err boom = err("boom");
+                err boom = err("boom", err.io);
                 i32 _, string kept, bool _ = many();
 
                 fmt.print(string(grid.len()) + ":" + string(grid[1].len()) + ":" + grid[1][1]);
@@ -448,7 +472,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             import "args";
 
             fn main() -> i32 {
-                ArgParser p = args.parser("demo", "args regression");
+                args.ArgParser p = args.parser("demo", "args regression");
                 err e1 = p.flag("verbose", "bool", "false", "enable verbose mode");
                 err e2 = p.flag("count", "i32", "10", "item count");
                 err e3 = p.flag("output", "string", "out.txt", "output path");
@@ -839,14 +863,14 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 err rn = file.rename("data/note.txt", "data/note2.txt");
                 bool exists_after_old = file.exists("data/note.txt");
                 bool exists_after_new = file.exists("data/note2.txt");
-                FileStat st, err se = file.stat("data/note2.txt");
-                File fh, err fo = file.open("data/note2.txt", "r");
+                file.FileStat st, err se = file.stat("data/note2.txt");
+                file.File fh, err fo = file.open("data/note2.txt", "r");
                 string l1, err r1 = fh.read_line();
                 string l2, err r2 = fh.read_line();
                 string l3, err r3 = fh.read_line();
                 string l4, err r4 = fh.read_line();
                 err fc = fh.close();
-                File bad, err be = file.open("data/note2.txt", "bad");
+                file.File bad, err be = file.open("data/note2.txt", "bad");
                 err rm = file.remove("data/note2.txt");
                 bool exists_final = file.exists("data/note2.txt");
 
@@ -989,7 +1013,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 string miss_v, bool miss_ok = os.env("BASL_IT_MISSING");
                 string cwd, err ce = os.cwd();
                 string host, err he = os.hostname();
-                string out, string errs, err xe = os.exec("{test_cmd_escaped}", {test_args_str});
+                string out, string errs, i32 exitCode, err xe = os.exec("{test_cmd_escaped}", {test_args_str});
 
                 fmt.print(
                     string(se == ok) + ":" +
@@ -1475,10 +1499,10 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             (root / "test" / "util_test.basl").write_text(
                 textwrap.dedent(
                     """
-                    import "t";
+                    import "test";
                     import "util";
 
-                    fn test_answer() -> void {
+                    fn test_answer(test.T t) -> void {
                         t.assert(util.answer() == "project", "util.answer should resolve from lib/");
                     }
                     """
@@ -1628,7 +1652,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             class Connection {
                 string host;
                 fn init(string host) -> err {
-                    if (host == "") { return err("missing host"); }
+                    if (host == "") { return err("missing host", err.arg); }
                     self.host = host;
                     return ok;
                 }
@@ -1673,7 +1697,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 i32 n, err e1 = i32("42");
                 i32 bad, err e2 = i32("x");
                 string _, err fe = file.read_all("definitely_missing_file.basl");
-                err manual = err("boom");
+                err manual = err("boom", err.io);
 
                 if (e1 == ok) { fmt.print(":ok"); }
                 if (e2 != ok) { fmt.print(":" + e2.message()); }
@@ -1884,11 +1908,6 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 "undefined variable",
             ),
             (
-                "no_anonymous_functions",
-                "fn main() -> i32 { fn(i32) -> i32 f = fn(i32 x) -> i32 { return x; }; return f(1); }",
-                "unexpected fn",
-            ),
-            (
                 "no_class_inheritance",
                 "class A { } class B extends A { } fn main() -> i32 { return 0; }",
                 "expected {",
@@ -2087,12 +2106,12 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             test_dir = root / "test"
             test_dir.mkdir()
             (test_dir / "math_test.basl").write_text(textwrap.dedent("""
-                import "t";
+                import "test";
                 import "math";
-                fn test_sqrt() -> void {
+                fn test_sqrt(test.T t) -> void {
                     t.assert(math.sqrt(4.0) == 2.0, "sqrt(4)=2");
                 }
-                fn test_floor() -> void {
+                fn test_floor(test.T t) -> void {
                     t.assert(math.floor(3.9) == 3.0, "floor");
                 }
             """).strip() + "\n")
@@ -2111,10 +2130,10 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="basl_it_") as td:
             root = Path(td)
             (root / "a_test.basl").write_text(textwrap.dedent("""
-                import "t";
-                fn test_alpha() -> void { t.assert(true, "ok"); }
-                fn test_beta() -> void { t.assert(true, "ok"); }
-                fn test_gamma() -> void { t.assert(true, "ok"); }
+                import "test";
+                fn test_alpha(test.T t) -> void { t.assert(true, "ok"); }
+                fn test_beta(test.T t) -> void { t.assert(true, "ok"); }
+                fn test_gamma(test.T t) -> void { t.assert(true, "ok"); }
             """).strip() + "\n")
 
             proc = subprocess.run(
@@ -2132,9 +2151,9 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="basl_it_") as td:
             root = Path(td)
             (root / "fail_test.basl").write_text(textwrap.dedent("""
-                import "t";
-                fn test_good() -> void { t.assert(true, "ok"); }
-                fn test_bad() -> void { t.assert(false, "this broke"); }
+                import "test";
+                fn test_good(test.T t) -> void { t.assert(true, "ok"); }
+                fn test_bad(test.T t) -> void { t.assert(false, "this broke"); }
             """).strip() + "\n")
 
             proc = subprocess.run(

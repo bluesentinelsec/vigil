@@ -14,7 +14,7 @@ Creates a tar archive at `path` containing the listed files.
 
 - Each file is added with its base name (not the full path).
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 err e = archive.tar_create("backup.tar", ["file1.txt", "file2.txt"]);
@@ -25,7 +25,7 @@ err e = archive.tar_create("backup.tar", ["file1.txt", "file2.txt"]);
 Extracts a tar archive into `dest_dir`. Creates the directory if needed.
 
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 err e = archive.tar_extract("backup.tar", "./extracted");
@@ -37,7 +37,7 @@ Creates a zip archive at `path` containing the listed files.
 
 - Each file is added with its base name.
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 err e = archive.zip_create("backup.zip", ["file1.txt", "file2.txt"]);
@@ -48,7 +48,7 @@ err e = archive.zip_create("backup.zip", ["file1.txt", "file2.txt"]);
 Extracts a zip archive into `dest_dir`. Creates the directory if needed.
 
 - Returns `ok` on success.
-- Returns `err(message)` on failure.
+- Returns `err(message, err.io)` on failure.
 
 ```c
 err e = archive.zip_extract("backup.zip", "./extracted");

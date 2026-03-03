@@ -13,8 +13,8 @@ import "xml";
 Parses an XML string and returns the first root element.
 
 - Returns `(root, ok)` on success.
-- Returns `(void, err("empty XML"))` if the input has no elements.
-- Returns `(void, err(message))` on malformed XML.
+- Returns `(void, err("empty XML", err.parse))` if the input has no elements.
+- Returns `(void, err(message, err.parse))` on malformed XML.
 - Internal `__text` nodes are created for text content but filtered from `children()`.
 
 ```c
@@ -74,7 +74,7 @@ array<xml.Value> items = root.find("item");
 Returns the first direct child matching the given tag name.
 
 - Returns `(child, ok)` if found.
-- Returns `(void, err("not found: TAG"))` if no match.
+- Returns `(void, err("not found: TAG", err.not_found))` if no match.
 
 ```c
 xml.Value title, err e = root.find_one("title");

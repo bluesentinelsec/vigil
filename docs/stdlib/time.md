@@ -56,7 +56,7 @@ string s = time.format(time.now(), "2006-01-02 15:04:05");
 Parses a time string using a Go reference-time layout and returns epoch milliseconds.
 
 - Returns `(millis, ok)` on success.
-- Returns `(0, err(message))` on parse failure.
+- Returns `(0, err(message, err.parse))` on parse failure.
 
 ```c
 i64 ms, err e = time.parse("2006-01-02", "2024-01-15");

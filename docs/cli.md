@@ -10,8 +10,7 @@ basl fmt [files...]             # Format code
 basl debug [script.basl]        # Start debugger
 basl new <name> [--lib]         # Create new project
 basl test [path]                # Run tests
-basl package [options]          # Package executable
-basl bundle [options]           # Bundle library for distribution
+basl package [options]          # Package executable or library
 basl embed <files...>           # Embed assets
 basl doc <module>               # Show documentation
 basl editor <vim|vscode>        # Install editor support
@@ -28,7 +27,7 @@ basl script.basl
 basl script.basl arg1 arg2      # Pass arguments
 ```
 
-Arguments are available via `os.args()` in the script.
+All scripts must use the `.basl` file extension. Arguments are available via `os.args()` in the script.
 
 ### Interactive REPL
 

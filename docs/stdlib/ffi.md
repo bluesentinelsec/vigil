@@ -13,7 +13,7 @@ import "ffi";
 Loads a shared library from the given path.
 
 - Returns `(lib, ok)` on success.
-- Returns `(void, err(message))` on failure (file not found, invalid library).
+- Returns `(void, err(message, err.io))` on failure (file not found, invalid library).
 
 ```c
 ffi.Lib lib, err e = ffi.load("./libexample.so");
@@ -27,7 +27,7 @@ Binds a symbol from the loaded library to a callable function.
 - `ret_type`: return type as a string (e.g., `"i32"`, `"void"`, `"ptr"`).
 - `param_types`: parameter types as strings.
 - Returns `(func, ok)` on success.
-- Returns `(void, err(message))` on failure (symbol not found).
+- Returns `(void, err(message, err.io))` on failure (symbol not found).
 
 ```c
 ffi.Func add, err e = ffi.bind(lib, "add", "i32", "i32", "i32");

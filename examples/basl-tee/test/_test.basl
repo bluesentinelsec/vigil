@@ -1,4 +1,4 @@
-import "t";
+import "test";
 import "file";
 import "os";
 
@@ -20,7 +20,7 @@ fn find_basl_and_main() -> (string, string) {
     return ("", "");
 }
 
-fn test_tee_single_file() -> void {
+fn test_tee_single_file(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -37,7 +37,7 @@ fn test_tee_single_file() -> void {
     t.assert(e == ok, "should write input file");
     
     string sh_cmd = basl_bin + " " + main_script + " " + test_file + " < " + input_file;
-    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec("sh", "-c", sh_cmd);
     t.assert(e2 == ok, "basl-tee should succeed");
     t.assert(stdout == test_content, "stdout should match input");
     
@@ -49,7 +49,7 @@ fn test_tee_single_file() -> void {
     file.remove(input_file);
 }
 
-fn test_tee_multiple_files() -> void {
+fn test_tee_multiple_files(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -67,7 +67,7 @@ fn test_tee_multiple_files() -> void {
     t.assert(e == ok, "should write input file");
     
     string sh_cmd = basl_bin + " " + main_script + " " + file1 + " " + file2 + " < " + input_file;
-    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec("sh", "-c", sh_cmd);
     t.assert(e2 == ok, "basl-tee should succeed");
     t.assert(stdout == test_content, "stdout should match input");
     
@@ -82,7 +82,7 @@ fn test_tee_multiple_files() -> void {
     file.remove(input_file);
 }
 
-fn test_tee_append_mode() -> void {
+fn test_tee_append_mode(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -103,7 +103,7 @@ fn test_tee_append_mode() -> void {
     t.assert(e2 == ok, "should write input file");
     
     string sh_cmd = basl_bin + " " + main_script + " -a " + test_file + " < " + input_file;
-    string stdout, string stderr, err e3 = os.exec("sh", "-c", sh_cmd);
+    string stdout, string stderr, i32 exitCode, err e3 = os.exec("sh", "-c", sh_cmd);
     t.assert(e3 == ok, "basl-tee -a should succeed");
     
     string content, err e4 = file.read_all(test_file);
@@ -114,7 +114,7 @@ fn test_tee_append_mode() -> void {
     file.remove(input_file);
 }
 
-fn test_tee_empty_input() -> void {
+fn test_tee_empty_input(test.T t) -> void {
     string platform = os.platform();
     if (platform == "windows") {
         return;
@@ -130,7 +130,7 @@ fn test_tee_empty_input() -> void {
     t.assert(e == ok, "should write empty input");
     
     string sh_cmd = basl_bin + " " + main_script + " " + test_file + " < " + input_file;
-    string stdout, string stderr, err e2 = os.exec("sh", "-c", sh_cmd);
+    string stdout, string stderr, i32 exitCode, err e2 = os.exec("sh", "-c", sh_cmd);
     t.assert(e2 == ok, "basl-tee should succeed on empty input");
     t.assert(stdout == "", "stdout should be empty");
     

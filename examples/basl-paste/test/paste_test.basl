@@ -1,14 +1,14 @@
-import "t";
+import "test";
 import "os";
 import "file";
 
 // Note: Tests require file I/O which is cross-platform.
 
-fn test_paste_two_files() -> void {
+fn test_paste_two_files(test.T t) -> void {
     file.write_all("test_paste_f1.txt", "a\nb\nc\n");
     file.write_all("test_paste_f2.txt", "1\n2\n3\n");
     
-    string out, string errs, err e = os.exec("./basl", "examples/basl-paste/main.basl", "test_paste_f1.txt", "test_paste_f2.txt");
+    string out, string errs, i32 exitCode, err e = os.exec("./basl", "examples/basl-paste/main.basl", "test_paste_f1.txt", "test_paste_f2.txt");
     t.assert(string(e) == "ok", "paste should exit 0");
     t.assert(out == "a\t1\nb\t2\nc\t3\n", "should merge lines with tabs");
     
@@ -16,10 +16,10 @@ fn test_paste_two_files() -> void {
     file.remove("test_paste_f2.txt");
 }
 
-fn test_paste_single_file() -> void {
+fn test_paste_single_file(test.T t) -> void {
     file.write_all("test_paste_single.txt", "a\nb\nc\n");
     
-    string out, string errs, err e = os.exec("./basl", "examples/basl-paste/main.basl", "test_paste_single.txt");
+    string out, string errs, i32 exitCode, err e = os.exec("./basl", "examples/basl-paste/main.basl", "test_paste_single.txt");
     t.assert(string(e) == "ok", "paste with single file should exit 0");
     t.assert(out == "a\nb\nc\n", "single file should pass through unchanged");
     

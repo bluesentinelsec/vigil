@@ -133,7 +133,7 @@ Use `-o` to override the output filename.
 
 ```c
 string data, err e = assets.get("nonexistent.txt");
-// e == err("embed: not found: nonexistent.txt")
+// e == err("embed: not found: nonexistent.txt", err.not_found)
 ```
 
 `bytes()` returns an error if decoding fails (should not happen with generated files):

@@ -57,11 +57,21 @@ func (p *Parser) parseStmt() (ast.Stmt, error) {
 	case lexer.TOKEN_FN:
 		// fn ident(...) -> ... { } is a local function definition
 		// fn ident = expr; is a var decl (fn as type)
+		// fn(...) { } is an anonymous function expression (e.g. IIFE)
+		// fn(type, type) -> type name = expr; is a typed fn var decl
 		if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.TOKEN_IDENT {
 			if p.pos+2 < len(p.tokens) && p.tokens[p.pos+2].Type == lexer.TOKEN_LPAREN {
-				// local function definition — parse as var decl binding to a FnDecl
 				return p.parseLocalFnDecl()
 			}
+			return p.parseVarDeclStmt()
+		}
+		// fn( — try anonymous function first, fall back to typed var decl
+		if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.TOKEN_LPAREN {
+			saved := p.pos
+			if stmt, err := p.parseExprOrAssignStmt(); err == nil {
+				return stmt, nil
+			}
+			p.pos = saved
 		}
 		return p.parseVarDeclStmt()
 	case lexer.TOKEN_LPAREN:

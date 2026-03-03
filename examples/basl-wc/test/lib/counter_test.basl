@@ -1,7 +1,7 @@
-import "t";
+import "test";
 import "../lib/counter";
 
-fn test_count_empty() -> void {
+fn test_count_empty(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("");
     t.assert(e == ok, "should succeed on empty string");
     t.assert(lines == 0, "empty has 0 lines");
@@ -9,7 +9,7 @@ fn test_count_empty() -> void {
     t.assert(bytes == 0, "empty has 0 bytes");
 }
 
-fn test_count_single_line() -> void {
+fn test_count_single_line(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("hello world\n");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 1, "should have 1 line");
@@ -17,7 +17,7 @@ fn test_count_single_line() -> void {
     t.assert(bytes == 12, "should have 12 bytes");
 }
 
-fn test_count_multiple_lines() -> void {
+fn test_count_multiple_lines(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("line one\nline two\nline three\n");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 3, "should have 3 lines");
@@ -25,7 +25,7 @@ fn test_count_multiple_lines() -> void {
     t.assert(bytes == 29, "should have 29 bytes");
 }
 
-fn test_count_no_trailing_newline() -> void {
+fn test_count_no_trailing_newline(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("hello");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 0, "no newline = 0 lines");
@@ -33,7 +33,7 @@ fn test_count_no_trailing_newline() -> void {
     t.assert(bytes == 5, "should have 5 bytes");
 }
 
-fn test_count_whitespace() -> void {
+fn test_count_whitespace(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("a  b\tc\n");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 1, "should have 1 line");
@@ -41,7 +41,7 @@ fn test_count_whitespace() -> void {
     t.assert(bytes == 7, "should have 7 bytes");
 }
 
-fn test_count_only_whitespace() -> void {
+fn test_count_only_whitespace(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("   \t\n");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 1, "should have 1 line");
@@ -49,7 +49,7 @@ fn test_count_only_whitespace() -> void {
     t.assert(bytes == 5, "should have 5 bytes");
 }
 
-fn test_count_punctuation() -> void {
+fn test_count_punctuation(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("!!!\n");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 1, "should have 1 line");
@@ -57,7 +57,7 @@ fn test_count_punctuation() -> void {
     t.assert(bytes == 4, "should have 4 bytes");
 }
 
-fn test_count_punctuation_in_words() -> void {
+fn test_count_punctuation_in_words(test.T t) -> void {
     i32 lines, i32 words, i32 bytes, err e = counter.count_content("foo,bar\n");
     t.assert(e == ok, "should succeed");
     t.assert(lines == 1, "should have 1 line");

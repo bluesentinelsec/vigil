@@ -62,11 +62,11 @@ Merges lines from multiple files side-by-side.
 
 ### 3. No documented way to distinguish EOF from other errors ⚠️
 **Impact:** Medium  
-**Status:** ✅ Resolved - Added `err.is_eof()` method  
+**Status:** ✅ Resolved - Typed error kinds distinguish EOF from other errors  
 **Issue:** Previously had to rely on `string(err) == "err(\"EOF\")"` to detect EOF vs I/O errors  
 **Found in:** basl-paste (needs to distinguish EOF from read failures)  
-**Resolution:** Added `err.is_eof()` method that returns `bool`  
-**Usage:** `if (e.is_eof()) { /* handle EOF */ }`
+**Resolution:** Typed error kinds: `e.kind() == err.eof` distinguishes EOF from other errors  
+**Usage:** `if (e.kind() == err.eof) { /* handle EOF */ }`
 
 ### 4. Type casting verbosity
 **Impact:** Low  

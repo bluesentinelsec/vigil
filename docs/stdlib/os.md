@@ -34,7 +34,7 @@ if (found) { fmt.println(val); }
 Sets an environment variable for the current process.
 
 - Returns `ok` on success.
-- Returns `err(message)` if the OS rejects the call.
+- Returns `err(message, err.io)` if the OS rejects the call.
 - Error if args are not two strings: `"os.set_env: expected (string key, string value)"`.
 
 ```c
@@ -57,7 +57,7 @@ os.exit(1);
 Returns the current working directory.
 
 - Returns `(path, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string dir, err e = os.cwd();
@@ -68,7 +68,7 @@ string dir, err e = os.cwd();
 Returns the system hostname.
 
 - Returns `(hostname, ok)` on success.
-- Returns `("", err(message))` on failure.
+- Returns `("", err(message, err.io))` on failure.
 
 ```c
 string host, err e = os.hostname();
@@ -82,17 +82,39 @@ Returns the operating system name as a string. Values match Go's `runtime.GOOS`:
 string p = os.platform();  // "darwin", "linux", "windows"
 ```
 
-### os.exec(string cmd, ...string args) -> (string, string, err)
+### os.exec(string cmd, ...string args) -> (string, string, i32, err)
 
-Executes an external command and captures its output.
+Executes an external command and captures its output and exit code.
 
-- Returns `(stdout, stderr, ok)` on success (exit code 0).
-- Returns `(stdout, stderr, err(message))` on non-zero exit.
-- stdout and stderr are always populated regardless of success/failure.
+- Returns `(stdout, stderr, exitCode, ok)` on successful execution.
+- Returns `(stdout, stderr, exitCode, ok)` even on non-zero exit (exit code indicates success/failure).
+- Returns `("", "", 0, err(message, err.io))` if command cannot be started.
+- stdout and stderr are always populated.
 - Error if first arg is not a string: `"os.exec: expected (string cmd, ...string args)"`.
 - Error if any subsequent arg is not a string: `"os.exec: arg N must be string"`.
 
 ```c
-string out, string errs, err e = os.exec("echo", "hello");
-// out = "hello\n", errs = "", e = ok
+string out, string errs, i32 code, err e = os.exec("echo", "hello");
+// out = "hello\n", errs = "", code = 0, e = ok
+
+string out2, string errs2, i32 code2, err e2 = os.exec("false");
+// out2 = "", errs2 = "", code2 = 1, e2 = ok (command ran, but exited with 1)
+```
+
+### os.system(string command) -> (string, string, i32, err)
+
+Executes a shell command and captures its output and exit code.
+
+- Runs command through system shell (`sh -c` on Unix, `cmd /C` on Windows).
+- Returns `(stdout, stderr, exitCode, ok)` on successful execution.
+- Returns `(stdout, stderr, exitCode, ok)` even on non-zero exit.
+- Returns `("", "", 0, err(message, err.io))` if shell cannot be started.
+- Supports shell features like pipes, redirection, wildcards.
+
+```c
+string out, string errs, i32 code, err e = os.system("ls *.txt | wc -l");
+// Runs through shell, supports pipes and wildcards
+
+string out2, string errs2, i32 code2, err e2 = os.system("exit 42");
+// out2 = "", errs2 = "", code2 = 42, e2 = ok
 ```

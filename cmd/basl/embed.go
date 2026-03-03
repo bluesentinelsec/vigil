@@ -213,7 +213,7 @@ func writeMultiModule(entries []embedEntry, output, compressFlag string) int {
 		}
 		buf.WriteString("    }\n")
 	}
-	buf.WriteString("    return (\"\", err(\"embed: not found: \" + path));\n")
+	buf.WriteString("    return (\"\", err(\"embed: not found: \" + path, err.not_found));\n")
 	buf.WriteString("}\n\n")
 
 	// list() function

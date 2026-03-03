@@ -23,7 +23,7 @@ func (interp *Interpreter) makeHexModule() *Env {
 		}
 		b, err := hex.DecodeString(args[0].AsString())
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(b)), value.Ok}}
 	}))

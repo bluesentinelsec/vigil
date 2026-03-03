@@ -3,9 +3,9 @@ package interp
 import "testing"
 
 func TestTestRunnerPass(t *testing.T) {
-	src := []byte(`import "t";
-fn test_one() -> void { t.assert(1 == 1, "should pass"); }
-fn test_two() -> void { t.assert(true, "also pass"); }
+	src := []byte(`import "test";
+fn test_one(test.T t) -> void { t.assert(1 == 1, "should pass"); }
+fn test_two(test.T t) -> void { t.assert(true, "also pass"); }
 `)
 	results, err := ExecTestFile("fake_test.basl", src, "", nil)
 	if err != nil {
@@ -22,8 +22,8 @@ fn test_two() -> void { t.assert(true, "also pass"); }
 }
 
 func TestTestRunnerFail(t *testing.T) {
-	src := []byte(`import "t";
-fn test_bad() -> void { t.assert(false, "nope"); }
+	src := []byte(`import "test";
+fn test_bad(test.T t) -> void { t.assert(false, "nope"); }
 `)
 	results, err := ExecTestFile("fake_test.basl", src, "", nil)
 	if err != nil {
@@ -38,8 +38,8 @@ fn test_bad() -> void { t.assert(false, "nope"); }
 }
 
 func TestTestRunnerTFail(t *testing.T) {
-	src := []byte(`import "t";
-fn test_explicit() -> void { t.fail("explicit fail"); }
+	src := []byte(`import "test";
+fn test_explicit(test.T t) -> void { t.fail("explicit fail"); }
 `)
 	results, err := ExecTestFile("fake_test.basl", src, "", nil)
 	if err != nil {
@@ -54,10 +54,10 @@ fn test_explicit() -> void { t.fail("explicit fail"); }
 }
 
 func TestTestRunnerFilter(t *testing.T) {
-	src := []byte(`import "t";
-fn test_alpha() -> void { t.assert(true, "ok"); }
-fn test_beta() -> void { t.assert(true, "ok"); }
-fn test_gamma() -> void { t.assert(true, "ok"); }
+	src := []byte(`import "test";
+fn test_alpha(test.T t) -> void { t.assert(true, "ok"); }
+fn test_beta(test.T t) -> void { t.assert(true, "ok"); }
+fn test_gamma(test.T t) -> void { t.assert(true, "ok"); }
 `)
 	results, err := ExecTestFile("fake_test.basl", src, "alpha|gamma", nil)
 	if err != nil {
@@ -72,9 +72,9 @@ fn test_gamma() -> void { t.assert(true, "ok"); }
 }
 
 func TestTestRunnerSkipsNonTestFuncs(t *testing.T) {
-	src := []byte(`import "t";
+	src := []byte(`import "test";
 fn helper() -> i32 { return 42; }
-fn test_uses_helper() -> void { t.assert(helper() == 42, "helper works"); }
+fn test_uses_helper(test.T t) -> void { t.assert(helper() == 42, "helper works"); }
 `)
 	results, err := ExecTestFile("fake_test.basl", src, "", nil)
 	if err != nil {

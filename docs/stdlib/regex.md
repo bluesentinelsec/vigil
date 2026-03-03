@@ -15,7 +15,7 @@ All functions return an `err` component. On invalid regex pattern, the error con
 Tests whether `s` matches `pattern`.
 
 - Returns `(true/false, ok)` on valid pattern.
-- Returns `(false, err(message))` on invalid pattern.
+- Returns `(false, err(message, err.parse))` on invalid pattern.
 
 ```c
 bool m, err e = regex.match("^hello", "hello world");  // m = true
@@ -27,7 +27,7 @@ bool n, err e2 = regex.match("^world", "hello world"); // n = false
 Returns the first match of `pattern` in `s`, or `""` if no match.
 
 - Returns `(match, ok)` on valid pattern.
-- Returns `("", err(message))` on invalid pattern.
+- Returns `("", err(message, err.parse))` on invalid pattern.
 
 ```c
 string m, err e = regex.find("[0-9]+", "abc123def");  // m = "123"
@@ -38,7 +38,7 @@ string m, err e = regex.find("[0-9]+", "abc123def");  // m = "123"
 Returns all non-overlapping matches of `pattern` in `s`.
 
 - Returns `(matches, ok)` on valid pattern.
-- Returns `([], err(message))` on invalid pattern.
+- Returns `([], err(message, err.parse))` on invalid pattern.
 
 ```c
 array<string> m, err e = regex.find_all("[0-9]+", "a1b2c3");
@@ -50,7 +50,7 @@ array<string> m, err e = regex.find_all("[0-9]+", "a1b2c3");
 Replaces all matches of `pattern` in `s` with `repl`.
 
 - Returns `(result, ok)` on valid pattern.
-- Returns `("", err(message))` on invalid pattern.
+- Returns `("", err(message, err.parse))` on invalid pattern.
 
 ```c
 string r, err e = regex.replace("[0-9]", "a1b2c3", "X");
@@ -62,7 +62,7 @@ string r, err e = regex.replace("[0-9]", "a1b2c3", "X");
 Splits `s` by all matches of `pattern`.
 
 - Returns `(parts, ok)` on valid pattern.
-- Returns `([], err(message))` on invalid pattern.
+- Returns `([], err(message, err.parse))` on invalid pattern.
 
 ```c
 array<string> parts, err e = regex.split("[,;]", "a,b;c");

@@ -22,10 +22,10 @@ func (interp *Interpreter) makeCompressModule() *Env {
 		var buf bytes.Buffer
 		w := gzip.NewWriter(&buf)
 		if _, err := w.Write([]byte(args[0].AsString())); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		if err := w.Close(); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(buf.String()), value.Ok}}
 	}))
@@ -36,12 +36,12 @@ func (interp *Interpreter) makeCompressModule() *Env {
 		}
 		r, err := gzip.NewReader(bytes.NewReader([]byte(args[0].AsString())))
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		defer r.Close()
 		data, err := io.ReadAll(r)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(data)), value.Ok}}
 	}))
@@ -53,10 +53,10 @@ func (interp *Interpreter) makeCompressModule() *Env {
 		var buf bytes.Buffer
 		w := zlib.NewWriter(&buf)
 		if _, err := w.Write([]byte(args[0].AsString())); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		if err := w.Close(); err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindIO)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(buf.String()), value.Ok}}
 	}))
@@ -67,12 +67,12 @@ func (interp *Interpreter) makeCompressModule() *Env {
 		}
 		r, err := zlib.NewReader(bytes.NewReader([]byte(args[0].AsString())))
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		defer r.Close()
 		data, err := io.ReadAll(r)
 		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error())}}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), value.NewErr(err.Error(), value.ErrKindParse)}}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(string(data)), value.Ok}}
 	}))

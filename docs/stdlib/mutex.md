@@ -13,7 +13,7 @@ import "mutex";
 Creates a new mutex (heap-allocated via `malloc`).
 
 - Returns `(mutex, ok)` on success.
-- Returns `(void, err("mutex init failed: N"))` on failure.
+- Returns `(void, err("mutex init failed: N", err.io))` on failure.
 
 ```c
 Mutex m, err e = mutex.new();
@@ -26,21 +26,21 @@ Mutex m, err e = mutex.new();
 Acquires the mutex. Blocks if already held by another thread.
 
 - Returns `ok` on success.
-- Returns `err("mutex lock failed: N")` on failure.
+- Returns `err("mutex lock failed: N", err.io)` on failure.
 
 ### m.unlock() -> err
 
 Releases the mutex.
 
 - Returns `ok` on success.
-- Returns `err("mutex unlock failed: N")` on failure.
+- Returns `err("mutex unlock failed: N", err.io)` on failure.
 
 ### m.destroy() -> err
 
 Destroys the mutex and frees its memory. Must not be called while the mutex is locked.
 
 - Returns `ok` on success.
-- Returns `err("mutex destroy failed: N")` on failure.
+- Returns `err("mutex destroy failed: N", err.io)` on failure.
 
 ```c
 Mutex m, err e = mutex.new();
