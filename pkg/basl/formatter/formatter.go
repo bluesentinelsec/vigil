@@ -78,6 +78,16 @@ func (f *formatter) writeIndent()             { f.write(f.indentStr()) }
 func (f *formatter) writeIndented(s string)   { f.writeIndent(); f.write(s) }
 func (f *formatter) writelnIndented(s string) { f.writeIndent(); f.writeln(s) }
 
+// stmtToString formats a statement by capturing output to a temporary buffer.
+func (f *formatter) stmtToString(s ast.Stmt) string {
+	saved := f.buf
+	f.buf = bytes.Buffer{}
+	f.stmt(s)
+	result := strings.TrimRight(f.buf.String(), "\n")
+	f.buf = saved
+	return result
+}
+
 // emitCommentsBefore writes all comments whose NextTokenLine <= the given line.
 func (f *formatter) emitCommentsBefore(line int) {
 	for f.comIdx < len(f.comments) && f.comments[f.comIdx].NextTokenLine <= line {

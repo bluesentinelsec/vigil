@@ -347,6 +347,9 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		}
 		// Just the identifier 'err' — for type declarations
 		return &ast.Ident{Name: "err", Line: tok.Line}, nil
+	case lexer.TOKEN_FN:
+		// Anonymous function: fn(params) -> ret { body }
+		return p.parseAnonFn()
 	case lexer.TOKEN_IDENT:
 		p.advance()
 		// Check for 'ok' special identifier
@@ -384,6 +387,36 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 	default:
 		return nil, p.errAt(tok, fmt.Sprintf("unexpected %s — expected an expression (variable, literal, or function call)", tok.Type))
 	}
+}
+
+func (p *Parser) parseAnonFn() (ast.Expr, error) {
+	tok := p.advance() // consume fn
+	if _, err := p.expect(lexer.TOKEN_LPAREN); err != nil {
+		return nil, p.errAt(tok, "expected '(' after 'fn' in anonymous function")
+	}
+	params, err := p.parseParams()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(lexer.TOKEN_RPAREN); err != nil {
+		return nil, err
+	}
+	var retType *ast.ReturnType
+	if p.peek().Type == lexer.TOKEN_ARROW {
+		p.advance()
+		retType, err = p.parseReturnType()
+		if err != nil {
+			return nil, err
+		}
+	}
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.FnLitExpr{
+		Decl: &ast.FnDecl{Name: "", Params: params, Return: retType, Body: body, Line: tok.Line},
+		Line: tok.Line,
+	}, nil
 }
 
 func (p *Parser) parseArrayLit() (ast.Expr, error) {

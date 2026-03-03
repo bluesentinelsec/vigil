@@ -58,5 +58,10 @@
     "prefix": "errkind",
     "body": ["if (${1:e} != ok) {", "\tswitch (${1:e}.kind()) {", "\t\tcase err.${2:not_found}:", "\t\t\t$0", "\t\tdefault:", "\t\t\tfmt.eprintln(${1:e}.message());", "\t}", "}"],
     "description": "Error kind switch"
+  },
+  "anonfn": {
+    "prefix": "anonfn",
+    "body": ["fn(${1:params}) -> ${2:void} { ${0} }"],
+    "description": "Anonymous function"
   }
 }

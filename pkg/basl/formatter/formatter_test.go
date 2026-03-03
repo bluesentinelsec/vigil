@@ -715,3 +715,45 @@ return 0;
 		t.Errorf("UTF-8 char literals:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestFormatAnonymousFunctions(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			"inline_simple",
+			`fn main() -> i32 { fn d = fn(i32 x) -> i32 { return x * 2; }; return 0; }`,
+			"fn d = fn(i32 x) -> i32 { return x * 2; };",
+		},
+		{
+			"complex_body_preserved",
+			"fn main() -> i32 {\n    fn f = fn(i32 x) -> i32 {\n        if (x == 0) {\n            return 1;\n        }\n        return x;\n    };\n    return 0;\n}",
+			"if (x == 0)",
+		},
+		{
+			"inline_callback",
+			`fn apply(fn f, i32 x) -> i32 { return f(x); } fn main() -> i32 { i32 r = apply(fn(i32 x) -> i32 { return x * 3; }, 5); return 0; }`,
+			"fn(i32 x) -> i32 { return x * 3; }",
+		},
+		{
+			"iife_round_trip",
+			"import \"fmt\";\nfn main() -> i32 {\n    fn() -> void { fmt.println(\"x\"); }();\n    return 0;\n}",
+			"fn() -> void {",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fmtSource(tt.src)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("expected output to contain %q, got:\n%s", tt.want, got)
+			}
+			// Round-trip: formatting the output again should be identical
+			got2 := fmtSource(got)
+			if got != got2 {
+				t.Errorf("formatter not idempotent:\nfirst:\n%s\nsecond:\n%s", got, got2)
+			}
+		})
+	}
+}
