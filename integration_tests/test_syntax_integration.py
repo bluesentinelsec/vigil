@@ -279,6 +279,30 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         """
         self._assert_success(source, stdout="5:9:4:div0:12:0:7:true")
 
+    def test_anonymous_functions_and_closures(self) -> None:
+        source = """
+            import "fmt";
+
+            fn apply(fn(i32) -> i32 op, i32 x) -> i32 {
+                return op(x);
+            }
+
+            fn main() -> i32 {
+                i32 factor = 10;
+                fn scale = fn(i32 x) -> i32 { return x * factor; };
+
+                fmt.print(string(apply(fn(i32 x) -> i32 { return x + 1; }, 14)));
+                fmt.print(":" + string(scale(4)) + ":");
+
+                fn(fn(i32) -> i32 cb) -> void {
+                    fmt.print(string(cb(3)));
+                }(fn(i32 x) -> i32 { return x * 2; });
+
+                return 0;
+            }
+        """
+        self._assert_success(source, stdout="15:40:6")
+
     def test_nested_generics_err_literal_and_non_err_discards(self) -> None:
         source = """
             import "fmt";
