@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
 	"github.com/bluesentinelsec/basl/pkg/basl/lexer"
@@ -20,14 +21,24 @@ type ModuleLoader struct {
 	EmbeddedFS map[string]fs.FS
 	// Cache of already-loaded modules
 	cache map[string]*Env
+	// Modules currently being loaded, keyed by canonical source identity
+	loading map[string]int
+	// Stack of in-progress module loads for cycle diagnostics
+	stack []moduleLoadFrame
 	// Interpreter reference for evaluating modules
 	interp *Interpreter
+}
+
+type moduleLoadFrame struct {
+	key  string
+	name string
 }
 
 func newModuleLoader(interp *Interpreter) *ModuleLoader {
 	return &ModuleLoader{
 		EmbeddedFS: make(map[string]fs.FS),
 		cache:      make(map[string]*Env),
+		loading:    make(map[string]int),
 		interp:     interp,
 	}
 }
@@ -62,7 +73,8 @@ func (ml *ModuleLoader) Resolve(name string) (*Env, error) {
 		filePath := relPath + ".basl"
 		data, err := fs.ReadFile(efs, filePath)
 		if err == nil {
-			env, err := ml.loadSource(name, string(data))
+			cacheKey := "embedded:" + prefix + ":" + filePath
+			env, err := ml.loadResolvedModule(name, cacheKey, string(data))
 			if err != nil {
 				return nil, fmt.Errorf("module %q: %w", name, err)
 			}
@@ -85,11 +97,10 @@ func (ml *ModuleLoader) Resolve(name string) (*Env, error) {
 		}
 		data, err := os.ReadFile(absPath)
 		if err == nil {
-			env, err := ml.loadSource(name, string(data))
+			env, err := ml.loadResolvedModule(name, absPath, string(data))
 			if err != nil {
 				return nil, fmt.Errorf("module %q (%s): %w", name, absPath, err)
 			}
-			ml.cache[absPath] = env
 			return env, nil
 		}
 
@@ -105,11 +116,10 @@ func (ml *ModuleLoader) Resolve(name string) (*Env, error) {
 		}
 		data, err = os.ReadFile(absPkg)
 		if err == nil {
-			env, err := ml.loadSource(name, string(data))
+			env, err := ml.loadResolvedModule(name, absPkg, string(data))
 			if err != nil {
 				return nil, fmt.Errorf("module %q (%s): %w", name, absPkg, err)
 			}
-			ml.cache[absPkg] = env
 			return env, nil
 		}
 	}
@@ -117,11 +127,60 @@ func (ml *ModuleLoader) Resolve(name string) (*Env, error) {
 	return nil, fmt.Errorf("module %q not found — check the import path or ensure the .basl file exists", name)
 }
 
+func (ml *ModuleLoader) loadResolvedModule(name string, key string, src string) (*Env, error) {
+	if env, ok := ml.cache[key]; ok {
+		ml.cache[name] = env
+		return env, nil
+	}
+	if err := ml.beginLoad(key, name); err != nil {
+		return nil, err
+	}
+	defer ml.finishLoad(key)
+
+	env, err := ml.loadSource(name, src)
+	if err != nil {
+		return nil, err
+	}
+	ml.cache[key] = env
+	ml.cache[name] = env
+	return env, nil
+}
+
+func (ml *ModuleLoader) beginLoad(key string, name string) error {
+	if idx, ok := ml.loading[key]; ok {
+		chain := make([]string, 0, len(ml.stack)-idx+1)
+		for _, frame := range ml.stack[idx:] {
+			chain = append(chain, frame.name)
+		}
+		chain = append(chain, name)
+		return fmt.Errorf("import cycle detected: %s", strings.Join(chain, " -> "))
+	}
+	ml.loading[key] = len(ml.stack)
+	ml.stack = append(ml.stack, moduleLoadFrame{key: key, name: name})
+	return nil
+}
+
+func (ml *ModuleLoader) finishLoad(key string) {
+	idx, ok := ml.loading[key]
+	if !ok {
+		return
+	}
+	delete(ml.loading, key)
+
+	last := len(ml.stack) - 1
+	if idx == last {
+		ml.stack = ml.stack[:last]
+		return
+	}
+
+	ml.stack = append(ml.stack[:idx], ml.stack[idx+1:]...)
+	for i := idx; i < len(ml.stack); i++ {
+		ml.loading[ml.stack[i].key] = i
+	}
+}
+
 // loadSource parses and evaluates a module, returning only its pub exports.
 func (ml *ModuleLoader) loadSource(name string, src string) (*Env, error) {
-	if _, ok := ml.cache[name]; ok {
-		return nil, fmt.Errorf("fatal: module %q loaded twice — this is a bug in the module loader", name)
-	}
 	lex := lexer.New(src)
 	tokens, err := lex.Tokenize()
 	if err != nil {
@@ -252,6 +311,5 @@ func (ml *ModuleLoader) loadSource(name string, src string) (*Env, error) {
 		}
 	}
 
-	ml.cache[name] = exports
 	return exports, nil
 }

@@ -143,6 +143,26 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             main_rel="app/main.basl",
         )
 
+    def test_import_cycle_reports_chain(self) -> None:
+        files = {
+            "a.basl": """
+                import "b";
+                pub fn a_value() -> i32 { return 1; }
+            """,
+            "b.basl": """
+                import "a";
+                pub fn b_value() -> i32 { return 2; }
+            """,
+        }
+        source = """
+            import "a";
+
+            fn main() -> i32 {
+                return 0;
+            }
+        """
+        self._assert_failure(source, "import cycle detected: a -> b -> a", files=files)
+
     def test_types_literals_and_explicit_conversions(self) -> None:
         source = """
             import "fmt";

@@ -29,6 +29,7 @@ Imports resolve to built-in stdlib modules or `.basl` files.
 For direct script execution, BASL searches the script's directory first.
 When the script is inside a BASL project, BASL also searches the project's `lib/` and `deps/` directories automatically.
 Modules export only `pub` declarations.
+Circular imports are rejected with an explicit import chain, for example: `import cycle detected: a -> b -> a`.
 
 ## Types
 
