@@ -225,6 +225,42 @@ fn main() -> i32 {
 	assertHasDiag(t, diags, "type mismatch in variable other: expected string, received i32")
 }
 
+func TestCheckFileSupportsArgsAndRegexObjects(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "args";
+import "regex";
+
+fn main() -> i32 {
+    args.ArgParser p = args.parser("grep", "Search files");
+    p.flag("ignore-case", "bool", "false", "Case-insensitive search", "i");
+    p.arg("pattern", "string", "Pattern to search for");
+
+    args.Result result, err parseErr = p.parse_result();
+    if (parseErr != ok) {
+        return 2;
+    }
+
+    string pattern = result.get_string("pattern");
+    regex.Regex re, err compileErr = regex.compile(pattern);
+    if (compileErr != ok) {
+        return 2;
+    }
+
+    bool matched = re.match("hello");
+    return matched ? 0 : 1;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
 func writeFile(t *testing.T, path string, src string) string {
 	t.Helper()
 

@@ -1233,19 +1233,27 @@ func newBuiltinModule(name string) *moduleInfo {
 		mod.exports[fnName] = sym
 	}
 	addClass := func(class *classInfo) {
-		sym := &symbol{kind: symbolClass, name: class.name, class: class}
-		mod.symbols[class.name] = sym
-		mod.exports[class.name] = sym
+		exportName := class.name
+		if idx := strings.LastIndex(exportName, "."); idx >= 0 {
+			exportName = exportName[idx+1:]
+		}
+		sym := &symbol{kind: symbolClass, name: exportName, class: class}
+		mod.symbols[exportName] = sym
+		mod.exports[exportName] = sym
 	}
 
 	typString := &ast.TypeExpr{Name: "string"}
 	typI32 := &ast.TypeExpr{Name: "i32"}
 	typF64 := &ast.TypeExpr{Name: "f64"}
+	typI64 := &ast.TypeExpr{Name: "i64"}
 	typBool := &ast.TypeExpr{Name: "bool"}
 	typErr := &ast.TypeExpr{Name: "err"}
 	typArrayString := &ast.TypeExpr{Name: "array", ElemType: &ast.TypeExpr{Name: "string"}}
 	typFileStat := &ast.TypeExpr{Name: "file.FileStat"}
 	typFile := &ast.TypeExpr{Name: "file.File"}
+	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
+	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
+	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
 
 	switch name {
 	case "fmt":
@@ -1323,6 +1331,50 @@ func newBuiltinModule(name string) *moduleInfo {
 				"mode":     typI32,
 			},
 			methods: make(map[string]*funcSig),
+		})
+	case "regex":
+		addFn("compile", []*ast.TypeExpr{typRegex, typErr}, typString)
+		addFn("match", []*ast.TypeExpr{typBool, typErr}, typString, typString)
+		addFn("find", []*ast.TypeExpr{typString, typErr}, typString, typString)
+		addFn("find_all", []*ast.TypeExpr{typArrayString, typErr}, typString, typString)
+		addFn("replace", []*ast.TypeExpr{typString, typErr}, typString, typString, typString)
+		addFn("split", []*ast.TypeExpr{typArrayString, typErr}, typString, typString)
+		addClass(&classInfo{
+			name: "regex.Regex",
+			methods: map[string]*funcSig{
+				"match":    {name: "match", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typBool}},
+				"find":     {name: "find", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typString}},
+				"find_all": {name: "find_all", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typArrayString}},
+				"replace":  {name: "replace", params: []*ast.TypeExpr{typString, typString}, ret: []*ast.TypeExpr{typString}},
+				"split":    {name: "split", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typArrayString}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "args":
+		addFn("parser", singleReturnType(typArgParser), typString, typString)
+		addClass(&classInfo{
+			name: "args.ArgParser",
+			methods: map[string]*funcSig{
+				"flag":         {name: "flag", params: []*ast.TypeExpr{typString, typString, typString, typString}, ret: []*ast.TypeExpr{typErr}, variadic: true},
+				"arg":          {name: "arg", params: []*ast.TypeExpr{typString, typString, typString}, ret: []*ast.TypeExpr{typErr}, variadic: true},
+				"parse_result": {name: "parse_result", ret: []*ast.TypeExpr{typArgsResult, typErr}},
+				"parse":        {name: "parse", ret: []*ast.TypeExpr{{Name: "map", KeyType: typString, ValType: typString}, typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "args.Result",
+			methods: map[string]*funcSig{
+				"get_string": {name: "get_string", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typString}},
+				"get_bool":   {name: "get_bool", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typBool}},
+				"get_list":   {name: "get_list", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typArrayString}},
+				"get_i32":    {name: "get_i32", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI32}},
+				"get_i64":    {name: "get_i64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI64}},
+				"get_f64":    {name: "get_f64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typF64}},
+				"get_u32":    {name: "get_u32", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{{Name: "u32"}}},
+				"get_u64":    {name: "get_u64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{{Name: "u64"}}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
 		})
 	}
 
