@@ -190,6 +190,13 @@ type DeferStmt struct {
 	Line int
 }
 
+type GuardStmt struct {
+	Bindings []TupleBindItem
+	Value    Expr
+	Body     *Block
+	Line     int
+}
+
 func (*Block) stmtNode()              {}
 func (*VarStmt) stmtNode()            {}
 func (*AssignStmt) stmtNode()         {}
@@ -203,6 +210,7 @@ func (*ExprStmt) stmtNode()           {}
 func (*BreakStmt) stmtNode()          {}
 func (*ContinueStmt) stmtNode()       {}
 func (*DeferStmt) stmtNode()          {}
+func (*GuardStmt) stmtNode()          {}
 func (*SwitchStmt) stmtNode()         {}
 func (*CompoundAssignStmt) stmtNode() {}
 func (*IncDecStmt) stmtNode()         {}

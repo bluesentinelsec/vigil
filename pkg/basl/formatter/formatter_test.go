@@ -220,6 +220,29 @@ return 0;
 	}
 }
 
+func TestFormatGuard(t *testing.T) {
+	src := `fn main() -> i32 {
+guard string data, err e = file.read_all("config.txt") {
+fmt.eprintln(e.message());
+return 1;
+}
+return 0;
+}
+`
+	got := fmtSource(src)
+	want := `fn main() -> i32 {
+    guard string data, err e = file.read_all("config.txt") {
+        fmt.eprintln(e.message());
+        return 1;
+    }
+    return 0;
+}
+`
+	if got != want {
+		t.Errorf("guard:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestFormatEnum(t *testing.T) {
 	src := `enum Color {
 Red,

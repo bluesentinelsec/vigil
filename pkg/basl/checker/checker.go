@@ -602,23 +602,20 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 		}
 		ctx.scope.define(s.Name, s.Type)
 	case *ast.TupleBindStmt:
-		info := c.checkExpr(ctx, s.Value)
-		if len(info.returns) == 0 {
+		c.checkTupleBindings(ctx, s.Bindings, s.Value, s.Line)
+	case *ast.GuardStmt:
+		if len(s.Bindings) == 0 {
+			c.addDiag(ctx.mod.path, s.Line, 0, "guard requires at least one binding")
 			return
 		}
-		if len(info.returns) != len(s.Bindings) {
-			c.addDiag(ctx.mod.path, s.Line, 0, "tuple binding expects %d values, got %d", len(s.Bindings), len(info.returns))
-			return
+		last := s.Bindings[len(s.Bindings)-1]
+		if last.Type == nil || last.Type.Name != "err" {
+			c.addDiag(ctx.mod.path, s.Line, 0, "guard requires the final binding to be err")
+		} else if last.Discard {
+			c.addDiag(ctx.mod.path, s.Line, 0, "guard requires a named err binding")
 		}
-		for i, binding := range s.Bindings {
-			if binding.Discard {
-				continue
-			}
-			if info.returns[i] != nil && !c.isAssignable(ctx.mod, binding.Type, info.returns[i]) {
-				c.addDiag(ctx.mod.path, s.Line, 0, "tuple binding %s expects %s, received %s", binding.Name, typeString(binding.Type), typeString(info.returns[i]))
-			}
-			ctx.scope.define(binding.Name, binding.Type)
-		}
+		c.checkTupleBindings(ctx, s.Bindings, s.Value, s.Line)
+		c.checkBlock(ctx, s.Body)
 	case *ast.AssignStmt:
 		target := c.checkExpr(ctx, s.Target)
 		value := c.checkExpr(ctx, s.Value)
@@ -720,6 +717,26 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 		}
 	case *ast.BreakStmt, *ast.ContinueStmt:
 		return
+	}
+}
+
+func (c *Checker) checkTupleBindings(ctx *bodyContext, bindings []ast.TupleBindItem, valueExpr ast.Expr, line int) {
+	info := c.checkExpr(ctx, valueExpr)
+	if len(info.returns) == 0 {
+		return
+	}
+	if len(info.returns) != len(bindings) {
+		c.addDiag(ctx.mod.path, line, 0, "tuple binding expects %d values, got %d", len(bindings), len(info.returns))
+		return
+	}
+	for i, binding := range bindings {
+		if binding.Discard {
+			continue
+		}
+		if info.returns[i] != nil && !c.isAssignable(ctx.mod, binding.Type, info.returns[i]) {
+			c.addDiag(ctx.mod.path, line, 0, "tuple binding %s expects %s, received %s", binding.Name, typeString(binding.Type), typeString(info.returns[i]))
+		}
+		ctx.scope.define(binding.Name, binding.Type)
 	}
 }
 

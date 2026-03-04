@@ -78,6 +78,8 @@ func stmtLine(s ast.Stmt) int {
 		return s.Line
 	case *ast.DeferStmt:
 		return s.Line
+	case *ast.GuardStmt:
+		return s.Line
 	case *ast.SwitchStmt:
 		return s.Line
 	case *ast.CompoundAssignStmt:

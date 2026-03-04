@@ -226,6 +226,56 @@ fn main() -> i32 {
 	}
 }
 
+func TestCheckFileSupportsGuardStatements(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+fn parse_num(bool should_succeed) -> (i32, err) {
+    if (should_succeed) {
+        return (7, ok);
+    }
+    return (0, err("bad", err.parse));
+}
+
+fn main() -> i32 {
+    guard i32 n, err e = parse_num(true) {
+        return 1;
+    }
+    return n;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
+func TestCheckFileReportsInvalidGuardBinding(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+fn value() -> i32 {
+    return 1;
+}
+
+fn main() -> i32 {
+    guard i32 n = value() {
+        return 1;
+    }
+    return n;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "guard requires the final binding to be err")
+}
+
 func TestCheckFileInfersIndexAndForInTypes(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `

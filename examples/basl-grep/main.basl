@@ -17,8 +17,7 @@ fn main() -> i32 {
     parser.arg("pattern", "string", "Pattern to search for");
     parser.arg("files", "string", "Files to search", true);
     
-    args.Result result, err parseErr = parser.parse_result();
-    if (parseErr != ok) {
+    guard args.Result result, err parseErr = parser.parse_result() {
         fmt.eprintln(f"Error: {parseErr}");
         return 2;
     }
@@ -47,8 +46,7 @@ fn main() -> i32 {
         regexPattern = "(?i)" + pattern;
     }
     
-    regex.Regex re, err compileErr = regex.compile(regexPattern);
-    if (compileErr != ok) {
+    guard regex.Regex re, err compileErr = regex.compile(regexPattern) {
         fmt.eprintln(f"grep: invalid pattern: {compileErr}");
         return 2;
     }
@@ -79,8 +77,7 @@ fn main() -> i32 {
 }
 
 fn grep_file(string filepath, regex.Regex re, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
-    string content, err readErr = file.read_all(filepath);
-    if (readErr != ok) {
+    guard string content, err readErr = file.read_all(filepath) {
         fmt.eprintln(f"grep: {filepath}: {readErr}");
         return 0;
     }
@@ -129,8 +126,7 @@ fn grep_file(string filepath, regex.Regex re, bool invertMatch, bool lineNumber,
 }
 
 fn grep_recursive(string dirpath, regex.Regex re, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
-    array<string> entries, err readErr = file.read_dir(dirpath);
-    if (readErr != ok) {
+    guard array<string> entries, err readErr = file.read_dir(dirpath) {
         fmt.eprintln(f"grep: {dirpath}: {readErr}");
         return 0;
     }
@@ -145,8 +141,7 @@ fn grep_recursive(string dirpath, regex.Regex re, bool invertMatch, bool lineNum
         
         string fullpath = path.join(dirpath, entry);
         
-        file.FileStat stat, err statErr = file.stat(fullpath);
-        if (statErr != ok) {
+        guard file.FileStat stat, err statErr = file.stat(fullpath) {
             continue;
         }
         

@@ -55,7 +55,7 @@ func TestTokenize_Keywords(t *testing.T) {
 		{"while", TOKEN_WHILE}, {"for", TOKEN_FOR}, {"break", TOKEN_BREAK}, {"continue", TOKEN_CONTINUE},
 		{"class", TOKEN_CLASS}, {"pub", TOKEN_PUB}, {"self", TOKEN_SELF},
 		{"import", TOKEN_IMPORT}, {"as", TOKEN_AS}, {"true", TOKEN_TRUE}, {"false", TOKEN_FALSE},
-		{"defer", TOKEN_DEFER},
+		{"defer", TOKEN_DEFER}, {"guard", TOKEN_GUARD},
 		{"bool", TOKEN_BOOL_TYPE}, {"i32", TOKEN_I32}, {"i64", TOKEN_I64}, {"f64", TOKEN_F64},
 		{"string", TOKEN_STRING_TYPE}, {"void", TOKEN_VOID}, {"err", TOKEN_ERR},
 		{"array", TOKEN_ARRAY}, {"map", TOKEN_MAP},

@@ -44,6 +44,8 @@ func stmtLine(s ast.Stmt) int {
 		return s.Line
 	case *ast.DeferStmt:
 		return s.Line
+	case *ast.GuardStmt:
+		return s.Line
 	case *ast.SwitchStmt:
 		return s.Line
 	case *ast.CompoundAssignStmt:
@@ -122,6 +124,8 @@ func (f *formatter) stmt(s ast.Stmt) {
 		f.writelnIndented("continue;")
 	case *ast.DeferStmt:
 		f.writelnIndented("defer " + f.exprStr(s.Call) + ";")
+	case *ast.GuardStmt:
+		f.guardStmt(s)
 	case *ast.SwitchStmt:
 		f.switchStmt(s)
 	case *ast.CompoundAssignStmt:
@@ -162,6 +166,21 @@ func (f *formatter) tupleBindStmt(s *ast.TupleBindStmt) {
 		parts += typeExprStr(b.Type) + " " + b.Name
 	}
 	f.writelnIndented(fmt.Sprintf("%s = %s;", parts, f.exprStr(s.Value)))
+}
+
+func (f *formatter) guardStmt(s *ast.GuardStmt) {
+	var parts string
+	for i, b := range s.Bindings {
+		if i > 0 {
+			parts += ", "
+		}
+		parts += typeExprStr(b.Type) + " " + b.Name
+	}
+	f.writelnIndented(fmt.Sprintf("guard %s = %s {", parts, f.exprStr(s.Value)))
+	f.indent++
+	f.block(s.Body)
+	f.indent--
+	f.writelnIndented("}")
 }
 
 func (f *formatter) ifStmt(s *ast.IfStmt) {

@@ -608,6 +608,8 @@ if (e != ok) {
 
 BASL has no exceptions. Errors are values returned explicitly.
 
+Manual handling stays fully explicit:
+
 ```c
 string data, err e = file.read_all("config.txt");
 if (e != ok) {
@@ -615,6 +617,27 @@ if (e != ok) {
     return 1;
 }
 ```
+
+For the common “bind, then handle the error immediately” pattern, prefer `guard` to reduce boilerplate while keeping control flow explicit:
+
+```c
+guard string data, err e = file.read_all("config.txt") {
+    fmt.println("failed to read file");
+    return 1;
+}
+```
+
+`guard` is equivalent to:
+
+```c
+string data, err e = file.read_all("config.txt");
+if (e != ok) {
+    fmt.println("failed to read file");
+    return 1;
+}
+```
+
+Use `guard` when the failure branch is immediate and local. Use a normal `if (e != ok)` when you want more customized control flow later in the function.
 
 The `err` type has two states: `ok` for success, or `err(message, kind)` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
 
