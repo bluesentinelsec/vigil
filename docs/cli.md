@@ -7,6 +7,7 @@ Complete reference for all `basl` command-line tools.
 ```bash
 basl [script.basl]              # Run a script or start REPL
 basl fmt [files...]             # Format code
+basl check [targets...]         # Static validation without execution
 basl debug [script.basl]        # Start debugger
 basl new <name> [--lib]         # Create new project
 basl test [path]                # Run tests
@@ -62,6 +63,24 @@ basl fmt --check script.basl    # Exit 1 if not formatted
 ```
 
 Use in CI pipelines to enforce consistent formatting.
+
+## Static Checking
+
+### Validate code without running it
+
+```bash
+basl check main.basl
+basl check ./lib/...
+basl check --path ./vendor main.basl
+```
+
+`basl check` parses BASL source and reports diagnostics without executing user code.
+
+It validates imports, declarations, calls, return shapes, interface conformance, and a broad set of common semantic mistakes across most non-graphics stdlib modules.
+
+In a BASL project root, `basl check` defaults to checking `main.basl` plus the `lib/` and `test/` directories when no explicit target is given.
+
+See [check.md](check.md) for the full guide, detailed behavior, and the complete list of issues it detects.
 
 ## Debugging
 

@@ -5,17 +5,21 @@ fn main() -> i32 {
     string text = "Contact us at support@example.com or sales@example.com";
     
     // Match pattern
-    bool matches = regex.match(text, "example\\.com");
+    bool matches, err match_err = regex.match("example\\.com", text);
+    if (match_err != ok) {
+        fmt.println(f"Error matching pattern: {match_err}");
+        return 1;
+    }
     fmt.println(f"Contains 'example.com': {matches}");
     
     // Find first match
-    string email, err e = regex.find(text, "[a-z]+@[a-z]+\\.[a-z]+");
+    string email, err e = regex.find("[a-z]+@[a-z]+\\.[a-z]+", text);
     if (e == ok) {
         fmt.println(f"First email found: {email}");
     }
     
     // Find all matches
-    array<string> emails, err e2 = regex.find_all(text, "[a-z]+@[a-z]+\\.[a-z]+");
+    array<string> emails, err e2 = regex.find_all("[a-z]+@[a-z]+\\.[a-z]+", text);
     if (e2 == ok) {
         fmt.println(f"All emails found ({emails.len()}):");
         for addr in emails {
@@ -24,7 +28,7 @@ fn main() -> i32 {
     }
     
     // Replace pattern
-    string replaced, err e3 = regex.replace(text, "@example\\.com", "@newdomain.com");
+    string replaced, err e3 = regex.replace("@example\\.com", text, "@newdomain.com");
     if (e3 == ok) {
         fmt.println(f"After replacement: {replaced}");
     }
@@ -41,7 +45,11 @@ fn main() -> i32 {
     
     // Validate phone number
     string phone = "555-123-4567";
-    bool valid = regex.match(phone, "^\\d{3}-\\d{3}-\\d{4}$");
+    bool valid, err valid_err = regex.match("^\\d{3}-\\d{3}-\\d{4}$", phone);
+    if (valid_err != ok) {
+        fmt.println(f"Error validating phone number: {valid_err}");
+        return 1;
+    }
     fmt.println(f"\nPhone '{phone}' is valid: {valid}");
     
     return 0;
