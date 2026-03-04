@@ -69,7 +69,9 @@ type funcSig struct {
 	name   string
 	params []*ast.TypeExpr
 	ret    []*ast.TypeExpr
-	line   int
+	// variadic means the final parameter type repeats for any remaining args.
+	variadic bool
+	line     int
 }
 
 type classInfo struct {
@@ -139,7 +141,7 @@ type bodyContext struct {
 
 type Checker struct {
 	searchPaths []string
-	builtin     map[string]struct{}
+	builtin     map[string]*moduleInfo
 	modules     map[string]*moduleInfo
 	diagnostics []Diagnostic
 }
@@ -152,11 +154,11 @@ func CheckFile(path string, searchPaths []string) ([]Diagnostic, error) {
 
 	c := &Checker{
 		searchPaths: append([]string(nil), searchPaths...),
-		builtin:     make(map[string]struct{}),
+		builtin:     make(map[string]*moduleInfo),
 		modules:     make(map[string]*moduleInfo),
 	}
 	for _, name := range interp.BuiltinModuleNames() {
-		c.builtin[name] = struct{}{}
+		c.builtin[name] = newBuiltinModule(name)
 	}
 
 	c.checkModule(absPath, nil)
@@ -260,10 +262,11 @@ func (c *Checker) collectImports(mod *moduleInfo, stack []string) {
 			continue
 		}
 
-		if _, ok := c.builtin[imp.Path]; ok {
+		if builtinMod, ok := c.builtin[imp.Path]; ok {
 			sym := &symbol{
 				kind:    symbolModule,
 				name:    alias,
+				module:  builtinMod,
 				builtin: true,
 				line:    imp.Line,
 			}
@@ -510,7 +513,7 @@ func (c *Checker) checkModuleValueInit(mod *moduleInfo, declared *ast.TypeExpr, 
 		c.addDiag(mod.path, line, 0, "%s expects a single value, but the expression returns %d values", what, len(info.returns))
 		return
 	}
-	if len(info.returns) == 1 && declared != nil && info.returns[0] != nil && !assignable(declared, info.returns[0]) {
+	if len(info.returns) == 1 && declared != nil && info.returns[0] != nil && !c.isAssignable(mod, declared, info.returns[0]) {
 		c.addDiag(mod.path, line, 0, "type mismatch in %s: expected %s, received %s", what, typeString(declared), typeString(info.returns[0]))
 	}
 }
@@ -554,7 +557,7 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 		info := c.checkExpr(ctx, s.Init)
 		if len(info.returns) > 1 {
 			c.addDiag(ctx.mod.path, s.Line, 0, "variable %s expects a single value, but the expression returns %d values", s.Name, len(info.returns))
-		} else if len(info.returns) == 1 && s.Type != nil && info.returns[0] != nil && !assignable(s.Type, info.returns[0]) {
+		} else if len(info.returns) == 1 && s.Type != nil && info.returns[0] != nil && !c.isAssignable(ctx.mod, s.Type, info.returns[0]) {
 			c.addDiag(ctx.mod.path, s.Line, 0, "type mismatch in variable %s: expected %s, received %s", s.Name, typeString(s.Type), typeString(info.returns[0]))
 		}
 		ctx.scope.define(s.Name, s.Type)
@@ -571,7 +574,7 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 			if binding.Discard {
 				continue
 			}
-			if info.returns[i] != nil && !assignable(binding.Type, info.returns[i]) {
+			if info.returns[i] != nil && !c.isAssignable(ctx.mod, binding.Type, info.returns[i]) {
 				c.addDiag(ctx.mod.path, s.Line, 0, "tuple binding %s expects %s, received %s", binding.Name, typeString(binding.Type), typeString(info.returns[i]))
 			}
 			ctx.scope.define(binding.Name, binding.Type)
@@ -583,7 +586,7 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 			c.addDiag(ctx.mod.path, s.Line, 0, "assignment expects a single value, but the expression returns %d values", len(value.returns))
 			return
 		}
-		if len(target.returns) == 1 && len(value.returns) == 1 && target.returns[0] != nil && value.returns[0] != nil && !assignable(target.returns[0], value.returns[0]) {
+		if len(target.returns) == 1 && len(value.returns) == 1 && target.returns[0] != nil && value.returns[0] != nil && !c.isAssignable(ctx.mod, target.returns[0], value.returns[0]) {
 			c.addDiag(ctx.mod.path, s.Line, 0, "type mismatch in assignment: expected %s, received %s", typeString(target.returns[0]), typeString(value.returns[0]))
 		}
 	case *ast.CompoundAssignStmt:
@@ -627,7 +630,7 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 		}
 		c.checkBlock(ctx, s.Body)
 	case *ast.ForInStmt:
-		c.checkExpr(ctx, s.Iter)
+		iterInfo := c.checkExpr(ctx, s.Iter)
 		loopScope := &bodyContext{
 			mod:          ctx.mod,
 			scope:        newScope(ctx.scope),
@@ -638,6 +641,17 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 			loopScope.scope.define(s.KeyName, nil)
 		}
 		loopScope.scope.define(s.ValName, nil)
+		if len(iterInfo.returns) == 1 && iterInfo.returns[0] != nil {
+			iterType := iterInfo.returns[0]
+			if iterType.Name == "array" {
+				loopScope.scope.define(s.ValName, iterType.ElemType)
+			} else if iterType.Name == "map" {
+				if s.KeyName != "" {
+					loopScope.scope.define(s.KeyName, iterType.KeyType)
+				}
+				loopScope.scope.define(s.ValName, iterType.ValType)
+			}
+		}
 		c.checkBlock(loopScope, s.Body)
 	case *ast.SwitchStmt:
 		c.checkExpr(ctx, s.Tag)
@@ -668,7 +682,7 @@ func (c *Checker) checkReturn(ctx *bodyContext, stmt *ast.ReturnStmt) {
 		return
 	}
 	for i := range ctx.returns {
-		if ctx.returns[i] != nil && actual[i] != nil && !assignable(ctx.returns[i], actual[i]) {
+		if ctx.returns[i] != nil && actual[i] != nil && !c.isAssignable(ctx.mod, ctx.returns[i], actual[i]) {
 			c.addDiag(ctx.mod.path, stmt.Line, 0, "return value %d expects %s, received %s", i+1, typeString(ctx.returns[i]), typeString(actual[i]))
 		}
 	}
@@ -803,21 +817,73 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		}
 		return exprInfo{}
 	case *ast.ArrayLit:
+		var elemType *ast.TypeExpr
+		consistent := true
 		for _, elem := range e.Elems {
-			c.checkExpr(ctx, elem)
+			info := c.checkExpr(ctx, elem)
+			if len(info.returns) != 1 || info.returns[0] == nil {
+				consistent = false
+				continue
+			}
+			if elemType == nil {
+				elemType = info.returns[0]
+				continue
+			}
+			if !sameType(elemType, info.returns[0]) {
+				consistent = false
+			}
 		}
-		return exprInfo{returns: []*ast.TypeExpr{{Name: "array"}}}
+		if !consistent {
+			elemType = nil
+		}
+		return exprInfo{returns: []*ast.TypeExpr{{Name: "array", ElemType: elemType}}}
 	case *ast.MapLit:
+		var keyType *ast.TypeExpr
+		var valType *ast.TypeExpr
+		keysConsistent := true
+		valsConsistent := true
 		for _, key := range e.Keys {
-			c.checkExpr(ctx, key)
+			info := c.checkExpr(ctx, key)
+			if len(info.returns) == 1 && info.returns[0] != nil {
+				if keyType == nil {
+					keyType = info.returns[0]
+				} else if !sameType(keyType, info.returns[0]) {
+					keysConsistent = false
+				}
+			} else {
+				keysConsistent = false
+			}
 		}
 		for _, val := range e.Values {
-			c.checkExpr(ctx, val)
+			info := c.checkExpr(ctx, val)
+			if len(info.returns) == 1 && info.returns[0] != nil {
+				if valType == nil {
+					valType = info.returns[0]
+				} else if !sameType(valType, info.returns[0]) {
+					valsConsistent = false
+				}
+			} else {
+				valsConsistent = false
+			}
 		}
-		return exprInfo{returns: []*ast.TypeExpr{{Name: "map"}}}
+		if !keysConsistent {
+			keyType = nil
+		}
+		if !valsConsistent {
+			valType = nil
+		}
+		return exprInfo{returns: []*ast.TypeExpr{{Name: "map", KeyType: keyType, ValType: valType}}}
 	case *ast.IndexExpr:
-		c.checkExpr(ctx, e.Object)
+		objInfo := c.checkExpr(ctx, e.Object)
 		c.checkExpr(ctx, e.Index)
+		if len(objInfo.returns) == 1 && objInfo.returns[0] != nil {
+			switch objInfo.returns[0].Name {
+			case "array":
+				return exprInfo{returns: []*ast.TypeExpr{objInfo.returns[0].ElemType}}
+			case "map":
+				return exprInfo{returns: []*ast.TypeExpr{objInfo.returns[0].ValType}}
+			}
+		}
 		return exprInfo{}
 	default:
 		return exprInfo{}
@@ -863,9 +929,6 @@ func (c *Checker) memberInfo(ctx *bodyContext, expr *ast.MemberExpr) exprInfo {
 	if obj.sym != nil {
 		switch obj.sym.kind {
 		case symbolModule:
-			if obj.sym.builtin {
-				return exprInfo{}
-			}
 			if obj.sym.module == nil {
 				if isErrKind(expr.Field) {
 					return exprInfo{returns: []*ast.TypeExpr{{Name: "string"}}}
@@ -874,7 +937,9 @@ func (c *Checker) memberInfo(ctx *bodyContext, expr *ast.MemberExpr) exprInfo {
 			}
 			member, ok := obj.sym.module.exports[expr.Field]
 			if !ok {
-				c.addDiag(ctx.mod.path, expr.Line, 0, "module member %q not found", expr.Field)
+				if !obj.sym.builtin {
+					c.addDiag(ctx.mod.path, expr.Line, 0, "module member %q not found", expr.Field)
+				}
 				return exprInfo{}
 			}
 			switch member.kind {
@@ -895,6 +960,12 @@ func (c *Checker) memberInfo(ctx *bodyContext, expr *ast.MemberExpr) exprInfo {
 	}
 
 	typ := obj.returns[0]
+	if method := primitiveMethodSig(typ, expr.Field); method != nil {
+		return exprInfo{
+			returns: []*ast.TypeExpr{fnTypeFromSig(method)},
+			sym:     &symbol{kind: symbolFn, name: method.name, fn: method, line: expr.Line},
+		}
+	}
 	class, iface := c.lookupObjectType(ctx.mod, typ.Name)
 	if class != nil {
 		if field, ok := class.fields[expr.Field]; ok {
@@ -903,11 +974,18 @@ func (c *Checker) memberInfo(ctx *bodyContext, expr *ast.MemberExpr) exprInfo {
 		if method, ok := class.methods[expr.Field]; ok {
 			return exprInfo{returns: []*ast.TypeExpr{fnTypeFromSig(method)}, sym: &symbol{kind: symbolFn, name: method.name, fn: method, line: method.line}}
 		}
+		c.addDiag(ctx.mod.path, expr.Line, 0, "%s has no member %q", typ.Name, expr.Field)
+		return exprInfo{}
 	}
 	if iface != nil {
 		if method, ok := iface.methods[expr.Field]; ok {
 			return exprInfo{returns: []*ast.TypeExpr{fnTypeFromSig(method)}, sym: &symbol{kind: symbolFn, name: method.name, fn: method, line: method.line}}
 		}
+		c.addDiag(ctx.mod.path, expr.Line, 0, "%s has no member %q", typ.Name, expr.Field)
+		return exprInfo{}
+	}
+	if isPrimitiveTypeName(typ.Name) {
+		c.addDiag(ctx.mod.path, expr.Line, 0, "%s has no member %q", typ.Name, expr.Field)
 	}
 
 	return exprInfo{}
@@ -915,9 +993,10 @@ func (c *Checker) memberInfo(ctx *bodyContext, expr *ast.MemberExpr) exprInfo {
 
 func (c *Checker) callInfo(ctx *bodyContext, expr *ast.CallExpr) exprInfo {
 	callee := c.checkExpr(ctx, expr.Callee)
-	for _, arg := range expr.Args {
-		info := c.checkExpr(ctx, arg)
-		if len(info.returns) > 1 {
+	argInfos := make([]exprInfo, len(expr.Args))
+	for i, arg := range expr.Args {
+		argInfos[i] = c.checkExpr(ctx, arg)
+		if len(argInfos[i].returns) > 1 {
 			c.addDiag(ctx.mod.path, expr.Line, 0, "call arguments must be single values")
 		}
 	}
@@ -925,25 +1004,24 @@ func (c *Checker) callInfo(ctx *bodyContext, expr *ast.CallExpr) exprInfo {
 	if callee.sym != nil {
 		switch callee.sym.kind {
 		case symbolFn:
-			c.checkArity(ctx.mod, expr.Line, callee.sym.name, callee.sym.fn, len(expr.Args))
+			c.checkCall(ctx.mod, expr.Line, callee.sym.name, callee.sym.fn, argInfos)
 			return exprInfo{returns: callee.sym.fn.ret}
 		case symbolClass:
-			want := 0
 			if callee.sym.class.init != nil {
-				want = len(callee.sym.class.init.params)
-			}
-			if len(expr.Args) != want {
-				c.addDiag(ctx.mod.path, expr.Line, 0, "%s expects %d arguments, got %d", callee.sym.name, want, len(expr.Args))
+				c.checkCall(ctx.mod, expr.Line, callee.sym.name, callee.sym.class.init, argInfos)
+			} else if len(expr.Args) != 0 {
+				c.addDiag(ctx.mod.path, expr.Line, 0, "%s expects 0 arguments, got %d", callee.sym.name, len(expr.Args))
 			}
 			return exprInfo{returns: []*ast.TypeExpr{{Name: callee.sym.class.name}}}
 		}
 	}
 
 	if len(callee.returns) == 1 && callee.returns[0] != nil && callee.returns[0].Name == "fn" && callee.returns[0].ParamTypes != nil {
-		want := len(callee.returns[0].ParamTypes)
-		if len(expr.Args) != want {
-			c.addDiag(ctx.mod.path, expr.Line, 0, "function value expects %d arguments, got %d", want, len(expr.Args))
-		}
+		c.checkCall(ctx.mod, expr.Line, "function value", &funcSig{
+			name:   "function value",
+			params: callee.returns[0].ParamTypes,
+			ret:    singleReturnType(callee.returns[0].ReturnType),
+		}, argInfos)
 		if callee.returns[0].ReturnType != nil {
 			return exprInfo{returns: []*ast.TypeExpr{callee.returns[0].ReturnType}}
 		}
@@ -952,12 +1030,47 @@ func (c *Checker) callInfo(ctx *bodyContext, expr *ast.CallExpr) exprInfo {
 	return exprInfo{}
 }
 
-func (c *Checker) checkArity(mod *moduleInfo, line int, name string, sig *funcSig, got int) {
+func (c *Checker) checkCall(mod *moduleInfo, line int, name string, sig *funcSig, args []exprInfo) {
 	if sig == nil {
 		return
 	}
-	if got != len(sig.params) {
-		c.addDiag(mod.path, line, 0, "%s expects %d arguments, got %d", name, len(sig.params), got)
+	if sig.variadic {
+		min := 0
+		if len(sig.params) > 0 {
+			min = len(sig.params) - 1
+		}
+		if len(args) < min {
+			c.addDiag(mod.path, line, 0, "%s expects at least %d arguments, got %d", name, min, len(args))
+			return
+		}
+		for i := range args {
+			paramIdx := i
+			if len(sig.params) > 0 && paramIdx >= len(sig.params)-1 {
+				paramIdx = len(sig.params) - 1
+			}
+			if len(sig.params) == 0 {
+				continue
+			}
+			if len(args[i].returns) != 1 || args[i].returns[0] == nil || sig.params[paramIdx] == nil {
+				continue
+			}
+			if !c.isAssignable(mod, sig.params[paramIdx], args[i].returns[0]) {
+				c.addDiag(mod.path, line, 0, "%s arg %d expects %s, received %s", name, i+1, typeString(sig.params[paramIdx]), typeString(args[i].returns[0]))
+			}
+		}
+		return
+	}
+	if len(args) != len(sig.params) {
+		c.addDiag(mod.path, line, 0, "%s expects %d arguments, got %d", name, len(sig.params), len(args))
+		return
+	}
+	for i := range args {
+		if len(args[i].returns) != 1 || args[i].returns[0] == nil || sig.params[i] == nil {
+			continue
+		}
+		if !c.isAssignable(mod, sig.params[i], args[i].returns[0]) {
+			c.addDiag(mod.path, line, 0, "%s arg %d expects %s, received %s", name, i+1, typeString(sig.params[i]), typeString(args[i].returns[0]))
+		}
 	}
 }
 
@@ -1011,6 +1124,27 @@ func (c *Checker) resolveImport(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("module %q not found", name)
+}
+
+func (c *Checker) isAssignable(mod *moduleInfo, expected, actual *ast.TypeExpr) bool {
+	if assignable(expected, actual) {
+		return true
+	}
+	if expected == nil || actual == nil {
+		return true
+	}
+
+	_, expectedIface := c.lookupObjectType(mod, expected.Name)
+	actualClass, _ := c.lookupObjectType(mod, actual.Name)
+	if expectedIface != nil && actualClass != nil {
+		for _, ifaceName := range actualClass.implements {
+			if ifaceName == expected.Name {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (c *Checker) hasNameConflict(mod *moduleInfo, name string) bool {
@@ -1069,6 +1203,206 @@ func fnTypeFromSig(sig *funcSig) *ast.TypeExpr {
 	}
 }
 
+func singleReturnType(t *ast.TypeExpr) []*ast.TypeExpr {
+	if t == nil {
+		return nil
+	}
+	return []*ast.TypeExpr{t}
+}
+
+func newBuiltinModule(name string) *moduleInfo {
+	mod := &moduleInfo{
+		path:      "<builtin:" + name + ">",
+		symbols:   make(map[string]*symbol),
+		imports:   make(map[string]*symbol),
+		exports:   make(map[string]*symbol),
+		validated: true,
+		state:     stateLoaded,
+	}
+
+	addFn := func(fnName string, ret []*ast.TypeExpr, params ...*ast.TypeExpr) {
+		sig := &funcSig{name: fnName, params: params, ret: ret}
+		sym := &symbol{kind: symbolFn, name: fnName, fn: sig}
+		mod.symbols[fnName] = sym
+		mod.exports[fnName] = sym
+	}
+	addVariadicFn := func(fnName string, ret []*ast.TypeExpr, params ...*ast.TypeExpr) {
+		sig := &funcSig{name: fnName, params: params, ret: ret, variadic: true}
+		sym := &symbol{kind: symbolFn, name: fnName, fn: sig}
+		mod.symbols[fnName] = sym
+		mod.exports[fnName] = sym
+	}
+	addClass := func(class *classInfo) {
+		sym := &symbol{kind: symbolClass, name: class.name, class: class}
+		mod.symbols[class.name] = sym
+		mod.exports[class.name] = sym
+	}
+
+	typString := &ast.TypeExpr{Name: "string"}
+	typI32 := &ast.TypeExpr{Name: "i32"}
+	typF64 := &ast.TypeExpr{Name: "f64"}
+	typBool := &ast.TypeExpr{Name: "bool"}
+	typErr := &ast.TypeExpr{Name: "err"}
+	typArrayString := &ast.TypeExpr{Name: "array", ElemType: &ast.TypeExpr{Name: "string"}}
+	typFileStat := &ast.TypeExpr{Name: "file.FileStat"}
+	typFile := &ast.TypeExpr{Name: "file.File"}
+
+	switch name {
+	case "fmt":
+		addFn("print", singleReturnType(typErr), nil)
+		addFn("println", singleReturnType(typErr), nil)
+		addFn("eprint", singleReturnType(typErr), nil)
+		addFn("eprintln", singleReturnType(typErr), nil)
+		addVariadicFn("sprintf", singleReturnType(typString), typString, nil)
+		addFn("dollar", singleReturnType(typString), nil)
+	case "os":
+		addFn("args", singleReturnType(typArrayString))
+		addFn("env", []*ast.TypeExpr{typString, typBool}, typString)
+		addFn("set_env", singleReturnType(typErr), typString, typString)
+		addFn("exit", nil, typI32)
+		addFn("cwd", []*ast.TypeExpr{typString, typErr})
+		addFn("hostname", []*ast.TypeExpr{typString, typErr})
+		addFn("platform", singleReturnType(typString))
+		addFn("temp_dir", singleReturnType(typString))
+		addFn("mkdir", singleReturnType(typErr), typString)
+		addFn("rmdir", singleReturnType(typErr), typString)
+		addVariadicFn("exec", []*ast.TypeExpr{typString, typString, typI32, typErr}, typString, typString)
+		addFn("system", []*ast.TypeExpr{typString, typString, typI32, typErr}, typString)
+	case "path":
+		addVariadicFn("join", singleReturnType(typString), typString)
+		addFn("dir", singleReturnType(typString), typString)
+		addFn("base", singleReturnType(typString), typString)
+		addFn("ext", singleReturnType(typString), typString)
+		addFn("abs", []*ast.TypeExpr{typString, typErr}, typString)
+	case "io":
+		addFn("read_line", []*ast.TypeExpr{typString, typErr})
+		addFn("input", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("read_f64", []*ast.TypeExpr{typF64, typErr}, typString)
+		addFn("read_i32", []*ast.TypeExpr{typI32, typErr}, typString)
+		addFn("read_string", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("read_all", []*ast.TypeExpr{typString, typErr})
+		addFn("read", []*ast.TypeExpr{typString, typErr}, typI32)
+	case "file":
+		addFn("read_all", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("read_lines", []*ast.TypeExpr{{Name: "array"}, typErr}, typString)
+		addFn("readlink", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("list_dir", []*ast.TypeExpr{typArrayString, typErr}, typString)
+		addFn("read_dir", []*ast.TypeExpr{typArrayString, typErr}, typString)
+		addFn("exists", singleReturnType(typBool), typString)
+		addFn("write_all", singleReturnType(typErr), typString, typString)
+		addFn("write", singleReturnType(typErr), typString, typString)
+		addFn("append", singleReturnType(typErr), typString, typString)
+		addFn("remove", singleReturnType(typErr), typString)
+		addFn("rename", singleReturnType(typErr), typString, typString)
+		addFn("copy", singleReturnType(typErr), typString, typString)
+		addFn("symlink", singleReturnType(typErr), typString, typString)
+		addFn("link", singleReturnType(typErr), typString, typString)
+		addFn("chmod", singleReturnType(typErr), typString, typI32)
+		addFn("mkdir", singleReturnType(typErr), typString)
+		addFn("touch", singleReturnType(typErr), typString)
+		addFn("open", []*ast.TypeExpr{typFile, typErr}, typString, typString)
+		addFn("stat", []*ast.TypeExpr{typFileStat, typErr}, typString)
+
+		addClass(&classInfo{
+			name: "file.File",
+			methods: map[string]*funcSig{
+				"write":     {name: "write", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"read":      {name: "read", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typString, typErr}},
+				"read_line": {name: "read_line", ret: []*ast.TypeExpr{typString, typErr}},
+				"close":     {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "file.FileStat",
+			fields: map[string]*ast.TypeExpr{
+				"size":     typI32,
+				"is_dir":   typBool,
+				"mod_time": typString,
+				"name":     typString,
+				"mode":     typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+	}
+
+	return mod
+}
+
+func primitiveMethodSig(typ *ast.TypeExpr, name string) *funcSig {
+	if typ == nil {
+		return nil
+	}
+
+	switch typ.Name {
+	case "string":
+		switch name {
+		case "len":
+			return &funcSig{name: "len", ret: []*ast.TypeExpr{{Name: "i32"}}}
+		case "contains", "starts_with", "ends_with":
+			return &funcSig{name: name, params: []*ast.TypeExpr{{Name: "string"}}, ret: []*ast.TypeExpr{{Name: "bool"}}}
+		case "trim", "to_upper", "to_lower":
+			return &funcSig{name: name, ret: []*ast.TypeExpr{{Name: "string"}}}
+		case "replace":
+			return &funcSig{name: "replace", params: []*ast.TypeExpr{{Name: "string"}, {Name: "string"}}, ret: []*ast.TypeExpr{{Name: "string"}}}
+		case "split":
+			return &funcSig{name: "split", params: []*ast.TypeExpr{{Name: "string"}}, ret: []*ast.TypeExpr{{Name: "array", ElemType: &ast.TypeExpr{Name: "string"}}}}
+		case "index_of":
+			return &funcSig{name: "index_of", params: []*ast.TypeExpr{{Name: "string"}}, ret: []*ast.TypeExpr{{Name: "i32"}, {Name: "bool"}}}
+		case "substr":
+			return &funcSig{name: "substr", params: []*ast.TypeExpr{{Name: "i32"}, {Name: "i32"}}, ret: []*ast.TypeExpr{{Name: "string"}, {Name: "err"}}}
+		case "bytes":
+			return &funcSig{name: "bytes", ret: []*ast.TypeExpr{{Name: "array", ElemType: &ast.TypeExpr{Name: "u8"}}}}
+		case "char_at":
+			return &funcSig{name: "char_at", params: []*ast.TypeExpr{{Name: "i32"}}, ret: []*ast.TypeExpr{{Name: "string"}, {Name: "err"}}}
+		}
+	case "array":
+		elem := typ.ElemType
+		switch name {
+		case "len":
+			return &funcSig{name: "len", ret: []*ast.TypeExpr{{Name: "i32"}}}
+		case "push":
+			return &funcSig{name: "push", params: []*ast.TypeExpr{elem}, ret: nil}
+		case "pop":
+			return &funcSig{name: "pop", ret: []*ast.TypeExpr{elem, &ast.TypeExpr{Name: "err"}}}
+		case "get":
+			return &funcSig{name: "get", params: []*ast.TypeExpr{{Name: "i32"}}, ret: []*ast.TypeExpr{elem, &ast.TypeExpr{Name: "err"}}}
+		case "set":
+			return &funcSig{name: "set", params: []*ast.TypeExpr{{Name: "i32"}, elem}, ret: []*ast.TypeExpr{{Name: "err"}}}
+		case "slice":
+			return &funcSig{name: "slice", params: []*ast.TypeExpr{{Name: "i32"}, {Name: "i32"}}, ret: []*ast.TypeExpr{{Name: "array", ElemType: elem}}}
+		case "contains":
+			return &funcSig{name: "contains", params: []*ast.TypeExpr{elem}, ret: []*ast.TypeExpr{{Name: "bool"}}}
+		}
+	case "map":
+		key := typ.KeyType
+		val := typ.ValType
+		switch name {
+		case "len":
+			return &funcSig{name: "len", ret: []*ast.TypeExpr{{Name: "i32"}}}
+		case "get":
+			return &funcSig{name: "get", params: []*ast.TypeExpr{key}, ret: []*ast.TypeExpr{val, &ast.TypeExpr{Name: "bool"}}}
+		case "set":
+			return &funcSig{name: "set", params: []*ast.TypeExpr{key, val}, ret: []*ast.TypeExpr{{Name: "err"}}}
+		case "remove":
+			return &funcSig{name: "remove", params: []*ast.TypeExpr{key}, ret: []*ast.TypeExpr{val, &ast.TypeExpr{Name: "bool"}}}
+		case "has":
+			return &funcSig{name: "has", params: []*ast.TypeExpr{key}, ret: []*ast.TypeExpr{{Name: "bool"}}}
+		case "keys":
+			return &funcSig{name: "keys", ret: []*ast.TypeExpr{{Name: "array", ElemType: key}}}
+		case "values":
+			return &funcSig{name: "values", ret: []*ast.TypeExpr{{Name: "array", ElemType: val}}}
+		}
+	case "err":
+		switch name {
+		case "message", "kind":
+			return &funcSig{name: name, ret: []*ast.TypeExpr{{Name: "string"}}}
+		}
+	}
+
+	return nil
+}
+
 func isStringNumericParseTarget(name string) bool {
 	switch name {
 	case "i32", "i64", "f64":
@@ -1079,6 +1413,14 @@ func isStringNumericParseTarget(name string) bool {
 
 func isDirectCallableType(types []*ast.TypeExpr) bool {
 	return len(types) == 1 && types[0] != nil && types[0].Name == "fn"
+}
+
+func isPrimitiveTypeName(name string) bool {
+	switch name {
+	case "string", "array", "map", "err":
+		return true
+	}
+	return false
 }
 
 func isErrKind(name string) bool {

@@ -94,6 +94,34 @@ fn main() -> i32 {
 	assertHasDiag(t, diags, "class Person method greet return 1 has type i32, interface Greeter requires string")
 }
 
+func TestCheckFileAllowsInterfaceAssignmentFromImplementingClass(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+interface Greeter {
+    fn greet() -> string;
+}
+
+class Person implements Greeter {
+    fn greet() -> string {
+        return "hi";
+    }
+}
+
+fn main() -> i32 {
+    Greeter g = Person();
+    return 0;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
 func TestCheckFileReportsMissingImport(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
@@ -110,6 +138,91 @@ fn main() -> i32 {
 	}
 
 	assertHasDiag(t, diags, `module "missing" not found`)
+}
+
+func TestCheckFileValidatesBuiltinModulesAndMethods(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "path";
+import "fmt";
+
+fn main() -> i32 {
+    string joined = path.join("a", "b", "c");
+    string msg = fmt.sprintf("%s:%d", joined, 1);
+    string lower = msg.to_lower();
+    i32 n = lower.len();
+    return n;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
+func TestCheckFileReportsBuiltinArgTypeMismatch(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "path";
+
+fn main() -> i32 {
+    string joined = path.join("a", 1);
+    return 0;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "join arg 2 expects string, received i32")
+}
+
+func TestCheckFileReportsMethodArgTypeMismatch(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+fn main() -> i32 {
+    string s = "abc";
+    array<string> parts = s.split(123);
+    return parts.len();
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "split arg 1 expects string, received i32")
+}
+
+func TestCheckFileInfersIndexAndForInTypes(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+fn main() -> i32 {
+    array<i32> nums = [1, 2, 3];
+    string bad = nums[0];
+
+    for val in nums {
+        string other = val;
+    }
+
+    return 0;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "type mismatch in variable bad: expected string, received i32")
+	assertHasDiag(t, diags, "type mismatch in variable other: expected string, received i32")
 }
 
 func writeFile(t *testing.T, path string, src string) string {
