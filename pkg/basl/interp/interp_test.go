@@ -11,6 +11,10 @@ import (
 )
 
 func evalBASL(src string) (int, []string, error) {
+	return evalBASLWithSearchPaths(src)
+}
+
+func evalBASLWithSearchPaths(src string, searchPaths ...string) (int, []string, error) {
 	lex := lexer.New(src)
 	tokens, err := lex.Tokenize()
 	if err != nil {
@@ -22,6 +26,9 @@ func evalBASL(src string) (int, []string, error) {
 		return 0, nil, err
 	}
 	interp := New()
+	for _, dir := range searchPaths {
+		interp.AddSearchPath(dir)
+	}
 	var lines []string
 	interp.PrintFn = func(s string) { lines = append(lines, strings.TrimRight(s, "\n")) }
 	code, err := interp.Exec(prog)
@@ -2209,6 +2216,68 @@ fn main() -> i32 {
 
 	want := []string{"initialized"}
 	checkOutput(t, lines, want)
+}
+
+func TestExec_ImportCycleReportsChain(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.basl"), []byte(`import "b";
+pub fn a_value() -> i32 {
+    return 1;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "b.basl"), []byte(`import "a";
+pub fn b_value() -> i32 {
+    return 2;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := evalBASLWithSearchPaths(`import "a";
+
+fn main() -> i32 {
+    return 0;
+}`, tmpDir)
+	if err == nil {
+		t.Fatal("expected import cycle error")
+	}
+	if !strings.Contains(err.Error(), "import cycle detected: a -> b -> a") {
+		t.Fatalf("error = %q, want cycle chain", err.Error())
+	}
+}
+
+func TestExec_ImportCycleReportsNestedChain(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.basl"), []byte(`import "b";
+pub fn a_value() -> i32 {
+    return 1;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "b.basl"), []byte(`import "c";
+pub fn b_value() -> i32 {
+    return 2;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "c.basl"), []byte(`import "a";
+pub fn c_value() -> i32 {
+    return 3;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := evalBASLWithSearchPaths(`import "a";
+
+fn main() -> i32 {
+    return 0;
+}`, tmpDir)
+	if err == nil {
+		t.Fatal("expected import cycle error")
+	}
+	if !strings.Contains(err.Error(), "import cycle detected: a -> b -> c -> a") {
+		t.Fatalf("error = %q, want nested cycle chain", err.Error())
+	}
 }
 
 func TestExec_AnonymousFunctions(t *testing.T) {

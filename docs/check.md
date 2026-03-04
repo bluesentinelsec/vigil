@@ -95,7 +95,7 @@ Imports are resolved across:
 - Project `deps/`
 - Builtin modules
 
-The checker loads imported modules statically and detects import cycles.
+The checker loads imported modules statically and detects import cycles, reporting the cycle chain when one is found.
 
 ### 3. Collect Declarations
 
@@ -159,7 +159,7 @@ This includes many builtin object types and methods such as:
 ### Import and Module Errors
 
 - Missing modules
-- Import cycles
+- Import cycles, including the cycle chain
 - Duplicate import aliases
 - Missing module exports
 
