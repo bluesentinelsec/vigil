@@ -175,7 +175,7 @@ BASL includes a comprehensive standard library:
 - **Database**: `sqlite`
 - **Cryptography**: `crypto`, `hash`, `rand`
 - **Compression**: `compress`, `archive`
-- **Utilities**: `regex`, `args`, `test`
+- **Utilities**: `parse`, `regex`, `args`, `test`
 - **Advanced**: `thread`, `mutex`, `unsafe`, `ffi`
 - **Graphics**: `rl` (Raylib bindings)
 

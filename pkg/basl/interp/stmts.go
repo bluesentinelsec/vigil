@@ -342,21 +342,9 @@ func (interp *Interpreter) execTupleBind(s *ast.TupleBindStmt, env *Env) error {
 
 // evalCallMulti evaluates a call expression and returns multiple values.
 func (interp *Interpreter) evalCallMulti(expr ast.Expr, env *Env) ([]value.Value, error) {
-	// Handle type conversion expressions (they return multi-values)
 	if tc, ok := expr.(*ast.TypeConvExpr); ok {
-		_, err := interp.evalTypeConv(tc, env)
+		v, err := interp.evalTypeConv(tc, env)
 		if err != nil {
-			if mr, ok := err.(*MultiReturnVal); ok {
-				return mr.Values, nil
-			}
-			return nil, err
-		}
-		// Single value conversion (non-string to non-string)
-		v, err := interp.evalExpr(expr, env)
-		if err != nil {
-			if mr, ok := err.(*MultiReturnVal); ok {
-				return mr.Values, nil
-			}
 			return nil, err
 		}
 		return []value.Value{v}, nil

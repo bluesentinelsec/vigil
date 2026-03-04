@@ -15,6 +15,7 @@ func (interp *Interpreter) registerStdlib() {
 	interp.builtinModules["regex"] = interp.makeRegexModule()
 	interp.builtinModules["json"] = interp.makeJsonModule()
 	interp.builtinModules["xml"] = interp.makeXmlModule()
+	interp.builtinModules["parse"] = interp.makeParseModule()
 	interp.builtinModules["base64"] = interp.makeBase64Module()
 	interp.builtinModules["hex"] = interp.makeHexModule()
 	interp.builtinModules["csv"] = interp.makeCsvModule()

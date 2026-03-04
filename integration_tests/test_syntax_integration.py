@@ -146,6 +146,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
     def test_types_literals_and_explicit_conversions(self) -> None:
         source = """
             import "fmt";
+            import "parse";
 
             fn main() -> i32 {
                 i32 dec = 255;
@@ -163,7 +164,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 string h = "ok";
                 err er = ok;
 
-                i32 parsed, err pe = i32("42");
+                i32 parsed, err pe = parse.i32("42");
                 array<array<string>> grid = [["a", "b"], ["c"]];
                 string nested, err ne = grid[0].get(1);
 
@@ -1683,6 +1684,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         source = """
             import "fmt";
             import "file";
+            import "parse";
 
             fn emit(i32 x) -> void {
                 fmt.print(string(x));
@@ -1694,8 +1696,8 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 a = 2;
                 defer emit(a);
 
-                i32 n, err e1 = i32("42");
-                i32 bad, err e2 = i32("x");
+                i32 n, err e1 = parse.i32("42");
+                i32 bad, err e2 = parse.i32("x");
                 string _, err fe = file.read_all("definitely_missing_file.basl");
                 err manual = err("boom", err.io);
 

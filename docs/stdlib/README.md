@@ -13,6 +13,7 @@ Detailed documentation for each module is in `docs/stdlib/`.
 | [math](math.md) | Math functions | `sqrt`, `pow`, `sin`, `cos`, `floor`, `ceil`, `pi`, `e` |
 | [file](file.md) | Filesystem | `read_all`, `write_all`, `open`, `stat`, `mkdir`, `list_dir` |
 | [strings](strings.md) | String utilities | `join`, `repeat` |
+| [parse](parse.md) | Fallible string parsing | `i32`, `i64`, `f64`, `u8`, `u32`, `u64`, `bool` |
 | [time](time.md) | Time operations | `now`, `sleep`, `since`, `format`, `parse` |
 | [path](path.md) | Path manipulation | `join`, `dir`, `base`, `ext`, `abs` |
 | [log](log.md) | Leveled logging | `debug`, `info`, `warn`, `error`, `fatal`, `set_level` |

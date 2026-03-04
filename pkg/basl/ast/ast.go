@@ -317,7 +317,7 @@ type TupleExpr struct {
 	Line  int
 }
 
-// TypeConvExpr represents explicit type conversions like i32("123"), string(42)
+// TypeConvExpr represents explicit type conversions like i32(x), string(42)
 type TypeConvExpr struct {
 	Target *TypeExpr
 	Arg    Expr
