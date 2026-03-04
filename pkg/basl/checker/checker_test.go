@@ -493,6 +493,16 @@ fn main() -> i32 {
     cb.free();
 
     bool exists = file.exists("main.basl");
+    array<file.Entry> walked, err walkErr = file.walk(".");
+    array<file.Entry> walkedFollow, err walkFollowErr = file.walk_follow_links(".");
+    array<file.Entry> walkedBest, array<file.WalkIssue> walkIssues = file.walk_best_effort("missing");
+    array<file.Entry> walkedLinksBest, array<file.WalkIssue> walkLinkIssues = file.walk_follow_links_best_effort("missing");
+    string firstWalkPath = walked[0].path;
+    bool firstWalkDir = walked[0].is_dir;
+    err issueErr = walkIssues[0].err;
+    string issuePath = walkIssues[0].path;
+    err linkIssueErr = walkLinkIssues[0].err;
+    string linkIssuePath = walkLinkIssues[0].path;
     args.ArgParser ap = args.parser("tool", "desc");
     err flagErr = ap.flag("verbose", "bool", "false", "Verbose");
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -23,6 +25,154 @@ func fileErrVal(err error, path string) value.Value {
 		return value.NewErr(fmt.Sprintf("file already exists: %s", path), value.ErrKindExists)
 	}
 	return value.NewErr(fmt.Sprintf("file error: %s", path), value.ErrKindIO)
+}
+
+func walkErrVal(err error, path string) value.Value {
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "too many links") {
+		return value.NewErr(fmt.Sprintf("symlink cycle detected while walking: %s", path), value.ErrKindState)
+	}
+	return fileErrVal(err, path)
+}
+
+func newFileEntry(path string, info os.FileInfo) value.Value {
+	return value.Value{
+		T: value.TypeObject,
+		Data: &value.ObjectVal{
+			ClassName: "file.Entry",
+			Fields: map[string]value.Value{
+				"path":     value.NewString(path),
+				"name":     value.NewString(info.Name()),
+				"is_dir":   value.NewBool(info.IsDir()),
+				"size":     value.NewI32(int32(info.Size())),
+				"mode":     value.NewI32(int32(info.Mode())),
+				"mod_time": value.NewString(info.ModTime().Format("2006-01-02T15:04:05Z07:00")),
+			},
+		},
+	}
+}
+
+func newWalkIssue(path string, errVal value.Value) value.Value {
+	return value.Value{
+		T: value.TypeObject,
+		Data: &value.ObjectVal{
+			ClassName: "file.WalkIssue",
+			Fields: map[string]value.Value{
+				"path": value.NewString(path),
+				"err":  errVal,
+			},
+		},
+	}
+}
+
+func walkDirKey(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func walkEntries(root string, followLinks bool, bestEffort bool) ([]value.Value, []value.Value, value.Value) {
+	entries := make([]value.Value, 0)
+	issues := make([]value.Value, 0)
+
+	recordIssue := func(path string, errVal value.Value) {
+		issues = append(issues, newWalkIssue(path, errVal))
+	}
+
+	var walkErr value.Value = value.Ok
+
+	var visit func(path string, active map[string]struct{}) bool
+	visit = func(path string, active map[string]struct{}) bool {
+		info, err := os.Lstat(path)
+		if err != nil {
+			errVal := walkErrVal(err, path)
+			if bestEffort {
+				recordIssue(path, errVal)
+				return true
+			}
+			walkErr = errVal
+			return false
+		}
+
+		entryInfo := info
+		isDir := info.IsDir()
+		if followLinks && (info.Mode()&os.ModeSymlink) != 0 {
+			targetInfo, statErr := os.Stat(path)
+			if statErr != nil {
+				errVal := walkErrVal(statErr, path)
+				if bestEffort {
+					recordIssue(path, errVal)
+					return true
+				}
+				walkErr = errVal
+				return false
+			}
+			entryInfo = targetInfo
+			isDir = targetInfo.IsDir()
+		}
+
+		entries = append(entries, newFileEntry(path, entryInfo))
+
+		if !isDir {
+			return true
+		}
+
+		if followLinks {
+			key, keyErr := walkDirKey(path)
+			if keyErr != nil {
+				errVal := walkErrVal(keyErr, path)
+				if bestEffort {
+					recordIssue(path, errVal)
+					return true
+				}
+				walkErr = errVal
+				return false
+			}
+			if _, ok := active[key]; ok {
+				errVal := value.NewErr(fmt.Sprintf("symlink cycle detected while walking: %s", path), value.ErrKindState)
+				if bestEffort {
+					recordIssue(path, errVal)
+					return true
+				}
+				walkErr = errVal
+				return false
+			}
+			active[key] = struct{}{}
+			defer delete(active, key)
+		}
+
+		children, readErr := os.ReadDir(path)
+		if readErr != nil {
+			errVal := walkErrVal(readErr, path)
+			if bestEffort {
+				recordIssue(path, errVal)
+				return true
+			}
+			walkErr = errVal
+			return false
+		}
+		sort.Slice(children, func(i, j int) bool {
+			return children[i].Name() < children[j].Name()
+		})
+		for _, child := range children {
+			childPath := filepath.Join(path, child.Name())
+			if !visit(childPath, active) {
+				return false
+			}
+		}
+		return true
+	}
+
+	if !visit(filepath.Clean(root), make(map[string]struct{})) {
+		return nil, issues, walkErr
+	}
+	return entries, issues, value.Ok
 }
 
 func (interp *Interpreter) makeFileModule() *Env {
@@ -246,6 +396,44 @@ func (interp *Interpreter) makeFileModule() *Env {
 			elems[i] = value.NewString(e.Name())
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(elems), value.Ok}}
+	}))
+	env.Define("walk", value.NewNativeFunc("file.walk", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.walk: expected string root")
+		}
+		root := args[0].AsString()
+		entries, _, walkErr := walkEntries(root, false, false)
+		if !walkErr.IsOk() {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), walkErr}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(entries), value.Ok}}
+	}))
+	env.Define("walk_follow_links", value.NewNativeFunc("file.walk_follow_links", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.walk_follow_links: expected string root")
+		}
+		root := args[0].AsString()
+		entries, _, walkErr := walkEntries(root, true, false)
+		if !walkErr.IsOk() {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(nil), walkErr}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(entries), value.Ok}}
+	}))
+	env.Define("walk_best_effort", value.NewNativeFunc("file.walk_best_effort", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.walk_best_effort: expected string root")
+		}
+		root := args[0].AsString()
+		entries, issues, _ := walkEntries(root, false, true)
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(entries), value.NewArray(issues)}}
+	}))
+	env.Define("walk_follow_links_best_effort", value.NewNativeFunc("file.walk_follow_links_best_effort", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("file.walk_follow_links_best_effort: expected string root")
+		}
+		root := args[0].AsString()
+		entries, issues, _ := walkEntries(root, true, true)
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewArray(entries), value.NewArray(issues)}}
 	}))
 	env.Define("exists", value.NewNativeFunc("file.exists", func(args []value.Value) (value.Value, error) {
 		if len(args) != 1 || args[0].T != value.TypeString {

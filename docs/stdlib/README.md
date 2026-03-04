@@ -11,7 +11,7 @@ Detailed documentation for each module is in `docs/stdlib/`.
 | [fmt](fmt.md) | Formatted output | `fmt.print`, `fmt.println`, `fmt.sprintf`, `fmt.dollar` |
 | [os](os.md) | OS interaction | `os.env`, `os.exec`, `os.cwd`, `os.platform`, `os.exit` |
 | [math](math.md) | Math functions | `sqrt`, `pow`, `sin`, `cos`, `floor`, `ceil`, `pi`, `e` |
-| [file](file.md) | Filesystem | `read_all`, `write_all`, `open`, `stat`, `mkdir`, `list_dir` |
+| [file](file.md) | Filesystem | `read_all`, `write_all`, `open`, `stat`, `walk`, `walk_best_effort` |
 | [strings](strings.md) | String utilities | `join`, `repeat` |
 | [parse](parse.md) | Fallible string parsing | `i32`, `i64`, `f64`, `u8`, `u32`, `u64`, `bool` |
 | [time](time.md) | Time operations | `now`, `sleep`, `since`, `format`, `parse` |

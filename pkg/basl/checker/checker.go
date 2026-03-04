@@ -1612,6 +1612,10 @@ func newBuiltinModule(name string) *moduleInfo {
 	typMapStringString := &ast.TypeExpr{Name: "map", KeyType: typString, ValType: typString}
 	typFileStat := &ast.TypeExpr{Name: "file.FileStat"}
 	typFile := &ast.TypeExpr{Name: "file.File"}
+	typFileEntry := &ast.TypeExpr{Name: "file.Entry"}
+	typWalkIssue := &ast.TypeExpr{Name: "file.WalkIssue"}
+	typArrayFileEntry := &ast.TypeExpr{Name: "array", ElemType: typFileEntry}
+	typArrayWalkIssue := &ast.TypeExpr{Name: "array", ElemType: typWalkIssue}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1676,6 +1680,10 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("readlink", []*ast.TypeExpr{typString, typErr}, typString)
 		addFn("list_dir", []*ast.TypeExpr{typArrayString, typErr}, typString)
 		addFn("read_dir", []*ast.TypeExpr{typArrayString, typErr}, typString)
+		addFn("walk", []*ast.TypeExpr{typArrayFileEntry, typErr}, typString)
+		addFn("walk_follow_links", []*ast.TypeExpr{typArrayFileEntry, typErr}, typString)
+		addFn("walk_best_effort", []*ast.TypeExpr{typArrayFileEntry, typArrayWalkIssue}, typString)
+		addFn("walk_follow_links_best_effort", []*ast.TypeExpr{typArrayFileEntry, typArrayWalkIssue}, typString)
 		addFn("exists", singleReturnType(typBool), typString)
 		addFn("write_all", singleReturnType(typErr), typString, typString)
 		addFn("write", singleReturnType(typErr), typString, typString)
@@ -1709,6 +1717,26 @@ func newBuiltinModule(name string) *moduleInfo {
 				"mod_time": typString,
 				"name":     typString,
 				"mode":     typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "file.Entry",
+			fields: map[string]*ast.TypeExpr{
+				"path":     typString,
+				"name":     typString,
+				"is_dir":   typBool,
+				"size":     typI32,
+				"mode":     typI32,
+				"mod_time": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "file.WalkIssue",
+			fields: map[string]*ast.TypeExpr{
+				"path": typString,
+				"err":  typErr,
 			},
 			methods: make(map[string]*funcSig),
 		})

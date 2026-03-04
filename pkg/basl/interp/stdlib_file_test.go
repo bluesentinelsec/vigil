@@ -57,3 +57,86 @@ func TestFileMkdirListDir(t *testing.T) {
 		t.Fatalf("got %q", out[0])
 	}
 }
+
+func TestFileWalkFailFast(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "b.txt"), []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rootEsc := escapePathForBASL(root)
+	src := `import "fmt"; import "file";
+fn main() -> i32 {
+    array<file.Entry> entries, err e = file.walk("` + rootEsc + `");
+    i32 dirs = 0;
+    for (i32 i = 0; i < entries.len(); i++) {
+        if (entries[i].is_dir) {
+            dirs++;
+        }
+    }
+    fmt.print(string(e == ok) + ":" + string(entries.len()) + ":" + string(dirs));
+    return 0;
+}`
+	_, out, err := evalBASL(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[0] != "true:4:2" {
+		t.Fatalf("got %q", out[0])
+	}
+}
+
+func TestFileWalkBestEffortCollectsIssues(t *testing.T) {
+	missing := escapePathForBASL(filepath.Join(t.TempDir(), "missing"))
+	src := `import "fmt"; import "file";
+fn main() -> i32 {
+    array<file.Entry> entries, array<file.WalkIssue> issues = file.walk_best_effort("` + missing + `");
+    fmt.print(string(entries.len()) + ":" + string(issues.len()) + ":" + issues[0].err.kind());
+    return 0;
+}`
+	_, out, err := evalBASL(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[0] != "0:1:not_found" {
+		t.Fatalf("got %q", out[0])
+	}
+}
+
+func TestFileWalkFollowLinksCycleSafe(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	loop := filepath.Join(sub, "loop")
+	if err := os.Symlink("..", loop); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	rootEsc := escapePathForBASL(root)
+	src := `import "fmt"; import "file";
+fn main() -> i32 {
+    array<file.Entry> strictEntries, err strictErr = file.walk_follow_links("` + rootEsc + `");
+    array<file.Entry> bestEntries, array<file.WalkIssue> bestIssues = file.walk_follow_links_best_effort("` + rootEsc + `");
+    fmt.print(string(strictEntries.len()) + ":" + strictErr.kind() + ":" + string(bestEntries.len()) + ":" + string(bestIssues.len()) + ":" + bestIssues[0].err.kind());
+    return 0;
+}`
+	_, out, err := evalBASL(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[0] != "0:state:4:1:state" {
+		t.Fatalf("got %q", out[0])
+	}
+}

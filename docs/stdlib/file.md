@@ -1,6 +1,6 @@
 # file
 
-Filesystem operations: read, write, directory management, and file handles.
+Filesystem operations: read, write, directory management, traversal, and file handles.
 
 ```
 import "file";
@@ -105,6 +105,59 @@ Lists the names of entries in a directory.
 array<string> entries, err e = file.list_dir(".");
 ```
 
+### file.read_dir(string path) -> (array\<string\>, err)
+
+Alias for `file.list_dir(path)`.
+
+### file.walk(string root) -> (array\<file.Entry\>, err)
+
+Recursively walks `root` in lexicographic order (fail-fast mode).
+
+- Does **not** follow symlinked directories.
+- Includes `root` itself as the first entry.
+- Returns `(entries, ok)` on success.
+- Returns `([], err(...))` on the first traversal error.
+
+```c
+array<file.Entry> entries, err e = file.walk("src");
+```
+
+### file.walk_follow_links(string root) -> (array\<file.Entry\>, err)
+
+Recursively walks `root` and follows symlinked directories (fail-fast mode).
+
+- Includes `root` itself as the first entry.
+- Detects symlink cycles and returns `err(..., err.state)` instead of recursing forever.
+- Returns `([], err(...))` on the first traversal error.
+
+```c
+array<file.Entry> entries, err e = file.walk_follow_links("src");
+```
+
+### file.walk_best_effort(string root) -> (array\<file.Entry\>, array\<file.WalkIssue\>)
+
+Recursively walks `root` in lexicographic order (best-effort mode).
+
+- Does **not** follow symlinked directories.
+- Includes `root` itself as the first entry when readable.
+- Continues walking after per-path errors.
+- Returns collected entries plus per-path issues.
+
+```c
+array<file.Entry> entries, array<file.WalkIssue> issues = file.walk_best_effort("src");
+```
+
+### file.walk_follow_links_best_effort(string root) -> (array\<file.Entry\>, array\<file.WalkIssue\>)
+
+Best-effort traversal that follows symlinked directories.
+
+- Detects symlink cycles and reports them in `issues` as `err.state`.
+- Continues walking other paths after recoverable failures.
+
+```c
+array<file.Entry> entries, array<file.WalkIssue> issues = file.walk_follow_links_best_effort("src");
+```
+
 ### file.exists(string path) -> bool
 
 Returns `true` if the path exists, `false` otherwise. Does not return an error.
@@ -149,6 +202,7 @@ FileStat fields:
 | `size` | `i32` | File size in bytes |
 | `is_dir` | `bool` | Whether it's a directory |
 | `mod_time` | `string` | Last modified time (ISO 8601: `"2006-01-02T15:04:05Z07:00"`) |
+| `mode` | `i32` | Full file mode bits |
 
 ```c
 FileStat info, err e = file.stat("data.txt");
@@ -157,6 +211,30 @@ fmt.println(info.size);      // 1234
 fmt.println(info.is_dir);    // false
 fmt.println(info.mod_time);  // "2024-01-15T10:30:00-05:00"
 ```
+
+### file.Entry
+
+Object returned by `file.walk*` functions.
+
+Entry fields:
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Full walked path |
+| `name` | `string` | Base name |
+| `is_dir` | `bool` | Whether the entry is a directory |
+| `size` | `i32` | Size in bytes |
+| `mode` | `i32` | Full file mode bits |
+| `mod_time` | `string` | Last modified time (ISO 8601) |
+
+### file.WalkIssue
+
+Object returned in best-effort walk modes.
+
+Issue fields:
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Path that failed |
+| `err` | `err` | Error value for the path |
 
 ## File Methods
 
