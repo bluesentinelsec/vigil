@@ -1925,26 +1925,32 @@ func TestExec_TypeConversions_Extended(t *testing.T) {
 		src        string
 		wantOutput []string
 	}{
-		// string -> numeric (fallible)
-		{"string_to_i32", `import "fmt"; fn main() -> i32 { i32 n, err e = i32("42"); fmt.print(string(n)); return 0; }`, []string{"42"}},
-		{"string_to_i32_err", `import "fmt"; fn main() -> i32 { i32 n, err e = i32("abc"); fmt.print(e.message()); return 0; }`, []string{"invalid i32: abc"}},
-		{"string_to_i64", `import "fmt"; fn main() -> i32 { i64 n, err e = i64("999999999999"); fmt.print(string(n)); return 0; }`, []string{"999999999999"}},
-		{"string_to_i64_err", `import "fmt"; fn main() -> i32 { i64 n, err e = i64("nope"); fmt.print(e.message()); return 0; }`, []string{"invalid i64: nope"}},
-		{"string_to_f64", `import "fmt"; fn main() -> i32 { f64 n, err e = f64("3.14"); fmt.print(string(n)); return 0; }`, []string{"3.14"}},
-		{"string_to_f64_err", `import "fmt"; fn main() -> i32 { f64 n, err e = f64("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid f64: bad"}},
+		// explicit parsing from strings
+		{"string_to_i32", `import "fmt"; import "parse"; fn main() -> i32 { i32 n, err e = parse.i32("42"); fmt.print(string(n)); return 0; }`, []string{"42"}},
+		{"string_to_i32_err", `import "fmt"; import "parse"; fn main() -> i32 { i32 n, err e = parse.i32("abc"); fmt.print(e.message()); return 0; }`, []string{"invalid i32: abc"}},
+		{"string_to_i64", `import "fmt"; import "parse"; fn main() -> i32 { i64 n, err e = parse.i64("999999999999"); fmt.print(string(n)); return 0; }`, []string{"999999999999"}},
+		{"string_to_i64_err", `import "fmt"; import "parse"; fn main() -> i32 { i64 n, err e = parse.i64("nope"); fmt.print(e.message()); return 0; }`, []string{"invalid i64: nope"}},
+		{"string_to_f64", `import "fmt"; import "parse"; fn main() -> i32 { f64 n, err e = parse.f64("3.14"); fmt.print(string(n)); return 0; }`, []string{"3.14"}},
+		{"string_to_f64_err", `import "fmt"; import "parse"; fn main() -> i32 { f64 n, err e = parse.f64("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid f64: bad"}},
+		{"string_to_u8", `import "fmt"; import "parse"; fn main() -> i32 { u8 n, err e = parse.u8("255"); fmt.print(string(i32(n))); return 0; }`, []string{"255"}},
+		{"string_to_u8_err", `import "fmt"; import "parse"; fn main() -> i32 { u8 n, err e = parse.u8("999"); fmt.print(e.message()); return 0; }`, []string{"invalid u8: 999"}},
+		{"string_to_u32", `import "fmt"; import "parse"; fn main() -> i32 { u32 n, err e = parse.u32("100"); fmt.print(string(i32(n))); return 0; }`, []string{"100"}},
+		{"string_to_u32_err", `import "fmt"; import "parse"; fn main() -> i32 { u32 n, err e = parse.u32("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid u32: bad"}},
+		{"string_to_u64", `import "fmt"; import "parse"; fn main() -> i32 { u64 n, err e = parse.u64("1000"); fmt.print(string(i32(u32(n)))); return 0; }`, []string{"1000"}},
+		{"string_to_u64_err", `import "fmt"; import "parse"; fn main() -> i32 { u64 n, err e = parse.u64("-1"); fmt.print(e.message()); return 0; }`, []string{"invalid u64: -1"}},
+		{"string_to_bool_true", `import "fmt"; import "parse"; fn main() -> i32 { bool enabled, err e = parse.bool("true"); if (enabled) { fmt.print("yes"); } return 0; }`, []string{"yes"}},
+		{"string_to_bool_false", `import "fmt"; import "parse"; fn main() -> i32 { bool enabled, err e = parse.bool("false"); if (!enabled) { fmt.print("no"); } return 0; }`, []string{"no"}},
+		{"string_to_bool_err", `import "fmt"; import "parse"; fn main() -> i32 { bool enabled, err e = parse.bool("TRUE"); if (enabled) { fmt.print("bad"); } fmt.print(e.message()); return 0; }`, []string{"invalid bool: TRUE"}},
 		// numeric cross-conversions
 		{"i32_to_i64", `import "fmt"; fn main() -> i32 { i64 n = i64(42); fmt.print(string(n)); return 0; }`, []string{"42"}},
-		{"i64_to_i32", `import "fmt"; fn main() -> i32 { i64 big, err _ = i64("100"); i32 n = i32(big); fmt.print(string(n)); return 0; }`, []string{"100"}},
+		{"i64_to_i32", `import "fmt"; import "parse"; fn main() -> i32 { i64 big, err _ = parse.i64("100"); i32 n = i32(big); fmt.print(string(n)); return 0; }`, []string{"100"}},
 		{"i32_to_f64", `import "fmt"; fn main() -> i32 { f64 n = f64(10); fmt.print(string(n)); return 0; }`, []string{"10"}},
 		{"f64_to_i32", `import "fmt"; fn main() -> i32 { f64 pi = 3.14; i32 n = i32(pi); fmt.print(string(n)); return 0; }`, []string{"3"}},
-		{"i64_to_f64", `import "fmt"; fn main() -> i32 { i64 big, err _ = i64("1000"); f64 n = f64(big); fmt.print(string(n)); return 0; }`, []string{"1000"}},
+		{"i64_to_f64", `import "fmt"; import "parse"; fn main() -> i32 { i64 big, err _ = parse.i64("1000"); f64 n = f64(big); fmt.print(string(n)); return 0; }`, []string{"1000"}},
 		// i64 to string
-		{"i64_to_string", `import "fmt"; fn main() -> i32 { i64 n, err _ = i64("9876543210"); fmt.print(string(n)); return 0; }`, []string{"9876543210"}},
+		{"i64_to_string", `import "fmt"; import "parse"; fn main() -> i32 { i64 n, err _ = parse.i64("9876543210"); fmt.print(string(n)); return 0; }`, []string{"9876543210"}},
 		// u8 conversions
 		{"i32_to_u8", `import "fmt"; fn main() -> i32 { i32 x = 65; fmt.print(string(i32(u8(x)))); return 0; }`, []string{"65"}},
-		// string to u32 (fallible)
-		{"string_to_u32", `import "fmt"; fn main() -> i32 { u32 n, err e = u32("100"); fmt.print(string(i32(n))); return 0; }`, []string{"100"}},
-		{"string_to_u32_err", `import "fmt"; fn main() -> i32 { u32 n, err e = u32("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid u32: bad"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1963,13 +1969,13 @@ func TestExec_I64Arithmetic(t *testing.T) {
 		src        string
 		wantOutput []string
 	}{
-		{"add", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("200"); fmt.print(string(a + b)); return 0; }`, []string{"300"}},
-		{"sub", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("500"); i64 b, err _ = i64("200"); fmt.print(string(a - b)); return 0; }`, []string{"300"}},
-		{"mul", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("3"); fmt.print(string(a * b)); return 0; }`, []string{"300"}},
-		{"div", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("3"); fmt.print(string(a / b)); return 0; }`, []string{"33"}},
-		{"mod", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("3"); fmt.print(string(a % b)); return 0; }`, []string{"1"}},
-		{"compare_lt", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("1"); i64 b, err _ = i64("2"); if (a < b) { fmt.print("yes"); } return 0; }`, []string{"yes"}},
-		{"compare_eq", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("5"); i64 b, err _ = i64("5"); if (a == b) { fmt.print("eq"); } return 0; }`, []string{"eq"}},
+		{"add", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("200"); fmt.print(string(a + b)); return 0; }`, []string{"300"}},
+		{"sub", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("500"); i64 b, err _ = parse.i64("200"); fmt.print(string(a - b)); return 0; }`, []string{"300"}},
+		{"mul", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("3"); fmt.print(string(a * b)); return 0; }`, []string{"300"}},
+		{"div", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("3"); fmt.print(string(a / b)); return 0; }`, []string{"33"}},
+		{"mod", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("3"); fmt.print(string(a % b)); return 0; }`, []string{"1"}},
+		{"compare_lt", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("1"); i64 b, err _ = parse.i64("2"); if (a < b) { fmt.print("yes"); } return 0; }`, []string{"yes"}},
+		{"compare_eq", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("5"); i64 b, err _ = parse.i64("5"); if (a == b) { fmt.print("eq"); } return 0; }`, []string{"eq"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2127,6 +2133,7 @@ func TestExec_TypeConversionErrors(t *testing.T) {
 		wantErrSub string
 	}{
 		{"bad_conv", `fn main() -> i32 { i32 x = i32(true); return 0; }`, "cannot convert"},
+		{"string_requires_parse", `fn main() -> i32 { i32 x = i32("42"); return 0; }`, "use parse.i32(...)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

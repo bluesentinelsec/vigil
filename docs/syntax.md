@@ -689,10 +689,27 @@ Explicit only — no implicit conversions:
 
 ```c
 i32 x = 42;
-f64 y = f64(x);           // numeric conversion
-string s = string(x);     // to string
-i32 n, err e = i32("42"); // string to number (can fail)
+f64 y = f64(x);       // numeric conversion
+string s = string(x); // to string
 ```
+
+Type conversions do not parse strings. They only convert values that are already compatible with the target type.
+
+## Parsing
+
+Use the `parse` module for fallible string parsing:
+
+```c
+import "parse";
+
+i32 n, err e = parse.i32("42");
+f64 ratio, err re = parse.f64("3.14");
+bool enabled, err be = parse.bool("true");
+```
+
+Available parse functions: `parse.i32`, `parse.i64`, `parse.f64`, `parse.u8`, `parse.u32`, `parse.u64`, `parse.bool`.
+
+If older code used `i32(text)` or `f64(text)` for parsing, replace it with `parse.i32(text)` or `parse.f64(text)`.
 
 ## String Methods
 

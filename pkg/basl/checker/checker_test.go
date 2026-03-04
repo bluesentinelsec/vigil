@@ -202,6 +202,30 @@ fn main() -> i32 {
 	assertHasDiag(t, diags, "split arg 1 expects string, received i32")
 }
 
+func TestCheckFileSeparatesParsingFromConversions(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "parse";
+
+fn main() -> i32 {
+    i32 parsed, err parseErr = parse.i32("42");
+    bool enabled, err boolErr = parse.bool("true");
+    i32 bad = i32("42");
+    return enabled ? parsed : bad;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "cannot convert string to i32; use parse.i32(...) for string parsing")
+	if len(diags) != 1 {
+		t.Fatalf("expected exactly 1 diagnostic, got %#v", diags)
+	}
+}
+
 func TestCheckFileInfersIndexAndForInTypes(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `

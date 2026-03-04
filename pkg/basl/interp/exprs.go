@@ -3,7 +3,6 @@ package interp
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
@@ -1138,13 +1137,6 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeI32 {
 			return arg, nil
 		}
-		if arg.T == value.TypeString {
-			n, parseErr := strconv.ParseInt(arg.AsString(), 10, 32)
-			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), value.NewErr("invalid i32: "+arg.AsString(), value.ErrKindType)}}
-			}
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(int32(n)), value.Ok}}
-		}
 		if arg.T == value.TypeI64 {
 			return value.NewI32(int32(arg.AsI64())), nil
 		}
@@ -1164,26 +1156,12 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeI64 {
 			return arg, nil
 		}
-		if arg.T == value.TypeString {
-			n, parseErr := strconv.ParseInt(arg.AsString(), 10, 64)
-			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(0), value.NewErr("invalid i64: "+arg.AsString(), value.ErrKindType)}}
-			}
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI64(n), value.Ok}}
-		}
 		if arg.T == value.TypeI32 {
 			return value.NewI64(int64(arg.AsI32())), nil
 		}
 	case "f64":
 		if arg.T == value.TypeF64 {
 			return arg, nil
-		}
-		if arg.T == value.TypeString {
-			n, parseErr := strconv.ParseFloat(arg.AsString(), 64)
-			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), value.NewErr("invalid f64: "+arg.AsString(), value.ErrKindType)}}
-			}
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(n), value.Ok}}
 		}
 		if arg.T == value.TypeI32 {
 			return value.NewF64(float64(arg.AsI32())), nil
@@ -1217,13 +1195,6 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		if arg.T == value.TypeU64 {
 			return value.NewU32(uint32(arg.AsU64())), nil
 		}
-		if arg.T == value.TypeString {
-			n, parseErr := strconv.ParseUint(arg.AsString(), 10, 32)
-			if parseErr != nil {
-				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewU32(0), value.NewErr("invalid u32: "+arg.AsString(), value.ErrKindType)}}
-			}
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewU32(uint32(n)), value.Ok}}
-		}
 	case "u64":
 		if arg.T == value.TypeU64 {
 			return arg, nil
@@ -1236,6 +1207,11 @@ func (interp *Interpreter) evalTypeConv(e *ast.TypeConvExpr, env *Env) (value.Va
 		}
 		if arg.T == value.TypeU32 {
 			return value.NewU64(uint64(arg.AsU32())), nil
+		}
+	}
+	if arg.T == value.TypeString {
+		if parseFn := parseFuncForType(e.Target.Name); parseFn != "" {
+			return value.Void, fmt.Errorf("line %d: cannot convert string to %s; use %s(...) for string parsing", e.Line, e.Target.Name, parseFn)
 		}
 	}
 	return value.Void, fmt.Errorf("line %d: cannot convert %v to %s", e.Line, arg.T, e.Target.Name)
@@ -1277,6 +1253,15 @@ func (interp *Interpreter) evalIndex(e *ast.IndexExpr, env *Env) (value.Value, e
 		return value.Void, fmt.Errorf("line %d: key %q not found in map", e.Line, key)
 	}
 	return value.Void, fmt.Errorf("line %d: cannot index %s — only arrays and maps support indexing", e.Line, obj.T)
+}
+
+func parseFuncForType(target string) string {
+	switch target {
+	case "i32", "i64", "f64", "u8", "u32", "u64", "bool":
+		return "parse." + target
+	default:
+		return ""
+	}
 }
 
 // constructObject creates a new class instance and calls init if present.

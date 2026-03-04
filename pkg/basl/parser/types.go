@@ -109,10 +109,11 @@ func (p *Parser) parseType() (*ast.TypeExpr, error) {
 		// Handle module-qualified types: mod.Type
 		if p.peek().Type == lexer.TOKEN_DOT {
 			p.advance() // consume .
-			typeTok, err := p.expect(lexer.TOKEN_IDENT)
-			if err != nil {
-				return nil, err
+			typeTok := p.peek()
+			if !isNameToken(typeTok.Type) {
+				return nil, p.errAt(typeTok, "expected type name after '.'")
 			}
+			p.advance()
 			name = name + "." + typeTok.Literal
 		}
 		return &ast.TypeExpr{Name: name}, nil

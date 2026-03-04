@@ -228,10 +228,11 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 		switch p.peek().Type {
 		case lexer.TOKEN_DOT:
 			p.advance()
-			field, err := p.expect(lexer.TOKEN_IDENT)
-			if err != nil {
-				return nil, err
+			field := p.peek()
+			if !isNameToken(field.Type) {
+				return nil, p.errAt(field, "expected member name after '.'")
 			}
+			p.advance()
 			expr = &ast.MemberExpr{Object: expr, Field: field.Literal, Line: field.Line}
 		case lexer.TOKEN_LPAREN:
 			p.advance()
@@ -256,6 +257,25 @@ func (p *Parser) parsePostfix() (ast.Expr, error) {
 		default:
 			return expr, nil
 		}
+	}
+}
+
+func isNameToken(tok lexer.TokenType) bool {
+	switch tok {
+	case lexer.TOKEN_IDENT,
+		lexer.TOKEN_BOOL_TYPE,
+		lexer.TOKEN_I32,
+		lexer.TOKEN_I64,
+		lexer.TOKEN_F64,
+		lexer.TOKEN_U8,
+		lexer.TOKEN_U32,
+		lexer.TOKEN_U64,
+		lexer.TOKEN_STRING_TYPE,
+		lexer.TOKEN_VOID,
+		lexer.TOKEN_ERR:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -354,7 +374,7 @@ func (p *Parser) parsePrimary() (ast.Expr, error) {
 		p.advance()
 		// Check for 'ok' special identifier
 		return &ast.Ident{Name: tok.Literal, Line: tok.Line}, nil
-	// Type conversion expressions: i32("123"), string(42), f64("1.5")
+	// Type conversion expressions: i32(x), string(42), f64(n)
 	case lexer.TOKEN_I32, lexer.TOKEN_I64, lexer.TOKEN_F64, lexer.TOKEN_STRING_TYPE,
 		lexer.TOKEN_U8, lexer.TOKEN_U32, lexer.TOKEN_U64:
 		if p.pos+1 < len(p.tokens) && p.tokens[p.pos+1].Type == lexer.TOKEN_LPAREN {

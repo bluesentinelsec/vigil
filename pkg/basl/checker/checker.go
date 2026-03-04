@@ -858,8 +858,16 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		return c.callInfo(ctx, e)
 	case *ast.TypeConvExpr:
 		arg := c.checkExpr(ctx, e.Arg)
-		if len(arg.returns) == 1 && arg.returns[0] != nil && isStringNumericParseTarget(e.Target.Name) && arg.returns[0].Name == "string" {
-			return exprInfo{returns: []*ast.TypeExpr{e.Target, {Name: "err"}}}
+		if len(arg.returns) == 1 && arg.returns[0] != nil && !isSupportedTypeConversion(e.Target.Name, arg.returns[0].Name) {
+			if arg.returns[0].Name == "string" {
+				if parseFn := parseFuncForTypeName(e.Target.Name); parseFn != "" {
+					c.addDiag(ctx.mod.path, e.Line, 0, "cannot convert string to %s; use %s(...) for string parsing", e.Target.Name, parseFn)
+				} else {
+					c.addDiag(ctx.mod.path, e.Line, 0, "cannot convert %s to %s", typeString(arg.returns[0]), e.Target.Name)
+				}
+			} else {
+				c.addDiag(ctx.mod.path, e.Line, 0, "cannot convert %s to %s", typeString(arg.returns[0]), e.Target.Name)
+			}
 		}
 		return exprInfo{returns: []*ast.TypeExpr{e.Target}}
 	case *ast.TupleExpr:
@@ -1852,6 +1860,14 @@ func newBuiltinModule(name string) *moduleInfo {
 			},
 			fields: make(map[string]*ast.TypeExpr),
 		})
+	case "parse":
+		addFn("i32", []*ast.TypeExpr{typI32, typErr}, typString)
+		addFn("i64", []*ast.TypeExpr{typI64, typErr}, typString)
+		addFn("f64", []*ast.TypeExpr{typF64, typErr}, typString)
+		addFn("u8", []*ast.TypeExpr{typU8, typErr}, typString)
+		addFn("u32", []*ast.TypeExpr{typU32, typErr}, typString)
+		addFn("u64", []*ast.TypeExpr{typU64, typErr}, typString)
+		addFn("bool", []*ast.TypeExpr{typBool, typErr}, typString)
 	case "http":
 		addFn("get", []*ast.TypeExpr{typHttpResponse, typErr}, typString)
 		addFn("post", []*ast.TypeExpr{typHttpResponse, typErr}, typString, typString)
@@ -2099,12 +2115,51 @@ func primitiveMethodSig(typ *ast.TypeExpr, name string) *funcSig {
 	return nil
 }
 
-func isStringNumericParseTarget(name string) bool {
-	switch name {
-	case "i32", "i64", "f64":
+func isSupportedTypeConversion(target string, source string) bool {
+	switch target {
+	case "string":
 		return true
+	case "i32":
+		switch source {
+		case "i32", "i64", "f64", "u32", "u8", "unsafe.Ptr", "ptr":
+			return true
+		}
+	case "i64":
+		switch source {
+		case "i32", "i64":
+			return true
+		}
+	case "f64":
+		switch source {
+		case "i32", "i64", "f64":
+			return true
+		}
+	case "u8":
+		switch source {
+		case "i32", "u8", "u32", "u64":
+			return true
+		}
+	case "u32":
+		switch source {
+		case "i32", "u8", "u32", "u64":
+			return true
+		}
+	case "u64":
+		switch source {
+		case "i32", "u8", "u32", "u64":
+			return true
+		}
 	}
 	return false
+}
+
+func parseFuncForTypeName(target string) string {
+	switch target {
+	case "i32", "i64", "f64", "u8", "u32", "u64", "bool":
+		return "parse." + target
+	default:
+		return ""
+	}
 }
 
 func isDirectCallableType(types []*ast.TypeExpr) bool {

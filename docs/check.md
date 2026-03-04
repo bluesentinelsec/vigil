@@ -128,6 +128,7 @@ Builtin stdlib modules are modeled explicitly so `basl check` can validate commo
 The checker currently models most non-graphics builtin modules, including:
 
 - `fmt`, `os`, `path`, `io`, `file`, `regex`, `args`
+- `parse`
 - `math`, `strings`, `time`, `log`
 - `base64`, `hex`, `hash`, `mime`, `csv`
 - `archive`, `compress`, `crypto`
