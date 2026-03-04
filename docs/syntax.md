@@ -657,6 +657,8 @@ guard string data, err e = file.read_all("config.txt") {
 }
 ```
 
+Callers are expected to inspect errors explicitly. BASL does not have hidden propagation or pattern matching for errors: you query the error value directly with `e.kind()` and `e.message()`, then branch on that result.
+
 The `err` type has two states: `ok` for success, or `err(message, kind)` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
 
 ### Creating Errors
@@ -672,6 +674,8 @@ err("index 5 out of range", err.bounds)
 The kind must be one of the standard error kinds. Invalid kinds produce a runtime error.
 
 ### Error Methods
+
+These are the standard way to inspect an error after checking `e != ok` or inside a `guard` block.
 
 | Method          | Returns  | Description                    |
 |-----------------|----------|--------------------------------|
