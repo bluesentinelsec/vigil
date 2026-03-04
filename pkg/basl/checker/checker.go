@@ -69,9 +69,44 @@ type funcSig struct {
 	name   string
 	params []*ast.TypeExpr
 	ret    []*ast.TypeExpr
+	// hasArityBounds means minArgs/maxArgs should be used instead of the default
+	// arity derived from params and variadic.
+	hasArityBounds bool
+	minArgs        int
+	// maxArgs is -1 when there is no upper bound.
+	maxArgs int
 	// variadic means the final parameter type repeats for any remaining args.
 	variadic bool
 	line     int
+}
+
+func (sig *funcSig) arityBounds() (int, int) {
+	if sig == nil {
+		return 0, 0
+	}
+	if sig.hasArityBounds {
+		return sig.minArgs, sig.maxArgs
+	}
+	if sig.variadic {
+		if len(sig.params) == 0 {
+			return 0, -1
+		}
+		return len(sig.params) - 1, -1
+	}
+	return len(sig.params), len(sig.params)
+}
+
+func (sig *funcSig) paramType(argIdx int) *ast.TypeExpr {
+	if sig == nil || len(sig.params) == 0 {
+		return nil
+	}
+	if sig.variadic && argIdx >= len(sig.params)-1 {
+		return sig.params[len(sig.params)-1]
+	}
+	if argIdx < 0 || argIdx >= len(sig.params) {
+		return nil
+	}
+	return sig.params[argIdx]
 }
 
 type classInfo struct {
@@ -1034,43 +1069,32 @@ func (c *Checker) checkCall(mod *moduleInfo, line int, name string, sig *funcSig
 	if sig == nil {
 		return
 	}
-	if sig.variadic {
-		min := 0
-		if len(sig.params) > 0 {
-			min = len(sig.params) - 1
-		}
-		if len(args) < min {
-			c.addDiag(mod.path, line, 0, "%s expects at least %d arguments, got %d", name, min, len(args))
-			return
-		}
-		for i := range args {
-			paramIdx := i
-			if len(sig.params) > 0 && paramIdx >= len(sig.params)-1 {
-				paramIdx = len(sig.params) - 1
-			}
-			if len(sig.params) == 0 {
-				continue
-			}
-			if len(args[i].returns) != 1 || args[i].returns[0] == nil || sig.params[paramIdx] == nil {
-				continue
-			}
-			if !c.isAssignable(mod, sig.params[paramIdx], args[i].returns[0]) {
-				c.addDiag(mod.path, line, 0, "%s arg %d expects %s, received %s", name, i+1, typeString(sig.params[paramIdx]), typeString(args[i].returns[0]))
-			}
-		}
-		return
-	}
-	if len(args) != len(sig.params) {
-		c.addDiag(mod.path, line, 0, "%s expects %d arguments, got %d", name, len(sig.params), len(args))
+	minArgs, maxArgs := sig.arityBounds()
+	if len(args) < minArgs || (maxArgs >= 0 && len(args) > maxArgs) {
+		c.addDiag(mod.path, line, 0, "%s %s, got %d", name, formatArityExpectation(minArgs, maxArgs), len(args))
 		return
 	}
 	for i := range args {
-		if len(args[i].returns) != 1 || args[i].returns[0] == nil || sig.params[i] == nil {
+		paramType := sig.paramType(i)
+		if len(args[i].returns) != 1 || args[i].returns[0] == nil || paramType == nil {
 			continue
 		}
-		if !c.isAssignable(mod, sig.params[i], args[i].returns[0]) {
-			c.addDiag(mod.path, line, 0, "%s arg %d expects %s, received %s", name, i+1, typeString(sig.params[i]), typeString(args[i].returns[0]))
+		if !c.isAssignable(mod, paramType, args[i].returns[0]) {
+			c.addDiag(mod.path, line, 0, "%s arg %d expects %s, received %s", name, i+1, typeString(paramType), typeString(args[i].returns[0]))
 		}
+	}
+}
+
+func formatArityExpectation(minArgs int, maxArgs int) string {
+	switch {
+	case maxArgs < 0:
+		return fmt.Sprintf("expects at least %d arguments", minArgs)
+	case minArgs == maxArgs:
+		return fmt.Sprintf("expects %d arguments", minArgs)
+	case minArgs == 0:
+		return fmt.Sprintf("expects at most %d arguments", maxArgs)
+	default:
+		return fmt.Sprintf("expects %d to %d arguments", minArgs, maxArgs)
 	}
 }
 
@@ -1226,8 +1250,16 @@ func newBuiltinModule(name string) *moduleInfo {
 		mod.symbols[fnName] = sym
 		mod.exports[fnName] = sym
 	}
-	addVariadicFn := func(fnName string, ret []*ast.TypeExpr, params ...*ast.TypeExpr) {
-		sig := &funcSig{name: fnName, params: params, ret: ret, variadic: true}
+	addBoundedVariadicFn := func(fnName string, ret []*ast.TypeExpr, minArgs int, params ...*ast.TypeExpr) {
+		sig := &funcSig{
+			name:           fnName,
+			params:         params,
+			ret:            ret,
+			hasArityBounds: true,
+			minArgs:        minArgs,
+			maxArgs:        -1,
+			variadic:       true,
+		}
 		sym := &symbol{kind: symbolFn, name: fnName, fn: sig}
 		mod.symbols[fnName] = sym
 		mod.exports[fnName] = sym
@@ -1261,7 +1293,7 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("println", singleReturnType(typErr), nil)
 		addFn("eprint", singleReturnType(typErr), nil)
 		addFn("eprintln", singleReturnType(typErr), nil)
-		addVariadicFn("sprintf", singleReturnType(typString), typString, nil)
+		addBoundedVariadicFn("sprintf", singleReturnType(typString), 1, typString, nil)
 		addFn("dollar", singleReturnType(typString), nil)
 	case "os":
 		addFn("args", singleReturnType(typArrayString))
@@ -1274,10 +1306,10 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("temp_dir", singleReturnType(typString))
 		addFn("mkdir", singleReturnType(typErr), typString)
 		addFn("rmdir", singleReturnType(typErr), typString)
-		addVariadicFn("exec", []*ast.TypeExpr{typString, typString, typI32, typErr}, typString, typString)
+		addBoundedVariadicFn("exec", []*ast.TypeExpr{typString, typString, typI32, typErr}, 1, typString, typString)
 		addFn("system", []*ast.TypeExpr{typString, typString, typI32, typErr}, typString)
 	case "path":
-		addVariadicFn("join", singleReturnType(typString), typString)
+		addBoundedVariadicFn("join", singleReturnType(typString), 0, typString)
 		addFn("dir", singleReturnType(typString), typString)
 		addFn("base", singleReturnType(typString), typString)
 		addFn("ext", singleReturnType(typString), typString)
@@ -1355,8 +1387,22 @@ func newBuiltinModule(name string) *moduleInfo {
 		addClass(&classInfo{
 			name: "args.ArgParser",
 			methods: map[string]*funcSig{
-				"flag":         {name: "flag", params: []*ast.TypeExpr{typString, typString, typString, typString, typString}, ret: []*ast.TypeExpr{typErr}, variadic: true},
-				"arg":          {name: "arg", params: []*ast.TypeExpr{typString, typString, typString, {Name: "bool"}}, ret: []*ast.TypeExpr{typErr}, variadic: true},
+				"flag": {
+					name:           "flag",
+					params:         []*ast.TypeExpr{typString, typString, typString, typString, typString},
+					ret:            []*ast.TypeExpr{typErr},
+					hasArityBounds: true,
+					minArgs:        4,
+					maxArgs:        5,
+				},
+				"arg": {
+					name:           "arg",
+					params:         []*ast.TypeExpr{typString, typString, typString, {Name: "bool"}},
+					ret:            []*ast.TypeExpr{typErr},
+					hasArityBounds: true,
+					minArgs:        3,
+					maxArgs:        4,
+				},
 				"parse_result": {name: "parse_result", ret: []*ast.TypeExpr{typArgsResult, typErr}},
 				"parse":        {name: "parse", ret: []*ast.TypeExpr{{Name: "map", KeyType: typString, ValType: typString}, typErr}},
 			},

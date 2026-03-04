@@ -147,6 +147,7 @@ import "path";
 import "fmt";
 
 fn main() -> i32 {
+    string empty = path.join();
     string joined = path.join("a", "b", "c");
     string msg = fmt.sprintf("%s:%d", joined, 1);
     string lower = msg.to_lower();
@@ -258,6 +259,39 @@ fn main() -> i32 {
 	}
 	if len(diags) != 0 {
 		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
+func TestCheckFileUsesExactOptionalBuiltinArity(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "args";
+import "fmt";
+import "os";
+import "path";
+
+fn main() -> i32 {
+    args.ArgParser p = args.parser("grep", "Search files");
+    err tooManyFlag = p.flag("ignore-case", "bool", "false", "Case-insensitive search", "i", "extra");
+    err tooManyArg = p.arg("pattern", "string", "Pattern to search for", false, true);
+
+    string formatted = fmt.sprintf("%s:%s", "a", "b");
+    string joined = path.join("a", "b", "c");
+    string stdout, string stderr, i32 code, err execErr = os.exec("echo", "hello", "world");
+
+    return 0;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "flag expects 4 to 5 arguments, got 6")
+	assertHasDiag(t, diags, "arg expects 3 to 4 arguments, got 5")
+	if len(diags) != 2 {
+		t.Fatalf("expected exactly 2 diagnostics, got %#v", diags)
 	}
 }
 
