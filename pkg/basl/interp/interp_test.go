@@ -147,6 +147,82 @@ fn main() -> i32 { i32 n, err e = parse("x"); fmt.print(e.message()); return 0; 
 	}
 }
 
+func TestExec_Guard(t *testing.T) {
+	tests := []struct {
+		name       string
+		src        string
+		wantOutput []string
+	}{
+		{"success", `import "fmt";
+fn read(bool should_succeed) -> (string, err) {
+    if (should_succeed) { return ("data", ok); }
+    return ("", err("missing", err.not_found));
+}
+fn main() -> i32 {
+    guard string data, err e = read(true) {
+        fmt.print("bad");
+        return 1;
+    }
+    fmt.print(data + ":" + e.message());
+    return 0;
+}`, []string{"data:"}},
+		{"error_block", `import "fmt";
+fn read(bool should_succeed) -> (string, err) {
+    if (should_succeed) { return ("data", ok); }
+    return ("", err("missing", err.not_found));
+}
+fn main() -> i32 {
+    guard string data, err e = read(false) {
+        fmt.print(e.message());
+    }
+    fmt.print(":" + data);
+    return 0;
+}`, []string{"missing", ":"}},
+		{"single_err", `import "fmt";
+fn check(bool should_succeed) -> err {
+    if (should_succeed) { return ok; }
+    return err("bad", err.state);
+}
+fn main() -> i32 {
+    guard err e = check(false) {
+        fmt.print(e.message());
+    }
+    return 0;
+}`, []string{"bad"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, lines, err := evalBASL(tt.src)
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
+			checkOutput(t, lines, tt.wantOutput)
+		})
+	}
+}
+
+func TestExec_GuardErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		src        string
+		wantErrSub string
+	}{
+		{"missing_err_binding", `fn value() -> i32 { return 1; } fn main() -> i32 { guard i32 n = value() { return 1; } return n; }`, "guard requires the final binding to be err"},
+		{"discard_err_binding", `fn check() -> err { return ok; } fn main() -> i32 { guard err _ = check() { return 1; } return 0; }`, "guard requires a named err binding"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := evalBASL(tt.src)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErrSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErrSub)
+			}
+		})
+	}
+}
+
 func TestExec_Collections(t *testing.T) {
 	tests := []struct {
 		name       string

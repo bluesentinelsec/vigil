@@ -6,9 +6,7 @@ fn main() -> i32 {
     args.ArgParser p = args.parser("cut", "Extract fields from lines");
     p.flag("f", "string", "", "field number (1-indexed)");
     p.flag("d", "string", "\t", "field delimiter");
-    map<string, string> opts, err e = p.parse();
-    
-    if (e != ok) {
+    guard map<string, string> opts, err e = p.parse() {
         fmt.eprintln(f"cut: {e}");
         return 1;
     }
@@ -44,11 +42,10 @@ fn main() -> i32 {
     string delim = opts["d"];
     
     while (true) {
-        string line, err e2 = io.read_line();
-        if (e2 != ok) {
+        guard string line, err e2 = io.read_line() {
             break;
         }
-        
+
         array<string> fields = line.split(delim);
         
         if (field <= fields.len()) {

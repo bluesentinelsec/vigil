@@ -35,6 +35,7 @@ const (
 	TOKEN_FALSE
 	TOKEN_OK
 	TOKEN_DEFER
+	TOKEN_GUARD
 	TOKEN_IN
 	TOKEN_CONST
 	TOKEN_ENUM
@@ -123,6 +124,7 @@ var tokenNames = map[TokenType]string{
 	TOKEN_CLASS: "class", TOKEN_PUB: "pub", TOKEN_SELF: "self",
 	TOKEN_IMPORT: "import", TOKEN_AS: "as", TOKEN_TRUE: "true", TOKEN_FALSE: "false", TOKEN_OK: "ok",
 	TOKEN_DEFER:      "defer",
+	TOKEN_GUARD:      "guard",
 	TOKEN_IN:         "in",
 	TOKEN_CONST:      "const",
 	TOKEN_ENUM:       "enum",
@@ -176,6 +178,7 @@ var keywords = map[string]TokenType{
 	"class": TOKEN_CLASS, "pub": TOKEN_PUB, "self": TOKEN_SELF,
 	"import": TOKEN_IMPORT, "as": TOKEN_AS, "true": TOKEN_TRUE, "false": TOKEN_FALSE, "ok": TOKEN_OK,
 	"defer":      TOKEN_DEFER,
+	"guard":      TOKEN_GUARD,
 	"in":         TOKEN_IN,
 	"const":      TOKEN_CONST,
 	"enum":       TOKEN_ENUM,

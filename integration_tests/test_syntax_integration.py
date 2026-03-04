@@ -1731,6 +1731,33 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
         """
         self._assert_success(source, stdout=":ok:invalid i32: x:file:manual=boom:42:021")
 
+    def test_guard_statement(self) -> None:
+        source = """
+            import "fmt";
+
+            fn load(bool should_succeed) -> (string, err) {
+                if (should_succeed) {
+                    return ("ready", ok);
+                }
+                return ("", err("missing", err.not_found));
+            }
+
+            fn main() -> i32 {
+                guard string good, err okErr = load(true) {
+                    fmt.print("bad");
+                    return 1;
+                }
+                fmt.print(good + ":" + okErr.message());
+
+                guard string missing, err missErr = load(false) {
+                    fmt.print(":" + missErr.message());
+                }
+                fmt.print(":" + missing);
+                return 0;
+            }
+        """
+        self._assert_success(source, stdout="ready::missing:")
+
     def test_string_methods(self) -> None:
         source = """
             import "fmt";

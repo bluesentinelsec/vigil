@@ -62,7 +62,7 @@
       "patterns": [
         {
           "name": "keyword.control.basl",
-          "match": "\\b(if|else|while|for|break|continue|return|switch|case|default|defer|in)\\b"
+          "match": "\\b(if|else|while|for|break|continue|return|switch|case|default|defer|guard|in)\\b"
         },
         {
           "name": "keyword.declaration.basl",

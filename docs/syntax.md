@@ -608,6 +608,8 @@ if (e != ok) {
 
 BASL has no exceptions. Errors are values returned explicitly.
 
+Manual handling stays fully explicit:
+
 ```c
 string data, err e = file.read_all("config.txt");
 if (e != ok) {
@@ -615,6 +617,47 @@ if (e != ok) {
     return 1;
 }
 ```
+
+For the common “bind, then handle the error immediately” pattern, prefer `guard` to reduce boilerplate while keeping control flow explicit:
+
+```c
+guard string data, err e = file.read_all("config.txt") {
+    fmt.println("failed to read file");
+    return 1;
+}
+```
+
+`guard` is equivalent to:
+
+```c
+string data, err e = file.read_all("config.txt");
+if (e != ok) {
+    fmt.println("failed to read file");
+    return 1;
+}
+```
+
+Use `guard` when the failure branch is immediate and local. Use a normal `if (e != ok)` when you want more customized control flow later in the function.
+
+`guard` still works when you want to branch on specific error kinds. The `err` binding remains a normal value:
+
+```c
+guard string data, err e = file.read_all("config.txt") {
+    switch (e.kind()) {
+        case err.not_found:
+            fmt.println("file missing, using defaults");
+            return 0;
+        case err.permission:
+            fmt.println("access denied");
+            return 1;
+        default:
+            fmt.eprintln(f"error: {e.message()}");
+            return 1;
+    }
+}
+```
+
+Callers are expected to inspect errors explicitly. BASL does not have hidden propagation or pattern matching for errors: you query the error value directly with `e.kind()` and `e.message()`, then branch on that result.
 
 The `err` type has two states: `ok` for success, or `err(message, kind)` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
 
@@ -631,6 +674,8 @@ err("index 5 out of range", err.bounds)
 The kind must be one of the standard error kinds. Invalid kinds produce a runtime error.
 
 ### Error Methods
+
+These are the standard way to inspect an error after checking `e != ok` or inside a `guard` block.
 
 | Method          | Returns  | Description                    |
 |-----------------|----------|--------------------------------|
