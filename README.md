@@ -13,6 +13,7 @@ BASL is a statically-typed, C-syntax scripting language that prioritizes readabi
 - **Comprehensive tooling**:
   - `basl new` - Create projects with standard layout
   - `basl fmt` - Format code automatically
+  - `basl check` - Statically validate code without executing it
   - `basl test` - Run tests with built-in framework
   - `basl debug` - Interactive debugger with breakpoints
   - `basl package` - Build standalone executables or library bundles
@@ -197,6 +198,13 @@ basl script.basl arg1 arg2    # Pass arguments
 basl fmt script.basl          # Format one file
 basl fmt ./src/...            # Format all .basl files recursively
 basl fmt --check script.basl  # Check formatting (CI mode)
+```
+
+### Static Check
+
+```bash
+basl check main.basl          # Validate one file without running it
+basl check ./lib/...          # Validate a directory tree
 ```
 
 ### Debug

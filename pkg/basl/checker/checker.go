@@ -1355,8 +1355,8 @@ func newBuiltinModule(name string) *moduleInfo {
 		addClass(&classInfo{
 			name: "args.ArgParser",
 			methods: map[string]*funcSig{
-				"flag":         {name: "flag", params: []*ast.TypeExpr{typString, typString, typString, typString}, ret: []*ast.TypeExpr{typErr}, variadic: true},
-				"arg":          {name: "arg", params: []*ast.TypeExpr{typString, typString, typString}, ret: []*ast.TypeExpr{typErr}, variadic: true},
+				"flag":         {name: "flag", params: []*ast.TypeExpr{typString, typString, typString, typString, typString}, ret: []*ast.TypeExpr{typErr}, variadic: true},
+				"arg":          {name: "arg", params: []*ast.TypeExpr{typString, typString, typString, {Name: "bool"}}, ret: []*ast.TypeExpr{typErr}, variadic: true},
 				"parse_result": {name: "parse_result", ret: []*ast.TypeExpr{typArgsResult, typErr}},
 				"parse":        {name: "parse", ret: []*ast.TypeExpr{{Name: "map", KeyType: typString, ValType: typString}, typErr}},
 			},
