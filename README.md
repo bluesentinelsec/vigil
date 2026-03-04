@@ -207,6 +207,8 @@ basl check main.basl          # Validate one file without running it
 basl check ./lib/...          # Validate a directory tree
 ```
 
+See [Check Guide](docs/check.md) for detailed behavior, diagnostics, and limitations.
+
 ### Debug
 
 See [Debugger Guide](docs/debugger.md) for detailed usage.
@@ -292,6 +294,7 @@ See the [examples/](examples/) directory for practical examples:
 ## Documentation
 
 - [CLI Reference](docs/cli.md) - Complete command-line tool reference
+- [Check Guide](docs/check.md) - Detailed guide to `basl check`
 - [Language Syntax](docs/syntax.md) - Complete language reference
 - [Standard Library](docs/stdlib/) - All stdlib modules
 - [Performance](docs/performance.md) - Performance characteristics and benchmarks

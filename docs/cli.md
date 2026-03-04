@@ -76,14 +76,11 @@ basl check --path ./vendor main.basl
 
 `basl check` parses BASL source and reports diagnostics without executing user code.
 
-The initial release focuses on:
-- Import resolution
-- Function call arity
-- Return shape mismatches
-- Interface conformance
-- Obvious type mismatches in straightforward cases
+It validates imports, declarations, calls, return shapes, interface conformance, and a broad set of common semantic mistakes across most non-graphics stdlib modules.
 
 In a BASL project root, `basl check` defaults to checking `main.basl` plus the `lib/` and `test/` directories when no explicit target is given.
+
+See [check.md](check.md) for the full guide, detailed behavior, and the complete list of issues it detects.
 
 ## Debugging
 
