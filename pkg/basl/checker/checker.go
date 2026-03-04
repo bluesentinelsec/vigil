@@ -130,6 +130,7 @@ type moduleInfo struct {
 	symbols    map[string]*symbol
 	imports    map[string]*symbol
 	exports    map[string]*symbol
+	strict     bool
 	state      state
 	validated  bool
 	checking   bool
@@ -195,6 +196,7 @@ func CheckFile(path string, searchPaths []string) ([]Diagnostic, error) {
 	for _, name := range interp.BuiltinModuleNames() {
 		c.builtin[name] = newBuiltinModule(name)
 	}
+	c.builtin["test"] = newBuiltinModule("test")
 
 	c.checkModule(absPath, nil)
 
@@ -567,6 +569,9 @@ func (c *Checker) checkFunctionBody(mod *moduleInfo, class *classInfo, decl *ast
 		ctx.scope.define(p.Name, p.Type)
 	}
 	c.checkBlock(ctx, decl.Body)
+	if len(ctx.returns) > 0 && !c.blockAlwaysReturns(decl.Body) {
+		c.addDiag(mod.path, decl.Line, 0, "function %s may exit without returning %d values", decl.Name, len(ctx.returns))
+	}
 }
 
 func (c *Checker) checkBlock(ctx *bodyContext, block *ast.Block) {
@@ -685,14 +690,22 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 					loopScope.scope.define(s.KeyName, iterType.KeyType)
 				}
 				loopScope.scope.define(s.ValName, iterType.ValType)
+			} else {
+				c.addDiag(ctx.mod.path, s.Line, 0, "for-in expects array or map, received %s", typeString(iterType))
 			}
 		}
 		c.checkBlock(loopScope, s.Body)
 	case *ast.SwitchStmt:
-		c.checkExpr(ctx, s.Tag)
+		tag := c.checkExpr(ctx, s.Tag)
 		for _, cs := range s.Cases {
 			for _, val := range cs.Values {
-				c.checkExpr(ctx, val)
+				valInfo := c.checkExpr(ctx, val)
+				if len(cs.Values) == 0 {
+					continue
+				}
+				if len(tag.returns) == 1 && len(valInfo.returns) == 1 && tag.returns[0] != nil && valInfo.returns[0] != nil && !c.isAssignable(ctx.mod, tag.returns[0], valInfo.returns[0]) {
+					c.addDiag(ctx.mod.path, s.Line, 0, "switch case expects %s, received %s", typeString(tag.returns[0]), typeString(valInfo.returns[0]))
+				}
 			}
 			for _, st := range cs.Body {
 				c.checkStmt(ctx, st)
@@ -708,6 +721,57 @@ func (c *Checker) checkStmt(ctx *bodyContext, stmt ast.Stmt) {
 	case *ast.BreakStmt, *ast.ContinueStmt:
 		return
 	}
+}
+
+func (c *Checker) blockAlwaysReturns(block *ast.Block) bool {
+	if block == nil {
+		return false
+	}
+	for _, stmt := range block.Stmts {
+		if c.stmtAlwaysReturns(stmt) {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Checker) stmtAlwaysReturns(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.Block:
+		return c.blockAlwaysReturns(s)
+	case *ast.ReturnStmt:
+		return true
+	case *ast.IfStmt:
+		if s.Else == nil {
+			return false
+		}
+		return c.blockAlwaysReturns(s.Then) && c.stmtAlwaysReturns(s.Else)
+	case *ast.SwitchStmt:
+		if len(s.Cases) == 0 {
+			return false
+		}
+		hasDefault := false
+		for _, cs := range s.Cases {
+			if len(cs.Values) == 0 {
+				hasDefault = true
+			}
+			if !c.stmtsAlwaysReturn(cs.Body) {
+				return false
+			}
+		}
+		return hasDefault
+	default:
+		return false
+	}
+}
+
+func (c *Checker) stmtsAlwaysReturn(stmts []ast.Stmt) bool {
+	for _, stmt := range stmts {
+		if c.stmtAlwaysReturns(stmt) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Checker) checkReturn(ctx *bodyContext, stmt *ast.ReturnStmt) {
@@ -820,8 +884,14 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		operand := c.checkExpr(ctx, e.Operand)
 		switch e.Op {
 		case "!":
+			if len(operand.returns) == 1 && operand.returns[0] != nil && operand.returns[0].Name != "bool" {
+				c.addDiag(ctx.mod.path, e.Line, 0, "operator ! expects bool, received %s", typeString(operand.returns[0]))
+			}
 			return exprInfo{returns: []*ast.TypeExpr{{Name: "bool"}}}
 		case "-":
+			if len(operand.returns) == 1 && operand.returns[0] != nil && !isNumericTypeName(operand.returns[0].Name) {
+				c.addDiag(ctx.mod.path, e.Line, 0, "operator - expects numeric operand, received %s", typeString(operand.returns[0]))
+			}
 			return exprInfo{returns: operand.returns}
 		default:
 			return exprInfo{returns: operand.returns}
@@ -830,13 +900,39 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		left := c.checkExpr(ctx, e.Left)
 		right := c.checkExpr(ctx, e.Right)
 		switch e.Op {
-		case "==", "!=", "<", ">", "<=", ">=", "&&", "||":
+		case "&&", "||":
+			if len(left.returns) == 1 && left.returns[0] != nil && left.returns[0].Name != "bool" {
+				c.addDiag(ctx.mod.path, e.Line, 0, "operator %s expects bool operands, left side is %s", e.Op, typeString(left.returns[0]))
+			}
+			if len(right.returns) == 1 && right.returns[0] != nil && right.returns[0].Name != "bool" {
+				c.addDiag(ctx.mod.path, e.Line, 0, "operator %s expects bool operands, right side is %s", e.Op, typeString(right.returns[0]))
+			}
+			return exprInfo{returns: []*ast.TypeExpr{{Name: "bool"}}}
+		case "==", "!=":
+			return exprInfo{returns: []*ast.TypeExpr{{Name: "bool"}}}
+		case "<", ">", "<=", ">=":
+			if len(left.returns) == 1 && len(right.returns) == 1 && left.returns[0] != nil && right.returns[0] != nil {
+				if !c.isAssignable(ctx.mod, left.returns[0], right.returns[0]) && !c.isAssignable(ctx.mod, right.returns[0], left.returns[0]) {
+					c.addDiag(ctx.mod.path, e.Line, 0, "operator %s compares incompatible types %s and %s", e.Op, typeString(left.returns[0]), typeString(right.returns[0]))
+				}
+			}
 			return exprInfo{returns: []*ast.TypeExpr{{Name: "bool"}}}
 		case "+":
 			if len(left.returns) == 1 && len(right.returns) == 1 && left.returns[0] != nil && right.returns[0] != nil {
 				if left.returns[0].Name == "string" && right.returns[0].Name == "string" {
 					return exprInfo{returns: []*ast.TypeExpr{{Name: "string"}}}
 				}
+				if isNumericTypeName(left.returns[0].Name) && sameType(left.returns[0], right.returns[0]) {
+					return exprInfo{returns: left.returns}
+				}
+				c.addDiag(ctx.mod.path, e.Line, 0, "operator + expects matching numeric types or strings, received %s and %s", typeString(left.returns[0]), typeString(right.returns[0]))
+			}
+		case "-", "*", "/", "%":
+			if len(left.returns) == 1 && len(right.returns) == 1 && left.returns[0] != nil && right.returns[0] != nil {
+				if isNumericTypeName(left.returns[0].Name) && sameType(left.returns[0], right.returns[0]) {
+					return exprInfo{returns: left.returns}
+				}
+				c.addDiag(ctx.mod.path, e.Line, 0, "operator %s expects matching numeric types, received %s and %s", e.Op, typeString(left.returns[0]), typeString(right.returns[0]))
 			}
 		}
 		return exprInfo{returns: left.returns}
@@ -910,13 +1006,21 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		return exprInfo{returns: []*ast.TypeExpr{{Name: "map", KeyType: keyType, ValType: valType}}}
 	case *ast.IndexExpr:
 		objInfo := c.checkExpr(ctx, e.Object)
-		c.checkExpr(ctx, e.Index)
+		idxInfo := c.checkExpr(ctx, e.Index)
 		if len(objInfo.returns) == 1 && objInfo.returns[0] != nil {
 			switch objInfo.returns[0].Name {
 			case "array":
+				if len(idxInfo.returns) == 1 && idxInfo.returns[0] != nil && idxInfo.returns[0].Name != "i32" {
+					c.addDiag(ctx.mod.path, e.Line, 0, "array index must be i32, received %s", typeString(idxInfo.returns[0]))
+				}
 				return exprInfo{returns: []*ast.TypeExpr{objInfo.returns[0].ElemType}}
 			case "map":
+				if len(idxInfo.returns) == 1 && idxInfo.returns[0] != nil && objInfo.returns[0].KeyType != nil && !c.isAssignable(ctx.mod, objInfo.returns[0].KeyType, idxInfo.returns[0]) {
+					c.addDiag(ctx.mod.path, e.Line, 0, "map index expects %s, received %s", typeString(objInfo.returns[0].KeyType), typeString(idxInfo.returns[0]))
+				}
 				return exprInfo{returns: []*ast.TypeExpr{objInfo.returns[0].ValType}}
+			default:
+				c.addDiag(ctx.mod.path, e.Line, 0, "type %s is not indexable", typeString(objInfo.returns[0]))
 			}
 		}
 		return exprInfo{}
@@ -972,7 +1076,7 @@ func (c *Checker) memberInfo(ctx *bodyContext, expr *ast.MemberExpr) exprInfo {
 			}
 			member, ok := obj.sym.module.exports[expr.Field]
 			if !ok {
-				if !obj.sym.builtin {
+				if !obj.sym.builtin || obj.sym.module.strict {
 					c.addDiag(ctx.mod.path, expr.Line, 0, "module member %q not found", expr.Field)
 				}
 				return exprInfo{}
@@ -1040,6 +1144,7 @@ func (c *Checker) callInfo(ctx *bodyContext, expr *ast.CallExpr) exprInfo {
 		switch callee.sym.kind {
 		case symbolFn:
 			c.checkCall(ctx.mod, expr.Line, callee.sym.name, callee.sym.fn, argInfos)
+			c.checkBuiltinCallSemantics(ctx, expr.Callee, argInfos)
 			return exprInfo{returns: callee.sym.fn.ret}
 		case symbolClass:
 			if callee.sym.class.init != nil {
@@ -1061,8 +1166,103 @@ func (c *Checker) callInfo(ctx *bodyContext, expr *ast.CallExpr) exprInfo {
 			return exprInfo{returns: []*ast.TypeExpr{callee.returns[0].ReturnType}}
 		}
 	}
+	if len(callee.returns) == 1 && callee.returns[0] != nil && callee.returns[0].Name == "ffi.Func" {
+		return exprInfo{returns: []*ast.TypeExpr{nil}}
+	}
 
 	return exprInfo{}
+}
+
+func (c *Checker) checkBuiltinCallSemantics(ctx *bodyContext, callee ast.Expr, args []exprInfo) {
+	member, ok := callee.(*ast.MemberExpr)
+	if !ok {
+		return
+	}
+	obj, ok := member.Object.(*ast.Ident)
+	if !ok {
+		return
+	}
+	modSym, ok := ctx.mod.symbols[obj.Name]
+	if !ok || modSym.kind != symbolModule || modSym.module == nil || !modSym.builtin {
+		return
+	}
+
+	switch modSym.module.path + "." + member.Field {
+	case "<builtin:thread>.spawn":
+		if len(args) == 0 || len(args[0].returns) != 1 || args[0].returns[0] == nil {
+			return
+		}
+		fnType := args[0].returns[0]
+		if fnType.Name != "fn" || fnType.ParamTypes == nil {
+			return
+		}
+		if len(args)-1 != len(fnType.ParamTypes) {
+			c.addDiag(ctx.mod.path, member.Line, 0, "thread.spawn target expects %d arguments, got %d", len(fnType.ParamTypes), len(args)-1)
+			return
+		}
+		for i := 1; i < len(args); i++ {
+			if len(args[i].returns) != 1 || args[i].returns[0] == nil {
+				continue
+			}
+			if !c.isAssignable(ctx.mod, fnType.ParamTypes[i-1], args[i].returns[0]) {
+				c.addDiag(ctx.mod.path, member.Line, 0, "thread.spawn arg %d expects %s, received %s", i, typeString(fnType.ParamTypes[i-1]), typeString(args[i].returns[0]))
+			}
+		}
+	case "<builtin:sort>.by":
+		if len(args) != 2 || len(args[0].returns) != 1 || len(args[1].returns) != 1 || args[0].returns[0] == nil || args[1].returns[0] == nil {
+			return
+		}
+		arrType := args[0].returns[0]
+		fnType := args[1].returns[0]
+		if arrType.Name != "array" || arrType.ElemType == nil || fnType.Name != "fn" || fnType.ParamTypes == nil {
+			return
+		}
+		if len(fnType.ParamTypes) != 2 {
+			c.addDiag(ctx.mod.path, member.Line, 0, "sort.by comparator expects 2 arguments, got %d", len(fnType.ParamTypes))
+			return
+		}
+		for i, paramType := range fnType.ParamTypes {
+			if paramType != nil && !c.isAssignable(ctx.mod, paramType, arrType.ElemType) {
+				c.addDiag(ctx.mod.path, member.Line, 0, "sort.by comparator arg %d expects %s, received %s", i+1, typeString(paramType), typeString(arrType.ElemType))
+			}
+		}
+		if fnType.ReturnType != nil && fnType.ReturnType.Name != "bool" {
+			c.addDiag(ctx.mod.path, member.Line, 0, "sort.by comparator must return bool, received %s", typeString(fnType.ReturnType))
+		}
+	case "<builtin:log>.set_handler":
+		if len(args) != 1 || len(args[0].returns) != 1 || args[0].returns[0] == nil {
+			return
+		}
+		fnType := args[0].returns[0]
+		if fnType.Name != "fn" || fnType.ParamTypes == nil {
+			return
+		}
+		if len(fnType.ParamTypes) != 2 {
+			c.addDiag(ctx.mod.path, member.Line, 0, "log.set_handler handler expects 2 arguments, got %d", len(fnType.ParamTypes))
+			return
+		}
+		if fnType.ParamTypes[0] != nil && fnType.ParamTypes[0].Name != "string" {
+			c.addDiag(ctx.mod.path, member.Line, 0, "log.set_handler handler arg 1 expects string, received %s", typeString(fnType.ParamTypes[0]))
+		}
+		if fnType.ParamTypes[1] != nil && fnType.ParamTypes[1].Name != "string" {
+			c.addDiag(ctx.mod.path, member.Line, 0, "log.set_handler handler arg 2 expects string, received %s", typeString(fnType.ParamTypes[1]))
+		}
+	case "<builtin:http>.listen":
+		if len(args) != 2 || len(args[1].returns) != 1 || args[1].returns[0] == nil {
+			return
+		}
+		fnType := args[1].returns[0]
+		if fnType.Name != "fn" || fnType.ParamTypes == nil {
+			return
+		}
+		if len(fnType.ParamTypes) != 1 {
+			c.addDiag(ctx.mod.path, member.Line, 0, "http.listen handler expects 1 argument, got %d", len(fnType.ParamTypes))
+			return
+		}
+		if fnType.ParamTypes[0] != nil && !c.isAssignable(ctx.mod, &ast.TypeExpr{Name: "HttpRequest"}, fnType.ParamTypes[0]) {
+			c.addDiag(ctx.mod.path, member.Line, 0, "http.listen handler arg 1 expects HttpRequest, received %s", typeString(fnType.ParamTypes[0]))
+		}
+	}
 }
 
 func (c *Checker) checkCall(mod *moduleInfo, line int, name string, sig *funcSig, args []exprInfo) {
@@ -1099,13 +1299,16 @@ func formatArityExpectation(minArgs int, maxArgs int) string {
 }
 
 func (c *Checker) lookupObjectType(mod *moduleInfo, name string) (*classInfo, *interfaceInfo) {
-	if mod == nil || name == "" {
+	if name == "" {
 		return nil, nil
 	}
 
 	baseMod := mod
 	typeName := name
 	if strings.Contains(name, ".") {
+		if mod == nil {
+			return nil, nil
+		}
 		parts := strings.SplitN(name, ".", 2)
 		importSym, ok := mod.imports[parts[0]]
 		if !ok || importSym.module == nil {
@@ -1115,17 +1318,105 @@ func (c *Checker) lookupObjectType(mod *moduleInfo, name string) (*classInfo, *i
 		typeName = parts[1]
 	}
 
-	sym, ok := baseMod.symbols[typeName]
-	if !ok {
-		return nil, nil
+	if baseMod != nil {
+		if sym, ok := baseMod.symbols[typeName]; ok {
+			if sym.class != nil {
+				return sym.class, nil
+			}
+			if sym.iface != nil {
+				return nil, sym.iface
+			}
+		}
 	}
-	if sym.class != nil {
-		return sym.class, nil
+
+	class, iface := c.lookupBuiltinExportType(typeName)
+	if class != nil || iface != nil {
+		return class, iface
 	}
-	if sym.iface != nil {
-		return nil, sym.iface
+
+	return nil, nil
+}
+
+func (c *Checker) lookupBuiltinExportType(name string) (*classInfo, *interfaceInfo) {
+	var foundClass *classInfo
+	var foundIface *interfaceInfo
+	for _, mod := range c.builtin {
+		sym, ok := mod.exports[name]
+		if !ok {
+			continue
+		}
+		if sym.class != nil {
+			if foundClass != nil && foundClass != sym.class {
+				return nil, nil
+			}
+			foundClass = sym.class
+		}
+		if sym.iface != nil {
+			if foundIface != nil && foundIface != sym.iface {
+				return nil, nil
+			}
+			foundIface = sym.iface
+		}
+	}
+	if foundClass != nil || foundIface != nil {
+		return foundClass, foundIface
 	}
 	return nil, nil
+}
+
+func (c *Checker) isAssignable(mod *moduleInfo, expected, actual *ast.TypeExpr) bool {
+	if expected == nil || actual == nil {
+		return true
+	}
+	if sameType(expected, actual) {
+		return true
+	}
+	if expected.Name == "array" && actual.Name == "array" {
+		if expected.ElemType == nil || actual.ElemType == nil {
+			return true
+		}
+		return c.isAssignable(mod, expected.ElemType, actual.ElemType)
+	}
+	if expected.Name == "map" && actual.Name == "map" {
+		keyOK := expected.KeyType == nil || actual.KeyType == nil || c.isAssignable(mod, expected.KeyType, actual.KeyType)
+		valOK := expected.ValType == nil || actual.ValType == nil || c.isAssignable(mod, expected.ValType, actual.ValType)
+		return keyOK && valOK
+	}
+	if expected.Name == "fn" && actual.Name == "fn" {
+		if expected.ParamTypes == nil && expected.ReturnType == nil {
+			return true
+		}
+		if len(expected.ParamTypes) != len(actual.ParamTypes) {
+			return false
+		}
+		for i := range expected.ParamTypes {
+			if !sameType(expected.ParamTypes[i], actual.ParamTypes[i]) {
+				return false
+			}
+		}
+		if expected.ReturnType == nil {
+			return true
+		}
+		return sameType(expected.ReturnType, actual.ReturnType)
+	}
+
+	expectedClass, expectedIface := c.lookupObjectType(mod, expected.Name)
+	actualClass, actualIface := c.lookupObjectType(mod, actual.Name)
+	if expectedClass != nil && actualClass != nil && expectedClass == actualClass {
+		return true
+	}
+	if expectedIface != nil && actualIface != nil && expectedIface == actualIface {
+		return true
+	}
+	if expectedIface != nil && actualClass != nil {
+		for _, ifaceName := range actualClass.implements {
+			if ifaceName == expected.Name {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (c *Checker) resolveImport(name string) (string, error) {
@@ -1148,27 +1439,6 @@ func (c *Checker) resolveImport(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("module %q not found", name)
-}
-
-func (c *Checker) isAssignable(mod *moduleInfo, expected, actual *ast.TypeExpr) bool {
-	if assignable(expected, actual) {
-		return true
-	}
-	if expected == nil || actual == nil {
-		return true
-	}
-
-	_, expectedIface := c.lookupObjectType(mod, expected.Name)
-	actualClass, _ := c.lookupObjectType(mod, actual.Name)
-	if expectedIface != nil && actualClass != nil {
-		for _, ifaceName := range actualClass.implements {
-			if ifaceName == expected.Name {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 func (c *Checker) hasNameConflict(mod *moduleInfo, name string) bool {
@@ -1207,6 +1477,9 @@ func fnSigFromInterfaceMethod(method ast.InterfaceMethod) *funcSig {
 
 func returnTypes(rt *ast.ReturnType) []*ast.TypeExpr {
 	if rt == nil {
+		return nil
+	}
+	if len(rt.Types) == 1 && rt.Types[0] != nil && rt.Types[0].Name == "void" {
 		return nil
 	}
 	return append([]*ast.TypeExpr(nil), rt.Types...)
@@ -1250,6 +1523,19 @@ func newBuiltinModule(name string) *moduleInfo {
 		mod.symbols[fnName] = sym
 		mod.exports[fnName] = sym
 	}
+	addBoundedFn := func(fnName string, ret []*ast.TypeExpr, minArgs int, maxArgs int, params ...*ast.TypeExpr) {
+		sig := &funcSig{
+			name:           fnName,
+			params:         params,
+			ret:            ret,
+			hasArityBounds: true,
+			minArgs:        minArgs,
+			maxArgs:        maxArgs,
+		}
+		sym := &symbol{kind: symbolFn, name: fnName, fn: sig}
+		mod.symbols[fnName] = sym
+		mod.exports[fnName] = sym
+	}
 	addBoundedVariadicFn := func(fnName string, ret []*ast.TypeExpr, minArgs int, params ...*ast.TypeExpr) {
 		sig := &funcSig{
 			name:           fnName,
@@ -1263,6 +1549,11 @@ func newBuiltinModule(name string) *moduleInfo {
 		sym := &symbol{kind: symbolFn, name: fnName, fn: sig}
 		mod.symbols[fnName] = sym
 		mod.exports[fnName] = sym
+	}
+	addConst := func(constName string, typ *ast.TypeExpr) {
+		sym := &symbol{kind: symbolConst, name: constName, typ: typ}
+		mod.symbols[constName] = sym
+		mod.exports[constName] = sym
 	}
 	addClass := func(class *classInfo) {
 		exportName := class.name
@@ -1278,14 +1569,39 @@ func newBuiltinModule(name string) *moduleInfo {
 	typI32 := &ast.TypeExpr{Name: "i32"}
 	typF64 := &ast.TypeExpr{Name: "f64"}
 	typI64 := &ast.TypeExpr{Name: "i64"}
+	typU8 := &ast.TypeExpr{Name: "u8"}
+	typU32 := &ast.TypeExpr{Name: "u32"}
+	typU64 := &ast.TypeExpr{Name: "u64"}
 	typBool := &ast.TypeExpr{Name: "bool"}
 	typErr := &ast.TypeExpr{Name: "err"}
+	typFn := &ast.TypeExpr{Name: "fn"}
 	typArrayString := &ast.TypeExpr{Name: "array", ElemType: &ast.TypeExpr{Name: "string"}}
+	typArrayArrayString := &ast.TypeExpr{Name: "array", ElemType: &ast.TypeExpr{Name: "array", ElemType: typString}}
+	typMapStringString := &ast.TypeExpr{Name: "map", KeyType: typString, ValType: typString}
 	typFileStat := &ast.TypeExpr{Name: "file.FileStat"}
 	typFile := &ast.TypeExpr{Name: "file.File"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
+	typJsonValue := &ast.TypeExpr{Name: "json.Value"}
+	typXmlValue := &ast.TypeExpr{Name: "xml.Value"}
+	typArrayXmlValue := &ast.TypeExpr{Name: "array", ElemType: typXmlValue}
+	typHttpResponse := &ast.TypeExpr{Name: "HttpResponse"}
+	typTcpConn := &ast.TypeExpr{Name: "TcpConn"}
+	typTcpListener := &ast.TypeExpr{Name: "TcpListener"}
+	typUdpConn := &ast.TypeExpr{Name: "UdpConn"}
+	typSqliteDB := &ast.TypeExpr{Name: "SqliteDB"}
+	typSqliteRows := &ast.TypeExpr{Name: "SqliteRows"}
+	typThread := &ast.TypeExpr{Name: "Thread"}
+	typMutex := &ast.TypeExpr{Name: "Mutex"}
+	typTestT := &ast.TypeExpr{Name: "test.T"}
+	typFfiLib := &ast.TypeExpr{Name: "ffi.Lib"}
+	typFfiFunc := &ast.TypeExpr{Name: "ffi.Func"}
+	typUnsafePtr := &ast.TypeExpr{Name: "unsafe.Ptr"}
+	typUnsafeBuffer := &ast.TypeExpr{Name: "unsafe.Buffer"}
+	typUnsafeLayout := &ast.TypeExpr{Name: "unsafe.Layout"}
+	typUnsafeStruct := &ast.TypeExpr{Name: "unsafe.Struct"}
+	typUnsafeCallback := &ast.TypeExpr{Name: "unsafe.Callback"}
 
 	switch name {
 	case "fmt":
@@ -1324,7 +1640,7 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("read", []*ast.TypeExpr{typString, typErr}, typI32)
 	case "file":
 		addFn("read_all", []*ast.TypeExpr{typString, typErr}, typString)
-		addFn("read_lines", []*ast.TypeExpr{{Name: "array"}, typErr}, typString)
+		addFn("read_lines", []*ast.TypeExpr{typArrayString, typErr}, typString)
 		addFn("readlink", []*ast.TypeExpr{typString, typErr}, typString)
 		addFn("list_dir", []*ast.TypeExpr{typArrayString, typErr}, typString)
 		addFn("read_dir", []*ast.TypeExpr{typArrayString, typErr}, typString)
@@ -1417,11 +1733,286 @@ func newBuiltinModule(name string) *moduleInfo {
 				"get_i32":    {name: "get_i32", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI32}},
 				"get_i64":    {name: "get_i64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI64}},
 				"get_f64":    {name: "get_f64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typF64}},
-				"get_u32":    {name: "get_u32", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{{Name: "u32"}}},
-				"get_u64":    {name: "get_u64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{{Name: "u64"}}},
+				"get_u32":    {name: "get_u32", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typU32}},
+				"get_u64":    {name: "get_u64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typU64}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
 		})
+	case "math":
+		for _, fnName := range []string{"sqrt", "abs", "floor", "ceil", "round", "sin", "cos", "tan", "log"} {
+			addFn(fnName, singleReturnType(typF64), typF64)
+		}
+		addFn("pow", singleReturnType(typF64), typF64, typF64)
+		addFn("min", singleReturnType(typF64), typF64, typF64)
+		addFn("max", singleReturnType(typF64), typF64, typF64)
+		addFn("random", singleReturnType(typF64))
+		addConst("pi", typF64)
+		addConst("e", typF64)
+	case "strings":
+		addFn("join", singleReturnType(typString), typArrayString, typString)
+		addFn("repeat", singleReturnType(typString), typString, typI32)
+	case "time":
+		addFn("now", singleReturnType(typI64))
+		addFn("sleep", nil, typI32)
+		addFn("since", singleReturnType(typI64), typI64)
+		addFn("format", singleReturnType(typString), typI64, typString)
+		addFn("parse", []*ast.TypeExpr{typI64, typErr}, typString, typString)
+	case "log":
+		addFn("debug", nil, nil)
+		addFn("info", nil, nil)
+		addFn("warn", nil, nil)
+		addFn("error", nil, nil)
+		addFn("fatal", nil, nil)
+		addFn("set_level", nil, typString)
+		addFn("set_handler", nil, &ast.TypeExpr{Name: "fn", ParamTypes: []*ast.TypeExpr{typString, typString}})
+	case "base64":
+		addFn("encode", singleReturnType(typString), typString)
+		addFn("decode", []*ast.TypeExpr{typString, typErr}, typString)
+	case "hex":
+		addFn("encode", singleReturnType(typString), typString)
+		addFn("decode", []*ast.TypeExpr{typString, typErr}, typString)
+	case "hash":
+		addFn("sha256", singleReturnType(typString), typString)
+		addFn("sha512", singleReturnType(typString), typString)
+		addFn("sha1", singleReturnType(typString), typString)
+		addFn("md5", singleReturnType(typString), typString)
+		addFn("hmac_sha256", singleReturnType(typString), typString, typString)
+	case "mime":
+		addFn("type_by_ext", singleReturnType(typString), typString)
+		addFn("ext_by_type", singleReturnType(typString), typString)
+	case "csv":
+		addFn("parse", []*ast.TypeExpr{typArrayArrayString, typErr}, typString)
+		addFn("stringify", []*ast.TypeExpr{typString, typErr}, typArrayArrayString)
+	case "archive":
+		addFn("tar_create", singleReturnType(typErr), typString, typArrayString)
+		addFn("tar_extract", singleReturnType(typErr), typString, typString)
+		addFn("zip_create", singleReturnType(typErr), typString, typArrayString)
+		addFn("zip_extract", singleReturnType(typErr), typString, typString)
+	case "compress":
+		addFn("gzip", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("gunzip", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("zlib", []*ast.TypeExpr{typString, typErr}, typString)
+		addFn("unzlib", []*ast.TypeExpr{typString, typErr}, typString)
+	case "crypto":
+		addFn("aes_encrypt", []*ast.TypeExpr{typString, typErr}, typString, typString)
+		addFn("aes_decrypt", []*ast.TypeExpr{typString, typErr}, typString, typString)
+		addFn("rsa_generate", []*ast.TypeExpr{typString, typString, typErr}, typI32)
+		addFn("rsa_encrypt", []*ast.TypeExpr{typString, typErr}, typString, typString)
+		addFn("rsa_decrypt", []*ast.TypeExpr{typString, typErr}, typString, typString)
+		addFn("rsa_sign", []*ast.TypeExpr{typString, typErr}, typString, typString)
+		addFn("rsa_verify", singleReturnType(typBool), typString, typString, typString)
+	case "rand":
+		addFn("bytes", singleReturnType(typString), typI32)
+		addFn("int", singleReturnType(typI32), typI32, typI32)
+	case "sort":
+		addFn("ints", nil, &ast.TypeExpr{Name: "array", ElemType: typI32})
+		addFn("strings", nil, typArrayString)
+		addFn("by", nil, &ast.TypeExpr{Name: "array"}, typFn)
+	case "json":
+		addFn("parse", []*ast.TypeExpr{typJsonValue, typErr}, typString)
+		addFn("stringify", singleReturnType(typString), nil)
+		addClass(&classInfo{
+			name: "json.Value",
+			methods: map[string]*funcSig{
+				"get_string": {name: "get_string", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typString}},
+				"get_i32":    {name: "get_i32", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI32}},
+				"get_f64":    {name: "get_f64", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typF64}},
+				"get_bool":   {name: "get_bool", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typBool}},
+				"get":        {name: "get", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typJsonValue, typErr}},
+				"at":         {name: "at", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typJsonValue, typErr}},
+				"at_i32":     {name: "at_i32", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typI32}},
+				"at_string":  {name: "at_string", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typString}},
+				"len":        {name: "len", ret: []*ast.TypeExpr{typI32}},
+				"keys":       {name: "keys", ret: []*ast.TypeExpr{typArrayString}},
+				"is_object":  {name: "is_object", ret: []*ast.TypeExpr{typBool}},
+				"is_array":   {name: "is_array", ret: []*ast.TypeExpr{typBool}},
+				"to_string":  {name: "to_string", ret: []*ast.TypeExpr{typString}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "xml":
+		addFn("parse", []*ast.TypeExpr{typXmlValue, typErr}, typString)
+		addClass(&classInfo{
+			name: "xml.Value",
+			methods: map[string]*funcSig{
+				"tag":      {name: "tag", ret: []*ast.TypeExpr{typString}},
+				"text":     {name: "text", ret: []*ast.TypeExpr{typString}},
+				"attr":     {name: "attr", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typString, typBool}},
+				"children": {name: "children", ret: []*ast.TypeExpr{typArrayXmlValue}},
+				"find":     {name: "find", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typArrayXmlValue}},
+				"find_one": {name: "find_one", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typXmlValue, typErr}},
+				"len":      {name: "len", ret: []*ast.TypeExpr{typI32}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "http":
+		addFn("get", []*ast.TypeExpr{typHttpResponse, typErr}, typString)
+		addFn("post", []*ast.TypeExpr{typHttpResponse, typErr}, typString, typString)
+		addBoundedFn("request", []*ast.TypeExpr{typHttpResponse, typErr}, 3, 4, typString, typString, typMapStringString, typString)
+		addFn("listen", singleReturnType(typErr), typString, typFn)
+		addClass(&classInfo{
+			name: "HttpRequest",
+			fields: map[string]*ast.TypeExpr{
+				"method":  typString,
+				"path":    typString,
+				"query":   typString,
+				"body":    typString,
+				"headers": typMapStringString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "HttpResponse",
+			fields: map[string]*ast.TypeExpr{
+				"status":  typI32,
+				"body":    typString,
+				"headers": typMapStringString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+	case "tcp":
+		addFn("connect", []*ast.TypeExpr{typTcpConn, typErr}, typString)
+		addFn("listen", []*ast.TypeExpr{typTcpListener, typErr}, typString)
+		addClass(&classInfo{
+			name: "TcpListener",
+			methods: map[string]*funcSig{
+				"accept": {name: "accept", ret: []*ast.TypeExpr{typTcpConn, typErr}},
+				"close":  {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "TcpConn",
+			methods: map[string]*funcSig{
+				"write": {name: "write", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"read":  {name: "read", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typString, typErr}},
+				"close": {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "udp":
+		addFn("send", singleReturnType(typErr), typString, typString)
+		addFn("listen", []*ast.TypeExpr{typUdpConn, typErr}, typString)
+		addClass(&classInfo{
+			name: "UdpConn",
+			methods: map[string]*funcSig{
+				"recv":  {name: "recv", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typString, typErr}},
+				"close": {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "sqlite":
+		addFn("open", []*ast.TypeExpr{typSqliteDB, typErr}, typString)
+		addClass(&classInfo{
+			name: "SqliteDB",
+			methods: map[string]*funcSig{
+				"exec":  {name: "exec", params: []*ast.TypeExpr{typString, nil}, ret: []*ast.TypeExpr{typErr}, hasArityBounds: true, minArgs: 1, maxArgs: -1, variadic: true},
+				"query": {name: "query", params: []*ast.TypeExpr{typString, nil}, ret: []*ast.TypeExpr{typSqliteRows, typErr}, hasArityBounds: true, minArgs: 1, maxArgs: -1, variadic: true},
+				"close": {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "SqliteRows",
+			methods: map[string]*funcSig{
+				"next":  {name: "next", ret: []*ast.TypeExpr{typBool}},
+				"get":   {name: "get", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typString}},
+				"close": {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "thread":
+		addBoundedVariadicFn("spawn", []*ast.TypeExpr{typThread, typErr}, 1, typFn, nil)
+		addFn("sleep", nil, typI32)
+		addClass(&classInfo{
+			name: "Thread",
+			methods: map[string]*funcSig{
+				"join": {name: "join", ret: []*ast.TypeExpr{nil, typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "mutex":
+		addFn("new", []*ast.TypeExpr{typMutex, typErr})
+		addClass(&classInfo{
+			name: "Mutex",
+			methods: map[string]*funcSig{
+				"lock":    {name: "lock", ret: []*ast.TypeExpr{typErr}},
+				"unlock":  {name: "unlock", ret: []*ast.TypeExpr{typErr}},
+				"destroy": {name: "destroy", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "test":
+		addFn("T", singleReturnType(typTestT))
+		addClass(&classInfo{
+			name: "test.T",
+			methods: map[string]*funcSig{
+				"assert": {name: "assert", params: []*ast.TypeExpr{typBool, typString}},
+				"fail":   {name: "fail", params: []*ast.TypeExpr{typString}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "ffi":
+		addFn("load", []*ast.TypeExpr{typFfiLib, typErr}, typString)
+		addBoundedVariadicFn("bind", []*ast.TypeExpr{typFfiFunc, typErr}, 3, typFfiLib, typString, typString, typString)
+		addClass(&classInfo{
+			name: "ffi.Lib",
+			methods: map[string]*funcSig{
+				"close": {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "ffi.Func",
+			methods: map[string]*funcSig{
+				"call": {name: "call", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{nil}, hasArityBounds: true, minArgs: 0, maxArgs: -1, variadic: true},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	case "unsafe":
+		addConst("null", typUnsafePtr)
+		addFn("alloc", singleReturnType(typUnsafeBuffer), typI32)
+		addBoundedVariadicFn("layout", singleReturnType(typUnsafeLayout), 0, typString)
+		addBoundedVariadicFn("callback", singleReturnType(typUnsafeCallback), 2, typFn, typString, typString)
+		addClass(&classInfo{
+			name: "unsafe.Buffer",
+			methods: map[string]*funcSig{
+				"len":     {name: "len", ret: []*ast.TypeExpr{typI32}},
+				"get":     {name: "get", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typU8}},
+				"set":     {name: "set", params: []*ast.TypeExpr{typI32, nil}},
+				"get_u32": {name: "get_u32", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typU32}},
+				"ptr":     {name: "ptr", ret: []*ast.TypeExpr{typUnsafePtr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "unsafe.Layout",
+			methods: map[string]*funcSig{
+				"new": {name: "new", ret: []*ast.TypeExpr{typUnsafeStruct}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "unsafe.Struct",
+			methods: map[string]*funcSig{
+				"get": {name: "get", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{nil}},
+				"set": {name: "set", params: []*ast.TypeExpr{typI32, nil}},
+				"ptr": {name: "ptr", ret: []*ast.TypeExpr{typUnsafePtr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "unsafe.Callback",
+			methods: map[string]*funcSig{
+				"ptr":  {name: "ptr", ret: []*ast.TypeExpr{typUnsafePtr}},
+				"free": {name: "free"},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+	}
+
+	if len(mod.exports) > 0 {
+		mod.strict = true
 	}
 
 	return mod
@@ -1515,7 +2106,15 @@ func isDirectCallableType(types []*ast.TypeExpr) bool {
 
 func isPrimitiveTypeName(name string) bool {
 	switch name {
-	case "string", "array", "map", "err":
+	case "string", "bool", "i32", "i64", "u8", "u32", "u64", "f32", "f64", "array", "map", "err":
+		return true
+	}
+	return false
+}
+
+func isNumericTypeName(name string) bool {
+	switch name {
+	case "i32", "i64", "u8", "u32", "u64", "f32", "f64":
 		return true
 	}
 	return false

@@ -295,6 +295,204 @@ fn main() -> i32 {
 	}
 }
 
+func TestCheckFileSupportsExtendedStdlibCoverage(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "archive";
+import "args";
+import "base64";
+import "compress";
+import "crypto";
+import "csv";
+import "ffi";
+import "file";
+import "hash";
+import "hex";
+import "http";
+import "json";
+import "log";
+import "math";
+import "mime";
+import "mutex";
+import "sort";
+import "sqlite";
+import "strings";
+import "tcp";
+import "test";
+import "thread";
+import "time";
+import "udp";
+import "unsafe";
+import "xml";
+
+fn worker(i32 x) -> i32 {
+    return x + 1;
+}
+
+fn cmp(string a, string b) -> bool {
+    return a < b;
+}
+
+fn on_log(string level, string msg) -> void {
+    return;
+}
+
+fn handle(HttpRequest req) -> i32 {
+    return 200;
+}
+
+fn main() -> i32 {
+    f64 rootNum = math.sqrt(9.0);
+    f64 circle = math.pi;
+    string combined = strings.join(["a", "b"], ",");
+
+    i64 nowMs = time.now();
+    i64 parsedMs, err parsedErr = time.parse("2006-01-02", "2024-01-15");
+
+    json.Value data, err jsonErr = json.parse("{\"name\":\"alice\",\"items\":[\"x\"]}");
+    string name = data.get_string("name");
+    array<string> keys = data.keys();
+
+    xml.Value doc, err xmlErr = xml.parse("<root><item id=\"1\">x</item></root>");
+    array<xml.Value> items = doc.find("item");
+    string tag = doc.tag();
+
+    HttpResponse resp, err httpErr = http.get("https://example.com");
+    i32 status = resp.status;
+    http.listen(":8080", handle);
+
+    TcpConn conn, err tcpErr = tcp.connect("127.0.0.1:80");
+    UdpConn udpConn, err udpErr = udp.listen("127.0.0.1:9000");
+
+    SqliteDB db, err dbErr = sqlite.open(":memory:");
+    err execErr = db.exec("CREATE TABLE t (id INTEGER)");
+    SqliteRows rows, err queryErr = db.query("SELECT id FROM t");
+
+    Thread th, err threadErr = thread.spawn(worker, 1);
+    i32 joined, err joinErr = th.join();
+    Mutex mu, err mutexErr = mutex.new();
+    err lockErr = mu.lock();
+    err unlockErr = mu.unlock();
+    err destroyErr = mu.destroy();
+
+    test.T tt = test.T();
+    tt.assert(true, "ok");
+    tt.fail("still type-checks");
+
+    array<string> parts = ["b", "a"];
+    sort.strings(parts);
+    sort.by(parts, cmp);
+
+    log.set_handler(on_log);
+    log.set_level("debug");
+    log.info("hello");
+
+    string enc64 = base64.encode("hi");
+    string dec64, err dec64Err = base64.decode(enc64);
+    string encHex = hex.encode("hi");
+    string decHex, err decHexErr = hex.decode(encHex);
+    string digest = hash.sha256("hello");
+    string contentType = mime.type_by_ext(".txt");
+
+    array<array<string>> parsedRows, err csvErr = csv.parse("a,b\n1,2\n");
+    string csvText, err csvTextErr = csv.stringify(parsedRows);
+
+    err tarErr = archive.tar_create("out.tar", ["a.txt"]);
+    string gz, err gzErr = compress.gzip("data");
+    string cipher, err cipherErr = crypto.aes_encrypt("00112233445566778899aabbccddeeff", "hello");
+
+    ffi.Lib lib, err libErr = ffi.load("./libexample.so");
+    ffi.Func add, err bindErr = ffi.bind(lib, "add", "i32", "i32", "i32");
+    i32 ffiResult = add(2, 3);
+    err closeErr = lib.close();
+
+    unsafe.Buffer buf = unsafe.alloc(4);
+    i32 bufLen = buf.len();
+    buf.set(0, 65);
+    u8 b = buf.get(0);
+    unsafe.Layout layout = unsafe.layout("i32", "i32");
+    unsafe.Struct st = layout.new();
+    st.set(0, 42);
+    i32 first = st.get(0);
+    unsafe.Callback cb = unsafe.callback(worker, "i32", "i32");
+    unsafe.Ptr p = cb.ptr();
+    cb.free();
+
+    bool exists = file.exists("main.basl");
+    args.ArgParser ap = args.parser("tool", "desc");
+    err flagErr = ap.flag("verbose", "bool", "false", "Verbose");
+
+    return 0;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
+func TestCheckFileReportsExtendedSemanticErrors(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+import "math";
+import "sort";
+import "thread";
+
+fn worker(i32 x) -> i32 {
+    return x + 1;
+}
+
+fn bad_cmp(string a) -> string {
+    return a;
+}
+
+fn missing(i32 x) -> i32 {
+    if (x > 0) {
+        return x;
+    }
+}
+
+fn main() -> i32 {
+    for val in "oops" {
+        i32 copy = val;
+    }
+
+    array<i32> nums = [1, 2, 3];
+    i32 badIndex = nums["0"];
+
+    switch (1) {
+    case "1":
+        break;
+    default:
+        break;
+    }
+
+    i32 badSpawn, err spawnErr = thread.spawn(worker, "x");
+    sort.by(["a", "b"], bad_cmp);
+    f64 nope = math.nope(1.0);
+
+    return 0;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+
+	assertHasDiag(t, diags, "function missing may exit without returning 1 values")
+	assertHasDiag(t, diags, "for-in expects array or map, received string")
+	assertHasDiag(t, diags, "array index must be i32, received string")
+	assertHasDiag(t, diags, "switch case expects i32, received string")
+	assertHasDiag(t, diags, "thread.spawn arg 1 expects i32, received string")
+	assertHasDiag(t, diags, "sort.by comparator expects 2 arguments, got 1")
+	assertHasDiag(t, diags, "module member \"nope\" not found")
+}
+
 func writeFile(t *testing.T, path string, src string) string {
 	t.Helper()
 
