@@ -4,39 +4,62 @@ import "fmt";
 import "time";
 
 i32 counter = 0;
-mutex.Mutex m = mutex.new();
 
-fn increment(i32 id, i32 times) -> void {
+fn increment(mutex.Mutex m, i32 id, i32 times) -> i32 {
     for (i32 i = 0; i < times; i++) {
-        mutex.lock(m);
+        err lock_err = m.lock();
+        if (lock_err != ok) {
+            return 1;
+        }
         counter++;
-        mutex.unlock(m);
+        err unlock_err = m.unlock();
+        if (unlock_err != ok) {
+            return 1;
+        }
     }
     fmt.println(f"Thread {id} finished");
+    return 0;
 }
 
 fn main() -> i32 {
     fmt.println("Starting concurrent counter example");
+    mutex.Mutex m, err m_err = mutex.new();
+    if (m_err != ok) {
+        fmt.println(f"Failed to create mutex: {m_err}");
+        return 1;
+    }
     
     // Spawn 5 threads that each increment counter 1000 times
-    thread.Thread t1 = thread.spawn(increment, 1, 1000);
-    thread.Thread t2 = thread.spawn(increment, 2, 1000);
-    thread.Thread t3 = thread.spawn(increment, 3, 1000);
-    thread.Thread t4 = thread.spawn(increment, 4, 1000);
-    thread.Thread t5 = thread.spawn(increment, 5, 1000);
+    thread.Thread t1, err e1 = thread.spawn(increment, m, 1, 1000);
+    thread.Thread t2, err e2 = thread.spawn(increment, m, 2, 1000);
+    thread.Thread t3, err e3 = thread.spawn(increment, m, 3, 1000);
+    thread.Thread t4, err e4 = thread.spawn(increment, m, 4, 1000);
+    thread.Thread t5, err e5 = thread.spawn(increment, m, 5, 1000);
+    if (e1 != ok || e2 != ok || e3 != ok || e4 != ok || e5 != ok) {
+        fmt.println("Failed to spawn one or more threads");
+        return 1;
+    }
     
     // Wait for all threads to complete
-    thread.join(t1);
-    thread.join(t2);
-    thread.join(t3);
-    thread.join(t4);
-    thread.join(t5);
+    i32 _, err j1 = t1.join();
+    i32 _, err j2 = t2.join();
+    i32 _, err j3 = t3.join();
+    i32 _, err j4 = t4.join();
+    i32 _, err j5 = t5.join();
+    if (j1 != ok || j2 != ok || j3 != ok || j4 != ok || j5 != ok) {
+        fmt.println("Failed to join one or more threads");
+        return 1;
+    }
     
     fmt.println(f"Final counter value: {counter}");
     fmt.println("Expected: 5000");
     
     // Clean up mutex
-    mutex.destroy(m);
+    err destroy_err = m.destroy();
+    if (destroy_err != ok) {
+        fmt.println(f"Failed to destroy mutex: {destroy_err}");
+        return 1;
+    }
     
     return 0;
 }

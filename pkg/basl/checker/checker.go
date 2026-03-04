@@ -1152,6 +1152,13 @@ func (c *Checker) callInfo(ctx *bodyContext, expr *ast.CallExpr) exprInfo {
 			} else if len(expr.Args) != 0 {
 				c.addDiag(ctx.mod.path, expr.Line, 0, "%s expects 0 arguments, got %d", callee.sym.name, len(expr.Args))
 			}
+			if member, ok := expr.Callee.(*ast.MemberExpr); ok {
+				if base, ok := member.Object.(*ast.Ident); ok {
+					if modSym, exists := ctx.mod.symbols[base.Name]; exists && modSym.kind == symbolModule {
+						return exprInfo{returns: []*ast.TypeExpr{{Name: base.Name + "." + member.Field}}}
+					}
+				}
+			}
 			return exprInfo{returns: []*ast.TypeExpr{{Name: callee.sym.class.name}}}
 		}
 	}
