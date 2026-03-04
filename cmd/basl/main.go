@@ -54,6 +54,10 @@ func main() {
 		os.Exit(runFmt(args[1:]))
 		return
 	}
+	if args[0] == "check" {
+		os.Exit(runCheck(args[1:]))
+		return
+	}
 	if args[0] == "package" {
 		os.Exit(runPackage(args[1:]))
 		return

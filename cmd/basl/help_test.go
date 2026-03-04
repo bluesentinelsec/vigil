@@ -13,6 +13,7 @@ func TestMainHelpTextIncludesCommandsAndTopics(t *testing.T) {
 		"USAGE",
 		"COMMANDS",
 		"  fmt      Format BASL source files in place or check formatting",
+		"  check    Statically validate BASL source files without executing them",
 		"  package  Package a BASL project as an executable or library",
 		"  editor   List, install, or remove bundled editor integrations",
 		"TOPICS",
@@ -21,6 +22,20 @@ func TestMainHelpTextIncludesCommandsAndTopics(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("mainHelpText() missing %q:\n%s", want, out)
+		}
+	}
+
+	checkOut, ok := helpTextFor("check")
+	if !ok {
+		t.Fatal("helpTextFor(check) returned not found")
+	}
+	for _, want := range []string{
+		"COMMAND\n  check",
+		"basl check [--path dir] [file.basl|dir|./dir/...]",
+		"Parses BASL files and reports static diagnostics without running user code.",
+	} {
+		if !strings.Contains(checkOut, want) {
+			t.Fatalf("check help missing %q:\n%s", want, checkOut)
 		}
 	}
 

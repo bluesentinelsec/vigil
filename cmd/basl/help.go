@@ -15,7 +15,7 @@ type helpEntry struct {
 	Examples    []string
 }
 
-var commandHelpOrder = []string{"new", "fmt", "doc", "test", "debug", "get", "remove", "upgrade", "deps", "package", "editor", "embed", "help"}
+var commandHelpOrder = []string{"new", "fmt", "check", "doc", "test", "debug", "get", "remove", "upgrade", "deps", "package", "editor", "embed", "help"}
 var topicHelpOrder = []string{"run", "imports", "packaging"}
 
 var commandHelp = map[string]helpEntry{
@@ -49,6 +49,23 @@ var commandHelp = map[string]helpEntry{
 			"basl fmt script.basl",
 			"basl fmt ./examples/...",
 			"basl fmt --check ./examples/...",
+		},
+	},
+	"check": {
+		Name:    "check",
+		Summary: "Statically validate BASL source files without executing them",
+		Usage: []string{
+			"basl check [--path dir] [file.basl|dir|./dir/...]",
+		},
+		Description: []string{
+			"Parses BASL files and reports static diagnostics without running user code.",
+			"The first release focuses on import resolution, call arity, return shapes, interface conformance, and obvious type mismatches.",
+			"In a BASL project root, `basl check` defaults to main.basl plus the lib/ and test/ directories.",
+		},
+		Examples: []string{
+			"basl check main.basl",
+			"basl check ./lib/...",
+			"basl check --path ./vendor main.basl",
 		},
 	},
 	"doc": {
