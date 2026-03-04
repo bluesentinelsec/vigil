@@ -639,6 +639,24 @@ if (e != ok) {
 
 Use `guard` when the failure branch is immediate and local. Use a normal `if (e != ok)` when you want more customized control flow later in the function.
 
+`guard` still works when you want to branch on specific error kinds. The `err` binding remains a normal value:
+
+```c
+guard string data, err e = file.read_all("config.txt") {
+    switch (e.kind()) {
+        case err.not_found:
+            fmt.println("file missing, using defaults");
+            return 0;
+        case err.permission:
+            fmt.println("access denied");
+            return 1;
+        default:
+            fmt.eprintln(f"error: {e.message()}");
+            return 1;
+    }
+}
+```
+
 The `err` type has two states: `ok` for success, or `err(message, kind)` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
 
 ### Creating Errors
