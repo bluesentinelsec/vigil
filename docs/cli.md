@@ -143,14 +143,15 @@ basl test -run sqrt                # Tests matching "sqrt"
 
 Test files must:
 - End with `_test.basl`
-- Import `"t"` module
+- Import `"test"` module
+- Accept a single `test.T` parameter
 - Define functions starting with `test_`
 
 Example test:
 ```c
-import "t";
+import "test";
 
-fn test_addition() -> void {
+fn test_addition(test.T t) -> void {
     t.assert(2 + 2 == 4, "addition works");
 }
 ```
