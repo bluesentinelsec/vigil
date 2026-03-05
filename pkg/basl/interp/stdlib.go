@@ -34,5 +34,6 @@ func (interp *Interpreter) registerStdlib() {
 	interp.builtinModules["args"] = interp.makeArgsModule()
 	interp.builtinModules["thread"] = interp.makeThreadModule()
 	interp.builtinModules["mutex"] = interp.makeMutexModule()
+	interp.builtinModules["gui"] = interp.makeGuiModule()
 	interp.builtinModules["rl"] = interp.makeRaylibModule()
 }

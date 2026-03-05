@@ -134,7 +134,7 @@ The checker currently models most non-graphics builtin modules, including:
 - `archive`, `compress`, `crypto`
 - `json`, `xml`, `http`
 - `tcp`, `udp`, `sqlite`
-- `thread`, `mutex`, `test`, `ffi`, `unsafe`
+- `thread`, `mutex`, `test`, `ffi`, `unsafe`, `gui`
 
 This includes many builtin object types and methods such as:
 
@@ -144,6 +144,7 @@ This includes many builtin object types and methods such as:
 - `TcpConn`, `TcpListener`, `UdpConn`
 - `SqliteDB`, `SqliteRows`
 - `Thread`, `Mutex`
+- `gui.App`, `gui.Window`, `gui.Box`, `gui.Label`, `gui.Button`, `gui.Entry`
 - `test.T`
 - `ffi.Lib`, `ffi.Func`
 - `unsafe.Buffer`, `unsafe.Layout`, `unsafe.Struct`, `unsafe.Callback`

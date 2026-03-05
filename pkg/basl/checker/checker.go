@@ -1616,6 +1616,12 @@ func newBuiltinModule(name string) *moduleInfo {
 	typWalkIssue := &ast.TypeExpr{Name: "file.WalkIssue"}
 	typArrayFileEntry := &ast.TypeExpr{Name: "array", ElemType: typFileEntry}
 	typArrayWalkIssue := &ast.TypeExpr{Name: "array", ElemType: typWalkIssue}
+	typGuiApp := &ast.TypeExpr{Name: "gui.App"}
+	typGuiWindow := &ast.TypeExpr{Name: "gui.Window"}
+	typGuiBox := &ast.TypeExpr{Name: "gui.Box"}
+	typGuiLabel := &ast.TypeExpr{Name: "gui.Label"}
+	typGuiButton := &ast.TypeExpr{Name: "gui.Button"}
+	typGuiEntry := &ast.TypeExpr{Name: "gui.Entry"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1739,6 +1745,65 @@ func newBuiltinModule(name string) *moduleInfo {
 				"err":  typErr,
 			},
 			methods: make(map[string]*funcSig),
+		})
+	case "gui":
+		addFn("supported", singleReturnType(typBool))
+		addFn("backend", singleReturnType(typString))
+		addFn("app", []*ast.TypeExpr{typGuiApp, typErr})
+		addFn("vbox", []*ast.TypeExpr{typGuiBox, typErr})
+		addFn("hbox", []*ast.TypeExpr{typGuiBox, typErr})
+		addFn("label", []*ast.TypeExpr{typGuiLabel, typErr}, typString)
+		addFn("button", []*ast.TypeExpr{typGuiButton, typErr}, typString)
+		addFn("entry", []*ast.TypeExpr{typGuiEntry, typErr})
+
+		addClass(&classInfo{
+			name: "gui.App",
+			methods: map[string]*funcSig{
+				"window": {name: "window", params: []*ast.TypeExpr{typString, typI32, typI32}, ret: []*ast.TypeExpr{typGuiWindow, typErr}},
+				"run":    {name: "run", ret: []*ast.TypeExpr{typErr}},
+				"quit":   {name: "quit", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Window",
+			methods: map[string]*funcSig{
+				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"set_title": {name: "set_title", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"show":      {name: "show", ret: []*ast.TypeExpr{typErr}},
+				"close":     {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Box",
+			methods: map[string]*funcSig{
+				"add": {name: "add", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Label",
+			methods: map[string]*funcSig{
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Button",
+			methods: map[string]*funcSig{
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"on_click": {name: "on_click", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Entry",
+			methods: map[string]*funcSig{
+				"text":     {name: "text", ret: []*ast.TypeExpr{typString, typErr}},
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
 		})
 	case "regex":
 		addFn("compile", []*ast.TypeExpr{typRegex, typErr}, typString)

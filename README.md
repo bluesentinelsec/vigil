@@ -177,7 +177,7 @@ BASL includes a comprehensive standard library:
 - **Compression**: `compress`, `archive`
 - **Utilities**: `parse`, `regex`, `args`, `test`
 - **Advanced**: `thread`, `mutex`, `unsafe`, `ffi`
-- **Graphics**: `rl` (Raylib bindings)
+- **GUI & Graphics**: `gui` (native widgets), `rl` (Raylib bindings)
 
 See [docs/stdlib/](docs/stdlib/) for complete reference.
 

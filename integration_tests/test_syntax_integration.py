@@ -487,6 +487,21 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             stdout="hits:3|$12.00|a#b#\n1:true:333:4:c:truetruetruetrue::true",
         )
 
+    def test_stdlib_gui_module_surface(self) -> None:
+        source = """
+            import "fmt";
+            import "gui";
+
+            fn main() -> i32 {
+                bool supported = gui.supported();
+                string backend = gui.backend();
+
+                fmt.print(string(backend.len() > 0) + ":" + string(supported || !supported));
+                return 0;
+            }
+        """
+        self._assert_success(source, stdout="true:true")
+
     def test_stdlib_args_module(self) -> None:
         source = """
             import "fmt";

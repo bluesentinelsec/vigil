@@ -380,6 +380,7 @@ import "crypto";
 import "csv";
 import "ffi";
 import "file";
+import "gui";
 import "hash";
 import "hex";
 import "http";
@@ -413,6 +414,10 @@ fn on_log(string level, string msg) -> void {
 
 fn handle(HttpRequest req) -> i32 {
     return 200;
+}
+
+fn worker_ui() -> void {
+    return;
 }
 
 fn main() -> i32 {
@@ -503,6 +508,27 @@ fn main() -> i32 {
     string issuePath = walkIssues[0].path;
     err linkIssueErr = walkLinkIssues[0].err;
     string linkIssuePath = walkLinkIssues[0].path;
+
+    bool uiAvailable = gui.supported();
+    string uiBackend = gui.backend();
+    gui.App app, err appErr = gui.app();
+    gui.Box rootBox, err boxErr = gui.vbox();
+    gui.Label lbl, err lblErr = gui.label("hello");
+    gui.Button btn, err btnErr = gui.button("click");
+    gui.Entry input, err inputErr = gui.entry();
+    rootBox.add(lbl);
+    rootBox.add(input);
+    rootBox.add(btn);
+    btn.on_click(worker_ui);
+    gui.Window win, err winErr = app.window("Demo", 320, 200);
+    err childErr = win.set_child(rootBox);
+    err titleErr = win.set_title("Demo App");
+    string textVal, err textErr = input.text();
+    err setErr = input.set_text("updated");
+    err showErr = win.show();
+    err closeGuiErr = win.close();
+    err quitErr = app.quit();
+
     args.ArgParser ap = args.parser("tool", "desc");
     err flagErr = ap.flag("verbose", "bool", "false", "Verbose");
 
