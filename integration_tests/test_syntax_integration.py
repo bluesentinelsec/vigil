@@ -538,6 +538,32 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 progressOpts.value = 4.0;
                 progressOpts.indeterminate = false;
                 progressOpts.width = 220;
+                gui.FrameOpts frameOpts = gui.frame_opts();
+                frameOpts.padding = 10;
+                gui.GroupOpts groupOpts = gui.group_opts("Tuning");
+                groupOpts.padding = 6;
+                gui.RadioOpts radioOpts = gui.radio_opts();
+                radioOpts.options = ["A", "B"];
+                radioOpts.selected = 1;
+                radioOpts.vertical = true;
+                radioOpts.on_change = fn() -> void { fmt.print("r"); };
+                gui.ScaleOpts scaleOpts = gui.scale_opts();
+                scaleOpts.min = 0.0;
+                scaleOpts.max = 100.0;
+                scaleOpts.value = 42.0;
+                scaleOpts.vertical = false;
+                scaleOpts.width = 180;
+                scaleOpts.on_change = fn() -> void { fmt.print("s"); };
+                gui.SpinboxOpts spinboxOpts = gui.spinbox_opts();
+                spinboxOpts.min = 0.0;
+                spinboxOpts.max = 9.0;
+                spinboxOpts.step = 1.0;
+                spinboxOpts.value = 3.0;
+                spinboxOpts.width = 100;
+                spinboxOpts.on_change = fn() -> void { fmt.print("p"); };
+                gui.SeparatorOpts separatorOpts = gui.separator_opts();
+                separatorOpts.vertical = false;
+                separatorOpts.length = 120;
 
                 fmt.print(
                     string(backend.len() > 0) + ":" +
@@ -553,12 +579,18 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                     checkboxOpts.text + ":" +
                     selectOpts.options[1] + ":" +
                     textAreaOpts.text + ":" +
-                    string(progressOpts.value)
+                    string(progressOpts.value) + ":" +
+                    string(frameOpts.padding) + ":" +
+                    groupOpts.title + ":" +
+                    string(radioOpts.options.len()) + ":" +
+                    string(scaleOpts.value) + ":" +
+                    string(spinboxOpts.step) + ":" +
+                    string(separatorOpts.length)
                 );
                 return 0;
             }
         """
-        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4")
+        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4:10:Tuning:2:42:1:120")
 
     def test_stdlib_args_module(self) -> None:
         source = """

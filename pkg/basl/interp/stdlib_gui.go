@@ -8,30 +8,42 @@ import (
 )
 
 const (
-	guiClassApp      = "gui.App"
-	guiClassWindow   = "gui.Window"
-	guiClassBox      = "gui.Box"
-	guiClassGrid     = "gui.Grid"
-	guiClassLabel    = "gui.Label"
-	guiClassButton   = "gui.Button"
-	guiClassEntry    = "gui.Entry"
-	guiClassCheckbox = "gui.Checkbox"
-	guiClassSelect   = "gui.Select"
-	guiClassTextArea = "gui.TextArea"
-	guiClassProgress = "gui.Progress"
+	guiClassApp       = "gui.App"
+	guiClassWindow    = "gui.Window"
+	guiClassBox       = "gui.Box"
+	guiClassGrid      = "gui.Grid"
+	guiClassLabel     = "gui.Label"
+	guiClassButton    = "gui.Button"
+	guiClassEntry     = "gui.Entry"
+	guiClassCheckbox  = "gui.Checkbox"
+	guiClassSelect    = "gui.Select"
+	guiClassTextArea  = "gui.TextArea"
+	guiClassProgress  = "gui.Progress"
+	guiClassFrame     = "gui.Frame"
+	guiClassGroup     = "gui.Group"
+	guiClassRadio     = "gui.Radio"
+	guiClassScale     = "gui.Scale"
+	guiClassSpinbox   = "gui.Spinbox"
+	guiClassSeparator = "gui.Separator"
 
-	guiClassAppOpts      = "gui.AppOpts"
-	guiClassWindowOpts   = "gui.WindowOpts"
-	guiClassBoxOpts      = "gui.BoxOpts"
-	guiClassGridOpts     = "gui.GridOpts"
-	guiClassCellOpts     = "gui.CellOpts"
-	guiClassLabelOpts    = "gui.LabelOpts"
-	guiClassButtonOpts   = "gui.ButtonOpts"
-	guiClassEntryOpts    = "gui.EntryOpts"
-	guiClassCheckboxOpts = "gui.CheckboxOpts"
-	guiClassSelectOpts   = "gui.SelectOpts"
-	guiClassTextAreaOpts = "gui.TextAreaOpts"
-	guiClassProgressOpts = "gui.ProgressOpts"
+	guiClassAppOpts       = "gui.AppOpts"
+	guiClassWindowOpts    = "gui.WindowOpts"
+	guiClassBoxOpts       = "gui.BoxOpts"
+	guiClassGridOpts      = "gui.GridOpts"
+	guiClassCellOpts      = "gui.CellOpts"
+	guiClassLabelOpts     = "gui.LabelOpts"
+	guiClassButtonOpts    = "gui.ButtonOpts"
+	guiClassEntryOpts     = "gui.EntryOpts"
+	guiClassCheckboxOpts  = "gui.CheckboxOpts"
+	guiClassSelectOpts    = "gui.SelectOpts"
+	guiClassTextAreaOpts  = "gui.TextAreaOpts"
+	guiClassProgressOpts  = "gui.ProgressOpts"
+	guiClassFrameOpts     = "gui.FrameOpts"
+	guiClassGroupOpts     = "gui.GroupOpts"
+	guiClassRadioOpts     = "gui.RadioOpts"
+	guiClassScaleOpts     = "gui.ScaleOpts"
+	guiClassSpinboxOpts   = "gui.SpinboxOpts"
+	guiClassSeparatorOpts = "gui.SeparatorOpts"
 )
 
 type guiCallback struct {
@@ -107,7 +119,7 @@ func guiWidgetHandle(v value.Value) (uintptr, error) {
 	}
 	obj := v.AsObject()
 	switch obj.ClassName {
-	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress:
+	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress, guiClassFrame, guiClassGroup, guiClassRadio, guiClassScale, guiClassSpinbox, guiClassSeparator:
 	default:
 		return 0, fmt.Errorf("expected gui widget, got %s", obj.ClassName)
 	}
@@ -287,6 +299,57 @@ func (interp *Interpreter) makeDefaultProgressOpts() value.Value {
 	})
 }
 
+func (interp *Interpreter) makeDefaultFrameOpts() value.Value {
+	return newGuiOptsObject(guiClassFrameOpts, map[string]value.Value{
+		"padding": value.NewI32(8),
+	})
+}
+
+func (interp *Interpreter) makeDefaultGroupOpts(title string) value.Value {
+	return newGuiOptsObject(guiClassGroupOpts, map[string]value.Value{
+		"title":   value.NewString(title),
+		"padding": value.NewI32(10),
+	})
+}
+
+func (interp *Interpreter) makeDefaultRadioOpts() value.Value {
+	return newGuiOptsObject(guiClassRadioOpts, map[string]value.Value{
+		"options":   value.NewArray(nil),
+		"selected":  value.NewI32(0),
+		"vertical":  value.NewBool(true),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultScaleOpts() value.Value {
+	return newGuiOptsObject(guiClassScaleOpts, map[string]value.Value{
+		"min":       value.NewF64(0),
+		"max":       value.NewF64(100),
+		"value":     value.NewF64(0),
+		"vertical":  value.NewBool(false),
+		"width":     value.NewI32(220),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultSpinboxOpts() value.Value {
+	return newGuiOptsObject(guiClassSpinboxOpts, map[string]value.Value{
+		"min":       value.NewF64(0),
+		"max":       value.NewF64(100),
+		"step":      value.NewF64(1),
+		"value":     value.NewF64(0),
+		"width":     value.NewI32(120),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultSeparatorOpts() value.Value {
+	return newGuiOptsObject(guiClassSeparatorOpts, map[string]value.Value{
+		"vertical": value.NewBool(false),
+		"length":   value.NewI32(160),
+	})
+}
+
 func (interp *Interpreter) makeGuiModule() *Env {
 	env := NewEnv(nil)
 
@@ -386,6 +449,48 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			return value.Void, fmt.Errorf("gui.progress_opts: expected 0 arguments")
 		}
 		return interp.makeDefaultProgressOpts(), nil
+	}))
+
+	env.Define("frame_opts", value.NewNativeFunc("gui.frame_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.frame_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultFrameOpts(), nil
+	}))
+
+	env.Define("group_opts", value.NewNativeFunc("gui.group_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.group_opts: expected string title")
+		}
+		return interp.makeDefaultGroupOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("radio_opts", value.NewNativeFunc("gui.radio_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.radio_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultRadioOpts(), nil
+	}))
+
+	env.Define("scale_opts", value.NewNativeFunc("gui.scale_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.scale_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultScaleOpts(), nil
+	}))
+
+	env.Define("spinbox_opts", value.NewNativeFunc("gui.spinbox_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.spinbox_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultSpinboxOpts(), nil
+	}))
+
+	env.Define("separator_opts", value.NewNativeFunc("gui.separator_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.separator_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultSeparatorOpts(), nil
 	}))
 
 	env.Define("app", value.NewNativeFunc("gui.app", func(args []value.Value) (value.Value, error) {
@@ -701,6 +806,207 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiProgress(handle), value.Ok}}
+	}))
+
+	env.Define("frame", value.NewNativeFunc("gui.frame", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassFrameOpts, "gui.frame")
+		if err != nil {
+			return value.Void, err
+		}
+		padding, err := guiReadI32Opt(opts, "padding", "gui.frame")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiFrameCreate(padding)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiFrame(handle), value.Ok}}
+	}))
+
+	env.Define("group", value.NewNativeFunc("gui.group", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassGroupOpts, "gui.group")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.group")
+		if err != nil {
+			return value.Void, err
+		}
+		padding, err := guiReadI32Opt(opts, "padding", "gui.group")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiGroupCreate(title, padding)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiGroup(handle), value.Ok}}
+	}))
+
+	env.Define("radio", value.NewNativeFunc("gui.radio", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassRadioOpts, "gui.radio")
+		if err != nil {
+			return value.Void, err
+		}
+		options, err := guiReadStringArrayOpt(opts, "options", "gui.radio")
+		if err != nil {
+			return value.Void, err
+		}
+		selected, err := guiReadI32Opt(opts, "selected", "gui.radio")
+		if err != nil {
+			return value.Void, err
+		}
+		vertical, err := guiReadBoolOpt(opts, "vertical", "gui.radio")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.radio")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiRadioCreate(options, selected, vertical)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiRadioSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiRadio(handle), value.Ok}}
+	}))
+
+	env.Define("scale", value.NewNativeFunc("gui.scale", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassScaleOpts, "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		min, err := guiReadF64Opt(opts, "min", "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		max, err := guiReadF64Opt(opts, "max", "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		current, err := guiReadF64Opt(opts, "value", "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		vertical, err := guiReadBoolOpt(opts, "vertical", "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.scale")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiScaleCreate(min, max, current, vertical)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 {
+			if vertical {
+				if err := guiWidgetSetSize(handle, 0, width); err != nil {
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+				}
+			} else {
+				if err := guiWidgetSetSize(handle, width, 0); err != nil {
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+				}
+			}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiScaleSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiScale(handle), value.Ok}}
+	}))
+
+	env.Define("spinbox", value.NewNativeFunc("gui.spinbox", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassSpinboxOpts, "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		min, err := guiReadF64Opt(opts, "min", "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		max, err := guiReadF64Opt(opts, "max", "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		step, err := guiReadF64Opt(opts, "step", "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		current, err := guiReadF64Opt(opts, "value", "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.spinbox")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiSpinboxCreate(min, max, step, current)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 {
+			if err := guiWidgetSetSize(handle, width, 0); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiSpinboxSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiSpinbox(handle), value.Ok}}
+	}))
+
+	env.Define("separator", value.NewNativeFunc("gui.separator", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassSeparatorOpts, "gui.separator")
+		if err != nil {
+			return value.Void, err
+		}
+		vertical, err := guiReadBoolOpt(opts, "vertical", "gui.separator")
+		if err != nil {
+			return value.Void, err
+		}
+		length, err := guiReadI32Opt(opts, "length", "gui.separator")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiSeparatorCreate(vertical)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if length > 0 {
+			if vertical {
+				if err := guiWidgetSetSize(handle, 1, length); err != nil {
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+				}
+			} else {
+				if err := guiWidgetSetSize(handle, length, 1); err != nil {
+					return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+				}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiSeparator(handle), value.Ok}}
 	}))
 
 	return env
@@ -1100,4 +1406,179 @@ func (interp *Interpreter) newGuiProgress(handle uintptr) value.Value {
 		}),
 	}
 	return newGuiObject(guiClassProgress, handle, methods)
+}
+
+func (interp *Interpreter) newGuiFrame(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"set_child": value.NewNativeFunc("gui.Frame.set_child", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Frame.set_child: expected 1 argument")
+			}
+			childHandle, err := guiWidgetHandle(args[0])
+			if err != nil {
+				return guiStateErr(err), nil
+			}
+			if err := guiFrameSetChild(handle, childHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassFrame, handle, methods)
+}
+
+func (interp *Interpreter) newGuiGroup(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"set_child": value.NewNativeFunc("gui.Group.set_child", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Group.set_child: expected 1 argument")
+			}
+			childHandle, err := guiWidgetHandle(args[0])
+			if err != nil {
+				return guiStateErr(err), nil
+			}
+			if err := guiGroupSetChild(handle, childHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"set_title": value.NewNativeFunc("gui.Group.set_title", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Group.set_title: expected string title")
+			}
+			if err := guiGroupSetTitle(handle, args[0].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassGroup, handle, methods)
+}
+
+func (interp *Interpreter) newGuiRadio(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"selected_index": value.NewNativeFunc("gui.Radio.selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Radio.selected_index: expected 0 arguments")
+			}
+			index, err := guiRadioSelectedIndex(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(-1), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(index), value.Ok}}
+		}),
+		"set_selected_index": value.NewNativeFunc("gui.Radio.set_selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeI32 {
+				return value.Void, fmt.Errorf("Radio.set_selected_index: expected i32")
+			}
+			if err := guiRadioSetSelectedIndex(handle, args[0].AsI32()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"selected_text": value.NewNativeFunc("gui.Radio.selected_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Radio.selected_text: expected 0 arguments")
+			}
+			text, err := guiRadioSelectedText(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(text), value.Ok}}
+		}),
+		"on_change": value.NewNativeFunc("gui.Radio.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Radio.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Radio.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiRadioSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassRadio, handle, methods)
+}
+
+func (interp *Interpreter) newGuiScale(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"value": value.NewNativeFunc("gui.Scale.value", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Scale.value: expected 0 arguments")
+			}
+			current, err := guiScaleValue(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(current), value.Ok}}
+		}),
+		"set_value": value.NewNativeFunc("gui.Scale.set_value", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Scale.set_value: expected f64")
+			}
+			if err := guiScaleSetValue(handle, args[0].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.Scale.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Scale.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Scale.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiScaleSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassScale, handle, methods)
+}
+
+func (interp *Interpreter) newGuiSpinbox(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"value": value.NewNativeFunc("gui.Spinbox.value", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Spinbox.value: expected 0 arguments")
+			}
+			current, err := guiSpinboxValue(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(current), value.Ok}}
+		}),
+		"set_value": value.NewNativeFunc("gui.Spinbox.set_value", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Spinbox.set_value: expected f64")
+			}
+			if err := guiSpinboxSetValue(handle, args[0].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.Spinbox.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Spinbox.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Spinbox.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiSpinboxSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassSpinbox, handle, methods)
+}
+
+func (interp *Interpreter) newGuiSeparator(handle uintptr) value.Value {
+	return newGuiObject(guiClassSeparator, handle, map[string]value.Value{})
 }

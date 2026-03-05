@@ -48,6 +48,25 @@ int basl_gui_textarea_append(uintptr_t textareaPtr, const char* text, char** err
 uintptr_t basl_gui_progress_new(double minValue, double maxValue, double value, int indeterminate, char** errOut);
 int basl_gui_progress_value(uintptr_t progressPtr, double* outValue, char** errOut);
 int basl_gui_progress_set_value(uintptr_t progressPtr, double value, char** errOut);
+uintptr_t basl_gui_frame_new(int32_t padding, char** errOut);
+int basl_gui_frame_set_child(uintptr_t framePtr, uintptr_t childPtr, char** errOut);
+uintptr_t basl_gui_group_new(const char* title, int32_t padding, char** errOut);
+int basl_gui_group_set_child(uintptr_t groupPtr, uintptr_t childPtr, char** errOut);
+int basl_gui_group_set_title(uintptr_t groupPtr, const char* title, char** errOut);
+uintptr_t basl_gui_radio_new(const char** items, int32_t itemCount, int32_t selectedIndex, int vertical, char** errOut);
+int basl_gui_radio_selected_index(uintptr_t radioPtr, int32_t* outIndex, char** errOut);
+int basl_gui_radio_set_selected_index(uintptr_t radioPtr, int32_t selectedIndex, char** errOut);
+char* basl_gui_radio_selected_text(uintptr_t radioPtr, char** errOut);
+int basl_gui_radio_set_on_change(uintptr_t radioPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_scale_new(double minValue, double maxValue, double value, int vertical, char** errOut);
+int basl_gui_scale_value(uintptr_t scalePtr, double* outValue, char** errOut);
+int basl_gui_scale_set_value(uintptr_t scalePtr, double value, char** errOut);
+int basl_gui_scale_set_on_change(uintptr_t scalePtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_spinbox_new(double minValue, double maxValue, double step, double value, char** errOut);
+int basl_gui_spinbox_value(uintptr_t spinboxPtr, double* outValue, char** errOut);
+int basl_gui_spinbox_set_value(uintptr_t spinboxPtr, double value, char** errOut);
+int basl_gui_spinbox_set_on_change(uintptr_t spinboxPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_separator_new(int vertical, char** errOut);
 int basl_gui_widget_set_size(uintptr_t viewPtr, int32_t width, int32_t height, char** errOut);
 void basl_gui_free_string(char* s);
 */
@@ -528,6 +547,215 @@ func guiProgressSetValue(progressHandle uintptr, current float64) error {
 		return guiErr(errOut)
 	}
 	return nil
+}
+
+func guiFrameCreate(padding int32) (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_frame_new(C.int32_t(padding), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiFrameSetChild(frameHandle uintptr, childHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_frame_set_child(C.uintptr_t(frameHandle), C.uintptr_t(childHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiGroupCreate(title string, padding int32) (uintptr, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	handle := C.basl_gui_group_new(cTitle, C.int32_t(padding), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiGroupSetChild(groupHandle uintptr, childHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_group_set_child(C.uintptr_t(groupHandle), C.uintptr_t(childHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiGroupSetTitle(groupHandle uintptr, title string) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	ok := C.basl_gui_group_set_title(C.uintptr_t(groupHandle), cTitle, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiRadioCreate(options []string, selectedIndex int32, vertical bool) (uintptr, error) {
+	var errOut *C.char
+	var cItemsRaw unsafe.Pointer
+	var cItems **C.char
+	if len(options) > 0 {
+		cItemsRaw = C.malloc(C.size_t(len(options)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+		defer C.free(cItemsRaw)
+		itemsSlice := unsafe.Slice((**C.char)(cItemsRaw), len(options))
+		cStrs := make([]*C.char, len(options))
+		for i, opt := range options {
+			cStrs[i] = C.CString(opt)
+			defer C.free(unsafe.Pointer(cStrs[i]))
+			itemsSlice[i] = cStrs[i]
+		}
+		cItems = (**C.char)(cItemsRaw)
+	}
+	verticalFlag := C.int(0)
+	if vertical {
+		verticalFlag = 1
+	}
+	handle := C.basl_gui_radio_new(cItems, C.int32_t(len(options)), C.int32_t(selectedIndex), verticalFlag, &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiRadioSelectedIndex(radioHandle uintptr) (int32, error) {
+	var errOut *C.char
+	var outIndex C.int32_t
+	ok := C.basl_gui_radio_selected_index(C.uintptr_t(radioHandle), &outIndex, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outIndex), nil
+}
+
+func guiRadioSetSelectedIndex(radioHandle uintptr, selectedIndex int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_radio_set_selected_index(C.uintptr_t(radioHandle), C.int32_t(selectedIndex), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiRadioSelectedText(radioHandle uintptr) (string, error) {
+	var errOut *C.char
+	text := C.basl_gui_radio_selected_text(C.uintptr_t(radioHandle), &errOut)
+	if text == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(text)
+	C.basl_gui_free_string(text)
+	return out, nil
+}
+
+func guiRadioSetOnChange(radioHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_radio_set_on_change(C.uintptr_t(radioHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiScaleCreate(min float64, max float64, current float64, vertical bool) (uintptr, error) {
+	var errOut *C.char
+	verticalFlag := C.int(0)
+	if vertical {
+		verticalFlag = 1
+	}
+	handle := C.basl_gui_scale_new(C.double(min), C.double(max), C.double(current), verticalFlag, &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiScaleValue(scaleHandle uintptr) (float64, error) {
+	var errOut *C.char
+	var outValue C.double
+	ok := C.basl_gui_scale_value(C.uintptr_t(scaleHandle), &outValue, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return float64(outValue), nil
+}
+
+func guiScaleSetValue(scaleHandle uintptr, current float64) error {
+	var errOut *C.char
+	ok := C.basl_gui_scale_set_value(C.uintptr_t(scaleHandle), C.double(current), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiScaleSetOnChange(scaleHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_scale_set_on_change(C.uintptr_t(scaleHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiSpinboxCreate(min float64, max float64, step float64, current float64) (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_spinbox_new(C.double(min), C.double(max), C.double(step), C.double(current), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiSpinboxValue(spinboxHandle uintptr) (float64, error) {
+	var errOut *C.char
+	var outValue C.double
+	ok := C.basl_gui_spinbox_value(C.uintptr_t(spinboxHandle), &outValue, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return float64(outValue), nil
+}
+
+func guiSpinboxSetValue(spinboxHandle uintptr, current float64) error {
+	var errOut *C.char
+	ok := C.basl_gui_spinbox_set_value(C.uintptr_t(spinboxHandle), C.double(current), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiSpinboxSetOnChange(spinboxHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_spinbox_set_on_change(C.uintptr_t(spinboxHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiSeparatorCreate(vertical bool) (uintptr, error) {
+	var errOut *C.char
+	verticalFlag := C.int(0)
+	if vertical {
+		verticalFlag = 1
+	}
+	handle := C.basl_gui_separator_new(verticalFlag, &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
 }
 
 func guiWidgetSetSize(widgetHandle uintptr, width int32, height int32) error {

@@ -52,6 +52,12 @@ Returns backend name:
 ### gui.select_opts() -> gui.SelectOpts
 ### gui.textarea_opts() -> gui.TextAreaOpts
 ### gui.progress_opts() -> gui.ProgressOpts
+### gui.frame_opts() -> gui.FrameOpts
+### gui.group_opts(string title) -> gui.GroupOpts
+### gui.radio_opts() -> gui.RadioOpts
+### gui.scale_opts() -> gui.ScaleOpts
+### gui.spinbox_opts() -> gui.SpinboxOpts
+### gui.separator_opts() -> gui.SeparatorOpts
 
 ## Widget Constructors
 
@@ -67,6 +73,12 @@ Returns backend name:
 ### gui.select(gui.SelectOpts opts) -> (gui.Select, err)
 ### gui.textarea(gui.TextAreaOpts opts) -> (gui.TextArea, err)
 ### gui.progress(gui.ProgressOpts opts) -> (gui.Progress, err)
+### gui.frame(gui.FrameOpts opts) -> (gui.Frame, err)
+### gui.group(gui.GroupOpts opts) -> (gui.Group, err)
+### gui.radio(gui.RadioOpts opts) -> (gui.Radio, err)
+### gui.scale(gui.ScaleOpts opts) -> (gui.Scale, err)
+### gui.spinbox(gui.SpinboxOpts opts) -> (gui.Spinbox, err)
+### gui.separator(gui.SeparatorOpts opts) -> (gui.Separator, err)
 
 ## Option Types
 
@@ -164,6 +176,57 @@ Reserved for app-level configuration.
 | `indeterminate` | `bool` | `false` |
 | `width` | `i32` | `200` |
 
+### gui.FrameOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `padding` | `i32` | `8` |
+
+### gui.GroupOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `title` | `string` | required via `group_opts(title)` |
+| `padding` | `i32` | `10` |
+
+### gui.RadioOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `options` | `array<string>` | `[]` |
+| `selected` | `i32` | `0` |
+| `vertical` | `bool` | `true` |
+| `on_change` | `fn` | unset |
+
+### gui.ScaleOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `min` | `f64` | `0.0` |
+| `max` | `f64` | `100.0` |
+| `value` | `f64` | `0.0` |
+| `vertical` | `bool` | `false` |
+| `width` | `i32` | `220` |
+| `on_change` | `fn` | unset |
+
+### gui.SpinboxOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `min` | `f64` | `0.0` |
+| `max` | `f64` | `100.0` |
+| `step` | `f64` | `1.0` |
+| `value` | `f64` | `0.0` |
+| `width` | `i32` | `120` |
+| `on_change` | `fn` | unset |
+
+### gui.SeparatorOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `vertical` | `bool` | `false` |
+| `length` | `i32` | `160` |
+
 ## gui.App Methods
 
 ### app.window(gui.WindowOpts opts) -> (gui.Window, err)
@@ -173,19 +236,19 @@ Reserved for app-level configuration.
 ## gui.Window Methods
 
 ### win.set_child(widget) -> err
-Supports `gui.Box`, `gui.Grid`, and all control widgets.
+Supports `gui.Box`, `gui.Grid`, `gui.Frame`, `gui.Group`, and all control widgets.
 
 ### win.set_title(string title) -> err
 ### win.show() -> err
 ### win.close() -> err
 
-## gui.Box Methods
+## Container Methods
 
 ### box.add(widget) -> err
-
-## gui.Grid Methods
-
 ### grid.place(widget, gui.CellOpts cell) -> err
+### frame.set_child(widget) -> err
+### group.set_child(widget) -> err
+### group.set_title(string title) -> err
 
 `fill_x` / `fill_y` control whether a widget expands with window resize.
 
@@ -222,3 +285,18 @@ Responsive recommendation:
 
 ### progress.value() -> (f64, err)
 ### progress.set_value(f64 value) -> err
+
+### radio.selected_index() -> (i32, err)
+### radio.set_selected_index(i32 index) -> err
+### radio.selected_text() -> (string, err)
+### radio.on_change(fn callback) -> err
+
+### scale.value() -> (f64, err)
+### scale.set_value(f64 value) -> err
+### scale.on_change(fn callback) -> err
+
+### spinbox.value() -> (f64, err)
+### spinbox.set_value(f64 value) -> err
+### spinbox.on_change(fn callback) -> err
+
+`gui.Separator` is structural and currently has no instance methods.

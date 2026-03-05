@@ -18,6 +18,12 @@ extern void baslGuiInvokeCallback(uintptr_t callbackId);
 }
 @end
 
+@interface BaslRadioTarget : NSObject
+@property(nonatomic, assign) uintptr_t callbackId;
+@property(nonatomic, weak) NSStackView* group;
+- (void)onSelect:(id)sender;
+@end
+
 @interface BaslAppDelegate : NSObject <NSApplicationDelegate>
 @end
 
@@ -51,6 +57,81 @@ static void basl_gui_install_menu(NSApplication* app) {
     [appMenu addItem:quitItem];
     [appMenuItem setSubmenu:appMenu];
 }
+
+static NSInteger basl_gui_clamp_index(NSInteger idx, NSInteger count) {
+    if (count <= 0) {
+        return -1;
+    }
+    if (idx < 0) {
+        return 0;
+    }
+    if (idx >= count) {
+        return count - 1;
+    }
+    return idx;
+}
+
+static void basl_gui_pin_child(NSView* container, NSView* child, CGFloat padding) {
+    if (container == nil || child == nil) {
+        return;
+    }
+    [child removeFromSuperview];
+    [child setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [container addSubview:child];
+    [NSLayoutConstraint activateConstraints:@[
+        [child.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:padding],
+        [child.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-padding],
+        [child.topAnchor constraintEqualToAnchor:container.topAnchor constant:padding],
+        [child.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-padding],
+    ]];
+}
+
+static void basl_gui_radio_apply_selection(NSStackView* group, NSInteger selectedIndex) {
+    if (group == nil) {
+        return;
+    }
+    NSArray* buttons = objc_getAssociatedObject(group, "basl_gui_radio_buttons");
+    if (buttons == nil) {
+        return;
+    }
+    NSInteger clamped = basl_gui_clamp_index(selectedIndex, [buttons count]);
+    for (NSInteger i = 0; i < [buttons count]; i++) {
+        id buttonObj = [buttons objectAtIndex:i];
+        if (![buttonObj isKindOfClass:[NSButton class]]) {
+            continue;
+        }
+        NSButton* button = (NSButton*)buttonObj;
+        [button setState:(i == clamped ? NSControlStateValueOn : NSControlStateValueOff)];
+    }
+    if (clamped >= 0) {
+        objc_setAssociatedObject(group, "basl_gui_radio_selected_index", @(clamped), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+}
+
+@implementation BaslRadioTarget
+- (void)onSelect:(id)sender {
+    if (self.group == nil || sender == nil || ![sender isKindOfClass:[NSButton class]]) {
+        return;
+    }
+    NSArray* buttons = objc_getAssociatedObject(self.group, "basl_gui_radio_buttons");
+    if (buttons == nil) {
+        return;
+    }
+    NSInteger selected = -1;
+    for (NSInteger i = 0; i < [buttons count]; i++) {
+        if ([buttons objectAtIndex:i] == sender) {
+            selected = i;
+            break;
+        }
+    }
+    if (selected >= 0) {
+        basl_gui_radio_apply_selection(self.group, selected);
+        if (self.callbackId != 0) {
+            baslGuiInvokeCallback(self.callbackId);
+        }
+    }
+}
+@end
 
 static char* basl_gui_strdup(const char* s) {
     if (s == NULL) {
@@ -802,6 +883,381 @@ int basl_gui_progress_set_value(uintptr_t progressPtr, double value, char** errO
         }
         [progress setDoubleValue:value];
         return 1;
+    }
+}
+
+uintptr_t basl_gui_frame_new(int32_t padding, char** errOut) {
+    @autoreleasepool {
+        NSView* frame = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 200)];
+        if (frame == nil) {
+            basl_gui_set_error(errOut, "failed to create frame");
+            return 0;
+        }
+        objc_setAssociatedObject(frame, "basl_gui_frame_padding", @(padding), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return (uintptr_t)(__bridge_retained void*)frame;
+    }
+}
+
+int basl_gui_frame_set_child(uintptr_t framePtr, uintptr_t childPtr, char** errOut) {
+    @autoreleasepool {
+        NSView* frame = (__bridge NSView*)((void*)framePtr);
+        NSView* child = (__bridge NSView*)((void*)childPtr);
+        if (frame == nil || child == nil) {
+            basl_gui_set_error(errOut, "invalid frame or child handle");
+            return 0;
+        }
+        NSNumber* paddingNum = objc_getAssociatedObject(frame, "basl_gui_frame_padding");
+        CGFloat padding = paddingNum != nil ? [paddingNum doubleValue] : 0.0;
+        NSArray* existing = [[frame subviews] copy];
+        for (NSView* v in existing) {
+            [v removeFromSuperview];
+        }
+        basl_gui_pin_child(frame, child, padding);
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_group_new(const char* title, int32_t padding, char** errOut) {
+    @autoreleasepool {
+        NSBox* group = [[NSBox alloc] initWithFrame:NSMakeRect(0, 0, 260, 180)];
+        if (group == nil) {
+            basl_gui_set_error(errOut, "failed to create group");
+            return 0;
+        }
+        [group setTitle:[NSString stringWithUTF8String:(title != NULL ? title : "")]];
+        [group setBoxType:NSBoxPrimary];
+        objc_setAssociatedObject(group, "basl_gui_group_padding", @(padding), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return (uintptr_t)(__bridge_retained void*)group;
+    }
+}
+
+int basl_gui_group_set_child(uintptr_t groupPtr, uintptr_t childPtr, char** errOut) {
+    @autoreleasepool {
+        NSBox* group = (__bridge NSBox*)((void*)groupPtr);
+        NSView* child = (__bridge NSView*)((void*)childPtr);
+        if (group == nil || child == nil) {
+            basl_gui_set_error(errOut, "invalid group or child handle");
+            return 0;
+        }
+        NSNumber* paddingNum = objc_getAssociatedObject(group, "basl_gui_group_padding");
+        CGFloat padding = paddingNum != nil ? [paddingNum doubleValue] : 0.0;
+        NSView* wrapper = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 120)];
+        if (wrapper == nil) {
+            basl_gui_set_error(errOut, "failed to allocate group content view");
+            return 0;
+        }
+        basl_gui_pin_child(wrapper, child, padding);
+        [group setContentView:wrapper];
+        return 1;
+    }
+}
+
+int basl_gui_group_set_title(uintptr_t groupPtr, const char* title, char** errOut) {
+    @autoreleasepool {
+        NSBox* group = (__bridge NSBox*)((void*)groupPtr);
+        if (group == nil) {
+            basl_gui_set_error(errOut, "invalid group handle");
+            return 0;
+        }
+        [group setTitle:[NSString stringWithUTF8String:(title != NULL ? title : "")]];
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_radio_new(const char** items, int32_t itemCount, int32_t selectedIndex, int vertical, char** errOut) {
+    @autoreleasepool {
+        if (itemCount < 0) {
+            basl_gui_set_error(errOut, "itemCount must be >= 0");
+            return 0;
+        }
+        NSStackView* group = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 220, 120)];
+        if (group == nil) {
+            basl_gui_set_error(errOut, "failed to create radio group");
+            return 0;
+        }
+        [group setOrientation:(vertical ? NSUserInterfaceLayoutOrientationVertical : NSUserInterfaceLayoutOrientationHorizontal)];
+        [group setSpacing:6.0];
+
+        BaslRadioTarget* target = [[BaslRadioTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate radio target");
+            return 0;
+        }
+        target.group = group;
+        target.callbackId = 0;
+
+        NSMutableArray* buttons = [NSMutableArray arrayWithCapacity:(NSUInteger)itemCount];
+        for (int32_t i = 0; i < itemCount; i++) {
+            const char* raw = (items != NULL && items[i] != NULL) ? items[i] : "";
+            NSButton* button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 180, 22)];
+            if (button == nil) {
+                basl_gui_set_error(errOut, "failed to create radio button");
+                return 0;
+            }
+            [button setButtonType:NSButtonTypeRadio];
+            [button setTitle:[NSString stringWithUTF8String:raw]];
+            [button setTarget:target];
+            [button setAction:@selector(onSelect:)];
+            [buttons addObject:button];
+            [group addArrangedSubview:button];
+        }
+
+        objc_setAssociatedObject(group, "basl_gui_radio_buttons", buttons, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(group, "basl_gui_radio_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        basl_gui_radio_apply_selection(group, selectedIndex);
+        return (uintptr_t)(__bridge_retained void*)group;
+    }
+}
+
+int basl_gui_radio_selected_index(uintptr_t radioPtr, int32_t* outIndex, char** errOut) {
+    @autoreleasepool {
+        NSStackView* group = (__bridge NSStackView*)((void*)radioPtr);
+        if (group == nil || outIndex == NULL) {
+            basl_gui_set_error(errOut, "invalid radio handle");
+            return 0;
+        }
+        NSNumber* selectedNum = objc_getAssociatedObject(group, "basl_gui_radio_selected_index");
+        if (selectedNum == nil) {
+            *outIndex = -1;
+            return 1;
+        }
+        *outIndex = (int32_t)[selectedNum integerValue];
+        return 1;
+    }
+}
+
+int basl_gui_radio_set_selected_index(uintptr_t radioPtr, int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        NSStackView* group = (__bridge NSStackView*)((void*)radioPtr);
+        if (group == nil) {
+            basl_gui_set_error(errOut, "invalid radio handle");
+            return 0;
+        }
+        NSArray* buttons = objc_getAssociatedObject(group, "basl_gui_radio_buttons");
+        if (buttons == nil || [buttons count] == 0) {
+            basl_gui_set_error(errOut, "radio group has no options");
+            return 0;
+        }
+        if (selectedIndex < 0 || selectedIndex >= [buttons count]) {
+            basl_gui_set_error(errOut, "radio selected index out of range");
+            return 0;
+        }
+        basl_gui_radio_apply_selection(group, selectedIndex);
+        return 1;
+    }
+}
+
+char* basl_gui_radio_selected_text(uintptr_t radioPtr, char** errOut) {
+    @autoreleasepool {
+        NSStackView* group = (__bridge NSStackView*)((void*)radioPtr);
+        if (group == nil) {
+            basl_gui_set_error(errOut, "invalid radio handle");
+            return NULL;
+        }
+        NSArray* buttons = objc_getAssociatedObject(group, "basl_gui_radio_buttons");
+        NSNumber* selectedNum = objc_getAssociatedObject(group, "basl_gui_radio_selected_index");
+        if (buttons == nil || selectedNum == nil) {
+            return basl_gui_strdup("");
+        }
+        NSInteger idx = [selectedNum integerValue];
+        if (idx < 0 || idx >= [buttons count]) {
+            return basl_gui_strdup("");
+        }
+        id buttonObj = [buttons objectAtIndex:idx];
+        if (![buttonObj isKindOfClass:[NSButton class]]) {
+            return basl_gui_strdup("");
+        }
+        NSString* title = [(NSButton*)buttonObj title];
+        return basl_gui_strdup([(title != nil ? title : @"") UTF8String]);
+    }
+}
+
+int basl_gui_radio_set_on_change(uintptr_t radioPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSStackView* group = (__bridge NSStackView*)((void*)radioPtr);
+        if (group == nil) {
+            basl_gui_set_error(errOut, "invalid radio handle");
+            return 0;
+        }
+        id targetObj = objc_getAssociatedObject(group, "basl_gui_radio_target");
+        if (targetObj == nil || ![targetObj isKindOfClass:[BaslRadioTarget class]]) {
+            basl_gui_set_error(errOut, "radio target is unavailable");
+            return 0;
+        }
+        BaslRadioTarget* target = (BaslRadioTarget*)targetObj;
+        target.callbackId = callbackId;
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_scale_new(double minValue, double maxValue, double value, int vertical, char** errOut) {
+    @autoreleasepool {
+        if (maxValue <= minValue) {
+            basl_gui_set_error(errOut, "scale max must be greater than min");
+            return 0;
+        }
+        NSSlider* scale = [[NSSlider alloc] initWithFrame:NSMakeRect(0, 0, 220, 24)];
+        if (scale == nil) {
+            basl_gui_set_error(errOut, "failed to create scale");
+            return 0;
+        }
+        [scale setMinValue:minValue];
+        [scale setMaxValue:maxValue];
+        if (value < minValue) {
+            value = minValue;
+        }
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        [scale setDoubleValue:value];
+        [scale setVertical:(vertical ? YES : NO)];
+        return (uintptr_t)(__bridge_retained void*)scale;
+    }
+}
+
+int basl_gui_scale_value(uintptr_t scalePtr, double* outValue, char** errOut) {
+    @autoreleasepool {
+        NSSlider* scale = (__bridge NSSlider*)((void*)scalePtr);
+        if (scale == nil || outValue == NULL) {
+            basl_gui_set_error(errOut, "invalid scale handle");
+            return 0;
+        }
+        *outValue = [scale doubleValue];
+        return 1;
+    }
+}
+
+int basl_gui_scale_set_value(uintptr_t scalePtr, double value, char** errOut) {
+    @autoreleasepool {
+        NSSlider* scale = (__bridge NSSlider*)((void*)scalePtr);
+        if (scale == nil) {
+            basl_gui_set_error(errOut, "invalid scale handle");
+            return 0;
+        }
+        double minValue = [scale minValue];
+        double maxValue = [scale maxValue];
+        if (value < minValue) {
+            value = minValue;
+        }
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        [scale setDoubleValue:value];
+        return 1;
+    }
+}
+
+int basl_gui_scale_set_on_change(uintptr_t scalePtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSSlider* scale = (__bridge NSSlider*)((void*)scalePtr);
+        if (scale == nil) {
+            basl_gui_set_error(errOut, "invalid scale handle");
+            return 0;
+        }
+        BaslControlTarget* target = [[BaslControlTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate scale target");
+            return 0;
+        }
+        target.callbackId = callbackId;
+        [scale setTarget:target];
+        [scale setAction:@selector(onAction:)];
+        objc_setAssociatedObject(scale, "basl_gui_scale_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_spinbox_new(double minValue, double maxValue, double step, double value, char** errOut) {
+    @autoreleasepool {
+        if (maxValue <= minValue) {
+            basl_gui_set_error(errOut, "spinbox max must be greater than min");
+            return 0;
+        }
+        if (step <= 0) {
+            basl_gui_set_error(errOut, "spinbox step must be > 0");
+            return 0;
+        }
+        NSStepper* spinbox = [[NSStepper alloc] initWithFrame:NSMakeRect(0, 0, 120, 24)];
+        if (spinbox == nil) {
+            basl_gui_set_error(errOut, "failed to create spinbox");
+            return 0;
+        }
+        [spinbox setMinValue:minValue];
+        [spinbox setMaxValue:maxValue];
+        [spinbox setIncrement:step];
+        if (value < minValue) {
+            value = minValue;
+        }
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        [spinbox setDoubleValue:value];
+        [spinbox setValueWraps:NO];
+        return (uintptr_t)(__bridge_retained void*)spinbox;
+    }
+}
+
+int basl_gui_spinbox_value(uintptr_t spinboxPtr, double* outValue, char** errOut) {
+    @autoreleasepool {
+        NSStepper* spinbox = (__bridge NSStepper*)((void*)spinboxPtr);
+        if (spinbox == nil || outValue == NULL) {
+            basl_gui_set_error(errOut, "invalid spinbox handle");
+            return 0;
+        }
+        *outValue = [spinbox doubleValue];
+        return 1;
+    }
+}
+
+int basl_gui_spinbox_set_value(uintptr_t spinboxPtr, double value, char** errOut) {
+    @autoreleasepool {
+        NSStepper* spinbox = (__bridge NSStepper*)((void*)spinboxPtr);
+        if (spinbox == nil) {
+            basl_gui_set_error(errOut, "invalid spinbox handle");
+            return 0;
+        }
+        double minValue = [spinbox minValue];
+        double maxValue = [spinbox maxValue];
+        if (value < minValue) {
+            value = minValue;
+        }
+        if (value > maxValue) {
+            value = maxValue;
+        }
+        [spinbox setDoubleValue:value];
+        return 1;
+    }
+}
+
+int basl_gui_spinbox_set_on_change(uintptr_t spinboxPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSStepper* spinbox = (__bridge NSStepper*)((void*)spinboxPtr);
+        if (spinbox == nil) {
+            basl_gui_set_error(errOut, "invalid spinbox handle");
+            return 0;
+        }
+        BaslControlTarget* target = [[BaslControlTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate spinbox target");
+            return 0;
+        }
+        target.callbackId = callbackId;
+        [spinbox setTarget:target];
+        [spinbox setAction:@selector(onAction:)];
+        objc_setAssociatedObject(spinbox, "basl_gui_spinbox_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_separator_new(int vertical, char** errOut) {
+    @autoreleasepool {
+        NSBox* separator = [[NSBox alloc] initWithFrame:NSMakeRect(0, 0, (vertical ? 1 : 160), (vertical ? 120 : 1))];
+        if (separator == nil) {
+            basl_gui_set_error(errOut, "failed to create separator");
+            return 0;
+        }
+        [separator setBoxType:NSBoxSeparator];
+        return (uintptr_t)(__bridge_retained void*)separator;
     }
 }
 

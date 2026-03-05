@@ -618,6 +618,56 @@ fn main() -> i32 {
     gui.Progress prog, err progErr = gui.progress(progOpts);
     f64 progValue, err progValueErr = prog.value();
     err progSetErr = prog.set_value(7.0);
+    gui.FrameOpts frameOpts = gui.frame_opts();
+    frameOpts.padding = 12;
+    gui.Frame frame, err frameErr = gui.frame(frameOpts);
+    err frameChildErr = frame.set_child(rootGrid);
+
+    gui.GroupOpts groupOpts = gui.group_opts("Tuning");
+    groupOpts.padding = 6;
+    gui.Group group, err groupErr = gui.group(groupOpts);
+    err groupChildErr = group.set_child(rootGrid);
+    err groupTitleErr = group.set_title("Advanced Tuning");
+
+    gui.RadioOpts radioOpts = gui.radio_opts();
+    radioOpts.options = ["A", "B", "C"];
+    radioOpts.selected = 1;
+    radioOpts.vertical = true;
+    radioOpts.on_change = worker_ui;
+    gui.Radio radio, err radioErr = gui.radio(radioOpts);
+    i32 radioIndex, err radioIndexErr = radio.selected_index();
+    err radioSetErr = radio.set_selected_index(2);
+    string radioText, err radioTextErr = radio.selected_text();
+    err radioHookErr = radio.on_change(worker_ui);
+
+    gui.ScaleOpts scaleOpts = gui.scale_opts();
+    scaleOpts.min = 0.0;
+    scaleOpts.max = 10.0;
+    scaleOpts.value = 5.0;
+    scaleOpts.vertical = false;
+    scaleOpts.width = 180;
+    scaleOpts.on_change = worker_ui;
+    gui.Scale scale, err scaleErr = gui.scale(scaleOpts);
+    f64 scaleValue, err scaleValueErr = scale.value();
+    err scaleSetErr = scale.set_value(6.0);
+    err scaleHookErr = scale.on_change(worker_ui);
+
+    gui.SpinboxOpts spinOpts = gui.spinbox_opts();
+    spinOpts.min = 0.0;
+    spinOpts.max = 20.0;
+    spinOpts.step = 1.0;
+    spinOpts.value = 4.0;
+    spinOpts.width = 120;
+    spinOpts.on_change = worker_ui;
+    gui.Spinbox spin, err spinErr = gui.spinbox(spinOpts);
+    f64 spinValue, err spinValueErr = spin.value();
+    err spinSetErr = spin.set_value(9.0);
+    err spinHookErr = spin.on_change(worker_ui);
+
+    gui.SeparatorOpts sepOpts = gui.separator_opts();
+    sepOpts.vertical = false;
+    sepOpts.length = 200;
+    gui.Separator sep, err sepErr = gui.separator(sepOpts);
 
     err showErr = win.show();
     err closeGuiErr = win.close();

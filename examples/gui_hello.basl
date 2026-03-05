@@ -14,8 +14,8 @@ fn main() -> i32 {
     }
 
     gui.WindowOpts winOpts = gui.window_opts("BASL GUI Demo");
-    winOpts.width = 1200;
-    winOpts.height = 760;
+    winOpts.width = 1320;
+    winOpts.height = 840;
     guard gui.Window win, err winErr = app.window(winOpts) {
         fmt.eprintln(f"app.window: {winErr.message()}");
         return 1;
@@ -29,7 +29,7 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.LabelOpts titleOpts = gui.label_opts("BASL GUI Demo (all widgets)");
+    gui.LabelOpts titleOpts = gui.label_opts("BASL GUI Demo (Phase 2 widget coverage)");
     guard gui.Label titleLabel, err titleErr = gui.label(titleOpts) {
         fmt.eprintln(f"gui.label(title): {titleErr.message()}");
         return 1;
@@ -126,6 +126,123 @@ fn main() -> i32 {
         return 1;
     }
 
+    gui.FrameOpts frameOpts = gui.frame_opts();
+    frameOpts.padding = 10;
+    guard gui.Frame tuningFrame, err frameErr = gui.frame(frameOpts) {
+        fmt.eprintln(f"gui.frame: {frameErr.message()}");
+        return 1;
+    }
+
+    gui.GroupOpts groupOpts = gui.group_opts("Mode preset");
+    groupOpts.padding = 8;
+    guard gui.Group modeGroup, err groupErr = gui.group(groupOpts) {
+        fmt.eprintln(f"gui.group: {groupErr.message()}");
+        return 1;
+    }
+
+    gui.RadioOpts radioOpts = gui.radio_opts();
+    radioOpts.options = ["Fast", "Balanced", "Safe"];
+    radioOpts.selected = 1;
+    radioOpts.vertical = true;
+    guard gui.Radio modeRadio, err radioErr = gui.radio(radioOpts) {
+        fmt.eprintln(f"gui.radio: {radioErr.message()}");
+        return 1;
+    }
+
+    gui.ScaleOpts scaleOpts = gui.scale_opts();
+    scaleOpts.min = 0.0;
+    scaleOpts.max = 100.0;
+    scaleOpts.value = 25.0;
+    scaleOpts.width = 0;
+    guard gui.Scale intensityScale, err scaleErr = gui.scale(scaleOpts) {
+        fmt.eprintln(f"gui.scale: {scaleErr.message()}");
+        return 1;
+    }
+
+    gui.SpinboxOpts spinOpts = gui.spinbox_opts();
+    spinOpts.min = 1.0;
+    spinOpts.max = 10.0;
+    spinOpts.step = 1.0;
+    spinOpts.value = 3.0;
+    spinOpts.width = 96;
+    guard gui.Spinbox retrySpin, err spinErr = gui.spinbox(spinOpts) {
+        fmt.eprintln(f"gui.spinbox: {spinErr.message()}");
+        return 1;
+    }
+
+    gui.SeparatorOpts separatorOpts = gui.separator_opts();
+    separatorOpts.vertical = false;
+    separatorOpts.length = 0;
+    guard gui.Separator sectionBreak, err separatorErr = gui.separator(separatorOpts) {
+        fmt.eprintln(f"gui.separator: {separatorErr.message()}");
+        return 1;
+    }
+
+    gui.LabelOpts intensityLabelOpts = gui.label_opts("Intensity");
+    guard gui.Label intensityLabel, err intensityLabelErr = gui.label(intensityLabelOpts) {
+        fmt.eprintln(f"gui.label(intensity): {intensityLabelErr.message()}");
+        return 1;
+    }
+
+    gui.LabelOpts retryLabelOpts = gui.label_opts("Retries");
+    guard gui.Label retryLabel, err retryLabelErr = gui.label(retryLabelOpts) {
+        fmt.eprintln(f"gui.label(retries): {retryLabelErr.message()}");
+        return 1;
+    }
+
+    gui.LabelOpts tuningValueOpts = gui.label_opts("Intensity=25, Retries=3");
+    guard gui.Label tuningValueLabel, err tuningValueErr = gui.label(tuningValueOpts) {
+        fmt.eprintln(f"gui.label(tuning value): {tuningValueErr.message()}");
+        return 1;
+    }
+
+    gui.BoxOpts tuningBoxOpts = gui.box_opts();
+    tuningBoxOpts.vertical = true;
+    tuningBoxOpts.spacing = 8;
+    tuningBoxOpts.padding = 0;
+    guard gui.Box tuningBox, err tuningBoxErr = gui.box(tuningBoxOpts) {
+        fmt.eprintln(f"gui.box(tuning): {tuningBoxErr.message()}");
+        return 1;
+    }
+
+    err addIntensityLabelErr = tuningBox.add(intensityLabel);
+    if (addIntensityLabelErr != ok) {
+        fmt.eprintln(f"tuningBox.add(intensityLabel): {addIntensityLabelErr.message()}");
+        return 1;
+    }
+    err addScaleErr = tuningBox.add(intensityScale);
+    if (addScaleErr != ok) {
+        fmt.eprintln(f"tuningBox.add(intensityScale): {addScaleErr.message()}");
+        return 1;
+    }
+    err addRetryLabelErr = tuningBox.add(retryLabel);
+    if (addRetryLabelErr != ok) {
+        fmt.eprintln(f"tuningBox.add(retryLabel): {addRetryLabelErr.message()}");
+        return 1;
+    }
+    err addSpinErr = tuningBox.add(retrySpin);
+    if (addSpinErr != ok) {
+        fmt.eprintln(f"tuningBox.add(retrySpin): {addSpinErr.message()}");
+        return 1;
+    }
+    err addTuningValueErr = tuningBox.add(tuningValueLabel);
+    if (addTuningValueErr != ok) {
+        fmt.eprintln(f"tuningBox.add(tuningValueLabel): {addTuningValueErr.message()}");
+        return 1;
+    }
+
+    err setFrameChildErr = tuningFrame.set_child(tuningBox);
+    if (setFrameChildErr != ok) {
+        fmt.eprintln(f"tuningFrame.set_child: {setFrameChildErr.message()}");
+        return 1;
+    }
+
+    err setGroupChildErr = modeGroup.set_child(modeRadio);
+    if (setGroupChildErr != ok) {
+        fmt.eprintln(f"modeGroup.set_child: {setGroupChildErr.message()}");
+        return 1;
+    }
+
     err hookApplyErr = applyBtn.on_click(fn() -> void {
         string text, err readErr = input.text();
         if (readErr != ok) {
@@ -139,7 +256,25 @@ fn main() -> i32 {
             return;
         }
 
-        err setStatusErr = statusLabel.set_text(f"Applied: {text} [{mode}]");
+        string radioMode, err radioModeErr = modeRadio.selected_text();
+        if (radioModeErr != ok) {
+            statusLabel.set_text(f"radio read failed: {radioModeErr.message()}");
+            return;
+        }
+
+        f64 intensity, err intensityErr = intensityScale.value();
+        if (intensityErr != ok) {
+            statusLabel.set_text(f"scale read failed: {intensityErr.message()}");
+            return;
+        }
+
+        f64 retries, err retriesErr = retrySpin.value();
+        if (retriesErr != ok) {
+            statusLabel.set_text(f"spinbox read failed: {retriesErr.message()}");
+            return;
+        }
+
+        err setStatusErr = statusLabel.set_text(f"Applied: {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
             return;
@@ -147,21 +282,23 @@ fn main() -> i32 {
 
         bool verbose, err verboseErr = verboseToggle.checked();
         if (verboseErr == ok && verbose) {
-            logArea.append(f"\napply -> text={text}, mode={mode}");
+            logArea.append(f"\napply -> text={text}, mode={mode}, radio={radioMode}, intensity={intensity}, retries={retries}");
         }
 
-        f64 current, err currentErr = progressBar.value();
-        if (currentErr == ok) {
-            f64 next = current + 10.0;
-            if (next > 100.0) {
-                next = 100.0;
-            }
-            progressBar.set_value(next);
+        err setProgressErr = progressBar.set_value(intensity);
+        if (setProgressErr != ok) {
+            fmt.eprintln(f"progress set_value failed: {setProgressErr.message()}");
+            return;
         }
 
         err setTitleErr = win.set_title(f"BASL GUI Demo - {text}");
         if (setTitleErr != ok) {
             fmt.eprintln(f"set_title failed: {setTitleErr.message()}");
+        }
+
+        err setGroupTitleErr = modeGroup.set_title(f"Mode preset ({radioMode})");
+        if (setGroupTitleErr != ok) {
+            fmt.eprintln(f"group set_title failed: {setGroupTitleErr.message()}");
         }
     });
     if (hookApplyErr != ok) {
@@ -177,6 +314,12 @@ fn main() -> i32 {
         }
         logArea.set_text("event log:");
         progressBar.set_value(0.0);
+        modeSelect.set_selected_index(1);
+        modeRadio.set_selected_index(1);
+        intensityScale.set_value(25.0);
+        retrySpin.set_value(3.0);
+        tuningValueLabel.set_text("Intensity=25, Retries=3");
+        modeGroup.set_title("Mode preset");
         err setStatusErr = statusLabel.set_text("Cleared");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
@@ -203,8 +346,23 @@ fn main() -> i32 {
             fmt.eprintln(f"echo mode read failed: {modeErr.message()}");
             return;
         }
-        fmt.println(f"echo: {text} [{mode}]");
-        logArea.append(f"\necho -> {text} [{mode}]");
+        string radioMode, err radioModeErr = modeRadio.selected_text();
+        if (radioModeErr != ok) {
+            fmt.eprintln(f"echo radio read failed: {radioModeErr.message()}");
+            return;
+        }
+        f64 intensity, err intensityErr = intensityScale.value();
+        if (intensityErr != ok) {
+            fmt.eprintln(f"echo scale read failed: {intensityErr.message()}");
+            return;
+        }
+        f64 retries, err retriesErr = retrySpin.value();
+        if (retriesErr != ok) {
+            fmt.eprintln(f"echo spinbox read failed: {retriesErr.message()}");
+            return;
+        }
+        fmt.println(f"echo: {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}");
+        logArea.append(f"\necho -> {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}");
     });
     if (hookEchoErr != ok) {
         fmt.eprintln(f"hook echo callback: {hookEchoErr.message()}");
@@ -247,11 +405,70 @@ fn main() -> i32 {
             fmt.eprintln(f"select read failed: {modeErr.message()}");
             return;
         }
+        i32 idx, err idxErr = modeSelect.selected_index();
+        if (idxErr == ok) {
+            modeRadio.set_selected_index(idx);
+        }
+        modeGroup.set_title(f"Mode preset ({mode})");
         statusLabel.set_text(f"Mode changed to {mode}");
         logArea.append(f"\nmode -> {mode}");
     });
     if (hookSelectErr != ok) {
         fmt.eprintln(f"hook select callback: {hookSelectErr.message()}");
+        return 1;
+    }
+
+    err hookRadioErr = modeRadio.on_change(fn() -> void {
+        string mode, err modeErr = modeRadio.selected_text();
+        if (modeErr != ok) {
+            fmt.eprintln(f"radio read failed: {modeErr.message()}");
+            return;
+        }
+        statusLabel.set_text(f"Radio mode -> {mode}");
+        logArea.append(f"\nradio -> {mode}");
+    });
+    if (hookRadioErr != ok) {
+        fmt.eprintln(f"hook radio callback: {hookRadioErr.message()}");
+        return 1;
+    }
+
+    err hookScaleErr = intensityScale.on_change(fn() -> void {
+        f64 intensity, err intensityErr = intensityScale.value();
+        if (intensityErr != ok) {
+            fmt.eprintln(f"scale read failed: {intensityErr.message()}");
+            return;
+        }
+        f64 retries, err retriesErr = retrySpin.value();
+        if (retriesErr != ok) {
+            fmt.eprintln(f"spinbox read failed: {retriesErr.message()}");
+            return;
+        }
+        progressBar.set_value(intensity);
+        tuningValueLabel.set_text(f"Intensity={intensity}, Retries={retries}");
+        statusLabel.set_text(f"Intensity changed to {intensity}");
+    });
+    if (hookScaleErr != ok) {
+        fmt.eprintln(f"hook scale callback: {hookScaleErr.message()}");
+        return 1;
+    }
+
+    err hookSpinErr = retrySpin.on_change(fn() -> void {
+        f64 retries, err retriesErr = retrySpin.value();
+        if (retriesErr != ok) {
+            fmt.eprintln(f"spinbox read failed: {retriesErr.message()}");
+            return;
+        }
+        f64 intensity, err intensityErr = intensityScale.value();
+        if (intensityErr != ok) {
+            fmt.eprintln(f"scale read failed: {intensityErr.message()}");
+            return;
+        }
+        tuningValueLabel.set_text(f"Intensity={intensity}, Retries={retries}");
+        statusLabel.set_text(f"Retries changed to {retries}");
+        logArea.append(f"\nretries -> {retries}");
+    });
+    if (hookSpinErr != ok) {
+        fmt.eprintln(f"hook spinbox callback: {hookSpinErr.message()}");
         return 1;
     }
 
@@ -277,7 +494,7 @@ fn main() -> i32 {
     }
 
     gui.CellOpts titleCell = gui.cell_opts(0, 0);
-    titleCell.col_span = 2;
+    titleCell.col_span = 3;
     titleCell.fill_x = true;
     err placeTitleErr = root.place(titleLabel, titleCell);
     if (placeTitleErr != ok) {
@@ -286,7 +503,7 @@ fn main() -> i32 {
     }
 
     gui.CellOpts inputCell = gui.cell_opts(1, 0);
-    inputCell.col_span = 2;
+    inputCell.col_span = 3;
     inputCell.fill_x = true;
     err placeInputErr = root.place(input, inputCell);
     if (placeInputErr != ok) {
@@ -310,8 +527,42 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts logCell = gui.cell_opts(3, 0);
-    logCell.col_span = 2;
+    gui.CellOpts progressCell = gui.cell_opts(2, 2);
+    progressCell.fill_x = true;
+    err placeProgressErr = root.place(progressBar, progressCell);
+    if (placeProgressErr != ok) {
+        fmt.eprintln(f"grid.place(progress): {placeProgressErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts separatorCell = gui.cell_opts(3, 0);
+    separatorCell.col_span = 3;
+    separatorCell.fill_x = true;
+    err placeSeparatorErr = root.place(sectionBreak, separatorCell);
+    if (placeSeparatorErr != ok) {
+        fmt.eprintln(f"grid.place(separator): {placeSeparatorErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts groupCell = gui.cell_opts(4, 0);
+    groupCell.fill_x = true;
+    err placeGroupErr = root.place(modeGroup, groupCell);
+    if (placeGroupErr != ok) {
+        fmt.eprintln(f"grid.place(group): {placeGroupErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts frameCell = gui.cell_opts(4, 1);
+    frameCell.col_span = 2;
+    frameCell.fill_x = true;
+    err placeFrameErr = root.place(tuningFrame, frameCell);
+    if (placeFrameErr != ok) {
+        fmt.eprintln(f"grid.place(frame): {placeFrameErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts logCell = gui.cell_opts(5, 0);
+    logCell.col_span = 3;
     logCell.fill_x = true;
     logCell.fill_y = true;
     err placeLogErr = root.place(logArea, logCell);
@@ -320,17 +571,8 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts progressCell = gui.cell_opts(4, 0);
-    progressCell.col_span = 2;
-    progressCell.fill_x = true;
-    err placeProgressErr = root.place(progressBar, progressCell);
-    if (placeProgressErr != ok) {
-        fmt.eprintln(f"grid.place(progress): {placeProgressErr.message()}");
-        return 1;
-    }
-
-    gui.CellOpts statusCell = gui.cell_opts(5, 0);
-    statusCell.col_span = 2;
+    gui.CellOpts statusCell = gui.cell_opts(6, 0);
+    statusCell.col_span = 3;
     statusCell.fill_x = true;
     err placeStatusErr = root.place(statusLabel, statusCell);
     if (placeStatusErr != ok) {
@@ -338,8 +580,9 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts rowCell = gui.cell_opts(6, 0);
-    rowCell.col_span = 2;
+    gui.CellOpts rowCell = gui.cell_opts(7, 0);
+    rowCell.col_span = 3;
+    rowCell.fill_x = true;
     err placeRowErr = root.place(buttonRow, rowCell);
     if (placeRowErr != ok) {
         fmt.eprintln(f"grid.place(button row): {placeRowErr.message()}");

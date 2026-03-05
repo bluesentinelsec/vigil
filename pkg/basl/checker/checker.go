@@ -1632,6 +1632,12 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiSelect := &ast.TypeExpr{Name: "gui.Select"}
 	typGuiTextArea := &ast.TypeExpr{Name: "gui.TextArea"}
 	typGuiProgress := &ast.TypeExpr{Name: "gui.Progress"}
+	typGuiFrame := &ast.TypeExpr{Name: "gui.Frame"}
+	typGuiGroup := &ast.TypeExpr{Name: "gui.Group"}
+	typGuiRadio := &ast.TypeExpr{Name: "gui.Radio"}
+	typGuiScale := &ast.TypeExpr{Name: "gui.Scale"}
+	typGuiSpinbox := &ast.TypeExpr{Name: "gui.Spinbox"}
+	typGuiSeparator := &ast.TypeExpr{Name: "gui.Separator"}
 	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
 	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
 	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
@@ -1644,6 +1650,12 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiSelectOpts := &ast.TypeExpr{Name: "gui.SelectOpts"}
 	typGuiTextAreaOpts := &ast.TypeExpr{Name: "gui.TextAreaOpts"}
 	typGuiProgressOpts := &ast.TypeExpr{Name: "gui.ProgressOpts"}
+	typGuiFrameOpts := &ast.TypeExpr{Name: "gui.FrameOpts"}
+	typGuiGroupOpts := &ast.TypeExpr{Name: "gui.GroupOpts"}
+	typGuiRadioOpts := &ast.TypeExpr{Name: "gui.RadioOpts"}
+	typGuiScaleOpts := &ast.TypeExpr{Name: "gui.ScaleOpts"}
+	typGuiSpinboxOpts := &ast.TypeExpr{Name: "gui.SpinboxOpts"}
+	typGuiSeparatorOpts := &ast.TypeExpr{Name: "gui.SeparatorOpts"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1783,6 +1795,12 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("select_opts", singleReturnType(typGuiSelectOpts))
 		addFn("textarea_opts", singleReturnType(typGuiTextAreaOpts))
 		addFn("progress_opts", singleReturnType(typGuiProgressOpts))
+		addFn("frame_opts", singleReturnType(typGuiFrameOpts))
+		addFn("group_opts", singleReturnType(typGuiGroupOpts), typString)
+		addFn("radio_opts", singleReturnType(typGuiRadioOpts))
+		addFn("scale_opts", singleReturnType(typGuiScaleOpts))
+		addFn("spinbox_opts", singleReturnType(typGuiSpinboxOpts))
+		addFn("separator_opts", singleReturnType(typGuiSeparatorOpts))
 		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
 		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
 		addFn("grid", []*ast.TypeExpr{typGuiGrid, typErr}, typGuiGridOpts)
@@ -1795,6 +1813,12 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("select", []*ast.TypeExpr{typGuiSelect, typErr}, typGuiSelectOpts)
 		addFn("textarea", []*ast.TypeExpr{typGuiTextArea, typErr}, typGuiTextAreaOpts)
 		addFn("progress", []*ast.TypeExpr{typGuiProgress, typErr}, typGuiProgressOpts)
+		addFn("frame", []*ast.TypeExpr{typGuiFrame, typErr}, typGuiFrameOpts)
+		addFn("group", []*ast.TypeExpr{typGuiGroup, typErr}, typGuiGroupOpts)
+		addFn("radio", []*ast.TypeExpr{typGuiRadio, typErr}, typGuiRadioOpts)
+		addFn("scale", []*ast.TypeExpr{typGuiScale, typErr}, typGuiScaleOpts)
+		addFn("spinbox", []*ast.TypeExpr{typGuiSpinbox, typErr}, typGuiSpinboxOpts)
+		addFn("separator", []*ast.TypeExpr{typGuiSeparator, typErr}, typGuiSeparatorOpts)
 
 		addClass(&classInfo{
 			name: "gui.App",
@@ -1913,6 +1937,63 @@ func newBuiltinModule(name string) *moduleInfo {
 			methods: make(map[string]*funcSig),
 		})
 		addClass(&classInfo{
+			name: "gui.FrameOpts",
+			fields: map[string]*ast.TypeExpr{
+				"padding": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.GroupOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":   typString,
+				"padding": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.RadioOpts",
+			fields: map[string]*ast.TypeExpr{
+				"options":   typArrayString,
+				"selected":  typI32,
+				"vertical":  typBool,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ScaleOpts",
+			fields: map[string]*ast.TypeExpr{
+				"min":       typF64,
+				"max":       typF64,
+				"value":     typF64,
+				"vertical":  typBool,
+				"width":     typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.SpinboxOpts",
+			fields: map[string]*ast.TypeExpr{
+				"min":       typF64,
+				"max":       typF64,
+				"step":      typF64,
+				"value":     typF64,
+				"width":     typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.SeparatorOpts",
+			fields: map[string]*ast.TypeExpr{
+				"vertical": typBool,
+				"length":   typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
 			name: "gui.Window",
 			methods: map[string]*funcSig{
 				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
@@ -1996,6 +2077,54 @@ func newBuiltinModule(name string) *moduleInfo {
 				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Frame",
+			methods: map[string]*funcSig{
+				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Group",
+			methods: map[string]*funcSig{
+				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"set_title": {name: "set_title", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Radio",
+			methods: map[string]*funcSig{
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":      {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Scale",
+			methods: map[string]*funcSig{
+				"value":     {name: "value", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+				"on_change": {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Spinbox",
+			methods: map[string]*funcSig{
+				"value":     {name: "value", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+				"on_change": {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name:    "gui.Separator",
+			fields:  map[string]*ast.TypeExpr{},
+			methods: make(map[string]*funcSig),
 		})
 	case "regex":
 		addFn("compile", []*ast.TypeExpr{typRegex, typErr}, typString)

@@ -15,6 +15,7 @@ Implemented:
 - App/Window lifecycle
 - Layout: `Grid`, `Box`
 - Core controls: `Label`, `Button`, `Entry`, `Checkbox`, `Select`, `TextArea`, `Progress`
+- Forms/common controls: `Frame`, `Group`, `Radio`, `Scale`, `Spinbox`, `Separator`
 
 ## Parity Phases
 
@@ -25,7 +26,7 @@ Implemented:
 - `TextArea`
 - `Progress`
 
-### Phase 2 (forms and common controls)
+### Phase 2 (forms and common controls, completed)
 
 - `Radio` / radio groups
 - `Scale` (slider)

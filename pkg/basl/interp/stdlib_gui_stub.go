@@ -174,6 +174,82 @@ func guiProgressSetValue(_ uintptr, _ float64) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }
 
+func guiFrameCreate(_ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiFrameSetChild(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiGroupCreate(_ string, _ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiGroupSetChild(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiGroupSetTitle(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiRadioCreate(_ []string, _ int32, _ bool) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiRadioSelectedIndex(_ uintptr) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiRadioSetSelectedIndex(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiRadioSelectedText(_ uintptr) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiRadioSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiScaleCreate(_ float64, _ float64, _ float64, _ bool) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiScaleValue(_ uintptr) (float64, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiScaleSetValue(_ uintptr, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiScaleSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSpinboxCreate(_ float64, _ float64, _ float64, _ float64) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSpinboxValue(_ uintptr) (float64, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSpinboxSetValue(_ uintptr, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSpinboxSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSeparatorCreate(_ bool) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
 func guiWidgetSetSize(_ uintptr, _ int32, _ int32) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }
