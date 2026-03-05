@@ -11,6 +11,7 @@ const (
 	guiClassApp    = "gui.App"
 	guiClassWindow = "gui.Window"
 	guiClassBox    = "gui.Box"
+	guiClassGrid   = "gui.Grid"
 	guiClassLabel  = "gui.Label"
 	guiClassButton = "gui.Button"
 	guiClassEntry  = "gui.Entry"
@@ -18,6 +19,8 @@ const (
 	guiClassAppOpts    = "gui.AppOpts"
 	guiClassWindowOpts = "gui.WindowOpts"
 	guiClassBoxOpts    = "gui.BoxOpts"
+	guiClassGridOpts   = "gui.GridOpts"
+	guiClassCellOpts   = "gui.CellOpts"
 	guiClassLabelOpts  = "gui.LabelOpts"
 	guiClassButtonOpts = "gui.ButtonOpts"
 	guiClassEntryOpts  = "gui.EntryOpts"
@@ -96,7 +99,7 @@ func guiWidgetHandle(v value.Value) (uintptr, error) {
 	}
 	obj := v.AsObject()
 	switch obj.ClassName {
-	case guiClassBox, guiClassLabel, guiClassButton, guiClassEntry:
+	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry:
 	default:
 		return 0, fmt.Errorf("expected gui widget, got %s", obj.ClassName)
 	}
@@ -177,6 +180,22 @@ func (interp *Interpreter) makeDefaultBoxOpts(vertical bool) value.Value {
 	})
 }
 
+func (interp *Interpreter) makeDefaultGridOpts() value.Value {
+	return newGuiOptsObject(guiClassGridOpts, map[string]value.Value{
+		"row_spacing": value.NewI32(8),
+		"col_spacing": value.NewI32(8),
+	})
+}
+
+func (interp *Interpreter) makeDefaultCellOpts(row int32, col int32) value.Value {
+	return newGuiOptsObject(guiClassCellOpts, map[string]value.Value{
+		"row":      value.NewI32(row),
+		"col":      value.NewI32(col),
+		"row_span": value.NewI32(1),
+		"col_span": value.NewI32(1),
+	})
+}
+
 func (interp *Interpreter) makeDefaultLabelOpts(text string) value.Value {
 	return newGuiOptsObject(guiClassLabelOpts, map[string]value.Value{
 		"text": value.NewString(text),
@@ -235,6 +254,20 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			return value.Void, fmt.Errorf("gui.box_opts: expected 0 arguments")
 		}
 		return interp.makeDefaultBoxOpts(true), nil
+	}))
+
+	env.Define("grid_opts", value.NewNativeFunc("gui.grid_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.grid_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultGridOpts(), nil
+	}))
+
+	env.Define("cell_opts", value.NewNativeFunc("gui.cell_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeI32 || args[1].T != value.TypeI32 {
+			return value.Void, fmt.Errorf("gui.cell_opts: expected i32 row, i32 col")
+		}
+		return interp.makeDefaultCellOpts(args[0].AsI32(), args[1].AsI32()), nil
 	}))
 
 	env.Define("label_opts", value.NewNativeFunc("gui.label_opts", func(args []value.Value) (value.Value, error) {
@@ -325,6 +358,26 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			return value.Void, fmt.Errorf("gui.hbox: box constructor unavailable")
 		}
 		return boxCtor.AsNativeFunc().Fn([]value.Value{boxOpts})
+	}))
+
+	env.Define("grid", value.NewNativeFunc("gui.grid", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassGridOpts, "gui.grid")
+		if err != nil {
+			return value.Void, err
+		}
+		rowSpacing, err := guiReadI32Opt(opts, "row_spacing", "gui.grid")
+		if err != nil {
+			return value.Void, err
+		}
+		colSpacing, err := guiReadI32Opt(opts, "col_spacing", "gui.grid")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiGridCreate(rowSpacing, colSpacing)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiGrid(handle), value.Ok}}
 	}))
 
 	env.Define("label", value.NewNativeFunc("gui.label", func(args []value.Value) (value.Value, error) {
@@ -526,6 +579,51 @@ func (interp *Interpreter) newGuiBox(handle uintptr) value.Value {
 		}),
 	}
 	return newGuiObject(guiClassBox, handle, methods)
+}
+
+func (interp *Interpreter) newGuiGrid(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"place": value.NewNativeFunc("gui.Grid.place", func(args []value.Value) (value.Value, error) {
+			if len(args) != 2 {
+				return value.Void, fmt.Errorf("Grid.place: expected widget and gui.CellOpts")
+			}
+			childHandle, err := guiWidgetHandle(args[0])
+			if err != nil {
+				return guiStateErr(err), nil
+			}
+			cellOpts, err := guiExpectOpts(args[1:], guiClassCellOpts, "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
+			row, err := guiReadI32Opt(cellOpts, "row", "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
+			col, err := guiReadI32Opt(cellOpts, "col", "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
+			rowSpan, err := guiReadI32Opt(cellOpts, "row_span", "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
+			colSpan, err := guiReadI32Opt(cellOpts, "col_span", "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
+			if row < 0 || col < 0 {
+				return guiStateErr(fmt.Errorf("grid cell row/col must be >= 0")), nil
+			}
+			if rowSpan <= 0 || colSpan <= 0 {
+				return guiStateErr(fmt.Errorf("grid cell spans must be > 0")), nil
+			}
+			if err := guiGridPlace(handle, childHandle, row, col, rowSpan, colSpan); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassGrid, handle, methods)
 }
 
 func (interp *Interpreter) newGuiLabel(handle uintptr) value.Value {

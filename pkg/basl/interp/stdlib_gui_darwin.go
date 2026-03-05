@@ -20,6 +20,8 @@ uintptr_t basl_gui_box_new(int vertical, char** errOut);
 int basl_gui_box_add(uintptr_t boxPtr, uintptr_t childPtr, char** errOut);
 int basl_gui_box_set_spacing(uintptr_t boxPtr, int32_t spacing, char** errOut);
 int basl_gui_box_set_padding(uintptr_t boxPtr, int32_t padding, char** errOut);
+uintptr_t basl_gui_grid_new(int32_t rowSpacing, int32_t colSpacing, char** errOut);
+int basl_gui_grid_place(uintptr_t gridPtr, uintptr_t childPtr, int32_t row, int32_t col, int32_t rowSpan, int32_t colSpan, char** errOut);
 uintptr_t basl_gui_label_new(const char* text, char** errOut);
 int basl_gui_label_set_text(uintptr_t labelPtr, const char* text, char** errOut);
 uintptr_t basl_gui_button_new(const char* text, char** errOut);
@@ -170,6 +172,32 @@ func guiBoxSetSpacing(boxHandle uintptr, spacing int32) error {
 func guiBoxSetPadding(boxHandle uintptr, padding int32) error {
 	var errOut *C.char
 	ok := C.basl_gui_box_set_padding(C.uintptr_t(boxHandle), C.int32_t(padding), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiGridCreate(rowSpacing int32, colSpacing int32) (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_grid_new(C.int32_t(rowSpacing), C.int32_t(colSpacing), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiGridPlace(gridHandle uintptr, childHandle uintptr, row int32, col int32, rowSpan int32, colSpan int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_grid_place(
+		C.uintptr_t(gridHandle),
+		C.uintptr_t(childHandle),
+		C.int32_t(row),
+		C.int32_t(col),
+		C.int32_t(rowSpan),
+		C.int32_t(colSpan),
+		&errOut,
+	)
 	if ok == 0 {
 		return guiErr(errOut)
 	}

@@ -36,6 +36,8 @@ Returns backend name:
 ### gui.app_opts() -> gui.AppOpts
 ### gui.window_opts(string title) -> gui.WindowOpts
 ### gui.box_opts() -> gui.BoxOpts
+### gui.grid_opts() -> gui.GridOpts
+### gui.cell_opts(i32 row, i32 col) -> gui.CellOpts
 ### gui.label_opts(string text) -> gui.LabelOpts
 ### gui.button_opts(string text) -> gui.ButtonOpts
 ### gui.entry_opts() -> gui.EntryOpts
@@ -49,6 +51,10 @@ Creates the GUI app context.
 ### gui.box(gui.BoxOpts opts) -> (gui.Box, err)
 
 Creates a layout container.
+
+### gui.grid(gui.GridOpts opts) -> (gui.Grid, err)
+
+Creates a grid layout container. Use this as the primary layout API.
 
 ### gui.vbox() -> (gui.Box, err)
 ### gui.hbox() -> (gui.Box, err)
@@ -80,6 +86,22 @@ Reserved for app-level configuration.
 | `vertical` | `bool` | `true` |
 | `spacing` | `i32` | `8` |
 | `padding` | `i32` | `12` |
+
+### gui.GridOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `row_spacing` | `i32` | `8` |
+| `col_spacing` | `i32` | `8` |
+
+### gui.CellOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `row` | `i32` | required via `cell_opts(row, col)` |
+| `col` | `i32` | required via `cell_opts(row, col)` |
+| `row_span` | `i32` | `1` |
+| `col_span` | `i32` | `1` |
 
 ### gui.LabelOpts
 
@@ -121,7 +143,7 @@ Stops the GUI event loop.
 
 ### win.set_child(widget) -> err
 
-Sets the window content widget (`gui.Box`, `gui.Label`, `gui.Button`, or `gui.Entry`).
+Sets the window content widget (`gui.Box`, `gui.Grid`, `gui.Label`, `gui.Button`, or `gui.Entry`).
 
 ### win.set_title(string title) -> err
 ### win.show() -> err
@@ -132,6 +154,12 @@ Sets the window content widget (`gui.Box`, `gui.Label`, `gui.Button`, or `gui.En
 ### box.add(widget) -> err
 
 Adds a child widget (`gui.Box`, `gui.Label`, `gui.Button`, or `gui.Entry`).
+
+## gui.Grid Methods
+
+### grid.place(widget, gui.CellOpts cell) -> err
+
+Places a widget at `cell.row` and `cell.col`. Use `row_span` and `col_span` to span multiple cells.
 
 ## gui.Label Methods
 
@@ -175,11 +203,11 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.BoxOpts box = gui.box_opts();
-    box.vertical = true;
-    box.spacing = 10;
-    guard gui.Box root, err boxErr = gui.box(box) {
-        fmt.eprintln(f"box: {boxErr.message()}");
+    gui.GridOpts grid = gui.grid_opts();
+    grid.row_spacing = 10;
+    grid.col_spacing = 10;
+    guard gui.Grid root, err gridErr = gui.grid(grid) {
+        fmt.eprintln(f"grid: {gridErr.message()}");
         return 1;
     }
 
@@ -200,8 +228,21 @@ fn main() -> i32 {
         return 1;
     }
 
-    root.add(lbl);
-    root.add(btn);
+    gui.CellOpts header = gui.cell_opts(0, 0);
+    header.col_span = 2;
+    err placeHeaderErr = root.place(lbl, header);
+    if (placeHeaderErr != ok) {
+        fmt.eprintln(f"place header: {placeHeaderErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts buttonCell = gui.cell_opts(1, 1);
+    err placeButtonErr = root.place(btn, buttonCell);
+    if (placeButtonErr != ok) {
+        fmt.eprintln(f"place button: {placeButtonErr.message()}");
+        return 1;
+    }
+
     win.set_child(root);
     win.show();
     app.run();

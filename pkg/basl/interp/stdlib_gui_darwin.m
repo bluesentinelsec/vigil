@@ -218,6 +218,131 @@ int basl_gui_box_set_padding(uintptr_t boxPtr, int32_t padding, char** errOut) {
     }
 }
 
+static NSView* basl_gui_grid_placeholder(void) {
+    NSView* spacer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
+    [spacer setHidden:YES];
+    [spacer setTranslatesAutoresizingMaskIntoConstraints:NO];
+    [[spacer.widthAnchor constraintGreaterThanOrEqualToConstant:1.0] setActive:YES];
+    [[spacer.heightAnchor constraintGreaterThanOrEqualToConstant:1.0] setActive:YES];
+    return spacer;
+}
+
+static int basl_gui_grid_ensure_size(NSGridView* grid, NSInteger targetRows, NSInteger targetCols, char** errOut) {
+    if (targetRows <= 0 || targetCols <= 0) {
+        basl_gui_set_error(errOut, "grid target size must be positive");
+        return 0;
+    }
+
+    NSInteger rowCount = [grid numberOfRows];
+    NSInteger colCount = [grid numberOfColumns];
+
+    if (rowCount == 0 && colCount == 0) {
+        NSMutableArray* firstRow = [NSMutableArray arrayWithCapacity:(NSUInteger)targetCols];
+        for (NSInteger c = 0; c < targetCols; c++) {
+            [firstRow addObject:basl_gui_grid_placeholder()];
+        }
+        [grid addRowWithViews:firstRow];
+        rowCount = [grid numberOfRows];
+        colCount = [grid numberOfColumns];
+    }
+
+    if (colCount == 0 && rowCount > 0) {
+        NSMutableArray* column = [NSMutableArray arrayWithCapacity:(NSUInteger)rowCount];
+        for (NSInteger r = 0; r < rowCount; r++) {
+            [column addObject:basl_gui_grid_placeholder()];
+        }
+        [grid addColumnWithViews:column];
+        colCount = [grid numberOfColumns];
+    }
+
+    while (colCount < targetCols) {
+        NSMutableArray* column = [NSMutableArray arrayWithCapacity:(NSUInteger)rowCount];
+        for (NSInteger r = 0; r < rowCount; r++) {
+            [column addObject:basl_gui_grid_placeholder()];
+        }
+        [grid addColumnWithViews:column];
+        colCount = [grid numberOfColumns];
+    }
+
+    while (rowCount < targetRows) {
+        NSMutableArray* row = [NSMutableArray arrayWithCapacity:(NSUInteger)colCount];
+        for (NSInteger c = 0; c < colCount; c++) {
+            [row addObject:basl_gui_grid_placeholder()];
+        }
+        [grid addRowWithViews:row];
+        rowCount = [grid numberOfRows];
+    }
+
+    return 1;
+}
+
+uintptr_t basl_gui_grid_new(int32_t rowSpacing, int32_t colSpacing, char** errOut) {
+    @autoreleasepool {
+        NSGridView* grid = [[NSGridView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
+        if (grid == nil) {
+            basl_gui_set_error(errOut, "failed to create NSGridView");
+            return 0;
+        }
+        [grid setRowSpacing:(CGFloat)rowSpacing];
+        [grid setColumnSpacing:(CGFloat)colSpacing];
+        [grid setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
+        return (uintptr_t)(__bridge_retained void*)grid;
+    }
+}
+
+int basl_gui_grid_place(uintptr_t gridPtr, uintptr_t childPtr, int32_t row, int32_t col, int32_t rowSpan, int32_t colSpan, char** errOut) {
+    @autoreleasepool {
+        NSGridView* grid = (__bridge NSGridView*)((void*)gridPtr);
+        NSView* child = (__bridge NSView*)((void*)childPtr);
+        if (grid == nil || child == nil) {
+            basl_gui_set_error(errOut, "invalid grid or widget handle");
+            return 0;
+        }
+        if (row < 0 || col < 0) {
+            basl_gui_set_error(errOut, "grid row/col must be >= 0");
+            return 0;
+        }
+        if (rowSpan <= 0 || colSpan <= 0) {
+            basl_gui_set_error(errOut, "grid rowSpan/colSpan must be > 0");
+            return 0;
+        }
+
+        NSInteger targetRows = (NSInteger)row + (NSInteger)rowSpan;
+        NSInteger targetCols = (NSInteger)col + (NSInteger)colSpan;
+        if (!basl_gui_grid_ensure_size(grid, targetRows, targetCols, errOut)) {
+            return 0;
+        }
+
+        [child removeFromSuperview];
+        NSGridCell* cell = [grid cellAtColumnIndex:(NSInteger)col rowIndex:(NSInteger)row];
+        if (cell == nil) {
+            basl_gui_set_error(errOut, "failed to resolve target grid cell");
+            return 0;
+        }
+
+        if (rowSpan > 1 || colSpan > 1) {
+            @try {
+                [grid mergeCellsInHorizontalRange:NSMakeRange((NSUInteger)col, (NSUInteger)colSpan)
+                                     verticalRange:NSMakeRange((NSUInteger)row, (NSUInteger)rowSpan)];
+            } @catch (NSException* ex) {
+                NSString* reason = [NSString stringWithFormat:@"failed to merge grid cells: %@", [ex reason]];
+                basl_gui_set_error(errOut, [reason UTF8String]);
+                return 0;
+            }
+            cell = [grid cellAtColumnIndex:(NSInteger)col rowIndex:(NSInteger)row];
+            if (cell == nil) {
+                basl_gui_set_error(errOut, "failed to resolve merged grid cell");
+                return 0;
+            }
+        }
+
+        [cell setContentView:child];
+        [cell setXPlacement:NSGridCellPlacementFill];
+        [cell setYPlacement:NSGridCellPlacementFill];
+        return 1;
+    }
+}
+
 uintptr_t basl_gui_label_new(const char* text, char** errOut) {
     @autoreleasepool {
         NSTextField* label = [NSTextField labelWithString:[NSString stringWithUTF8String:(text != NULL ? text : "")]];

@@ -62,6 +62,14 @@ func guiBoxSetPadding(_ uintptr, _ int32) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }
 
+func guiGridCreate(_ int32, _ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiGridPlace(_ uintptr, _ uintptr, _ int32, _ int32, _ int32, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
 func guiLabelCreate(_ string) (uintptr, error) {
 	return 0, fmt.Errorf(guiUnsupportedMsg)
 }

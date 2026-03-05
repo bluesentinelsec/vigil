@@ -21,12 +21,11 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.BoxOpts boxOpts = gui.box_opts();
-    boxOpts.vertical = true;
-    boxOpts.spacing = 10;
-    boxOpts.padding = 16;
-    guard gui.Box root, err boxErr = gui.box(boxOpts) {
-        fmt.eprintln(f"gui.vbox: {boxErr.message()}");
+    gui.GridOpts gridOpts = gui.grid_opts();
+    gridOpts.row_spacing = 12;
+    gridOpts.col_spacing = 12;
+    guard gui.Grid root, err gridErr = gui.grid(gridOpts) {
+        fmt.eprintln(f"gui.grid: {gridErr.message()}");
         return 1;
     }
 
@@ -47,8 +46,21 @@ fn main() -> i32 {
         return 1;
     }
 
-    root.add(label);
-    root.add(quitBtn);
+    gui.CellOpts labelCell = gui.cell_opts(0, 0);
+    labelCell.col_span = 2;
+    err placeLabelErr = root.place(label, labelCell);
+    if (placeLabelErr != ok) {
+        fmt.eprintln(f"grid.place(label): {placeLabelErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts buttonCell = gui.cell_opts(1, 1);
+    err placeButtonErr = root.place(quitBtn, buttonCell);
+    if (placeButtonErr != ok) {
+        fmt.eprintln(f"grid.place(button): {placeButtonErr.message()}");
+        return 1;
+    }
+
     win.set_child(root);
     win.show();
     app.run();

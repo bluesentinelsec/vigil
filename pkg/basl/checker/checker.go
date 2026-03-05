@@ -1619,12 +1619,15 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiApp := &ast.TypeExpr{Name: "gui.App"}
 	typGuiWindow := &ast.TypeExpr{Name: "gui.Window"}
 	typGuiBox := &ast.TypeExpr{Name: "gui.Box"}
+	typGuiGrid := &ast.TypeExpr{Name: "gui.Grid"}
 	typGuiLabel := &ast.TypeExpr{Name: "gui.Label"}
 	typGuiButton := &ast.TypeExpr{Name: "gui.Button"}
 	typGuiEntry := &ast.TypeExpr{Name: "gui.Entry"}
 	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
 	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
 	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
+	typGuiGridOpts := &ast.TypeExpr{Name: "gui.GridOpts"}
+	typGuiCellOpts := &ast.TypeExpr{Name: "gui.CellOpts"}
 	typGuiLabelOpts := &ast.TypeExpr{Name: "gui.LabelOpts"}
 	typGuiButtonOpts := &ast.TypeExpr{Name: "gui.ButtonOpts"}
 	typGuiEntryOpts := &ast.TypeExpr{Name: "gui.EntryOpts"}
@@ -1758,11 +1761,14 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("app_opts", singleReturnType(typGuiAppOpts))
 		addFn("window_opts", singleReturnType(typGuiWindowOpts), typString)
 		addFn("box_opts", singleReturnType(typGuiBoxOpts))
+		addFn("grid_opts", singleReturnType(typGuiGridOpts))
+		addFn("cell_opts", singleReturnType(typGuiCellOpts), typI32, typI32)
 		addFn("label_opts", singleReturnType(typGuiLabelOpts), typString)
 		addFn("button_opts", singleReturnType(typGuiButtonOpts), typString)
 		addFn("entry_opts", singleReturnType(typGuiEntryOpts))
 		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
 		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
+		addFn("grid", []*ast.TypeExpr{typGuiGrid, typErr}, typGuiGridOpts)
 		addFn("vbox", []*ast.TypeExpr{typGuiBox, typErr})
 		addFn("hbox", []*ast.TypeExpr{typGuiBox, typErr})
 		addFn("label", []*ast.TypeExpr{typGuiLabel, typErr}, typGuiLabelOpts)
@@ -1798,6 +1804,24 @@ func newBuiltinModule(name string) *moduleInfo {
 				"vertical": typBool,
 				"spacing":  typI32,
 				"padding":  typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.GridOpts",
+			fields: map[string]*ast.TypeExpr{
+				"row_spacing": typI32,
+				"col_spacing": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.CellOpts",
+			fields: map[string]*ast.TypeExpr{
+				"row":      typI32,
+				"col":      typI32,
+				"row_span": typI32,
+				"col_span": typI32,
 			},
 			methods: make(map[string]*funcSig),
 		})
@@ -1840,6 +1864,13 @@ func newBuiltinModule(name string) *moduleInfo {
 			name: "gui.Box",
 			methods: map[string]*funcSig{
 				"add": {name: "add", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Grid",
+			methods: map[string]*funcSig{
+				"place": {name: "place", params: []*ast.TypeExpr{nil, typGuiCellOpts}, ret: []*ast.TypeExpr{typErr}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
 		})
