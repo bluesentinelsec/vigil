@@ -17,6 +17,40 @@ extern void baslGuiInvokeCallback(uintptr_t callbackId);
 }
 @end
 
+@interface BaslAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation BaslAppDelegate
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender {
+    return YES;
+}
+@end
+
+static void basl_gui_install_menu(NSApplication* app) {
+    if (app == nil) {
+        return;
+    }
+    if ([app mainMenu] != nil) {
+        return;
+    }
+
+    NSMenu* menubar = [[NSMenu alloc] initWithTitle:@""];
+    NSMenuItem* appMenuItem = [[NSMenuItem alloc] initWithTitle:@""
+                                                          action:nil
+                                                   keyEquivalent:@""];
+    [menubar addItem:appMenuItem];
+    [app setMainMenu:menubar];
+
+    NSString* appName = [[NSProcessInfo processInfo] processName];
+    NSMenu* appMenu = [[NSMenu alloc] initWithTitle:appName];
+    NSString* quitTitle = [NSString stringWithFormat:@"Quit %@", appName];
+    NSMenuItem* quitItem = [[NSMenuItem alloc] initWithTitle:quitTitle
+                                                      action:@selector(terminate:)
+                                               keyEquivalent:@"q"];
+    [appMenu addItem:quitItem];
+    [appMenuItem setSubmenu:appMenu];
+}
+
 static char* basl_gui_strdup(const char* s) {
     if (s == NULL) {
         return NULL;
@@ -51,6 +85,10 @@ uintptr_t basl_gui_app_new(char** errOut) {
             return 0;
         }
         [app setActivationPolicy:NSApplicationActivationPolicyRegular];
+        BaslAppDelegate* delegate = [[BaslAppDelegate alloc] init];
+        [app setDelegate:delegate];
+        objc_setAssociatedObject(app, "basl_gui_app_delegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        basl_gui_install_menu(app);
         return (uintptr_t)(__bridge void*)app;
     }
 }
@@ -74,17 +112,7 @@ int basl_gui_app_quit(char** errOut) {
             basl_gui_set_error(errOut, "NSApplication is not initialized");
             return 0;
         }
-        [app stop:nil];
-        NSEvent* wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
-                                           location:NSMakePoint(0, 0)
-                                      modifierFlags:0
-                                          timestamp:0
-                                       windowNumber:0
-                                            context:nil
-                                            subtype:0
-                                              data1:0
-                                              data2:0];
-        [app postEvent:wake atStart:NO];
+        [app terminate:nil];
         return 1;
     }
 }

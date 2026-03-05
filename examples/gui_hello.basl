@@ -14,8 +14,8 @@ fn main() -> i32 {
     }
 
     gui.WindowOpts winOpts = gui.window_opts("BASL GUI Demo");
-    winOpts.width = 480;
-    winOpts.height = 320;
+    winOpts.width = 680;
+    winOpts.height = 360;
     guard gui.Window win, err winErr = app.window(winOpts) {
         fmt.eprintln(f"app.window: {winErr.message()}");
         return 1;
@@ -29,40 +29,204 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.LabelOpts labelOpts = gui.label_opts("Hello from BASL + Cocoa");
-    guard gui.Label label, err labelErr = gui.label(labelOpts) {
-        fmt.eprintln(f"gui.label: {labelErr.message()}");
+    gui.LabelOpts titleOpts = gui.label_opts("BASL GUI Demo (all widgets)");
+    guard gui.Label titleLabel, err titleErr = gui.label(titleOpts) {
+        fmt.eprintln(f"gui.label(title): {titleErr.message()}");
         return 1;
     }
 
-    gui.ButtonOpts btnOpts = gui.button_opts("Quit");
-    btnOpts.width = 120;
-    btnOpts.height = 32;
-    btnOpts.on_click = fn() -> void {
-        fmt.println("button clicked");
-    };
-    guard gui.Button quitBtn, err btnErr = gui.button(btnOpts) {
-        fmt.eprintln(f"gui.button: {btnErr.message()}");
+    gui.LabelOpts statusOpts = gui.label_opts("Type text, then click Apply.");
+    guard gui.Label statusLabel, err statusErr = gui.label(statusOpts) {
+        fmt.eprintln(f"gui.label(status): {statusErr.message()}");
         return 1;
     }
 
-    gui.CellOpts labelCell = gui.cell_opts(0, 0);
-    labelCell.col_span = 2;
-    err placeLabelErr = root.place(label, labelCell);
-    if (placeLabelErr != ok) {
-        fmt.eprintln(f"grid.place(label): {placeLabelErr.message()}");
+    gui.EntryOpts entryOpts = gui.entry_opts();
+    entryOpts.text = "hello";
+    entryOpts.width = 420;
+    guard gui.Entry input, err inputErr = gui.entry(entryOpts) {
+        fmt.eprintln(f"gui.entry: {inputErr.message()}");
         return 1;
     }
 
-    gui.CellOpts buttonCell = gui.cell_opts(1, 1);
-    err placeButtonErr = root.place(quitBtn, buttonCell);
-    if (placeButtonErr != ok) {
-        fmt.eprintln(f"grid.place(button): {placeButtonErr.message()}");
+    gui.BoxOpts rowOpts = gui.box_opts();
+    rowOpts.vertical = false;
+    rowOpts.spacing = 8;
+    rowOpts.padding = 0;
+    guard gui.Box buttonRow, err rowErr = gui.box(rowOpts) {
+        fmt.eprintln(f"gui.box(button row): {rowErr.message()}");
         return 1;
     }
 
-    win.set_child(root);
-    win.show();
-    app.run();
+    gui.ButtonOpts applyOpts = gui.button_opts("Apply");
+    applyOpts.width = 110;
+    applyOpts.height = 32;
+    guard gui.Button applyBtn, err applyErr = gui.button(applyOpts) {
+        fmt.eprintln(f"gui.button(apply): {applyErr.message()}");
+        return 1;
+    }
+
+    gui.ButtonOpts clearOpts = gui.button_opts("Clear");
+    clearOpts.width = 110;
+    clearOpts.height = 32;
+    guard gui.Button clearBtn, err clearErr = gui.button(clearOpts) {
+        fmt.eprintln(f"gui.button(clear): {clearErr.message()}");
+        return 1;
+    }
+
+    gui.ButtonOpts echoOpts = gui.button_opts("Echo");
+    echoOpts.width = 110;
+    echoOpts.height = 32;
+    guard gui.Button echoBtn, err echoErr = gui.button(echoOpts) {
+        fmt.eprintln(f"gui.button(echo): {echoErr.message()}");
+        return 1;
+    }
+
+    gui.ButtonOpts quitOpts = gui.button_opts("Quit");
+    quitOpts.width = 110;
+    quitOpts.height = 32;
+    guard gui.Button quitBtn, err quitErr = gui.button(quitOpts) {
+        fmt.eprintln(f"gui.button(quit): {quitErr.message()}");
+        return 1;
+    }
+
+    err hookApplyErr = applyBtn.on_click(fn() -> void {
+        string text, err readErr = input.text();
+        if (readErr != ok) {
+            statusLabel.set_text(f"read failed: {readErr.message()}");
+            return;
+        }
+
+        err setStatusErr = statusLabel.set_text(f"Applied: {text}");
+        if (setStatusErr != ok) {
+            fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
+            return;
+        }
+
+        err setTitleErr = win.set_title(f"BASL GUI Demo - {text}");
+        if (setTitleErr != ok) {
+            fmt.eprintln(f"set_title failed: {setTitleErr.message()}");
+        }
+    });
+    if (hookApplyErr != ok) {
+        fmt.eprintln(f"hook apply callback: {hookApplyErr.message()}");
+        return 1;
+    }
+
+    err hookClearErr = clearBtn.on_click(fn() -> void {
+        err clearInputErr = input.set_text("");
+        if (clearInputErr != ok) {
+            fmt.eprintln(f"clear input failed: {clearInputErr.message()}");
+            return;
+        }
+        err setStatusErr = statusLabel.set_text("Cleared");
+        if (setStatusErr != ok) {
+            fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
+            return;
+        }
+        err resetTitleErr = win.set_title("BASL GUI Demo");
+        if (resetTitleErr != ok) {
+            fmt.eprintln(f"set_title failed: {resetTitleErr.message()}");
+        }
+    });
+    if (hookClearErr != ok) {
+        fmt.eprintln(f"hook clear callback: {hookClearErr.message()}");
+        return 1;
+    }
+
+    err hookEchoErr = echoBtn.on_click(fn() -> void {
+        string text, err readErr = input.text();
+        if (readErr != ok) {
+            fmt.eprintln(f"echo read failed: {readErr.message()}");
+            return;
+        }
+        fmt.println(f"echo: {text}");
+    });
+    if (hookEchoErr != ok) {
+        fmt.eprintln(f"hook echo callback: {hookEchoErr.message()}");
+        return 1;
+    }
+
+    err hookQuitErr = quitBtn.on_click(fn() -> void {
+        err shutdownErr = app.quit();
+        if (shutdownErr != ok) {
+            fmt.eprintln(f"app.quit failed: {shutdownErr.message()}");
+        }
+    });
+    if (hookQuitErr != ok) {
+        fmt.eprintln(f"hook quit callback: {hookQuitErr.message()}");
+        return 1;
+    }
+
+    err rowAddApplyErr = buttonRow.add(applyBtn);
+    if (rowAddApplyErr != ok) {
+        fmt.eprintln(f"buttonRow.add(apply): {rowAddApplyErr.message()}");
+        return 1;
+    }
+    err rowAddClearErr = buttonRow.add(clearBtn);
+    if (rowAddClearErr != ok) {
+        fmt.eprintln(f"buttonRow.add(clear): {rowAddClearErr.message()}");
+        return 1;
+    }
+    err rowAddEchoErr = buttonRow.add(echoBtn);
+    if (rowAddEchoErr != ok) {
+        fmt.eprintln(f"buttonRow.add(echo): {rowAddEchoErr.message()}");
+        return 1;
+    }
+    err rowAddQuitErr = buttonRow.add(quitBtn);
+    if (rowAddQuitErr != ok) {
+        fmt.eprintln(f"buttonRow.add(quit): {rowAddQuitErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts titleCell = gui.cell_opts(0, 0);
+    titleCell.col_span = 2;
+    err placeTitleErr = root.place(titleLabel, titleCell);
+    if (placeTitleErr != ok) {
+        fmt.eprintln(f"grid.place(title): {placeTitleErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts inputCell = gui.cell_opts(1, 0);
+    inputCell.col_span = 2;
+    err placeInputErr = root.place(input, inputCell);
+    if (placeInputErr != ok) {
+        fmt.eprintln(f"grid.place(input): {placeInputErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts statusCell = gui.cell_opts(2, 0);
+    statusCell.col_span = 2;
+    err placeStatusErr = root.place(statusLabel, statusCell);
+    if (placeStatusErr != ok) {
+        fmt.eprintln(f"grid.place(status): {placeStatusErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts rowCell = gui.cell_opts(3, 0);
+    rowCell.col_span = 2;
+    err placeRowErr = root.place(buttonRow, rowCell);
+    if (placeRowErr != ok) {
+        fmt.eprintln(f"grid.place(button row): {placeRowErr.message()}");
+        return 1;
+    }
+
+    err setChildErr = win.set_child(root);
+    if (setChildErr != ok) {
+        fmt.eprintln(f"win.set_child: {setChildErr.message()}");
+        return 1;
+    }
+
+    err showErr = win.show();
+    if (showErr != ok) {
+        fmt.eprintln(f"win.show: {showErr.message()}");
+        return 1;
+    }
+
+    err runErr = app.run();
+    if (runErr != ok) {
+        fmt.eprintln(f"app.run: {runErr.message()}");
+        return 1;
+    }
     return 0;
 }

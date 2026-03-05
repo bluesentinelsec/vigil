@@ -556,9 +556,14 @@ func (c *Checker) checkModuleValueInit(mod *moduleInfo, declared *ast.TypeExpr, 
 }
 
 func (c *Checker) checkFunctionBody(mod *moduleInfo, class *classInfo, decl *ast.FnDecl) {
+	c.checkFunctionBodyWithParentScope(mod, class, decl, nil)
+}
+
+func (c *Checker) checkFunctionBodyWithParentScope(mod *moduleInfo, class *classInfo, decl *ast.FnDecl, parent *scope) {
+	fnScope := newScope(parent)
 	ctx := &bodyContext{
 		mod:          mod,
-		scope:        newScope(nil),
+		scope:        fnScope,
 		currentClass: class,
 		returns:      returnTypes(decl.Return),
 	}
@@ -903,7 +908,7 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		c.checkExpr(ctx, e.Kind)
 		return exprInfo{returns: []*ast.TypeExpr{{Name: "err"}}}
 	case *ast.FnLitExpr:
-		c.checkFunctionBody(ctx.mod, nil, e.Decl)
+		c.checkFunctionBodyWithParentScope(ctx.mod, nil, e.Decl, ctx.scope)
 		return exprInfo{returns: []*ast.TypeExpr{fnTypeFromSig(fnSigFromDecl(e.Decl))}}
 	case *ast.UnaryExpr:
 		operand := c.checkExpr(ctx, e.Operand)

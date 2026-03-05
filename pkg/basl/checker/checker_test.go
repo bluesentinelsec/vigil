@@ -336,6 +336,39 @@ fn main() -> i32 {
 	}
 }
 
+func TestCheckFileSupportsFnLiteralCaptures(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+fn apply(fn() -> i32 cb) -> i32 {
+    return cb();
+}
+
+fn pair() -> (i32, err) {
+    return (2, ok);
+}
+
+fn main() -> i32 {
+    i32 base = 40;
+    i32 out = apply(fn() -> i32 {
+        i32 n, err e = pair();
+        if (e != ok) {
+            return 0;
+        }
+        return n + base;
+    });
+    return out;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
 func TestCheckFileUsesExactOptionalBuiltinArity(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
