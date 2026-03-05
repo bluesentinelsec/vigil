@@ -30,6 +30,24 @@ int basl_gui_button_set_on_click(uintptr_t buttonPtr, uintptr_t callbackId, char
 uintptr_t basl_gui_entry_new(char** errOut);
 char* basl_gui_entry_text(uintptr_t entryPtr, char** errOut);
 int basl_gui_entry_set_text(uintptr_t entryPtr, const char* text, char** errOut);
+uintptr_t basl_gui_checkbox_new(const char* text, int checked, char** errOut);
+int basl_gui_checkbox_set_text(uintptr_t checkboxPtr, const char* text, char** errOut);
+int basl_gui_checkbox_is_checked(uintptr_t checkboxPtr, int* checkedOut, char** errOut);
+int basl_gui_checkbox_set_checked(uintptr_t checkboxPtr, int checked, char** errOut);
+int basl_gui_checkbox_set_on_toggle(uintptr_t checkboxPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_select_new(const char** items, int32_t itemCount, int32_t selectedIndex, char** errOut);
+int basl_gui_select_selected_index(uintptr_t selectPtr, int32_t* outIndex, char** errOut);
+int basl_gui_select_set_selected_index(uintptr_t selectPtr, int32_t selectedIndex, char** errOut);
+char* basl_gui_select_selected_text(uintptr_t selectPtr, char** errOut);
+int basl_gui_select_add_item(uintptr_t selectPtr, const char* text, char** errOut);
+int basl_gui_select_set_on_change(uintptr_t selectPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_textarea_new(char** errOut);
+char* basl_gui_textarea_text(uintptr_t textareaPtr, char** errOut);
+int basl_gui_textarea_set_text(uintptr_t textareaPtr, const char* text, char** errOut);
+int basl_gui_textarea_append(uintptr_t textareaPtr, const char* text, char** errOut);
+uintptr_t basl_gui_progress_new(double minValue, double maxValue, double value, int indeterminate, char** errOut);
+int basl_gui_progress_value(uintptr_t progressPtr, double* outValue, char** errOut);
+int basl_gui_progress_set_value(uintptr_t progressPtr, double value, char** errOut);
 int basl_gui_widget_set_size(uintptr_t viewPtr, int32_t width, int32_t height, char** errOut);
 void basl_gui_free_string(char* s);
 */
@@ -285,6 +303,217 @@ func guiEntrySetText(entryHandle uintptr, text string) error {
 	defer C.free(unsafe.Pointer(cText))
 	var errOut *C.char
 	ok := C.basl_gui_entry_set_text(C.uintptr_t(entryHandle), cText, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCheckboxCreate(text string, checked bool) (uintptr, error) {
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+	var errOut *C.char
+	checkedFlag := C.int(0)
+	if checked {
+		checkedFlag = 1
+	}
+	handle := C.basl_gui_checkbox_new(cText, checkedFlag, &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiCheckboxSetText(checkboxHandle uintptr, text string) error {
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+	var errOut *C.char
+	ok := C.basl_gui_checkbox_set_text(C.uintptr_t(checkboxHandle), cText, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCheckboxChecked(checkboxHandle uintptr) (bool, error) {
+	var errOut *C.char
+	var checkedOut C.int
+	ok := C.basl_gui_checkbox_is_checked(C.uintptr_t(checkboxHandle), &checkedOut, &errOut)
+	if ok == 0 {
+		return false, guiErr(errOut)
+	}
+	return checkedOut != 0, nil
+}
+
+func guiCheckboxSetChecked(checkboxHandle uintptr, checked bool) error {
+	var errOut *C.char
+	checkedFlag := C.int(0)
+	if checked {
+		checkedFlag = 1
+	}
+	ok := C.basl_gui_checkbox_set_checked(C.uintptr_t(checkboxHandle), checkedFlag, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCheckboxSetOnToggle(checkboxHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_checkbox_set_on_toggle(C.uintptr_t(checkboxHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiSelectCreate(options []string, selectedIndex int32) (uintptr, error) {
+	var errOut *C.char
+	var cItemsRaw unsafe.Pointer
+	var cItems **C.char
+	if len(options) > 0 {
+		cItemsRaw = C.malloc(C.size_t(len(options)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+		defer C.free(cItemsRaw)
+		itemsSlice := unsafe.Slice((**C.char)(cItemsRaw), len(options))
+		cStrs := make([]*C.char, len(options))
+		for i, opt := range options {
+			cStrs[i] = C.CString(opt)
+			defer C.free(unsafe.Pointer(cStrs[i]))
+			itemsSlice[i] = cStrs[i]
+		}
+		cItems = (**C.char)(cItemsRaw)
+	}
+	handle := C.basl_gui_select_new(cItems, C.int32_t(len(options)), C.int32_t(selectedIndex), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiSelectSelectedIndex(selectHandle uintptr) (int32, error) {
+	var errOut *C.char
+	var outIndex C.int32_t
+	ok := C.basl_gui_select_selected_index(C.uintptr_t(selectHandle), &outIndex, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outIndex), nil
+}
+
+func guiSelectSetSelectedIndex(selectHandle uintptr, selectedIndex int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_select_set_selected_index(C.uintptr_t(selectHandle), C.int32_t(selectedIndex), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiSelectSelectedText(selectHandle uintptr) (string, error) {
+	var errOut *C.char
+	text := C.basl_gui_select_selected_text(C.uintptr_t(selectHandle), &errOut)
+	if text == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(text)
+	C.basl_gui_free_string(text)
+	return out, nil
+}
+
+func guiSelectAddItem(selectHandle uintptr, item string) error {
+	cItem := C.CString(item)
+	defer C.free(unsafe.Pointer(cItem))
+	var errOut *C.char
+	ok := C.basl_gui_select_add_item(C.uintptr_t(selectHandle), cItem, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiSelectSetOnChange(selectHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_select_set_on_change(C.uintptr_t(selectHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTextAreaCreate() (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_textarea_new(&errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiTextAreaText(textAreaHandle uintptr) (string, error) {
+	var errOut *C.char
+	text := C.basl_gui_textarea_text(C.uintptr_t(textAreaHandle), &errOut)
+	if text == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("failed to read text area text")
+	}
+	out := C.GoString(text)
+	C.basl_gui_free_string(text)
+	return out, nil
+}
+
+func guiTextAreaSetText(textAreaHandle uintptr, text string) error {
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+	var errOut *C.char
+	ok := C.basl_gui_textarea_set_text(C.uintptr_t(textAreaHandle), cText, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTextAreaAppend(textAreaHandle uintptr, text string) error {
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+	var errOut *C.char
+	ok := C.basl_gui_textarea_append(C.uintptr_t(textAreaHandle), cText, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiProgressCreate(min float64, max float64, current float64, indeterminate bool) (uintptr, error) {
+	var errOut *C.char
+	indeterminateFlag := C.int(0)
+	if indeterminate {
+		indeterminateFlag = 1
+	}
+	handle := C.basl_gui_progress_new(C.double(min), C.double(max), C.double(current), indeterminateFlag, &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiProgressValue(progressHandle uintptr) (float64, error) {
+	var errOut *C.char
+	var outValue C.double
+	ok := C.basl_gui_progress_value(C.uintptr_t(progressHandle), &outValue, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return float64(outValue), nil
+}
+
+func guiProgressSetValue(progressHandle uintptr, current float64) error {
+	var errOut *C.char
+	ok := C.basl_gui_progress_set_value(C.uintptr_t(progressHandle), C.double(current), &errOut)
 	if ok == 0 {
 		return guiErr(errOut)
 	}

@@ -102,6 +102,78 @@ func guiEntrySetText(_ uintptr, _ string) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }
 
+func guiCheckboxCreate(_ string, _ bool) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCheckboxSetText(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCheckboxChecked(_ uintptr) (bool, error) {
+	return false, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCheckboxSetChecked(_ uintptr, _ bool) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCheckboxSetOnToggle(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSelectCreate(_ []string, _ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSelectSelectedIndex(_ uintptr) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSelectSetSelectedIndex(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSelectSelectedText(_ uintptr) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSelectAddItem(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiSelectSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTextAreaCreate() (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTextAreaText(_ uintptr) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTextAreaSetText(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTextAreaAppend(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiProgressCreate(_ float64, _ float64, _ float64, _ bool) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiProgressValue(_ uintptr) (float64, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiProgressSetValue(_ uintptr, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
 func guiWidgetSetSize(_ uintptr, _ int32, _ int32) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }

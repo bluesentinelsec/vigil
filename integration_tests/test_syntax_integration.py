@@ -518,6 +518,24 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 gui.EntryOpts entryOpts = gui.entry_opts();
                 entryOpts.text = "seed";
                 entryOpts.width = 260;
+                gui.CheckboxOpts checkboxOpts = gui.checkbox_opts("Enable");
+                checkboxOpts.checked = true;
+                checkboxOpts.on_toggle = fn() -> void { fmt.print("t"); };
+                gui.SelectOpts selectOpts = gui.select_opts();
+                selectOpts.options = ["One", "Two"];
+                selectOpts.selected = 1;
+                selectOpts.width = 200;
+                selectOpts.on_change = fn() -> void { fmt.print("c"); };
+                gui.TextAreaOpts textAreaOpts = gui.textarea_opts();
+                textAreaOpts.text = "body";
+                textAreaOpts.width = 320;
+                textAreaOpts.height = 120;
+                gui.ProgressOpts progressOpts = gui.progress_opts();
+                progressOpts.min = 0.0;
+                progressOpts.max = 10.0;
+                progressOpts.value = 4.0;
+                progressOpts.indeterminate = false;
+                progressOpts.width = 220;
 
                 fmt.print(
                     string(backend.len() > 0) + ":" +
@@ -528,12 +546,16 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                     string(cellOpts.col_span) + ":" +
                     labelOpts.text + ":" +
                     buttonOpts.text + ":" +
-                    entryOpts.text
+                    entryOpts.text + ":" +
+                    checkboxOpts.text + ":" +
+                    selectOpts.options[1] + ":" +
+                    textAreaOpts.text + ":" +
+                    string(progressOpts.value)
                 );
                 return 0;
             }
         """
-        self._assert_success(source, stdout="true:true:640:20:14:4:Hello:Save:seed")
+        self._assert_success(source, stdout="true:true:640:20:14:4:Hello:Save:seed:Enable:Two:body:4")
 
     def test_stdlib_args_module(self) -> None:
         source = """

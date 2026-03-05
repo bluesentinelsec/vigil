@@ -577,6 +577,46 @@ fn main() -> i32 {
     err titleErr = win.set_title("Demo App");
     string textVal, err textErr = input.text();
     err setErr = input.set_text("updated");
+    gui.CheckboxOpts chkOpts = gui.checkbox_opts("Enable feature");
+    chkOpts.checked = true;
+    chkOpts.on_toggle = worker_ui;
+    gui.Checkbox chk, err chkErr = gui.checkbox(chkOpts);
+    bool chkState, err chkStateErr = chk.checked();
+    err chkSetStateErr = chk.set_checked(false);
+    err chkSetTextErr = chk.set_text("Enable advanced mode");
+    err chkHookErr = chk.on_toggle(worker_ui);
+
+    gui.SelectOpts selOpts = gui.select_opts();
+    selOpts.options = ["Fast", "Balanced", "Safe"];
+    selOpts.selected = 1;
+    selOpts.width = 220;
+    selOpts.on_change = worker_ui;
+    gui.Select sel, err selErr = gui.select(selOpts);
+    i32 selIndex, err selIndexErr = sel.selected_index();
+    err selSetIndexErr = sel.set_selected_index(2);
+    string selText, err selTextErr = sel.selected_text();
+    err selAddErr = sel.add_item("Debug");
+    err selHookErr = sel.on_change(worker_ui);
+
+    gui.TextAreaOpts taOpts = gui.textarea_opts();
+    taOpts.text = "first line";
+    taOpts.width = 360;
+    taOpts.height = 140;
+    gui.TextArea ta, err taErr = gui.textarea(taOpts);
+    string taText, err taTextErr = ta.text();
+    err taSetErr = ta.set_text("replaced");
+    err taAppendErr = ta.append("\nextra");
+
+    gui.ProgressOpts progOpts = gui.progress_opts();
+    progOpts.min = 0.0;
+    progOpts.max = 10.0;
+    progOpts.value = 3.0;
+    progOpts.indeterminate = false;
+    progOpts.width = 200;
+    gui.Progress prog, err progErr = gui.progress(progOpts);
+    f64 progValue, err progValueErr = prog.value();
+    err progSetErr = prog.set_value(7.0);
+
     err showErr = win.show();
     err closeGuiErr = win.close();
     err quitErr = app.quit();

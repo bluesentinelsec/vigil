@@ -1,4 +1,5 @@
 #include <Cocoa/Cocoa.h>
+#include <float.h>
 #include <objc/runtime.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -6,13 +7,13 @@
 
 extern void baslGuiInvokeCallback(uintptr_t callbackId);
 
-@interface BaslButtonTarget : NSObject
+@interface BaslControlTarget : NSObject
 @property(nonatomic, assign) uintptr_t callbackId;
-- (void)onClick:(id)sender;
+- (void)onAction:(id)sender;
 @end
 
-@implementation BaslButtonTarget
-- (void)onClick:(id)sender {
+@implementation BaslControlTarget
+- (void)onAction:(id)sender {
     baslGuiInvokeCallback(self.callbackId);
 }
 @end
@@ -427,14 +428,14 @@ int basl_gui_button_set_on_click(uintptr_t buttonPtr, uintptr_t callbackId, char
             basl_gui_set_error(errOut, "invalid button handle");
             return 0;
         }
-        BaslButtonTarget* target = [[BaslButtonTarget alloc] init];
+        BaslControlTarget* target = [[BaslControlTarget alloc] init];
         if (target == nil) {
             basl_gui_set_error(errOut, "failed to allocate button target");
             return 0;
         }
         target.callbackId = callbackId;
         [button setTarget:target];
-        [button setAction:@selector(onClick:)];
+        [button setAction:@selector(onAction:)];
         objc_setAssociatedObject(button, "basl_gui_button_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         return 1;
     }
@@ -471,6 +472,335 @@ int basl_gui_entry_set_text(uintptr_t entryPtr, const char* text, char** errOut)
             return 0;
         }
         [entry setStringValue:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_checkbox_new(const char* text, int checked, char** errOut) {
+    @autoreleasepool {
+        NSButton* checkbox = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 240, 24)];
+        if (checkbox == nil) {
+            basl_gui_set_error(errOut, "failed to create checkbox");
+            return 0;
+        }
+        [checkbox setButtonType:NSButtonTypeSwitch];
+        [checkbox setTitle:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        [checkbox setState:(checked ? NSControlStateValueOn : NSControlStateValueOff)];
+        return (uintptr_t)(__bridge_retained void*)checkbox;
+    }
+}
+
+int basl_gui_checkbox_set_text(uintptr_t checkboxPtr, const char* text, char** errOut) {
+    @autoreleasepool {
+        NSButton* checkbox = (__bridge NSButton*)((void*)checkboxPtr);
+        if (checkbox == nil) {
+            basl_gui_set_error(errOut, "invalid checkbox handle");
+            return 0;
+        }
+        [checkbox setTitle:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        return 1;
+    }
+}
+
+int basl_gui_checkbox_is_checked(uintptr_t checkboxPtr, int* checkedOut, char** errOut) {
+    @autoreleasepool {
+        NSButton* checkbox = (__bridge NSButton*)((void*)checkboxPtr);
+        if (checkbox == nil || checkedOut == NULL) {
+            basl_gui_set_error(errOut, "invalid checkbox handle");
+            return 0;
+        }
+        *checkedOut = ([checkbox state] == NSControlStateValueOn) ? 1 : 0;
+        return 1;
+    }
+}
+
+int basl_gui_checkbox_set_checked(uintptr_t checkboxPtr, int checked, char** errOut) {
+    @autoreleasepool {
+        NSButton* checkbox = (__bridge NSButton*)((void*)checkboxPtr);
+        if (checkbox == nil) {
+            basl_gui_set_error(errOut, "invalid checkbox handle");
+            return 0;
+        }
+        [checkbox setState:(checked ? NSControlStateValueOn : NSControlStateValueOff)];
+        return 1;
+    }
+}
+
+int basl_gui_checkbox_set_on_toggle(uintptr_t checkboxPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSButton* checkbox = (__bridge NSButton*)((void*)checkboxPtr);
+        if (checkbox == nil) {
+            basl_gui_set_error(errOut, "invalid checkbox handle");
+            return 0;
+        }
+        BaslControlTarget* target = [[BaslControlTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate checkbox target");
+            return 0;
+        }
+        target.callbackId = callbackId;
+        [checkbox setTarget:target];
+        [checkbox setAction:@selector(onAction:)];
+        objc_setAssociatedObject(checkbox, "basl_gui_checkbox_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_select_new(const char** items, int32_t itemCount, int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        if (itemCount < 0) {
+            basl_gui_set_error(errOut, "itemCount must be >= 0");
+            return 0;
+        }
+        NSPopUpButton* select = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 240, 26) pullsDown:NO];
+        if (select == nil) {
+            basl_gui_set_error(errOut, "failed to create select");
+            return 0;
+        }
+        [select removeAllItems];
+        for (int32_t i = 0; i < itemCount; i++) {
+            const char* raw = (items != NULL && items[i] != NULL) ? items[i] : "";
+            [select addItemWithTitle:[NSString stringWithUTF8String:raw]];
+        }
+        NSInteger count = [select numberOfItems];
+        if (count > 0) {
+            NSInteger idx = (NSInteger)selectedIndex;
+            if (idx < 0) {
+                idx = 0;
+            }
+            if (idx >= count) {
+                idx = count - 1;
+            }
+            [select selectItemAtIndex:idx];
+        }
+        return (uintptr_t)(__bridge_retained void*)select;
+    }
+}
+
+int basl_gui_select_selected_index(uintptr_t selectPtr, int32_t* outIndex, char** errOut) {
+    @autoreleasepool {
+        NSPopUpButton* select = (__bridge NSPopUpButton*)((void*)selectPtr);
+        if (select == nil || outIndex == NULL) {
+            basl_gui_set_error(errOut, "invalid select handle");
+            return 0;
+        }
+        if ([select numberOfItems] == 0) {
+            *outIndex = -1;
+            return 1;
+        }
+        *outIndex = (int32_t)[select indexOfSelectedItem];
+        return 1;
+    }
+}
+
+int basl_gui_select_set_selected_index(uintptr_t selectPtr, int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        NSPopUpButton* select = (__bridge NSPopUpButton*)((void*)selectPtr);
+        if (select == nil) {
+            basl_gui_set_error(errOut, "invalid select handle");
+            return 0;
+        }
+        NSInteger count = [select numberOfItems];
+        if (count == 0) {
+            basl_gui_set_error(errOut, "select has no items");
+            return 0;
+        }
+        if (selectedIndex < 0 || selectedIndex >= count) {
+            basl_gui_set_error(errOut, "selected index out of range");
+            return 0;
+        }
+        [select selectItemAtIndex:(NSInteger)selectedIndex];
+        return 1;
+    }
+}
+
+char* basl_gui_select_selected_text(uintptr_t selectPtr, char** errOut) {
+    @autoreleasepool {
+        NSPopUpButton* select = (__bridge NSPopUpButton*)((void*)selectPtr);
+        if (select == nil) {
+            basl_gui_set_error(errOut, "invalid select handle");
+            return NULL;
+        }
+        NSString* text = [select titleOfSelectedItem];
+        if (text == nil) {
+            return basl_gui_strdup("");
+        }
+        return basl_gui_strdup([text UTF8String]);
+    }
+}
+
+int basl_gui_select_add_item(uintptr_t selectPtr, const char* text, char** errOut) {
+    @autoreleasepool {
+        NSPopUpButton* select = (__bridge NSPopUpButton*)((void*)selectPtr);
+        if (select == nil) {
+            basl_gui_set_error(errOut, "invalid select handle");
+            return 0;
+        }
+        [select addItemWithTitle:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        return 1;
+    }
+}
+
+int basl_gui_select_set_on_change(uintptr_t selectPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSPopUpButton* select = (__bridge NSPopUpButton*)((void*)selectPtr);
+        if (select == nil) {
+            basl_gui_set_error(errOut, "invalid select handle");
+            return 0;
+        }
+        BaslControlTarget* target = [[BaslControlTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate select target");
+            return 0;
+        }
+        target.callbackId = callbackId;
+        [select setTarget:target];
+        [select setAction:@selector(onAction:)];
+        objc_setAssociatedObject(select, "basl_gui_select_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return 1;
+    }
+}
+
+static NSTextView* basl_gui_textarea_resolve(uintptr_t textareaPtr, char** errOut) {
+    NSScrollView* scroll = (__bridge NSScrollView*)((void*)textareaPtr);
+    if (scroll == nil) {
+        basl_gui_set_error(errOut, "invalid text area handle");
+        return nil;
+    }
+    id doc = [scroll documentView];
+    if (doc == nil || ![doc isKindOfClass:[NSTextView class]]) {
+        basl_gui_set_error(errOut, "text area document view is unavailable");
+        return nil;
+    }
+    return (NSTextView*)doc;
+}
+
+uintptr_t basl_gui_textarea_new(char** errOut) {
+    @autoreleasepool {
+        NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 420, 160)];
+        if (scroll == nil) {
+            basl_gui_set_error(errOut, "failed to create text area scroll view");
+            return 0;
+        }
+        [scroll setHasVerticalScroller:YES];
+        [scroll setHasHorizontalScroller:NO];
+        [scroll setBorderType:NSBezelBorder];
+
+        NSTextView* textView = [[NSTextView alloc] initWithFrame:[scroll bounds]];
+        if (textView == nil) {
+            basl_gui_set_error(errOut, "failed to create text area view");
+            return 0;
+        }
+        [textView setMinSize:NSMakeSize(0, 0)];
+        [textView setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
+        [textView setVerticallyResizable:YES];
+        [textView setHorizontallyResizable:NO];
+        [[textView textContainer] setContainerSize:NSMakeSize([scroll contentSize].width, FLT_MAX)];
+        [[textView textContainer] setWidthTracksTextView:YES];
+
+        [scroll setDocumentView:textView];
+        return (uintptr_t)(__bridge_retained void*)scroll;
+    }
+}
+
+char* basl_gui_textarea_text(uintptr_t textareaPtr, char** errOut) {
+    @autoreleasepool {
+        NSTextView* textView = basl_gui_textarea_resolve(textareaPtr, errOut);
+        if (textView == nil) {
+            return NULL;
+        }
+        NSString* text = [textView string];
+        return basl_gui_strdup([[text != nil ? text : @"" description] UTF8String]);
+    }
+}
+
+int basl_gui_textarea_set_text(uintptr_t textareaPtr, const char* text, char** errOut) {
+    @autoreleasepool {
+        NSTextView* textView = basl_gui_textarea_resolve(textareaPtr, errOut);
+        if (textView == nil) {
+            return 0;
+        }
+        [textView setString:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        return 1;
+    }
+}
+
+int basl_gui_textarea_append(uintptr_t textareaPtr, const char* text, char** errOut) {
+    @autoreleasepool {
+        NSTextView* textView = basl_gui_textarea_resolve(textareaPtr, errOut);
+        if (textView == nil) {
+            return 0;
+        }
+        NSString* suffix = [NSString stringWithUTF8String:(text != NULL ? text : "")];
+        NSString* current = [textView string];
+        if (current == nil) {
+            current = @"";
+        }
+        [textView setString:[current stringByAppendingString:suffix]];
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_progress_new(double minValue, double maxValue, double value, int indeterminate, char** errOut) {
+    @autoreleasepool {
+        if (!indeterminate && maxValue <= minValue) {
+            basl_gui_set_error(errOut, "progress max must be greater than min");
+            return 0;
+        }
+        NSProgressIndicator* progress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(0, 0, 200, 20)];
+        if (progress == nil) {
+            basl_gui_set_error(errOut, "failed to create progress indicator");
+            return 0;
+        }
+        [progress setStyle:NSProgressIndicatorStyleBar];
+        [progress setIndeterminate:(indeterminate ? YES : NO)];
+        if (indeterminate) {
+            [progress startAnimation:nil];
+        } else {
+            [progress setMinValue:minValue];
+            [progress setMaxValue:maxValue];
+            if (value < minValue) {
+                value = minValue;
+            }
+            if (value > maxValue) {
+                value = maxValue;
+            }
+            [progress setDoubleValue:value];
+        }
+        return (uintptr_t)(__bridge_retained void*)progress;
+    }
+}
+
+int basl_gui_progress_value(uintptr_t progressPtr, double* outValue, char** errOut) {
+    @autoreleasepool {
+        NSProgressIndicator* progress = (__bridge NSProgressIndicator*)((void*)progressPtr);
+        if (progress == nil || outValue == NULL) {
+            basl_gui_set_error(errOut, "invalid progress handle");
+            return 0;
+        }
+        *outValue = [progress doubleValue];
+        return 1;
+    }
+}
+
+int basl_gui_progress_set_value(uintptr_t progressPtr, double value, char** errOut) {
+    @autoreleasepool {
+        NSProgressIndicator* progress = (__bridge NSProgressIndicator*)((void*)progressPtr);
+        if (progress == nil) {
+            basl_gui_set_error(errOut, "invalid progress handle");
+            return 0;
+        }
+        if (![progress isIndeterminate]) {
+            double minValue = [progress minValue];
+            double maxValue = [progress maxValue];
+            if (value < minValue) {
+                value = minValue;
+            }
+            if (value > maxValue) {
+                value = maxValue;
+            }
+        }
+        [progress setDoubleValue:value];
         return 1;
     }
 }

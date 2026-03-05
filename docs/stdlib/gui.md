@@ -6,9 +6,18 @@ Current backend support:
 - macOS (`cocoa`) with cgo enabled
 - other platforms currently return explicit `err.state` for constructor/runtime calls
 
-```
+Roadmap: see [gui-roadmap.md](./gui-roadmap.md) for Tk parity phases.
+
+```c
 import "gui";
 ```
+
+## Native Look And Theme
+
+`gui` is native-first:
+- BASL uses OS-native widgets directly (`NSButton`, `NSTextField`, `NSPopUpButton`, etc. on macOS).
+- Apps follow system appearance automatically, including dark mode.
+- BASL does not paint a custom cross-platform skin.
 
 ## Design
 
@@ -22,11 +31,9 @@ Recommended pattern:
 ## Backend Info
 
 ### gui.supported() -> bool
-
 Returns whether native GUI operations are available on this runtime.
 
 ### gui.backend() -> string
-
 Returns backend name:
 - `"cocoa"` on macOS backend
 - `"unsupported"` where GUI is not available
@@ -41,34 +48,29 @@ Returns backend name:
 ### gui.label_opts(string text) -> gui.LabelOpts
 ### gui.button_opts(string text) -> gui.ButtonOpts
 ### gui.entry_opts() -> gui.EntryOpts
+### gui.checkbox_opts(string text) -> gui.CheckboxOpts
+### gui.select_opts() -> gui.SelectOpts
+### gui.textarea_opts() -> gui.TextAreaOpts
+### gui.progress_opts() -> gui.ProgressOpts
 
 ## Widget Constructors
 
 ### gui.app(gui.AppOpts opts) -> (gui.App, err)
-
-Creates the GUI app context.
-
 ### gui.box(gui.BoxOpts opts) -> (gui.Box, err)
-
-Creates a layout container.
-
 ### gui.grid(gui.GridOpts opts) -> (gui.Grid, err)
-
-Creates a grid layout container. Use this as the primary layout API.
-
 ### gui.vbox() -> (gui.Box, err)
 ### gui.hbox() -> (gui.Box, err)
-
-Convenience constructors for default vertical/horizontal boxes.
-
 ### gui.label(gui.LabelOpts opts) -> (gui.Label, err)
 ### gui.button(gui.ButtonOpts opts) -> (gui.Button, err)
 ### gui.entry(gui.EntryOpts opts) -> (gui.Entry, err)
+### gui.checkbox(gui.CheckboxOpts opts) -> (gui.Checkbox, err)
+### gui.select(gui.SelectOpts opts) -> (gui.Select, err)
+### gui.textarea(gui.TextAreaOpts opts) -> (gui.TextArea, err)
+### gui.progress(gui.ProgressOpts opts) -> (gui.Progress, err)
 
 ## Option Types
 
 ### gui.AppOpts
-
 Reserved for app-level configuration.
 
 ### gui.WindowOpts
@@ -125,25 +127,51 @@ Reserved for app-level configuration.
 | `text` | `string` | `""` |
 | `width` | `i32` | `240` |
 
+### gui.CheckboxOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `text` | `string` | required via `checkbox_opts(text)` |
+| `checked` | `bool` | `false` |
+| `on_toggle` | `fn` | unset |
+
+### gui.SelectOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `options` | `array<string>` | `[]` |
+| `selected` | `i32` | `0` |
+| `width` | `i32` | `240` |
+| `on_change` | `fn` | unset |
+
+### gui.TextAreaOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `text` | `string` | `""` |
+| `width` | `i32` | `420` |
+| `height` | `i32` | `160` |
+
+### gui.ProgressOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `min` | `f64` | `0.0` |
+| `max` | `f64` | `100.0` |
+| `value` | `f64` | `0.0` |
+| `indeterminate` | `bool` | `false` |
+| `width` | `i32` | `200` |
+
 ## gui.App Methods
 
 ### app.window(gui.WindowOpts opts) -> (gui.Window, err)
-
-Creates a top-level window.
-
 ### app.run() -> err
-
-Runs the GUI event loop.
-
 ### app.quit() -> err
-
-Stops the GUI event loop.
 
 ## gui.Window Methods
 
 ### win.set_child(widget) -> err
-
-Sets the window content widget (`gui.Box`, `gui.Grid`, `gui.Label`, `gui.Button`, or `gui.Entry`).
+Supports `gui.Box`, `gui.Grid`, and all control widgets.
 
 ### win.set_title(string title) -> err
 ### win.show() -> err
@@ -153,99 +181,34 @@ Sets the window content widget (`gui.Box`, `gui.Grid`, `gui.Label`, `gui.Button`
 
 ### box.add(widget) -> err
 
-Adds a child widget (`gui.Box`, `gui.Label`, `gui.Button`, or `gui.Entry`).
-
 ## gui.Grid Methods
 
 ### grid.place(widget, gui.CellOpts cell) -> err
 
-Places a widget at `cell.row` and `cell.col`. Use `row_span` and `col_span` to span multiple cells.
-
-## gui.Label Methods
+## Control Methods
 
 ### label.set_text(string text) -> err
-
-## gui.Button Methods
 
 ### button.set_text(string text) -> err
 ### button.on_click(fn callback) -> err
 
-Registers a zero-argument callback invoked when the button is clicked.
-
-## gui.Entry Methods
-
 ### entry.text() -> (string, err)
 ### entry.set_text(string text) -> err
 
-## Example
+### checkbox.checked() -> (bool, err)
+### checkbox.set_checked(bool value) -> err
+### checkbox.set_text(string text) -> err
+### checkbox.on_toggle(fn callback) -> err
 
-```c
-import "fmt";
-import "gui";
+### select.selected_index() -> (i32, err)
+### select.set_selected_index(i32 index) -> err
+### select.selected_text() -> (string, err)
+### select.add_item(string text) -> err
+### select.on_change(fn callback) -> err
 
-fn main() -> i32 {
-    if (!gui.supported()) {
-        fmt.eprintln(f"gui backend unavailable: {gui.backend()}");
-        return 1;
-    }
+### textarea.text() -> (string, err)
+### textarea.set_text(string text) -> err
+### textarea.append(string text) -> err
 
-    gui.AppOpts appOpts = gui.app_opts();
-    guard gui.App app, err appErr = gui.app(appOpts) {
-        fmt.eprintln(f"gui.app: {appErr.message()}");
-        return 1;
-    }
-
-    gui.WindowOpts w = gui.window_opts("BASL GUI");
-    w.width = 480;
-    w.height = 320;
-    guard gui.Window win, err winErr = app.window(w) {
-        fmt.eprintln(f"window: {winErr.message()}");
-        return 1;
-    }
-
-    gui.GridOpts grid = gui.grid_opts();
-    grid.row_spacing = 10;
-    grid.col_spacing = 10;
-    guard gui.Grid root, err gridErr = gui.grid(grid) {
-        fmt.eprintln(f"grid: {gridErr.message()}");
-        return 1;
-    }
-
-    gui.LabelOpts lo = gui.label_opts("Hello from BASL");
-    guard gui.Label lbl, err lblErr = gui.label(lo) {
-        fmt.eprintln(f"label: {lblErr.message()}");
-        return 1;
-    }
-
-    gui.ButtonOpts bo = gui.button_opts("Click");
-    bo.width = 120;
-    bo.height = 32;
-    bo.on_click = fn() -> void {
-        fmt.println("clicked");
-    };
-    guard gui.Button btn, err btnErr = gui.button(bo) {
-        fmt.eprintln(f"button: {btnErr.message()}");
-        return 1;
-    }
-
-    gui.CellOpts header = gui.cell_opts(0, 0);
-    header.col_span = 2;
-    err placeHeaderErr = root.place(lbl, header);
-    if (placeHeaderErr != ok) {
-        fmt.eprintln(f"place header: {placeHeaderErr.message()}");
-        return 1;
-    }
-
-    gui.CellOpts buttonCell = gui.cell_opts(1, 1);
-    err placeButtonErr = root.place(btn, buttonCell);
-    if (placeButtonErr != ok) {
-        fmt.eprintln(f"place button: {placeButtonErr.message()}");
-        return 1;
-    }
-
-    win.set_child(root);
-    win.show();
-    app.run();
-    return 0;
-}
-```
+### progress.value() -> (f64, err)
+### progress.set_value(f64 value) -> err

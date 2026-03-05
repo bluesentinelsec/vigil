@@ -1628,6 +1628,10 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiLabel := &ast.TypeExpr{Name: "gui.Label"}
 	typGuiButton := &ast.TypeExpr{Name: "gui.Button"}
 	typGuiEntry := &ast.TypeExpr{Name: "gui.Entry"}
+	typGuiCheckbox := &ast.TypeExpr{Name: "gui.Checkbox"}
+	typGuiSelect := &ast.TypeExpr{Name: "gui.Select"}
+	typGuiTextArea := &ast.TypeExpr{Name: "gui.TextArea"}
+	typGuiProgress := &ast.TypeExpr{Name: "gui.Progress"}
 	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
 	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
 	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
@@ -1636,6 +1640,10 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiLabelOpts := &ast.TypeExpr{Name: "gui.LabelOpts"}
 	typGuiButtonOpts := &ast.TypeExpr{Name: "gui.ButtonOpts"}
 	typGuiEntryOpts := &ast.TypeExpr{Name: "gui.EntryOpts"}
+	typGuiCheckboxOpts := &ast.TypeExpr{Name: "gui.CheckboxOpts"}
+	typGuiSelectOpts := &ast.TypeExpr{Name: "gui.SelectOpts"}
+	typGuiTextAreaOpts := &ast.TypeExpr{Name: "gui.TextAreaOpts"}
+	typGuiProgressOpts := &ast.TypeExpr{Name: "gui.ProgressOpts"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1771,6 +1779,10 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("label_opts", singleReturnType(typGuiLabelOpts), typString)
 		addFn("button_opts", singleReturnType(typGuiButtonOpts), typString)
 		addFn("entry_opts", singleReturnType(typGuiEntryOpts))
+		addFn("checkbox_opts", singleReturnType(typGuiCheckboxOpts), typString)
+		addFn("select_opts", singleReturnType(typGuiSelectOpts))
+		addFn("textarea_opts", singleReturnType(typGuiTextAreaOpts))
+		addFn("progress_opts", singleReturnType(typGuiProgressOpts))
 		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
 		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
 		addFn("grid", []*ast.TypeExpr{typGuiGrid, typErr}, typGuiGridOpts)
@@ -1779,6 +1791,10 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("label", []*ast.TypeExpr{typGuiLabel, typErr}, typGuiLabelOpts)
 		addFn("button", []*ast.TypeExpr{typGuiButton, typErr}, typGuiButtonOpts)
 		addFn("entry", []*ast.TypeExpr{typGuiEntry, typErr}, typGuiEntryOpts)
+		addFn("checkbox", []*ast.TypeExpr{typGuiCheckbox, typErr}, typGuiCheckboxOpts)
+		addFn("select", []*ast.TypeExpr{typGuiSelect, typErr}, typGuiSelectOpts)
+		addFn("textarea", []*ast.TypeExpr{typGuiTextArea, typErr}, typGuiTextAreaOpts)
+		addFn("progress", []*ast.TypeExpr{typGuiProgress, typErr}, typGuiProgressOpts)
 
 		addClass(&classInfo{
 			name: "gui.App",
@@ -1856,6 +1872,45 @@ func newBuiltinModule(name string) *moduleInfo {
 			methods: make(map[string]*funcSig),
 		})
 		addClass(&classInfo{
+			name: "gui.CheckboxOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":      typString,
+				"checked":   typBool,
+				"on_toggle": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.SelectOpts",
+			fields: map[string]*ast.TypeExpr{
+				"options":   typArrayString,
+				"selected":  typI32,
+				"width":     typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.TextAreaOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":   typString,
+				"width":  typI32,
+				"height": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ProgressOpts",
+			fields: map[string]*ast.TypeExpr{
+				"min":           typF64,
+				"max":           typF64,
+				"value":         typF64,
+				"indeterminate": typBool,
+				"width":         typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
 			name: "gui.Window",
 			methods: map[string]*funcSig{
 				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
@@ -1899,6 +1954,44 @@ func newBuiltinModule(name string) *moduleInfo {
 			methods: map[string]*funcSig{
 				"text":     {name: "text", ret: []*ast.TypeExpr{typString, typErr}},
 				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Checkbox",
+			methods: map[string]*funcSig{
+				"checked":     {name: "checked", ret: []*ast.TypeExpr{typBool, typErr}},
+				"set_checked": {name: "set_checked", params: []*ast.TypeExpr{typBool}, ret: []*ast.TypeExpr{typErr}},
+				"set_text":    {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"on_toggle":   {name: "on_toggle", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Select",
+			methods: map[string]*funcSig{
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":      {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"add_item":           {name: "add_item", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.TextArea",
+			methods: map[string]*funcSig{
+				"text":     {name: "text", ret: []*ast.TypeExpr{typString, typErr}},
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"append":   {name: "append", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Progress",
+			methods: map[string]*funcSig{
+				"value":     {name: "value", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
 		})

@@ -8,22 +8,30 @@ import (
 )
 
 const (
-	guiClassApp    = "gui.App"
-	guiClassWindow = "gui.Window"
-	guiClassBox    = "gui.Box"
-	guiClassGrid   = "gui.Grid"
-	guiClassLabel  = "gui.Label"
-	guiClassButton = "gui.Button"
-	guiClassEntry  = "gui.Entry"
+	guiClassApp      = "gui.App"
+	guiClassWindow   = "gui.Window"
+	guiClassBox      = "gui.Box"
+	guiClassGrid     = "gui.Grid"
+	guiClassLabel    = "gui.Label"
+	guiClassButton   = "gui.Button"
+	guiClassEntry    = "gui.Entry"
+	guiClassCheckbox = "gui.Checkbox"
+	guiClassSelect   = "gui.Select"
+	guiClassTextArea = "gui.TextArea"
+	guiClassProgress = "gui.Progress"
 
-	guiClassAppOpts    = "gui.AppOpts"
-	guiClassWindowOpts = "gui.WindowOpts"
-	guiClassBoxOpts    = "gui.BoxOpts"
-	guiClassGridOpts   = "gui.GridOpts"
-	guiClassCellOpts   = "gui.CellOpts"
-	guiClassLabelOpts  = "gui.LabelOpts"
-	guiClassButtonOpts = "gui.ButtonOpts"
-	guiClassEntryOpts  = "gui.EntryOpts"
+	guiClassAppOpts      = "gui.AppOpts"
+	guiClassWindowOpts   = "gui.WindowOpts"
+	guiClassBoxOpts      = "gui.BoxOpts"
+	guiClassGridOpts     = "gui.GridOpts"
+	guiClassCellOpts     = "gui.CellOpts"
+	guiClassLabelOpts    = "gui.LabelOpts"
+	guiClassButtonOpts   = "gui.ButtonOpts"
+	guiClassEntryOpts    = "gui.EntryOpts"
+	guiClassCheckboxOpts = "gui.CheckboxOpts"
+	guiClassSelectOpts   = "gui.SelectOpts"
+	guiClassTextAreaOpts = "gui.TextAreaOpts"
+	guiClassProgressOpts = "gui.ProgressOpts"
 )
 
 type guiCallback struct {
@@ -99,7 +107,7 @@ func guiWidgetHandle(v value.Value) (uintptr, error) {
 	}
 	obj := v.AsObject()
 	switch obj.ClassName {
-	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry:
+	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress:
 	default:
 		return 0, fmt.Errorf("expected gui widget, got %s", obj.ClassName)
 	}
@@ -147,6 +155,30 @@ func guiReadBoolOpt(obj *value.ObjectVal, field string, fnName string) (bool, er
 		return false, fmt.Errorf("%s: option %q must be bool", fnName, field)
 	}
 	return v.AsBool(), nil
+}
+
+func guiReadF64Opt(obj *value.ObjectVal, field string, fnName string) (float64, error) {
+	v, ok := obj.Fields[field]
+	if !ok || v.T != value.TypeF64 {
+		return 0, fmt.Errorf("%s: option %q must be f64", fnName, field)
+	}
+	return v.AsF64(), nil
+}
+
+func guiReadStringArrayOpt(obj *value.ObjectVal, field string, fnName string) ([]string, error) {
+	v, ok := obj.Fields[field]
+	if !ok || v.T != value.TypeArray {
+		return nil, fmt.Errorf("%s: option %q must be array<string>", fnName, field)
+	}
+	arr := v.AsArray().Elems
+	out := make([]string, 0, len(arr))
+	for i, elem := range arr {
+		if elem.T != value.TypeString {
+			return nil, fmt.Errorf("%s: option %q item %d must be string", fnName, field, i)
+		}
+		out = append(out, elem.AsString())
+	}
+	return out, nil
 }
 
 func guiReadOptionalCallback(obj *value.ObjectVal, field string, fnName string) (value.Value, bool, error) {
@@ -215,6 +247,41 @@ func (interp *Interpreter) makeDefaultEntryOpts() value.Value {
 	return newGuiOptsObject(guiClassEntryOpts, map[string]value.Value{
 		"text":  value.NewString(""),
 		"width": value.NewI32(240),
+	})
+}
+
+func (interp *Interpreter) makeDefaultCheckboxOpts(text string) value.Value {
+	return newGuiOptsObject(guiClassCheckboxOpts, map[string]value.Value{
+		"text":      value.NewString(text),
+		"checked":   value.NewBool(false),
+		"on_toggle": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultSelectOpts() value.Value {
+	return newGuiOptsObject(guiClassSelectOpts, map[string]value.Value{
+		"options":   value.NewArray(nil),
+		"selected":  value.NewI32(0),
+		"width":     value.NewI32(240),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultTextAreaOpts() value.Value {
+	return newGuiOptsObject(guiClassTextAreaOpts, map[string]value.Value{
+		"text":   value.NewString(""),
+		"width":  value.NewI32(420),
+		"height": value.NewI32(160),
+	})
+}
+
+func (interp *Interpreter) makeDefaultProgressOpts() value.Value {
+	return newGuiOptsObject(guiClassProgressOpts, map[string]value.Value{
+		"min":           value.NewF64(0),
+		"max":           value.NewF64(100),
+		"value":         value.NewF64(0),
+		"indeterminate": value.NewBool(false),
+		"width":         value.NewI32(200),
 	})
 }
 
@@ -289,6 +356,34 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			return value.Void, fmt.Errorf("gui.entry_opts: expected 0 arguments")
 		}
 		return interp.makeDefaultEntryOpts(), nil
+	}))
+
+	env.Define("checkbox_opts", value.NewNativeFunc("gui.checkbox_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.checkbox_opts: expected string text")
+		}
+		return interp.makeDefaultCheckboxOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("select_opts", value.NewNativeFunc("gui.select_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.select_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultSelectOpts(), nil
+	}))
+
+	env.Define("textarea_opts", value.NewNativeFunc("gui.textarea_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.textarea_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultTextAreaOpts(), nil
+	}))
+
+	env.Define("progress_opts", value.NewNativeFunc("gui.progress_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.progress_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultProgressOpts(), nil
 	}))
 
 	env.Define("app", value.NewNativeFunc("gui.app", func(args []value.Value) (value.Value, error) {
@@ -464,6 +559,146 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiEntry(handle), value.Ok}}
+	}))
+
+	env.Define("checkbox", value.NewNativeFunc("gui.checkbox", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassCheckboxOpts, "gui.checkbox")
+		if err != nil {
+			return value.Void, err
+		}
+		text, err := guiReadStringOpt(opts, "text", "gui.checkbox")
+		if err != nil {
+			return value.Void, err
+		}
+		checked, err := guiReadBoolOpt(opts, "checked", "gui.checkbox")
+		if err != nil {
+			return value.Void, err
+		}
+		toggleFn, hasToggleFn, err := guiReadOptionalCallback(opts, "on_toggle", "gui.checkbox")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiCheckboxCreate(text, checked)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if hasToggleFn {
+			cbID := registerGuiCallback(interp, toggleFn)
+			if err := guiCheckboxSetOnToggle(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiCheckbox(handle), value.Ok}}
+	}))
+
+	env.Define("select", value.NewNativeFunc("gui.select", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassSelectOpts, "gui.select")
+		if err != nil {
+			return value.Void, err
+		}
+		options, err := guiReadStringArrayOpt(opts, "options", "gui.select")
+		if err != nil {
+			return value.Void, err
+		}
+		selected, err := guiReadI32Opt(opts, "selected", "gui.select")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.select")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.select")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiSelectCreate(options, selected)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 {
+			if err := guiWidgetSetSize(handle, width, 0); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiSelectSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiSelect(handle), value.Ok}}
+	}))
+
+	env.Define("textarea", value.NewNativeFunc("gui.textarea", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassTextAreaOpts, "gui.textarea")
+		if err != nil {
+			return value.Void, err
+		}
+		text, err := guiReadStringOpt(opts, "text", "gui.textarea")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.textarea")
+		if err != nil {
+			return value.Void, err
+		}
+		height, err := guiReadI32Opt(opts, "height", "gui.textarea")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiTextAreaCreate()
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 || height > 0 {
+			if err := guiWidgetSetSize(handle, width, height); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if text != "" {
+			if err := guiTextAreaSetText(handle, text); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiTextArea(handle), value.Ok}}
+	}))
+
+	env.Define("progress", value.NewNativeFunc("gui.progress", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassProgressOpts, "gui.progress")
+		if err != nil {
+			return value.Void, err
+		}
+		min, err := guiReadF64Opt(opts, "min", "gui.progress")
+		if err != nil {
+			return value.Void, err
+		}
+		max, err := guiReadF64Opt(opts, "max", "gui.progress")
+		if err != nil {
+			return value.Void, err
+		}
+		current, err := guiReadF64Opt(opts, "value", "gui.progress")
+		if err != nil {
+			return value.Void, err
+		}
+		indeterminate, err := guiReadBoolOpt(opts, "indeterminate", "gui.progress")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.progress")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiProgressCreate(min, max, current, indeterminate)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 {
+			if err := guiWidgetSetSize(handle, width, 0); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiProgress(handle), value.Ok}}
 	}))
 
 	return env
@@ -692,4 +927,167 @@ func (interp *Interpreter) newGuiEntry(handle uintptr) value.Value {
 		}),
 	}
 	return newGuiObject(guiClassEntry, handle, methods)
+}
+
+func (interp *Interpreter) newGuiCheckbox(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"checked": value.NewNativeFunc("gui.Checkbox.checked", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Checkbox.checked: expected 0 arguments")
+			}
+			checked, err := guiCheckboxChecked(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewBool(false), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewBool(checked), value.Ok}}
+		}),
+		"set_checked": value.NewNativeFunc("gui.Checkbox.set_checked", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeBool {
+				return value.Void, fmt.Errorf("Checkbox.set_checked: expected bool")
+			}
+			if err := guiCheckboxSetChecked(handle, args[0].AsBool()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"set_text": value.NewNativeFunc("gui.Checkbox.set_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Checkbox.set_text: expected string text")
+			}
+			if err := guiCheckboxSetText(handle, args[0].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_toggle": value.NewNativeFunc("gui.Checkbox.on_toggle", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Checkbox.on_toggle: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Checkbox.on_toggle: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiCheckboxSetOnToggle(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassCheckbox, handle, methods)
+}
+
+func (interp *Interpreter) newGuiSelect(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"selected_index": value.NewNativeFunc("gui.Select.selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Select.selected_index: expected 0 arguments")
+			}
+			index, err := guiSelectSelectedIndex(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(0), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(index), value.Ok}}
+		}),
+		"set_selected_index": value.NewNativeFunc("gui.Select.set_selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeI32 {
+				return value.Void, fmt.Errorf("Select.set_selected_index: expected i32 index")
+			}
+			if err := guiSelectSetSelectedIndex(handle, args[0].AsI32()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"selected_text": value.NewNativeFunc("gui.Select.selected_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Select.selected_text: expected 0 arguments")
+			}
+			text, err := guiSelectSelectedText(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(text), value.Ok}}
+		}),
+		"add_item": value.NewNativeFunc("gui.Select.add_item", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Select.add_item: expected string item")
+			}
+			if err := guiSelectAddItem(handle, args[0].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.Select.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Select.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Select.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiSelectSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassSelect, handle, methods)
+}
+
+func (interp *Interpreter) newGuiTextArea(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"text": value.NewNativeFunc("gui.TextArea.text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("TextArea.text: expected 0 arguments")
+			}
+			text, err := guiTextAreaText(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(text), value.Ok}}
+		}),
+		"set_text": value.NewNativeFunc("gui.TextArea.set_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("TextArea.set_text: expected string text")
+			}
+			if err := guiTextAreaSetText(handle, args[0].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"append": value.NewNativeFunc("gui.TextArea.append", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("TextArea.append: expected string text")
+			}
+			if err := guiTextAreaAppend(handle, args[0].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassTextArea, handle, methods)
+}
+
+func (interp *Interpreter) newGuiProgress(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"value": value.NewNativeFunc("gui.Progress.value", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Progress.value: expected 0 arguments")
+			}
+			current, err := guiProgressValue(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(current), value.Ok}}
+		}),
+		"set_value": value.NewNativeFunc("gui.Progress.set_value", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Progress.set_value: expected f64")
+			}
+			if err := guiProgressSetValue(handle, args[0].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassProgress, handle, methods)
 }

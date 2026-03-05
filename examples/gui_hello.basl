@@ -90,6 +90,42 @@ fn main() -> i32 {
         return 1;
     }
 
+    gui.CheckboxOpts checkOpts = gui.checkbox_opts("Enable verbose logging");
+    checkOpts.checked = true;
+    guard gui.Checkbox verboseToggle, err checkErr = gui.checkbox(checkOpts) {
+        fmt.eprintln(f"gui.checkbox: {checkErr.message()}");
+        return 1;
+    }
+
+    gui.SelectOpts selectOpts = gui.select_opts();
+    selectOpts.options = ["Fast", "Balanced", "Safe"];
+    selectOpts.selected = 1;
+    selectOpts.width = 220;
+    guard gui.Select modeSelect, err selectErr = gui.select(selectOpts) {
+        fmt.eprintln(f"gui.select: {selectErr.message()}");
+        return 1;
+    }
+
+    gui.TextAreaOpts textAreaOpts = gui.textarea_opts();
+    textAreaOpts.text = "event log:";
+    textAreaOpts.width = 620;
+    textAreaOpts.height = 120;
+    guard gui.TextArea logArea, err areaErr = gui.textarea(textAreaOpts) {
+        fmt.eprintln(f"gui.textarea: {areaErr.message()}");
+        return 1;
+    }
+
+    gui.ProgressOpts progressOpts = gui.progress_opts();
+    progressOpts.min = 0.0;
+    progressOpts.max = 100.0;
+    progressOpts.value = 0.0;
+    progressOpts.indeterminate = false;
+    progressOpts.width = 620;
+    guard gui.Progress progressBar, err progressErr = gui.progress(progressOpts) {
+        fmt.eprintln(f"gui.progress: {progressErr.message()}");
+        return 1;
+    }
+
     err hookApplyErr = applyBtn.on_click(fn() -> void {
         string text, err readErr = input.text();
         if (readErr != ok) {
@@ -97,10 +133,30 @@ fn main() -> i32 {
             return;
         }
 
-        err setStatusErr = statusLabel.set_text(f"Applied: {text}");
+        string mode, err modeErr = modeSelect.selected_text();
+        if (modeErr != ok) {
+            statusLabel.set_text(f"mode read failed: {modeErr.message()}");
+            return;
+        }
+
+        err setStatusErr = statusLabel.set_text(f"Applied: {text} [{mode}]");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
             return;
+        }
+
+        bool verbose, err verboseErr = verboseToggle.checked();
+        if (verboseErr == ok && verbose) {
+            logArea.append(f"\napply -> text={text}, mode={mode}");
+        }
+
+        f64 current, err currentErr = progressBar.value();
+        if (currentErr == ok) {
+            f64 next = current + 10.0;
+            if (next > 100.0) {
+                next = 100.0;
+            }
+            progressBar.set_value(next);
         }
 
         err setTitleErr = win.set_title(f"BASL GUI Demo - {text}");
@@ -119,6 +175,8 @@ fn main() -> i32 {
             fmt.eprintln(f"clear input failed: {clearInputErr.message()}");
             return;
         }
+        logArea.set_text("event log:");
+        progressBar.set_value(0.0);
         err setStatusErr = statusLabel.set_text("Cleared");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
@@ -140,7 +198,13 @@ fn main() -> i32 {
             fmt.eprintln(f"echo read failed: {readErr.message()}");
             return;
         }
-        fmt.println(f"echo: {text}");
+        string mode, err modeErr = modeSelect.selected_text();
+        if (modeErr != ok) {
+            fmt.eprintln(f"echo mode read failed: {modeErr.message()}");
+            return;
+        }
+        fmt.println(f"echo: {text} [{mode}]");
+        logArea.append(f"\necho -> {text} [{mode}]");
     });
     if (hookEchoErr != ok) {
         fmt.eprintln(f"hook echo callback: {hookEchoErr.message()}");
@@ -155,6 +219,39 @@ fn main() -> i32 {
     });
     if (hookQuitErr != ok) {
         fmt.eprintln(f"hook quit callback: {hookQuitErr.message()}");
+        return 1;
+    }
+
+    err hookToggleErr = verboseToggle.on_toggle(fn() -> void {
+        bool checked, err checkedErr = verboseToggle.checked();
+        if (checkedErr != ok) {
+            fmt.eprintln(f"checkbox read failed: {checkedErr.message()}");
+            return;
+        }
+        if (checked) {
+            statusLabel.set_text("Verbose logging ON");
+            logArea.append("\nverbose logging enabled");
+        } else {
+            statusLabel.set_text("Verbose logging OFF");
+            logArea.append("\nverbose logging disabled");
+        }
+    });
+    if (hookToggleErr != ok) {
+        fmt.eprintln(f"hook checkbox callback: {hookToggleErr.message()}");
+        return 1;
+    }
+
+    err hookSelectErr = modeSelect.on_change(fn() -> void {
+        string mode, err modeErr = modeSelect.selected_text();
+        if (modeErr != ok) {
+            fmt.eprintln(f"select read failed: {modeErr.message()}");
+            return;
+        }
+        statusLabel.set_text(f"Mode changed to {mode}");
+        logArea.append(f"\nmode -> {mode}");
+    });
+    if (hookSelectErr != ok) {
+        fmt.eprintln(f"hook select callback: {hookSelectErr.message()}");
         return 1;
     }
 
@@ -195,7 +292,37 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts statusCell = gui.cell_opts(2, 0);
+    gui.CellOpts checkCell = gui.cell_opts(2, 0);
+    err placeCheckErr = root.place(verboseToggle, checkCell);
+    if (placeCheckErr != ok) {
+        fmt.eprintln(f"grid.place(checkbox): {placeCheckErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts selectCell = gui.cell_opts(2, 1);
+    err placeSelectErr = root.place(modeSelect, selectCell);
+    if (placeSelectErr != ok) {
+        fmt.eprintln(f"grid.place(select): {placeSelectErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts logCell = gui.cell_opts(3, 0);
+    logCell.col_span = 2;
+    err placeLogErr = root.place(logArea, logCell);
+    if (placeLogErr != ok) {
+        fmt.eprintln(f"grid.place(text area): {placeLogErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts progressCell = gui.cell_opts(4, 0);
+    progressCell.col_span = 2;
+    err placeProgressErr = root.place(progressBar, progressCell);
+    if (placeProgressErr != ok) {
+        fmt.eprintln(f"grid.place(progress): {placeProgressErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts statusCell = gui.cell_opts(5, 0);
     statusCell.col_span = 2;
     err placeStatusErr = root.place(statusLabel, statusCell);
     if (placeStatusErr != ok) {
@@ -203,7 +330,7 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts rowCell = gui.cell_opts(3, 0);
+    gui.CellOpts rowCell = gui.cell_opts(6, 0);
     rowCell.col_span = 2;
     err placeRowErr = root.place(buttonRow, rowCell);
     if (placeRowErr != ok) {
