@@ -14,6 +14,13 @@ const (
 	guiClassLabel  = "gui.Label"
 	guiClassButton = "gui.Button"
 	guiClassEntry  = "gui.Entry"
+
+	guiClassAppOpts    = "gui.AppOpts"
+	guiClassWindowOpts = "gui.WindowOpts"
+	guiClassBoxOpts    = "gui.BoxOpts"
+	guiClassLabelOpts  = "gui.LabelOpts"
+	guiClassButtonOpts = "gui.ButtonOpts"
+	guiClassEntryOpts  = "gui.EntryOpts"
 )
 
 type guiCallback struct {
@@ -70,19 +77,17 @@ func newGuiObject(className string, handle uintptr, methods map[string]value.Val
 	}
 }
 
-func guiObjectHandle(v value.Value, className string) (uintptr, error) {
-	if v.T != value.TypeObject {
-		return 0, fmt.Errorf("expected %s object", className)
+func newGuiOptsObject(className string, fields map[string]value.Value) value.Value {
+	if fields == nil {
+		fields = make(map[string]value.Value)
 	}
-	obj := v.AsObject()
-	if obj.ClassName != className {
-		return 0, fmt.Errorf("expected %s object, got %s", className, obj.ClassName)
+	return value.Value{
+		T: value.TypeObject,
+		Data: &value.ObjectVal{
+			ClassName: className,
+			Fields:    fields,
+		},
 	}
-	handle, ok := obj.Fields["__handle"]
-	if !ok || handle.T != value.TypePtr {
-		return 0, fmt.Errorf("invalid %s handle", className)
-	}
-	return handle.AsPtr(), nil
 }
 
 func guiWidgetHandle(v value.Value) (uintptr, error) {
@@ -106,6 +111,94 @@ func guiStateErr(err error) value.Value {
 	return value.NewErr(err.Error(), value.ErrKindState)
 }
 
+func guiExpectOpts(args []value.Value, className string, fnName string) (*value.ObjectVal, error) {
+	if len(args) != 1 || args[0].T != value.TypeObject {
+		return nil, fmt.Errorf("%s: expected %s", fnName, className)
+	}
+	obj := args[0].AsObject()
+	if obj.ClassName != className {
+		return nil, fmt.Errorf("%s: expected %s, got %s", fnName, className, obj.ClassName)
+	}
+	return obj, nil
+}
+
+func guiReadStringOpt(obj *value.ObjectVal, field string, fnName string) (string, error) {
+	v, ok := obj.Fields[field]
+	if !ok || v.T != value.TypeString {
+		return "", fmt.Errorf("%s: option %q must be string", fnName, field)
+	}
+	return v.AsString(), nil
+}
+
+func guiReadI32Opt(obj *value.ObjectVal, field string, fnName string) (int32, error) {
+	v, ok := obj.Fields[field]
+	if !ok || v.T != value.TypeI32 {
+		return 0, fmt.Errorf("%s: option %q must be i32", fnName, field)
+	}
+	return v.AsI32(), nil
+}
+
+func guiReadBoolOpt(obj *value.ObjectVal, field string, fnName string) (bool, error) {
+	v, ok := obj.Fields[field]
+	if !ok || v.T != value.TypeBool {
+		return false, fmt.Errorf("%s: option %q must be bool", fnName, field)
+	}
+	return v.AsBool(), nil
+}
+
+func guiReadOptionalCallback(obj *value.ObjectVal, field string, fnName string) (value.Value, bool, error) {
+	v, ok := obj.Fields[field]
+	if !ok || v.T == value.TypeVoid {
+		return value.Void, false, nil
+	}
+	if v.T != value.TypeFunc && v.T != value.TypeNativeFunc {
+		return value.Void, false, fmt.Errorf("%s: option %q must be fn", fnName, field)
+	}
+	return v, true, nil
+}
+
+func (interp *Interpreter) makeDefaultAppOpts() value.Value {
+	return newGuiOptsObject(guiClassAppOpts, nil)
+}
+
+func (interp *Interpreter) makeDefaultWindowOpts(title string) value.Value {
+	return newGuiOptsObject(guiClassWindowOpts, map[string]value.Value{
+		"title":  value.NewString(title),
+		"width":  value.NewI32(800),
+		"height": value.NewI32(600),
+	})
+}
+
+func (interp *Interpreter) makeDefaultBoxOpts(vertical bool) value.Value {
+	return newGuiOptsObject(guiClassBoxOpts, map[string]value.Value{
+		"vertical": value.NewBool(vertical),
+		"spacing":  value.NewI32(8),
+		"padding":  value.NewI32(12),
+	})
+}
+
+func (interp *Interpreter) makeDefaultLabelOpts(text string) value.Value {
+	return newGuiOptsObject(guiClassLabelOpts, map[string]value.Value{
+		"text": value.NewString(text),
+	})
+}
+
+func (interp *Interpreter) makeDefaultButtonOpts(text string) value.Value {
+	return newGuiOptsObject(guiClassButtonOpts, map[string]value.Value{
+		"text":     value.NewString(text),
+		"width":    value.NewI32(0),
+		"height":   value.NewI32(0),
+		"on_click": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultEntryOpts() value.Value {
+	return newGuiOptsObject(guiClassEntryOpts, map[string]value.Value{
+		"text":  value.NewString(""),
+		"width": value.NewI32(240),
+	})
+}
+
 func (interp *Interpreter) makeGuiModule() *Env {
 	env := NewEnv(nil)
 
@@ -123,9 +216,51 @@ func (interp *Interpreter) makeGuiModule() *Env {
 		return value.NewString(guiBackendName()), nil
 	}))
 
-	env.Define("app", value.NewNativeFunc("gui.app", func(args []value.Value) (value.Value, error) {
+	env.Define("app_opts", value.NewNativeFunc("gui.app_opts", func(args []value.Value) (value.Value, error) {
 		if len(args) != 0 {
-			return value.Void, fmt.Errorf("gui.app: expected 0 arguments")
+			return value.Void, fmt.Errorf("gui.app_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultAppOpts(), nil
+	}))
+
+	env.Define("window_opts", value.NewNativeFunc("gui.window_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.window_opts: expected string title")
+		}
+		return interp.makeDefaultWindowOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("box_opts", value.NewNativeFunc("gui.box_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.box_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultBoxOpts(true), nil
+	}))
+
+	env.Define("label_opts", value.NewNativeFunc("gui.label_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.label_opts: expected string text")
+		}
+		return interp.makeDefaultLabelOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("button_opts", value.NewNativeFunc("gui.button_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.button_opts: expected string text")
+		}
+		return interp.makeDefaultButtonOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("entry_opts", value.NewNativeFunc("gui.entry_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.entry_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultEntryOpts(), nil
+	}))
+
+	env.Define("app", value.NewNativeFunc("gui.app", func(args []value.Value) (value.Value, error) {
+		if _, err := guiExpectOpts(args, guiClassAppOpts, "gui.app"); err != nil {
+			return value.Void, err
 		}
 		handle, err := guiAppCreate()
 		if err != nil {
@@ -134,33 +269,74 @@ func (interp *Interpreter) makeGuiModule() *Env {
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiApp(handle), value.Ok}}
 	}))
 
+	env.Define("box", value.NewNativeFunc("gui.box", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassBoxOpts, "gui.box")
+		if err != nil {
+			return value.Void, err
+		}
+		vertical, err := guiReadBoolOpt(opts, "vertical", "gui.box")
+		if err != nil {
+			return value.Void, err
+		}
+		spacing, err := guiReadI32Opt(opts, "spacing", "gui.box")
+		if err != nil {
+			return value.Void, err
+		}
+		padding, err := guiReadI32Opt(opts, "padding", "gui.box")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiBoxCreate(vertical)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if spacing >= 0 {
+			if err := guiBoxSetSpacing(handle, spacing); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if padding >= 0 {
+			if err := guiBoxSetPadding(handle, padding); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiBox(handle), value.Ok}}
+	}))
+
 	env.Define("vbox", value.NewNativeFunc("gui.vbox", func(args []value.Value) (value.Value, error) {
 		if len(args) != 0 {
 			return value.Void, fmt.Errorf("gui.vbox: expected 0 arguments")
 		}
-		handle, err := guiBoxCreate(true)
-		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		boxOpts := interp.makeDefaultBoxOpts(true)
+		boxCtor, ok := env.Get("box")
+		if !ok {
+			return value.Void, fmt.Errorf("gui.vbox: box constructor unavailable")
 		}
-		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiBox(handle), value.Ok}}
+		return boxCtor.AsNativeFunc().Fn([]value.Value{boxOpts})
 	}))
 
 	env.Define("hbox", value.NewNativeFunc("gui.hbox", func(args []value.Value) (value.Value, error) {
 		if len(args) != 0 {
 			return value.Void, fmt.Errorf("gui.hbox: expected 0 arguments")
 		}
-		handle, err := guiBoxCreate(false)
-		if err != nil {
-			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		boxOpts := interp.makeDefaultBoxOpts(false)
+		boxCtor, ok := env.Get("box")
+		if !ok {
+			return value.Void, fmt.Errorf("gui.hbox: box constructor unavailable")
 		}
-		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiBox(handle), value.Ok}}
+		return boxCtor.AsNativeFunc().Fn([]value.Value{boxOpts})
 	}))
 
 	env.Define("label", value.NewNativeFunc("gui.label", func(args []value.Value) (value.Value, error) {
-		if len(args) != 1 || args[0].T != value.TypeString {
-			return value.Void, fmt.Errorf("gui.label: expected string text")
+		opts, err := guiExpectOpts(args, guiClassLabelOpts, "gui.label")
+		if err != nil {
+			return value.Void, err
 		}
-		handle, err := guiLabelCreate(args[0].AsString())
+		text, err := guiReadStringOpt(opts, "text", "gui.label")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiLabelCreate(text)
 		if err != nil {
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
 		}
@@ -168,23 +344,71 @@ func (interp *Interpreter) makeGuiModule() *Env {
 	}))
 
 	env.Define("button", value.NewNativeFunc("gui.button", func(args []value.Value) (value.Value, error) {
-		if len(args) != 1 || args[0].T != value.TypeString {
-			return value.Void, fmt.Errorf("gui.button: expected string text")
+		opts, err := guiExpectOpts(args, guiClassButtonOpts, "gui.button")
+		if err != nil {
+			return value.Void, err
 		}
-		handle, err := guiButtonCreate(args[0].AsString())
+		text, err := guiReadStringOpt(opts, "text", "gui.button")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.button")
+		if err != nil {
+			return value.Void, err
+		}
+		height, err := guiReadI32Opt(opts, "height", "gui.button")
+		if err != nil {
+			return value.Void, err
+		}
+		clickFn, hasClickFn, err := guiReadOptionalCallback(opts, "on_click", "gui.button")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiButtonCreate(text)
 		if err != nil {
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
 		}
-		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiButton(handle), value.Ok}}
+		if width > 0 || height > 0 {
+			if err := guiWidgetSetSize(handle, width, height); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		btn := interp.newGuiButton(handle)
+		if hasClickFn {
+			cbID := registerGuiCallback(interp, clickFn)
+			if err := guiButtonSetOnClick(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{btn, value.Ok}}
 	}))
 
 	env.Define("entry", value.NewNativeFunc("gui.entry", func(args []value.Value) (value.Value, error) {
-		if len(args) != 0 {
-			return value.Void, fmt.Errorf("gui.entry: expected 0 arguments")
+		opts, err := guiExpectOpts(args, guiClassEntryOpts, "gui.entry")
+		if err != nil {
+			return value.Void, err
+		}
+		text, err := guiReadStringOpt(opts, "text", "gui.entry")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.entry")
+		if err != nil {
+			return value.Void, err
 		}
 		handle, err := guiEntryCreate()
 		if err != nil {
 			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 {
+			if err := guiWidgetSetSize(handle, width, 0); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if text != "" {
+			if err := guiEntrySetText(handle, text); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiEntry(handle), value.Ok}}
 	}))
@@ -213,10 +437,23 @@ func (interp *Interpreter) newGuiApp(handle uintptr) value.Value {
 			return value.Ok, nil
 		}),
 		"window": value.NewNativeFunc("gui.App.window", func(args []value.Value) (value.Value, error) {
-			if len(args) != 3 || args[0].T != value.TypeString || args[1].T != value.TypeI32 || args[2].T != value.TypeI32 {
-				return value.Void, fmt.Errorf("App.window: expected (string title, i32 width, i32 height)")
+			opts, err := guiExpectOpts(args, guiClassWindowOpts, "App.window")
+			if err != nil {
+				return value.Void, err
 			}
-			windowHandle, err := guiWindowCreate(args[0].AsString(), args[1].AsI32(), args[2].AsI32())
+			title, err := guiReadStringOpt(opts, "title", "App.window")
+			if err != nil {
+				return value.Void, err
+			}
+			width, err := guiReadI32Opt(opts, "width", "App.window")
+			if err != nil {
+				return value.Void, err
+			}
+			height, err := guiReadI32Opt(opts, "height", "App.window")
+			if err != nil {
+				return value.Void, err
+			}
+			windowHandle, err := guiWindowCreate(title, width, height)
 			if err != nil {
 				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
 			}

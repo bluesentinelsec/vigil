@@ -496,11 +496,36 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 bool supported = gui.supported();
                 string backend = gui.backend();
 
-                fmt.print(string(backend.len() > 0) + ":" + string(supported || !supported));
+                gui.AppOpts appOpts = gui.app_opts();
+                gui.WindowOpts windowOpts = gui.window_opts("Demo");
+                windowOpts.width = 640;
+                windowOpts.height = 360;
+                gui.BoxOpts boxOpts = gui.box_opts();
+                boxOpts.vertical = true;
+                boxOpts.spacing = 12;
+                boxOpts.padding = 20;
+                gui.LabelOpts labelOpts = gui.label_opts("Hello");
+                gui.ButtonOpts buttonOpts = gui.button_opts("Save");
+                buttonOpts.width = 120;
+                buttonOpts.height = 32;
+                buttonOpts.on_click = fn() -> void { fmt.print("cb"); };
+                gui.EntryOpts entryOpts = gui.entry_opts();
+                entryOpts.text = "seed";
+                entryOpts.width = 260;
+
+                fmt.print(
+                    string(backend.len() > 0) + ":" +
+                    string(supported || !supported) + ":" +
+                    string(windowOpts.width) + ":" +
+                    string(boxOpts.padding) + ":" +
+                    labelOpts.text + ":" +
+                    buttonOpts.text + ":" +
+                    entryOpts.text
+                );
                 return 0;
             }
         """
-        self._assert_success(source, stdout="true:true")
+        self._assert_success(source, stdout="true:true:640:20:Hello:Save:seed")
 
     def test_stdlib_args_module(self) -> None:
         source = """

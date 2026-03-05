@@ -1622,6 +1622,12 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiLabel := &ast.TypeExpr{Name: "gui.Label"}
 	typGuiButton := &ast.TypeExpr{Name: "gui.Button"}
 	typGuiEntry := &ast.TypeExpr{Name: "gui.Entry"}
+	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
+	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
+	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
+	typGuiLabelOpts := &ast.TypeExpr{Name: "gui.LabelOpts"}
+	typGuiButtonOpts := &ast.TypeExpr{Name: "gui.ButtonOpts"}
+	typGuiEntryOpts := &ast.TypeExpr{Name: "gui.EntryOpts"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1749,21 +1755,76 @@ func newBuiltinModule(name string) *moduleInfo {
 	case "gui":
 		addFn("supported", singleReturnType(typBool))
 		addFn("backend", singleReturnType(typString))
-		addFn("app", []*ast.TypeExpr{typGuiApp, typErr})
+		addFn("app_opts", singleReturnType(typGuiAppOpts))
+		addFn("window_opts", singleReturnType(typGuiWindowOpts), typString)
+		addFn("box_opts", singleReturnType(typGuiBoxOpts))
+		addFn("label_opts", singleReturnType(typGuiLabelOpts), typString)
+		addFn("button_opts", singleReturnType(typGuiButtonOpts), typString)
+		addFn("entry_opts", singleReturnType(typGuiEntryOpts))
+		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
+		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
 		addFn("vbox", []*ast.TypeExpr{typGuiBox, typErr})
 		addFn("hbox", []*ast.TypeExpr{typGuiBox, typErr})
-		addFn("label", []*ast.TypeExpr{typGuiLabel, typErr}, typString)
-		addFn("button", []*ast.TypeExpr{typGuiButton, typErr}, typString)
-		addFn("entry", []*ast.TypeExpr{typGuiEntry, typErr})
+		addFn("label", []*ast.TypeExpr{typGuiLabel, typErr}, typGuiLabelOpts)
+		addFn("button", []*ast.TypeExpr{typGuiButton, typErr}, typGuiButtonOpts)
+		addFn("entry", []*ast.TypeExpr{typGuiEntry, typErr}, typGuiEntryOpts)
 
 		addClass(&classInfo{
 			name: "gui.App",
 			methods: map[string]*funcSig{
-				"window": {name: "window", params: []*ast.TypeExpr{typString, typI32, typI32}, ret: []*ast.TypeExpr{typGuiWindow, typErr}},
+				"window": {name: "window", params: []*ast.TypeExpr{typGuiWindowOpts}, ret: []*ast.TypeExpr{typGuiWindow, typErr}},
 				"run":    {name: "run", ret: []*ast.TypeExpr{typErr}},
 				"quit":   {name: "quit", ret: []*ast.TypeExpr{typErr}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name:    "gui.AppOpts",
+			fields:  map[string]*ast.TypeExpr{},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.WindowOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":  typString,
+				"width":  typI32,
+				"height": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.BoxOpts",
+			fields: map[string]*ast.TypeExpr{
+				"vertical": typBool,
+				"spacing":  typI32,
+				"padding":  typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.LabelOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ButtonOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":     typString,
+				"width":    typI32,
+				"height":   typI32,
+				"on_click": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.EntryOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":  typString,
+				"width": typI32,
+			},
+			methods: make(map[string]*funcSig),
 		})
 		addClass(&classInfo{
 			name: "gui.Window",

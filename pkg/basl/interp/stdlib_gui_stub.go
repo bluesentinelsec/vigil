@@ -54,6 +54,14 @@ func guiBoxAdd(_ uintptr, _ uintptr) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }
 
+func guiBoxSetSpacing(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiBoxSetPadding(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
 func guiLabelCreate(_ string) (uintptr, error) {
 	return 0, fmt.Errorf(guiUnsupportedMsg)
 }
@@ -83,5 +91,9 @@ func guiEntryText(_ uintptr) (string, error) {
 }
 
 func guiEntrySetText(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiWidgetSetSize(_ uintptr, _ int32, _ int32) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }

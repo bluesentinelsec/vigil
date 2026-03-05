@@ -7,30 +7,45 @@ fn main() -> i32 {
         return 1;
     }
 
-    guard gui.App app, err appErr = gui.app() {
+    gui.AppOpts appOpts = gui.app_opts();
+    guard gui.App app, err appErr = gui.app(appOpts) {
         fmt.eprintln(f"gui.app: {appErr.message()}");
         return 1;
     }
-    guard gui.Window win, err winErr = app.window("BASL GUI Demo", 480, 320) {
+
+    gui.WindowOpts winOpts = gui.window_opts("BASL GUI Demo");
+    winOpts.width = 480;
+    winOpts.height = 320;
+    guard gui.Window win, err winErr = app.window(winOpts) {
         fmt.eprintln(f"app.window: {winErr.message()}");
         return 1;
     }
-    guard gui.Box root, err boxErr = gui.vbox() {
+
+    gui.BoxOpts boxOpts = gui.box_opts();
+    boxOpts.vertical = true;
+    boxOpts.spacing = 10;
+    boxOpts.padding = 16;
+    guard gui.Box root, err boxErr = gui.box(boxOpts) {
         fmt.eprintln(f"gui.vbox: {boxErr.message()}");
         return 1;
     }
-    guard gui.Label label, err labelErr = gui.label("Hello from BASL + Cocoa") {
+
+    gui.LabelOpts labelOpts = gui.label_opts("Hello from BASL + Cocoa");
+    guard gui.Label label, err labelErr = gui.label(labelOpts) {
         fmt.eprintln(f"gui.label: {labelErr.message()}");
         return 1;
     }
-    guard gui.Button quitBtn, err btnErr = gui.button("Quit") {
+
+    gui.ButtonOpts btnOpts = gui.button_opts("Quit");
+    btnOpts.width = 120;
+    btnOpts.height = 32;
+    btnOpts.on_click = fn() -> void {
+        fmt.println("button clicked");
+    };
+    guard gui.Button quitBtn, err btnErr = gui.button(btnOpts) {
         fmt.eprintln(f"gui.button: {btnErr.message()}");
         return 1;
     }
-
-    quitBtn.on_click(fn() -> void {
-        fmt.println("button clicked");
-    });
 
     root.add(label);
     root.add(quitBtn);

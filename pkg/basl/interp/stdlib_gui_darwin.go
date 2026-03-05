@@ -18,6 +18,8 @@ int basl_gui_window_show(uintptr_t windowPtr, char** errOut);
 int basl_gui_window_close(uintptr_t windowPtr, char** errOut);
 uintptr_t basl_gui_box_new(int vertical, char** errOut);
 int basl_gui_box_add(uintptr_t boxPtr, uintptr_t childPtr, char** errOut);
+int basl_gui_box_set_spacing(uintptr_t boxPtr, int32_t spacing, char** errOut);
+int basl_gui_box_set_padding(uintptr_t boxPtr, int32_t padding, char** errOut);
 uintptr_t basl_gui_label_new(const char* text, char** errOut);
 int basl_gui_label_set_text(uintptr_t labelPtr, const char* text, char** errOut);
 uintptr_t basl_gui_button_new(const char* text, char** errOut);
@@ -26,6 +28,7 @@ int basl_gui_button_set_on_click(uintptr_t buttonPtr, uintptr_t callbackId, char
 uintptr_t basl_gui_entry_new(char** errOut);
 char* basl_gui_entry_text(uintptr_t entryPtr, char** errOut);
 int basl_gui_entry_set_text(uintptr_t entryPtr, const char* text, char** errOut);
+int basl_gui_widget_set_size(uintptr_t viewPtr, int32_t width, int32_t height, char** errOut);
 void basl_gui_free_string(char* s);
 */
 import "C"
@@ -155,6 +158,24 @@ func guiBoxAdd(boxHandle uintptr, childHandle uintptr) error {
 	return nil
 }
 
+func guiBoxSetSpacing(boxHandle uintptr, spacing int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_box_set_spacing(C.uintptr_t(boxHandle), C.int32_t(spacing), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiBoxSetPadding(boxHandle uintptr, padding int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_box_set_padding(C.uintptr_t(boxHandle), C.int32_t(padding), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
 func guiLabelCreate(text string) (uintptr, error) {
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
@@ -236,6 +257,15 @@ func guiEntrySetText(entryHandle uintptr, text string) error {
 	defer C.free(unsafe.Pointer(cText))
 	var errOut *C.char
 	ok := C.basl_gui_entry_set_text(C.uintptr_t(entryHandle), cText, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiWidgetSetSize(widgetHandle uintptr, width int32, height int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_widget_set_size(C.uintptr_t(widgetHandle), C.int32_t(width), C.int32_t(height), &errOut)
 	if ok == 0 {
 		return guiErr(errOut)
 	}

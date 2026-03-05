@@ -193,6 +193,31 @@ int basl_gui_box_add(uintptr_t boxPtr, uintptr_t childPtr, char** errOut) {
     }
 }
 
+int basl_gui_box_set_spacing(uintptr_t boxPtr, int32_t spacing, char** errOut) {
+    @autoreleasepool {
+        NSStackView* box = (__bridge NSStackView*)((void*)boxPtr);
+        if (box == nil) {
+            basl_gui_set_error(errOut, "invalid box handle");
+            return 0;
+        }
+        [box setSpacing:(CGFloat)spacing];
+        return 1;
+    }
+}
+
+int basl_gui_box_set_padding(uintptr_t boxPtr, int32_t padding, char** errOut) {
+    @autoreleasepool {
+        NSStackView* box = (__bridge NSStackView*)((void*)boxPtr);
+        if (box == nil) {
+            basl_gui_set_error(errOut, "invalid box handle");
+            return 0;
+        }
+        CGFloat p = (CGFloat)padding;
+        [box setEdgeInsets:NSEdgeInsetsMake(p, p, p, p)];
+        return 1;
+    }
+}
+
 uintptr_t basl_gui_label_new(const char* text, char** errOut) {
     @autoreleasepool {
         NSTextField* label = [NSTextField labelWithString:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
@@ -293,6 +318,24 @@ int basl_gui_entry_set_text(uintptr_t entryPtr, const char* text, char** errOut)
             return 0;
         }
         [entry setStringValue:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        return 1;
+    }
+}
+
+int basl_gui_widget_set_size(uintptr_t viewPtr, int32_t width, int32_t height, char** errOut) {
+    @autoreleasepool {
+        NSView* view = (__bridge NSView*)((void*)viewPtr);
+        if (view == nil) {
+            basl_gui_set_error(errOut, "invalid widget handle");
+            return 0;
+        }
+        [view setTranslatesAutoresizingMaskIntoConstraints:NO];
+        if (width > 0) {
+            [[view.widthAnchor constraintEqualToConstant:(CGFloat)width] setActive:YES];
+        }
+        if (height > 0) {
+            [[view.heightAnchor constraintEqualToConstant:(CGFloat)height] setActive:YES];
+        }
         return 1;
     }
 }

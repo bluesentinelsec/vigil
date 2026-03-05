@@ -12,17 +12,18 @@ import "gui";
 
 ## Design
 
-The API is intentionally TK-like and small:
-- `gui.app()` creates the application object
-- `app.window(...)` creates top-level windows
-- `gui.vbox()` / `gui.hbox()` layout widgets
-- `gui.label(...)`, `gui.button(...)`, `gui.entry()` create controls
+`gui` uses typed options objects to avoid long positional argument lists.
 
-## Functions
+Recommended pattern:
+1. Create opts with `*_opts(...)`
+2. Set only fields you care about
+3. Call constructor with opts
+
+## Backend Info
 
 ### gui.supported() -> bool
 
-Returns whether the current runtime supports native GUI operations.
+Returns whether native GUI operations are available on this runtime.
 
 ### gui.backend() -> string
 
@@ -30,33 +31,81 @@ Returns backend name:
 - `"cocoa"` on macOS backend
 - `"unsupported"` where GUI is not available
 
-### gui.app() -> (gui.App, err)
+## Options Constructors
+
+### gui.app_opts() -> gui.AppOpts
+### gui.window_opts(string title) -> gui.WindowOpts
+### gui.box_opts() -> gui.BoxOpts
+### gui.label_opts(string text) -> gui.LabelOpts
+### gui.button_opts(string text) -> gui.ButtonOpts
+### gui.entry_opts() -> gui.EntryOpts
+
+## Widget Constructors
+
+### gui.app(gui.AppOpts opts) -> (gui.App, err)
 
 Creates the GUI app context.
 
+### gui.box(gui.BoxOpts opts) -> (gui.Box, err)
+
+Creates a layout container.
+
 ### gui.vbox() -> (gui.Box, err)
-
-Creates a vertical layout container.
-
 ### gui.hbox() -> (gui.Box, err)
 
-Creates a horizontal layout container.
+Convenience constructors for default vertical/horizontal boxes.
 
-### gui.label(string text) -> (gui.Label, err)
+### gui.label(gui.LabelOpts opts) -> (gui.Label, err)
+### gui.button(gui.ButtonOpts opts) -> (gui.Button, err)
+### gui.entry(gui.EntryOpts opts) -> (gui.Entry, err)
 
-Creates a label widget.
+## Option Types
 
-### gui.button(string text) -> (gui.Button, err)
+### gui.AppOpts
 
-Creates a button widget.
+Reserved for app-level configuration.
 
-### gui.entry() -> (gui.Entry, err)
+### gui.WindowOpts
 
-Creates a single-line text input widget.
+| Field | Type | Default |
+|------|------|---------|
+| `title` | `string` | required via `window_opts(title)` |
+| `width` | `i32` | `800` |
+| `height` | `i32` | `600` |
+
+### gui.BoxOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `vertical` | `bool` | `true` |
+| `spacing` | `i32` | `8` |
+| `padding` | `i32` | `12` |
+
+### gui.LabelOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `text` | `string` | required via `label_opts(text)` |
+
+### gui.ButtonOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `text` | `string` | required via `button_opts(text)` |
+| `width` | `i32` | `0` (auto) |
+| `height` | `i32` | `0` (auto) |
+| `on_click` | `fn` | unset |
+
+### gui.EntryOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `text` | `string` | `""` |
+| `width` | `i32` | `240` |
 
 ## gui.App Methods
 
-### app.window(string title, i32 width, i32 height) -> (gui.Window, err)
+### app.window(gui.WindowOpts opts) -> (gui.Window, err)
 
 Creates a top-level window.
 
@@ -75,16 +124,8 @@ Stops the GUI event loop.
 Sets the window content widget (`gui.Box`, `gui.Label`, `gui.Button`, or `gui.Entry`).
 
 ### win.set_title(string title) -> err
-
-Updates window title.
-
 ### win.show() -> err
-
-Shows the window.
-
 ### win.close() -> err
-
-Closes the window.
 
 ## gui.Box Methods
 
@@ -96,14 +137,9 @@ Adds a child widget (`gui.Box`, `gui.Label`, `gui.Button`, or `gui.Entry`).
 
 ### label.set_text(string text) -> err
 
-Updates label text.
-
 ## gui.Button Methods
 
 ### button.set_text(string text) -> err
-
-Updates button text.
-
 ### button.on_click(fn callback) -> err
 
 Registers a zero-argument callback invoked when the button is clicked.
@@ -111,12 +147,7 @@ Registers a zero-argument callback invoked when the button is clicked.
 ## gui.Entry Methods
 
 ### entry.text() -> (string, err)
-
-Reads current text value.
-
 ### entry.set_text(string text) -> err
-
-Updates text value.
 
 ## Example
 
@@ -130,29 +161,47 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.App app, err appErr = gui.app();
-    guard gui.Window win, err winErr = app.window("BASL GUI", 480, 320) {
+    gui.AppOpts appOpts = gui.app_opts();
+    guard gui.App app, err appErr = gui.app(appOpts) {
+        fmt.eprintln(f"gui.app: {appErr.message()}");
+        return 1;
+    }
+
+    gui.WindowOpts w = gui.window_opts("BASL GUI");
+    w.width = 480;
+    w.height = 320;
+    guard gui.Window win, err winErr = app.window(w) {
         fmt.eprintln(f"window: {winErr.message()}");
         return 1;
     }
-    guard gui.Box root, err boxErr = gui.vbox() {
+
+    gui.BoxOpts box = gui.box_opts();
+    box.vertical = true;
+    box.spacing = 10;
+    guard gui.Box root, err boxErr = gui.box(box) {
         fmt.eprintln(f"box: {boxErr.message()}");
         return 1;
     }
-    guard gui.Label lbl, err lblErr = gui.label("Hello from BASL") {
+
+    gui.LabelOpts lo = gui.label_opts("Hello from BASL");
+    guard gui.Label lbl, err lblErr = gui.label(lo) {
         fmt.eprintln(f"label: {lblErr.message()}");
         return 1;
     }
-    guard gui.Button quitBtn, err btnErr = gui.button("Quit") {
+
+    gui.ButtonOpts bo = gui.button_opts("Click");
+    bo.width = 120;
+    bo.height = 32;
+    bo.on_click = fn() -> void {
+        fmt.println("clicked");
+    };
+    guard gui.Button btn, err btnErr = gui.button(bo) {
         fmt.eprintln(f"button: {btnErr.message()}");
         return 1;
     }
-    quitBtn.on_click(fn() -> void {
-        fmt.println("clicked");
-    });
 
     root.add(lbl);
-    root.add(quitBtn);
+    root.add(btn);
     win.set_child(root);
     win.show();
     app.run();
