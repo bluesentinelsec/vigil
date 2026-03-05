@@ -4,30 +4,20 @@ import "fmt";
 import "args";
 
 fn remove_recursive(string path) -> err {
-    FileStat info, err e1 = file.stat(path);
-    if (e1 != ok) {
-        return e1;
+    array<file.Entry> entries, err walkErr = file.walk(path);
+    if (walkErr != ok) {
+        return walkErr;
     }
-    
-    if (!info.is_dir) {
-        return file.remove(path);
-    }
-    
-    // Directory - remove contents first
-    array<string> entries, err e2 = file.list_dir(path);
-    if (e2 != ok) {
-        return e2;
-    }
-    
-    for (i32 i = 0; i < entries.len(); i++) {
-        string child = path + "/" + entries[i];
-        err e3 = remove_recursive(child);
-        if (e3 != ok) {
-            return e3;
+
+    // Remove deepest paths first so directories are empty when removed.
+    for (i32 i = entries.len() - 1; i >= 0; i--) {
+        err rmErr = file.remove(entries[i].path);
+        if (rmErr != ok) {
+            return rmErr;
         }
     }
-    
-    return file.remove(path);
+
+    return ok;
 }
 
 fn main() -> i32 {

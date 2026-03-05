@@ -935,6 +935,41 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             stdout="true:true:true:a\nb\nc:true:3:b:true:1:note.txt:true:true:true:false:true:note2.txt:5:false:true:true:abc:true:true:true::true:true:true:true:false",
         )
 
+    def test_stdlib_file_walk_modes(self) -> None:
+        source = """
+            import "fmt";
+            import "file";
+
+            fn main() -> i32 {
+                err mk = file.mkdir("data/sub");
+                err w1 = file.write_all("data/one.txt", "1");
+                err w2 = file.write_all("data/sub/two.txt", "2");
+
+                array<file.Entry> strict, err se = file.walk("data");
+                array<file.Entry> strictFollow, err sfe = file.walk_follow_links("data");
+                array<file.Entry> best, array<file.WalkIssue> issues = file.walk_best_effort("missing");
+                array<file.Entry> bestFollow, array<file.WalkIssue> issuesFollow = file.walk_follow_links_best_effort("missing");
+
+                fmt.print(
+                    string(mk == ok) + ":" +
+                    string(w1 == ok) + ":" +
+                    string(w2 == ok) + ":" +
+                    string(se == ok) + ":" +
+                    string(strict.len()) + ":" +
+                    string(sfe == ok) + ":" +
+                    string(strictFollow.len()) + ":" +
+                    string(best.len()) + ":" +
+                    string(issues.len()) + ":" +
+                    issues[0].err.kind() + ":" +
+                    string(bestFollow.len()) + ":" +
+                    string(issuesFollow.len()) + ":" +
+                    issuesFollow[0].err.kind()
+                );
+                return 0;
+            }
+        """
+        self._assert_success(source, stdout="true:true:true:true:4:true:4:0:1:not_found:0:1:not_found")
+
     def test_stdlib_base64_module(self) -> None:
         source = """
             import "fmt";
