@@ -319,7 +319,7 @@ uintptr_t basl_gui_grid_new(int32_t rowSpacing, int32_t colSpacing, char** errOu
     }
 }
 
-int basl_gui_grid_place(uintptr_t gridPtr, uintptr_t childPtr, int32_t row, int32_t col, int32_t rowSpan, int32_t colSpan, char** errOut) {
+int basl_gui_grid_place(uintptr_t gridPtr, uintptr_t childPtr, int32_t row, int32_t col, int32_t rowSpan, int32_t colSpan, int fillX, int fillY, char** errOut) {
     @autoreleasepool {
         NSGridView* grid = (__bridge NSGridView*)((void*)gridPtr);
         NSView* child = (__bridge NSView*)((void*)childPtr);
@@ -366,8 +366,8 @@ int basl_gui_grid_place(uintptr_t gridPtr, uintptr_t childPtr, int32_t row, int3
         }
 
         [cell setContentView:child];
-        [cell setXPlacement:NSGridCellPlacementFill];
-        [cell setYPlacement:NSGridCellPlacementFill];
+        [cell setXPlacement:(fillX ? NSGridCellPlacementFill : NSGridCellPlacementCenter)];
+        [cell setYPlacement:(fillY ? NSGridCellPlacementFill : NSGridCellPlacementCenter)];
         return 1;
     }
 }

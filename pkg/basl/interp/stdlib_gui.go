@@ -225,6 +225,8 @@ func (interp *Interpreter) makeDefaultCellOpts(row int32, col int32) value.Value
 		"col":      value.NewI32(col),
 		"row_span": value.NewI32(1),
 		"col_span": value.NewI32(1),
+		"fill_x":   value.NewBool(true),
+		"fill_y":   value.NewBool(false),
 	})
 }
 
@@ -846,13 +848,21 @@ func (interp *Interpreter) newGuiGrid(handle uintptr) value.Value {
 			if err != nil {
 				return value.Void, err
 			}
+			fillX, err := guiReadBoolOpt(cellOpts, "fill_x", "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
+			fillY, err := guiReadBoolOpt(cellOpts, "fill_y", "Grid.place")
+			if err != nil {
+				return value.Void, err
+			}
 			if row < 0 || col < 0 {
 				return guiStateErr(fmt.Errorf("grid cell row/col must be >= 0")), nil
 			}
 			if rowSpan <= 0 || colSpan <= 0 {
 				return guiStateErr(fmt.Errorf("grid cell spans must be > 0")), nil
 			}
-			if err := guiGridPlace(handle, childHandle, row, col, rowSpan, colSpan); err != nil {
+			if err := guiGridPlace(handle, childHandle, row, col, rowSpan, colSpan, fillX, fillY); err != nil {
 				return guiStateErr(err), nil
 			}
 			return value.Ok, nil

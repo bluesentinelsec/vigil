@@ -510,6 +510,8 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 gui.CellOpts cellOpts = gui.cell_opts(2, 3);
                 cellOpts.row_span = 2;
                 cellOpts.col_span = 4;
+                cellOpts.fill_x = true;
+                cellOpts.fill_y = false;
                 gui.LabelOpts labelOpts = gui.label_opts("Hello");
                 gui.ButtonOpts buttonOpts = gui.button_opts("Save");
                 buttonOpts.width = 120;
@@ -544,6 +546,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                     string(boxOpts.padding) + ":" +
                     string(gridOpts.row_spacing) + ":" +
                     string(cellOpts.col_span) + ":" +
+                    string(cellOpts.fill_x) + ":" +
                     labelOpts.text + ":" +
                     buttonOpts.text + ":" +
                     entryOpts.text + ":" +
@@ -555,7 +558,7 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 return 0;
             }
         """
-        self._assert_success(source, stdout="true:true:640:20:14:4:Hello:Save:seed:Enable:Two:body:4")
+        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4")
 
     def test_stdlib_args_module(self) -> None:
         source = """

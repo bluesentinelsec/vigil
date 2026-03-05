@@ -104,6 +104,8 @@ Reserved for app-level configuration.
 | `col` | `i32` | required via `cell_opts(row, col)` |
 | `row_span` | `i32` | `1` |
 | `col_span` | `i32` | `1` |
+| `fill_x` | `bool` | `true` |
+| `fill_y` | `bool` | `false` |
 
 ### gui.LabelOpts
 
@@ -184,6 +186,14 @@ Supports `gui.Box`, `gui.Grid`, and all control widgets.
 ## gui.Grid Methods
 
 ### grid.place(widget, gui.CellOpts cell) -> err
+
+`fill_x` / `fill_y` control whether a widget expands with window resize.
+
+Responsive recommendation:
+- Use `Grid` as the main layout container.
+- Keep widget `width` as `0` unless you need fixed sizing.
+- Use `cell.fill_x = true` for controls that should stretch horizontally.
+- Use `cell.fill_y = true` for multiline areas.
 
 ## Control Methods
 

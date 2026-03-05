@@ -566,6 +566,8 @@ fn main() -> i32 {
     gui.Entry input, err inputErr = gui.entry(inputOpts);
     gui.CellOpts labelCell = gui.cell_opts(0, 0);
     labelCell.col_span = 2;
+    labelCell.fill_x = true;
+    labelCell.fill_y = false;
     err placeLabelErr = rootGrid.place(lbl, labelCell);
     gui.CellOpts inputCell = gui.cell_opts(1, 0);
     err placeInputErr = rootGrid.place(input, inputCell);

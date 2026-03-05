@@ -1843,6 +1843,8 @@ func newBuiltinModule(name string) *moduleInfo {
 				"col":      typI32,
 				"row_span": typI32,
 				"col_span": typI32,
+				"fill_x":   typBool,
+				"fill_y":   typBool,
 			},
 			methods: make(map[string]*funcSig),
 		})
