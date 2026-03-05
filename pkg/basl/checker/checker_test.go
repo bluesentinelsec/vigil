@@ -669,6 +669,55 @@ fn main() -> i32 {
     sepOpts.length = 200;
     gui.Separator sep, err sepErr = gui.separator(sepOpts);
 
+    gui.TabsOpts tabsOpts = gui.tabs_opts();
+    tabsOpts.selected = 0;
+    tabsOpts.on_change = worker_ui;
+    gui.Tabs tabs, err tabsErr = gui.tabs(tabsOpts);
+    err tabsAddMainErr = tabs.add_tab("Main", rootGrid);
+    err tabsAddAltErr = tabs.add_tab("Alt", frame);
+    i32 tabsIndex, err tabsIndexErr = tabs.selected_index();
+    err tabsSetErr = tabs.set_selected_index(1);
+    err tabsHookErr = tabs.on_change(worker_ui);
+
+    gui.PanedOpts panedOpts = gui.paned_opts();
+    panedOpts.vertical = false;
+    panedOpts.ratio = 0.4;
+    panedOpts.on_change = worker_ui;
+    gui.Paned paned, err panedErr = gui.paned(panedOpts);
+    err panedFirstErr = paned.set_first(rootGrid);
+    err panedSecondErr = paned.set_second(frame);
+    f64 panedRatio, err panedRatioErr = paned.ratio();
+    err panedSetRatioErr = paned.set_ratio(0.55);
+    err panedHookErr = paned.on_change(worker_ui);
+
+    gui.ListOpts listOpts = gui.list_opts();
+    listOpts.items = ["One", "Two", "Three"];
+    listOpts.selected = 1;
+    listOpts.width = 220;
+    listOpts.height = 140;
+    listOpts.on_change = worker_ui;
+    gui.List list, err listErr = gui.list(listOpts);
+    i32 listIndex, err listIndexErr = list.selected_index();
+    err listSetErr = list.set_selected_index(2);
+    string listText, err listTextErr = list.selected_text();
+    err listAddErr = list.add_item("Four");
+    err listClearErr = list.clear();
+    err listHookErr = list.on_change(worker_ui);
+
+    gui.TreeOpts treeOpts = gui.tree_opts();
+    treeOpts.width = 260;
+    treeOpts.height = 180;
+    treeOpts.on_change = worker_ui;
+    gui.Tree tree, err treeErr = gui.tree(treeOpts);
+    i32 rootNode, err rootNodeErr = tree.add_root("Root");
+    i32 childNode, err childNodeErr = tree.add_child(rootNode, "Child");
+    err treeTextErr = tree.set_text(childNode, "Child 1");
+    i32 selectedNode, err selectedNodeErr = tree.selected_id();
+    err treeSetSelectedErr = tree.set_selected_id(childNode);
+    string treeText, err treeTextErr2 = tree.selected_text();
+    err treeClearErr = tree.clear();
+    err treeHookErr = tree.on_change(worker_ui);
+
     err showErr = win.show();
     err closeGuiErr = win.close();
     err quitErr = app.quit();

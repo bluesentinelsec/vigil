@@ -25,6 +25,10 @@ const (
 	guiClassScale     = "gui.Scale"
 	guiClassSpinbox   = "gui.Spinbox"
 	guiClassSeparator = "gui.Separator"
+	guiClassTabs      = "gui.Tabs"
+	guiClassPaned     = "gui.Paned"
+	guiClassList      = "gui.List"
+	guiClassTree      = "gui.Tree"
 
 	guiClassAppOpts       = "gui.AppOpts"
 	guiClassWindowOpts    = "gui.WindowOpts"
@@ -44,6 +48,10 @@ const (
 	guiClassScaleOpts     = "gui.ScaleOpts"
 	guiClassSpinboxOpts   = "gui.SpinboxOpts"
 	guiClassSeparatorOpts = "gui.SeparatorOpts"
+	guiClassTabsOpts      = "gui.TabsOpts"
+	guiClassPanedOpts     = "gui.PanedOpts"
+	guiClassListOpts      = "gui.ListOpts"
+	guiClassTreeOpts      = "gui.TreeOpts"
 )
 
 type guiCallback struct {
@@ -119,7 +127,7 @@ func guiWidgetHandle(v value.Value) (uintptr, error) {
 	}
 	obj := v.AsObject()
 	switch obj.ClassName {
-	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress, guiClassFrame, guiClassGroup, guiClassRadio, guiClassScale, guiClassSpinbox, guiClassSeparator:
+	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress, guiClassFrame, guiClassGroup, guiClassRadio, guiClassScale, guiClassSpinbox, guiClassSeparator, guiClassTabs, guiClassPaned, guiClassList, guiClassTree:
 	default:
 		return 0, fmt.Errorf("expected gui widget, got %s", obj.ClassName)
 	}
@@ -350,6 +358,39 @@ func (interp *Interpreter) makeDefaultSeparatorOpts() value.Value {
 	})
 }
 
+func (interp *Interpreter) makeDefaultTabsOpts() value.Value {
+	return newGuiOptsObject(guiClassTabsOpts, map[string]value.Value{
+		"selected":  value.NewI32(0),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultPanedOpts() value.Value {
+	return newGuiOptsObject(guiClassPanedOpts, map[string]value.Value{
+		"vertical":  value.NewBool(false),
+		"ratio":     value.NewF64(0.5),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultListOpts() value.Value {
+	return newGuiOptsObject(guiClassListOpts, map[string]value.Value{
+		"items":     value.NewArray(nil),
+		"selected":  value.NewI32(0),
+		"width":     value.NewI32(280),
+		"height":    value.NewI32(180),
+		"on_change": value.Void,
+	})
+}
+
+func (interp *Interpreter) makeDefaultTreeOpts() value.Value {
+	return newGuiOptsObject(guiClassTreeOpts, map[string]value.Value{
+		"width":     value.NewI32(320),
+		"height":    value.NewI32(220),
+		"on_change": value.Void,
+	})
+}
+
 func (interp *Interpreter) makeGuiModule() *Env {
 	env := NewEnv(nil)
 
@@ -491,6 +532,34 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			return value.Void, fmt.Errorf("gui.separator_opts: expected 0 arguments")
 		}
 		return interp.makeDefaultSeparatorOpts(), nil
+	}))
+
+	env.Define("tabs_opts", value.NewNativeFunc("gui.tabs_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.tabs_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultTabsOpts(), nil
+	}))
+
+	env.Define("paned_opts", value.NewNativeFunc("gui.paned_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.paned_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultPanedOpts(), nil
+	}))
+
+	env.Define("list_opts", value.NewNativeFunc("gui.list_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.list_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultListOpts(), nil
+	}))
+
+	env.Define("tree_opts", value.NewNativeFunc("gui.tree_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.tree_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultTreeOpts(), nil
 	}))
 
 	env.Define("app", value.NewNativeFunc("gui.app", func(args []value.Value) (value.Value, error) {
@@ -1007,6 +1076,140 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			}
 		}
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiSeparator(handle), value.Ok}}
+	}))
+
+	env.Define("tabs", value.NewNativeFunc("gui.tabs", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassTabsOpts, "gui.tabs")
+		if err != nil {
+			return value.Void, err
+		}
+		selected, err := guiReadI32Opt(opts, "selected", "gui.tabs")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.tabs")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiTabsCreate(selected)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiTabsSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiTabs(handle), value.Ok}}
+	}))
+
+	env.Define("paned", value.NewNativeFunc("gui.paned", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassPanedOpts, "gui.paned")
+		if err != nil {
+			return value.Void, err
+		}
+		vertical, err := guiReadBoolOpt(opts, "vertical", "gui.paned")
+		if err != nil {
+			return value.Void, err
+		}
+		ratio, err := guiReadF64Opt(opts, "ratio", "gui.paned")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.paned")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiPanedCreate(vertical, ratio)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiPanedSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiPaned(handle), value.Ok}}
+	}))
+
+	env.Define("list", value.NewNativeFunc("gui.list", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassListOpts, "gui.list")
+		if err != nil {
+			return value.Void, err
+		}
+		items, err := guiReadStringArrayOpt(opts, "items", "gui.list")
+		if err != nil {
+			return value.Void, err
+		}
+		selected, err := guiReadI32Opt(opts, "selected", "gui.list")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.list")
+		if err != nil {
+			return value.Void, err
+		}
+		height, err := guiReadI32Opt(opts, "height", "gui.list")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.list")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiListCreate(items, selected)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 || height > 0 {
+			if err := guiWidgetSetSize(handle, width, height); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiListSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiList(handle), value.Ok}}
+	}))
+
+	env.Define("tree", value.NewNativeFunc("gui.tree", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassTreeOpts, "gui.tree")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.tree")
+		if err != nil {
+			return value.Void, err
+		}
+		height, err := guiReadI32Opt(opts, "height", "gui.tree")
+		if err != nil {
+			return value.Void, err
+		}
+		changeFn, hasChangeFn, err := guiReadOptionalCallback(opts, "on_change", "gui.tree")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiTreeCreate()
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		if width > 0 || height > 0 {
+			if err := guiWidgetSetSize(handle, width, height); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		if hasChangeFn {
+			cbID := registerGuiCallback(interp, changeFn)
+			if err := guiTreeSetOnChange(handle, cbID); err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+			}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiTree(handle), value.Ok}}
 	}))
 
 	return env
@@ -1581,4 +1784,271 @@ func (interp *Interpreter) newGuiSpinbox(handle uintptr) value.Value {
 
 func (interp *Interpreter) newGuiSeparator(handle uintptr) value.Value {
 	return newGuiObject(guiClassSeparator, handle, map[string]value.Value{})
+}
+
+func (interp *Interpreter) newGuiTabs(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"add_tab": value.NewNativeFunc("gui.Tabs.add_tab", func(args []value.Value) (value.Value, error) {
+			if len(args) != 2 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Tabs.add_tab: expected string title, widget")
+			}
+			childHandle, err := guiWidgetHandle(args[1])
+			if err != nil {
+				return guiStateErr(err), nil
+			}
+			if err := guiTabsAddTab(handle, args[0].AsString(), childHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"selected_index": value.NewNativeFunc("gui.Tabs.selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Tabs.selected_index: expected 0 arguments")
+			}
+			index, err := guiTabsSelectedIndex(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(-1), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(index), value.Ok}}
+		}),
+		"set_selected_index": value.NewNativeFunc("gui.Tabs.set_selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeI32 {
+				return value.Void, fmt.Errorf("Tabs.set_selected_index: expected i32")
+			}
+			if err := guiTabsSetSelectedIndex(handle, args[0].AsI32()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.Tabs.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Tabs.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Tabs.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiTabsSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassTabs, handle, methods)
+}
+
+func (interp *Interpreter) newGuiPaned(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"set_first": value.NewNativeFunc("gui.Paned.set_first", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Paned.set_first: expected widget")
+			}
+			childHandle, err := guiWidgetHandle(args[0])
+			if err != nil {
+				return guiStateErr(err), nil
+			}
+			if err := guiPanedSetFirst(handle, childHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"set_second": value.NewNativeFunc("gui.Paned.set_second", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Paned.set_second: expected widget")
+			}
+			childHandle, err := guiWidgetHandle(args[0])
+			if err != nil {
+				return guiStateErr(err), nil
+			}
+			if err := guiPanedSetSecond(handle, childHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"ratio": value.NewNativeFunc("gui.Paned.ratio", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Paned.ratio: expected 0 arguments")
+			}
+			ratio, err := guiPanedRatio(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(0.5), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewF64(ratio), value.Ok}}
+		}),
+		"set_ratio": value.NewNativeFunc("gui.Paned.set_ratio", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Paned.set_ratio: expected f64")
+			}
+			if err := guiPanedSetRatio(handle, args[0].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.Paned.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Paned.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Paned.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiPanedSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassPaned, handle, methods)
+}
+
+func (interp *Interpreter) newGuiList(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"selected_index": value.NewNativeFunc("gui.List.selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("List.selected_index: expected 0 arguments")
+			}
+			index, err := guiListSelectedIndex(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(-1), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(index), value.Ok}}
+		}),
+		"set_selected_index": value.NewNativeFunc("gui.List.set_selected_index", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeI32 {
+				return value.Void, fmt.Errorf("List.set_selected_index: expected i32")
+			}
+			if err := guiListSetSelectedIndex(handle, args[0].AsI32()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"selected_text": value.NewNativeFunc("gui.List.selected_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("List.selected_text: expected 0 arguments")
+			}
+			text, err := guiListSelectedText(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(text), value.Ok}}
+		}),
+		"add_item": value.NewNativeFunc("gui.List.add_item", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("List.add_item: expected string item")
+			}
+			if err := guiListAddItem(handle, args[0].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"clear": value.NewNativeFunc("gui.List.clear", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("List.clear: expected 0 arguments")
+			}
+			if err := guiListClear(handle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.List.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("List.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("List.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiListSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassList, handle, methods)
+}
+
+func (interp *Interpreter) newGuiTree(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"add_root": value.NewNativeFunc("gui.Tree.add_root", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Tree.add_root: expected string title")
+			}
+			nodeID, err := guiTreeAddRoot(handle, args[0].AsString())
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(-1), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(nodeID), value.Ok}}
+		}),
+		"add_child": value.NewNativeFunc("gui.Tree.add_child", func(args []value.Value) (value.Value, error) {
+			if len(args) != 2 || args[0].T != value.TypeI32 || args[1].T != value.TypeString {
+				return value.Void, fmt.Errorf("Tree.add_child: expected i32 parent_id, string title")
+			}
+			nodeID, err := guiTreeAddChild(handle, args[0].AsI32(), args[1].AsString())
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(-1), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(nodeID), value.Ok}}
+		}),
+		"set_text": value.NewNativeFunc("gui.Tree.set_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 2 || args[0].T != value.TypeI32 || args[1].T != value.TypeString {
+				return value.Void, fmt.Errorf("Tree.set_text: expected i32 node_id, string title")
+			}
+			if err := guiTreeSetText(handle, args[0].AsI32(), args[1].AsString()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"selected_id": value.NewNativeFunc("gui.Tree.selected_id", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Tree.selected_id: expected 0 arguments")
+			}
+			nodeID, err := guiTreeSelectedID(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(-1), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewI32(nodeID), value.Ok}}
+		}),
+		"set_selected_id": value.NewNativeFunc("gui.Tree.set_selected_id", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 || args[0].T != value.TypeI32 {
+				return value.Void, fmt.Errorf("Tree.set_selected_id: expected i32 node_id")
+			}
+			if err := guiTreeSetSelectedID(handle, args[0].AsI32()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"selected_text": value.NewNativeFunc("gui.Tree.selected_text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Tree.selected_text: expected 0 arguments")
+			}
+			text, err := guiTreeSelectedText(handle)
+			if err != nil {
+				return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+			}
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(text), value.Ok}}
+		}),
+		"clear": value.NewNativeFunc("gui.Tree.clear", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Tree.clear: expected 0 arguments")
+			}
+			if err := guiTreeClear(handle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"on_change": value.NewNativeFunc("gui.Tree.on_change", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Tree.on_change: expected fn callback")
+			}
+			if args[0].T != value.TypeFunc && args[0].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Tree.on_change: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[0])
+			if err := guiTreeSetOnChange(handle, cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassTree, handle, methods)
 }

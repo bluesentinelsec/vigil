@@ -67,6 +67,33 @@ int basl_gui_spinbox_value(uintptr_t spinboxPtr, double* outValue, char** errOut
 int basl_gui_spinbox_set_value(uintptr_t spinboxPtr, double value, char** errOut);
 int basl_gui_spinbox_set_on_change(uintptr_t spinboxPtr, uintptr_t callbackId, char** errOut);
 uintptr_t basl_gui_separator_new(int vertical, char** errOut);
+uintptr_t basl_gui_tabs_new(int32_t selectedIndex, char** errOut);
+int basl_gui_tabs_add_tab(uintptr_t tabsPtr, const char* title, uintptr_t childPtr, char** errOut);
+int basl_gui_tabs_selected_index(uintptr_t tabsPtr, int32_t* outIndex, char** errOut);
+int basl_gui_tabs_set_selected_index(uintptr_t tabsPtr, int32_t selectedIndex, char** errOut);
+int basl_gui_tabs_set_on_change(uintptr_t tabsPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_paned_new(int vertical, double ratio, char** errOut);
+int basl_gui_paned_set_first(uintptr_t panedPtr, uintptr_t childPtr, char** errOut);
+int basl_gui_paned_set_second(uintptr_t panedPtr, uintptr_t childPtr, char** errOut);
+int basl_gui_paned_ratio(uintptr_t panedPtr, double* outRatio, char** errOut);
+int basl_gui_paned_set_ratio(uintptr_t panedPtr, double ratio, char** errOut);
+int basl_gui_paned_set_on_change(uintptr_t panedPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_list_new(const char** items, int32_t itemCount, int32_t selectedIndex, char** errOut);
+int basl_gui_list_selected_index(uintptr_t listPtr, int32_t* outIndex, char** errOut);
+int basl_gui_list_set_selected_index(uintptr_t listPtr, int32_t selectedIndex, char** errOut);
+char* basl_gui_list_selected_text(uintptr_t listPtr, char** errOut);
+int basl_gui_list_add_item(uintptr_t listPtr, const char* text, char** errOut);
+int basl_gui_list_clear(uintptr_t listPtr, char** errOut);
+int basl_gui_list_set_on_change(uintptr_t listPtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_tree_new(char** errOut);
+int basl_gui_tree_add_root(uintptr_t treePtr, const char* title, int32_t* outNodeID, char** errOut);
+int basl_gui_tree_add_child(uintptr_t treePtr, int32_t parentID, const char* title, int32_t* outNodeID, char** errOut);
+int basl_gui_tree_set_text(uintptr_t treePtr, int32_t nodeID, const char* title, char** errOut);
+int basl_gui_tree_selected_id(uintptr_t treePtr, int32_t* outNodeID, char** errOut);
+int basl_gui_tree_set_selected_id(uintptr_t treePtr, int32_t nodeID, char** errOut);
+char* basl_gui_tree_selected_text(uintptr_t treePtr, char** errOut);
+int basl_gui_tree_clear(uintptr_t treePtr, char** errOut);
+int basl_gui_tree_set_on_change(uintptr_t treePtr, uintptr_t callbackId, char** errOut);
 int basl_gui_widget_set_size(uintptr_t viewPtr, int32_t width, int32_t height, char** errOut);
 void basl_gui_free_string(char* s);
 */
@@ -756,6 +783,293 @@ func guiSeparatorCreate(vertical bool) (uintptr, error) {
 		return 0, guiErr(errOut)
 	}
 	return uintptr(handle), nil
+}
+
+func guiTabsCreate(selectedIndex int32) (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_tabs_new(C.int32_t(selectedIndex), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiTabsAddTab(tabsHandle uintptr, title string, childHandle uintptr) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	ok := C.basl_gui_tabs_add_tab(C.uintptr_t(tabsHandle), cTitle, C.uintptr_t(childHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTabsSelectedIndex(tabsHandle uintptr) (int32, error) {
+	var errOut *C.char
+	var outIndex C.int32_t
+	ok := C.basl_gui_tabs_selected_index(C.uintptr_t(tabsHandle), &outIndex, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outIndex), nil
+}
+
+func guiTabsSetSelectedIndex(tabsHandle uintptr, selectedIndex int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_tabs_set_selected_index(C.uintptr_t(tabsHandle), C.int32_t(selectedIndex), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTabsSetOnChange(tabsHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_tabs_set_on_change(C.uintptr_t(tabsHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiPanedCreate(vertical bool, ratio float64) (uintptr, error) {
+	var errOut *C.char
+	verticalFlag := C.int(0)
+	if vertical {
+		verticalFlag = 1
+	}
+	handle := C.basl_gui_paned_new(verticalFlag, C.double(ratio), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiPanedSetFirst(panedHandle uintptr, childHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_paned_set_first(C.uintptr_t(panedHandle), C.uintptr_t(childHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiPanedSetSecond(panedHandle uintptr, childHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_paned_set_second(C.uintptr_t(panedHandle), C.uintptr_t(childHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiPanedRatio(panedHandle uintptr) (float64, error) {
+	var errOut *C.char
+	var outRatio C.double
+	ok := C.basl_gui_paned_ratio(C.uintptr_t(panedHandle), &outRatio, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return float64(outRatio), nil
+}
+
+func guiPanedSetRatio(panedHandle uintptr, ratio float64) error {
+	var errOut *C.char
+	ok := C.basl_gui_paned_set_ratio(C.uintptr_t(panedHandle), C.double(ratio), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiPanedSetOnChange(panedHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_paned_set_on_change(C.uintptr_t(panedHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiListCreate(items []string, selectedIndex int32) (uintptr, error) {
+	var errOut *C.char
+	var cItemsRaw unsafe.Pointer
+	var cItems **C.char
+	if len(items) > 0 {
+		cItemsRaw = C.malloc(C.size_t(len(items)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+		defer C.free(cItemsRaw)
+		itemsSlice := unsafe.Slice((**C.char)(cItemsRaw), len(items))
+		cStrs := make([]*C.char, len(items))
+		for i, item := range items {
+			cStrs[i] = C.CString(item)
+			defer C.free(unsafe.Pointer(cStrs[i]))
+			itemsSlice[i] = cStrs[i]
+		}
+		cItems = (**C.char)(cItemsRaw)
+	}
+	handle := C.basl_gui_list_new(cItems, C.int32_t(len(items)), C.int32_t(selectedIndex), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiListSelectedIndex(listHandle uintptr) (int32, error) {
+	var errOut *C.char
+	var outIndex C.int32_t
+	ok := C.basl_gui_list_selected_index(C.uintptr_t(listHandle), &outIndex, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outIndex), nil
+}
+
+func guiListSetSelectedIndex(listHandle uintptr, selectedIndex int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_list_set_selected_index(C.uintptr_t(listHandle), C.int32_t(selectedIndex), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiListSelectedText(listHandle uintptr) (string, error) {
+	var errOut *C.char
+	text := C.basl_gui_list_selected_text(C.uintptr_t(listHandle), &errOut)
+	if text == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(text)
+	C.basl_gui_free_string(text)
+	return out, nil
+}
+
+func guiListAddItem(listHandle uintptr, item string) error {
+	cItem := C.CString(item)
+	defer C.free(unsafe.Pointer(cItem))
+	var errOut *C.char
+	ok := C.basl_gui_list_add_item(C.uintptr_t(listHandle), cItem, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiListClear(listHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_list_clear(C.uintptr_t(listHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiListSetOnChange(listHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_list_set_on_change(C.uintptr_t(listHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTreeCreate() (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_tree_new(&errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiTreeAddRoot(treeHandle uintptr, title string) (int32, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	var outNodeID C.int32_t
+	ok := C.basl_gui_tree_add_root(C.uintptr_t(treeHandle), cTitle, &outNodeID, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outNodeID), nil
+}
+
+func guiTreeAddChild(treeHandle uintptr, parentID int32, title string) (int32, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	var outNodeID C.int32_t
+	ok := C.basl_gui_tree_add_child(C.uintptr_t(treeHandle), C.int32_t(parentID), cTitle, &outNodeID, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outNodeID), nil
+}
+
+func guiTreeSetText(treeHandle uintptr, nodeID int32, title string) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	ok := C.basl_gui_tree_set_text(C.uintptr_t(treeHandle), C.int32_t(nodeID), cTitle, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTreeSelectedID(treeHandle uintptr) (int32, error) {
+	var errOut *C.char
+	var outNodeID C.int32_t
+	ok := C.basl_gui_tree_selected_id(C.uintptr_t(treeHandle), &outNodeID, &errOut)
+	if ok == 0 {
+		return 0, guiErr(errOut)
+	}
+	return int32(outNodeID), nil
+}
+
+func guiTreeSetSelectedID(treeHandle uintptr, nodeID int32) error {
+	var errOut *C.char
+	ok := C.basl_gui_tree_set_selected_id(C.uintptr_t(treeHandle), C.int32_t(nodeID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTreeSelectedText(treeHandle uintptr) (string, error) {
+	var errOut *C.char
+	text := C.basl_gui_tree_selected_text(C.uintptr_t(treeHandle), &errOut)
+	if text == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(text)
+	C.basl_gui_free_string(text)
+	return out, nil
+}
+
+func guiTreeClear(treeHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_tree_clear(C.uintptr_t(treeHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiTreeSetOnChange(treeHandle uintptr, callbackID uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_tree_set_on_change(C.uintptr_t(treeHandle), C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
 }
 
 func guiWidgetSetSize(widgetHandle uintptr, width int32, height int32) error {

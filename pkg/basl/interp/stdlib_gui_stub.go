@@ -250,6 +250,114 @@ func guiSeparatorCreate(_ bool) (uintptr, error) {
 	return 0, fmt.Errorf(guiUnsupportedMsg)
 }
 
+func guiTabsCreate(_ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTabsAddTab(_ uintptr, _ string, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTabsSelectedIndex(_ uintptr) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTabsSetSelectedIndex(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTabsSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiPanedCreate(_ bool, _ float64) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiPanedSetFirst(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiPanedSetSecond(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiPanedRatio(_ uintptr) (float64, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiPanedSetRatio(_ uintptr, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiPanedSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListCreate(_ []string, _ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListSelectedIndex(_ uintptr) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListSetSelectedIndex(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListSelectedText(_ uintptr) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListAddItem(_ uintptr, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListClear(_ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiListSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeCreate() (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeAddRoot(_ uintptr, _ string) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeAddChild(_ uintptr, _ int32, _ string) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeSetText(_ uintptr, _ int32, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeSelectedID(_ uintptr) (int32, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeSetSelectedID(_ uintptr, _ int32) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeSelectedText(_ uintptr) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeClear(_ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiTreeSetOnChange(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
 func guiWidgetSetSize(_ uintptr, _ int32, _ int32) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }

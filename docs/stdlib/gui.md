@@ -58,6 +58,10 @@ Returns backend name:
 ### gui.scale_opts() -> gui.ScaleOpts
 ### gui.spinbox_opts() -> gui.SpinboxOpts
 ### gui.separator_opts() -> gui.SeparatorOpts
+### gui.tabs_opts() -> gui.TabsOpts
+### gui.paned_opts() -> gui.PanedOpts
+### gui.list_opts() -> gui.ListOpts
+### gui.tree_opts() -> gui.TreeOpts
 
 ## Widget Constructors
 
@@ -79,6 +83,10 @@ Returns backend name:
 ### gui.scale(gui.ScaleOpts opts) -> (gui.Scale, err)
 ### gui.spinbox(gui.SpinboxOpts opts) -> (gui.Spinbox, err)
 ### gui.separator(gui.SeparatorOpts opts) -> (gui.Separator, err)
+### gui.tabs(gui.TabsOpts opts) -> (gui.Tabs, err)
+### gui.paned(gui.PanedOpts opts) -> (gui.Paned, err)
+### gui.list(gui.ListOpts opts) -> (gui.List, err)
+### gui.tree(gui.TreeOpts opts) -> (gui.Tree, err)
 
 ## Option Types
 
@@ -227,6 +235,39 @@ Reserved for app-level configuration.
 | `vertical` | `bool` | `false` |
 | `length` | `i32` | `160` |
 
+### gui.TabsOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `selected` | `i32` | `0` |
+| `on_change` | `fn` | unset |
+
+### gui.PanedOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `vertical` | `bool` | `false` |
+| `ratio` | `f64` | `0.5` |
+| `on_change` | `fn` | unset |
+
+### gui.ListOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `items` | `array<string>` | `[]` |
+| `selected` | `i32` | `0` |
+| `width` | `i32` | `280` |
+| `height` | `i32` | `180` |
+| `on_change` | `fn` | unset |
+
+### gui.TreeOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `width` | `i32` | `320` |
+| `height` | `i32` | `220` |
+| `on_change` | `fn` | unset |
+
 ## gui.App Methods
 
 ### app.window(gui.WindowOpts opts) -> (gui.Window, err)
@@ -236,7 +277,7 @@ Reserved for app-level configuration.
 ## gui.Window Methods
 
 ### win.set_child(widget) -> err
-Supports `gui.Box`, `gui.Grid`, `gui.Frame`, `gui.Group`, and all control widgets.
+Supports `gui.Box`, `gui.Grid`, `gui.Frame`, `gui.Group`, `gui.Tabs`, `gui.Paned`, and all control widgets.
 
 ### win.set_title(string title) -> err
 ### win.show() -> err
@@ -249,6 +290,9 @@ Supports `gui.Box`, `gui.Grid`, `gui.Frame`, `gui.Group`, and all control widget
 ### frame.set_child(widget) -> err
 ### group.set_child(widget) -> err
 ### group.set_title(string title) -> err
+### tabs.add_tab(string title, widget) -> err
+### paned.set_first(widget) -> err
+### paned.set_second(widget) -> err
 
 `fill_x` / `fill_y` control whether a widget expands with window resize.
 
@@ -300,3 +344,29 @@ Responsive recommendation:
 ### spinbox.on_change(fn callback) -> err
 
 `gui.Separator` is structural and currently has no instance methods.
+
+### tabs.selected_index() -> (i32, err)
+### tabs.set_selected_index(i32 index) -> err
+### tabs.on_change(fn callback) -> err
+
+### paned.ratio() -> (f64, err)
+### paned.set_ratio(f64 ratio) -> err
+### paned.on_change(fn callback) -> err
+
+### list.selected_index() -> (i32, err)
+### list.set_selected_index(i32 index) -> err
+### list.selected_text() -> (string, err)
+### list.add_item(string text) -> err
+### list.clear() -> err
+### list.on_change(fn callback) -> err
+
+### tree.add_root(string title) -> (i32 node_id, err)
+### tree.add_child(i32 parent_id, string title) -> (i32 node_id, err)
+### tree.set_text(i32 node_id, string title) -> err
+### tree.selected_id() -> (i32 node_id, err)
+### tree.set_selected_id(i32 node_id) -> err
+### tree.selected_text() -> (string, err)
+### tree.clear() -> err
+### tree.on_change(fn callback) -> err
+
+Tree nodes are addressed by explicit `node_id` values returned from `add_root` / `add_child`.

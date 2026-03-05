@@ -1638,6 +1638,10 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiScale := &ast.TypeExpr{Name: "gui.Scale"}
 	typGuiSpinbox := &ast.TypeExpr{Name: "gui.Spinbox"}
 	typGuiSeparator := &ast.TypeExpr{Name: "gui.Separator"}
+	typGuiTabs := &ast.TypeExpr{Name: "gui.Tabs"}
+	typGuiPaned := &ast.TypeExpr{Name: "gui.Paned"}
+	typGuiList := &ast.TypeExpr{Name: "gui.List"}
+	typGuiTree := &ast.TypeExpr{Name: "gui.Tree"}
 	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
 	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
 	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
@@ -1656,6 +1660,10 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiScaleOpts := &ast.TypeExpr{Name: "gui.ScaleOpts"}
 	typGuiSpinboxOpts := &ast.TypeExpr{Name: "gui.SpinboxOpts"}
 	typGuiSeparatorOpts := &ast.TypeExpr{Name: "gui.SeparatorOpts"}
+	typGuiTabsOpts := &ast.TypeExpr{Name: "gui.TabsOpts"}
+	typGuiPanedOpts := &ast.TypeExpr{Name: "gui.PanedOpts"}
+	typGuiListOpts := &ast.TypeExpr{Name: "gui.ListOpts"}
+	typGuiTreeOpts := &ast.TypeExpr{Name: "gui.TreeOpts"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1801,6 +1809,10 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("scale_opts", singleReturnType(typGuiScaleOpts))
 		addFn("spinbox_opts", singleReturnType(typGuiSpinboxOpts))
 		addFn("separator_opts", singleReturnType(typGuiSeparatorOpts))
+		addFn("tabs_opts", singleReturnType(typGuiTabsOpts))
+		addFn("paned_opts", singleReturnType(typGuiPanedOpts))
+		addFn("list_opts", singleReturnType(typGuiListOpts))
+		addFn("tree_opts", singleReturnType(typGuiTreeOpts))
 		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
 		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
 		addFn("grid", []*ast.TypeExpr{typGuiGrid, typErr}, typGuiGridOpts)
@@ -1819,6 +1831,10 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("scale", []*ast.TypeExpr{typGuiScale, typErr}, typGuiScaleOpts)
 		addFn("spinbox", []*ast.TypeExpr{typGuiSpinbox, typErr}, typGuiSpinboxOpts)
 		addFn("separator", []*ast.TypeExpr{typGuiSeparator, typErr}, typGuiSeparatorOpts)
+		addFn("tabs", []*ast.TypeExpr{typGuiTabs, typErr}, typGuiTabsOpts)
+		addFn("paned", []*ast.TypeExpr{typGuiPaned, typErr}, typGuiPanedOpts)
+		addFn("list", []*ast.TypeExpr{typGuiList, typErr}, typGuiListOpts)
+		addFn("tree", []*ast.TypeExpr{typGuiTree, typErr}, typGuiTreeOpts)
 
 		addClass(&classInfo{
 			name: "gui.App",
@@ -1994,6 +2010,43 @@ func newBuiltinModule(name string) *moduleInfo {
 			methods: make(map[string]*funcSig),
 		})
 		addClass(&classInfo{
+			name: "gui.TabsOpts",
+			fields: map[string]*ast.TypeExpr{
+				"selected":  typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.PanedOpts",
+			fields: map[string]*ast.TypeExpr{
+				"vertical":  typBool,
+				"ratio":     typF64,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ListOpts",
+			fields: map[string]*ast.TypeExpr{
+				"items":     typArrayString,
+				"selected":  typI32,
+				"width":     typI32,
+				"height":    typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.TreeOpts",
+			fields: map[string]*ast.TypeExpr{
+				"width":     typI32,
+				"height":    typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
 			name: "gui.Window",
 			methods: map[string]*funcSig{
 				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
@@ -2125,6 +2178,53 @@ func newBuiltinModule(name string) *moduleInfo {
 			name:    "gui.Separator",
 			fields:  map[string]*ast.TypeExpr{},
 			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.Tabs",
+			methods: map[string]*funcSig{
+				"add_tab":            {name: "add_tab", params: []*ast.TypeExpr{typString, nil}, ret: []*ast.TypeExpr{typErr}},
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Paned",
+			methods: map[string]*funcSig{
+				"set_first":  {name: "set_first", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"set_second": {name: "set_second", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"ratio":      {name: "ratio", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_ratio":  {name: "set_ratio", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+				"on_change":  {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.List",
+			methods: map[string]*funcSig{
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":      {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"add_item":           {name: "add_item", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"clear":              {name: "clear", ret: []*ast.TypeExpr{typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Tree",
+			methods: map[string]*funcSig{
+				"add_root":        {name: "add_root", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI32, typErr}},
+				"add_child":       {name: "add_child", params: []*ast.TypeExpr{typI32, typString}, ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_text":        {name: "set_text", params: []*ast.TypeExpr{typI32, typString}, ret: []*ast.TypeExpr{typErr}},
+				"selected_id":     {name: "selected_id", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_id": {name: "set_selected_id", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":   {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"clear":           {name: "clear", ret: []*ast.TypeExpr{typErr}},
+				"on_change":       {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
 		})
 	case "regex":
 		addFn("compile", []*ast.TypeExpr{typRegex, typErr}, typString)

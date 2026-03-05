@@ -15,7 +15,7 @@ fn main() -> i32 {
 
     gui.WindowOpts winOpts = gui.window_opts("BASL GUI Demo");
     winOpts.width = 1320;
-    winOpts.height = 840;
+    winOpts.height = 960;
     guard gui.Window win, err winErr = app.window(winOpts) {
         fmt.eprintln(f"app.window: {winErr.message()}");
         return 1;
@@ -178,6 +178,140 @@ fn main() -> i32 {
         return 1;
     }
 
+    gui.TabsOpts tabsOpts = gui.tabs_opts();
+    tabsOpts.selected = 0;
+    guard gui.Tabs inspectorTabs, err tabsErr = gui.tabs(tabsOpts) {
+        fmt.eprintln(f"gui.tabs: {tabsErr.message()}");
+        return 1;
+    }
+
+    gui.BoxOpts tabBoxOpts = gui.box_opts();
+    tabBoxOpts.vertical = true;
+    tabBoxOpts.spacing = 6;
+    tabBoxOpts.padding = 6;
+    guard gui.Box overviewTab, err overviewTabErr = gui.box(tabBoxOpts) {
+        fmt.eprintln(f"gui.box(overview tab): {overviewTabErr.message()}");
+        return 1;
+    }
+    guard gui.Box detailsTab, err detailsTabErr = gui.box(tabBoxOpts) {
+        fmt.eprintln(f"gui.box(details tab): {detailsTabErr.message()}");
+        return 1;
+    }
+
+    gui.LabelOpts overview1Opts = gui.label_opts("Overview tab: use Apply to push settings.");
+    guard gui.Label overviewLabel1, err overviewLabel1Err = gui.label(overview1Opts) {
+        fmt.eprintln(f"gui.label(overview1): {overviewLabel1Err.message()}");
+        return 1;
+    }
+    gui.LabelOpts overview2Opts = gui.label_opts("Data tab demonstrates List + Tree with Paned split.");
+    guard gui.Label overviewLabel2, err overviewLabel2Err = gui.label(overview2Opts) {
+        fmt.eprintln(f"gui.label(overview2): {overviewLabel2Err.message()}");
+        return 1;
+    }
+    err overviewAdd1Err = overviewTab.add(overviewLabel1);
+    if (overviewAdd1Err != ok) {
+        fmt.eprintln(f"overviewTab.add(label1): {overviewAdd1Err.message()}");
+        return 1;
+    }
+    err overviewAdd2Err = overviewTab.add(overviewLabel2);
+    if (overviewAdd2Err != ok) {
+        fmt.eprintln(f"overviewTab.add(label2): {overviewAdd2Err.message()}");
+        return 1;
+    }
+
+    gui.LabelOpts detailsOpts = gui.label_opts("Select nodes/items below to inspect event callbacks.");
+    guard gui.Label detailsLabel, err detailsLabelErr = gui.label(detailsOpts) {
+        fmt.eprintln(f"gui.label(details): {detailsLabelErr.message()}");
+        return 1;
+    }
+    err detailsAddErr = detailsTab.add(detailsLabel);
+    if (detailsAddErr != ok) {
+        fmt.eprintln(f"detailsTab.add(label): {detailsAddErr.message()}");
+        return 1;
+    }
+
+    err tabsAddOverviewErr = inspectorTabs.add_tab("Overview", overviewTab);
+    if (tabsAddOverviewErr != ok) {
+        fmt.eprintln(f"inspectorTabs.add_tab(Overview): {tabsAddOverviewErr.message()}");
+        return 1;
+    }
+    err tabsAddDetailsErr = inspectorTabs.add_tab("Details", detailsTab);
+    if (tabsAddDetailsErr != ok) {
+        fmt.eprintln(f"inspectorTabs.add_tab(Details): {tabsAddDetailsErr.message()}");
+        return 1;
+    }
+
+    gui.TreeOpts treeOpts = gui.tree_opts();
+    treeOpts.width = 0;
+    treeOpts.height = 200;
+    guard gui.Tree projectTree, err treeErr = gui.tree(treeOpts) {
+        fmt.eprintln(f"gui.tree: {treeErr.message()}");
+        return 1;
+    }
+    i32 rootNode, err rootNodeErr = projectTree.add_root("Project");
+    if (rootNodeErr != ok) {
+        fmt.eprintln(f"projectTree.add_root: {rootNodeErr.message()}");
+        return 1;
+    }
+    i32 srcNode, err srcNodeErr = projectTree.add_child(rootNode, "src");
+    if (srcNodeErr != ok) {
+        fmt.eprintln(f"projectTree.add_child(src): {srcNodeErr.message()}");
+        return 1;
+    }
+    i32 docsNode, err docsNodeErr = projectTree.add_child(rootNode, "docs");
+    if (docsNodeErr != ok) {
+        fmt.eprintln(f"projectTree.add_child(docs): {docsNodeErr.message()}");
+        return 1;
+    }
+    i32 cmdNode, err cmdNodeErr = projectTree.add_child(srcNode, "cmd");
+    if (cmdNodeErr != ok) {
+        fmt.eprintln(f"projectTree.add_child(cmd): {cmdNodeErr.message()}");
+        return 1;
+    }
+    i32 apiNode, err apiNodeErr = projectTree.add_child(srcNode, "api");
+    if (apiNodeErr != ok) {
+        fmt.eprintln(f"projectTree.add_child(api): {apiNodeErr.message()}");
+        return 1;
+    }
+    i32 readmeNode, err readmeNodeErr = projectTree.add_child(docsNode, "README.md");
+    if (readmeNodeErr != ok) {
+        fmt.eprintln(f"projectTree.add_child(README): {readmeNodeErr.message()}");
+        return 1;
+    }
+    err selectTreeErr = projectTree.set_selected_id(readmeNode);
+    if (selectTreeErr != ok) {
+        fmt.eprintln(f"projectTree.set_selected_id: {selectTreeErr.message()}");
+        return 1;
+    }
+
+    gui.ListOpts listOpts = gui.list_opts();
+    listOpts.items = ["Build", "Test", "Package", "Release"];
+    listOpts.selected = 1;
+    listOpts.width = 0;
+    listOpts.height = 200;
+    guard gui.List taskList, err listErr = gui.list(listOpts) {
+        fmt.eprintln(f"gui.list: {listErr.message()}");
+        return 1;
+    }
+
+    gui.PanedOpts panedOpts = gui.paned_opts();
+    panedOpts.vertical = false;
+    panedOpts.ratio = 0.46;
+    guard gui.Paned dataSplit, err panedErr = gui.paned(panedOpts) {
+        fmt.eprintln(f"gui.paned: {panedErr.message()}");
+        return 1;
+    }
+    err setFirstErr = dataSplit.set_first(projectTree);
+    if (setFirstErr != ok) {
+        fmt.eprintln(f"dataSplit.set_first: {setFirstErr.message()}");
+        return 1;
+    }
+    err setSecondErr = dataSplit.set_second(taskList);
+    if (setSecondErr != ok) {
+        fmt.eprintln(f"dataSplit.set_second: {setSecondErr.message()}");
+        return 1;
+    }
+
     gui.LabelOpts intensityLabelOpts = gui.label_opts("Intensity");
     guard gui.Label intensityLabel, err intensityLabelErr = gui.label(intensityLabelOpts) {
         fmt.eprintln(f"gui.label(intensity): {intensityLabelErr.message()}");
@@ -274,7 +408,31 @@ fn main() -> i32 {
             return;
         }
 
-        err setStatusErr = statusLabel.set_text(f"Applied: {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}");
+        string selectedTask, err selectedTaskErr = taskList.selected_text();
+        if (selectedTaskErr != ok) {
+            statusLabel.set_text(f"list read failed: {selectedTaskErr.message()}");
+            return;
+        }
+
+        string selectedNode, err selectedNodeErr = projectTree.selected_text();
+        if (selectedNodeErr != ok) {
+            statusLabel.set_text(f"tree read failed: {selectedNodeErr.message()}");
+            return;
+        }
+
+        i32 tabIndex, err tabIndexErr = inspectorTabs.selected_index();
+        if (tabIndexErr != ok) {
+            statusLabel.set_text(f"tabs read failed: {tabIndexErr.message()}");
+            return;
+        }
+
+        f64 splitRatio, err splitRatioErr = dataSplit.ratio();
+        if (splitRatioErr != ok) {
+            statusLabel.set_text(f"paned read failed: {splitRatioErr.message()}");
+            return;
+        }
+
+        err setStatusErr = statusLabel.set_text(f"Applied: {text} [{mode}] task={selectedTask}, node={selectedNode}, tab={tabIndex}, split={splitRatio}");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
             return;
@@ -282,7 +440,7 @@ fn main() -> i32 {
 
         bool verbose, err verboseErr = verboseToggle.checked();
         if (verboseErr == ok && verbose) {
-            logArea.append(f"\napply -> text={text}, mode={mode}, radio={radioMode}, intensity={intensity}, retries={retries}");
+            logArea.append(f"\napply -> text={text}, mode={mode}, radio={radioMode}, intensity={intensity}, retries={retries}, task={selectedTask}, node={selectedNode}, tab={tabIndex}, split={splitRatio}");
         }
 
         err setProgressErr = progressBar.set_value(intensity);
@@ -320,6 +478,33 @@ fn main() -> i32 {
         retrySpin.set_value(3.0);
         tuningValueLabel.set_text("Intensity=25, Retries=3");
         modeGroup.set_title("Mode preset");
+        taskList.clear();
+        taskList.add_item("Build");
+        taskList.add_item("Test");
+        taskList.add_item("Package");
+        taskList.add_item("Release");
+        taskList.set_selected_index(1);
+        projectTree.clear();
+        i32 newRoot, err newRootErr = projectTree.add_root("Project");
+        if (newRootErr == ok) {
+            i32 newSrc, err newSrcErr = projectTree.add_child(newRoot, "src");
+            i32 newDocs, err newDocsErr = projectTree.add_child(newRoot, "docs");
+            if (newSrcErr == ok) {
+                i32 _, err addCmdErr = projectTree.add_child(newSrc, "cmd");
+                i32 _, err addApiErr = projectTree.add_child(newSrc, "api");
+                if (addCmdErr != ok || addApiErr != ok) {
+                    fmt.eprintln("clear tree child add failed");
+                }
+            }
+            if (newDocsErr == ok) {
+                i32 newReadme, err newReadmeErr = projectTree.add_child(newDocs, "README.md");
+                if (newReadmeErr == ok) {
+                    projectTree.set_selected_id(newReadme);
+                }
+            }
+        }
+        inspectorTabs.set_selected_index(0);
+        dataSplit.set_ratio(0.46);
         err setStatusErr = statusLabel.set_text("Cleared");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
@@ -361,8 +546,18 @@ fn main() -> i32 {
             fmt.eprintln(f"echo spinbox read failed: {retriesErr.message()}");
             return;
         }
-        fmt.println(f"echo: {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}");
-        logArea.append(f"\necho -> {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}");
+        string selectedTask, err selectedTaskErr = taskList.selected_text();
+        if (selectedTaskErr != ok) {
+            fmt.eprintln(f"echo list read failed: {selectedTaskErr.message()}");
+            return;
+        }
+        string selectedNode, err selectedNodeErr = projectTree.selected_text();
+        if (selectedNodeErr != ok) {
+            fmt.eprintln(f"echo tree read failed: {selectedNodeErr.message()}");
+            return;
+        }
+        fmt.println(f"echo: {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}, task={selectedTask}, node={selectedNode}");
+        logArea.append(f"\necho -> {text} [{mode}] radio={radioMode}, intensity={intensity}, retries={retries}, task={selectedTask}, node={selectedNode}");
     });
     if (hookEchoErr != ok) {
         fmt.eprintln(f"hook echo callback: {hookEchoErr.message()}");
@@ -472,6 +667,61 @@ fn main() -> i32 {
         return 1;
     }
 
+    err hookTabsErr = inspectorTabs.on_change(fn() -> void {
+        i32 idx, err idxErr = inspectorTabs.selected_index();
+        if (idxErr != ok) {
+            fmt.eprintln(f"tabs read failed: {idxErr.message()}");
+            return;
+        }
+        statusLabel.set_text(f"Tab changed to index {idx}");
+        logArea.append(f"\ntab -> {idx}");
+    });
+    if (hookTabsErr != ok) {
+        fmt.eprintln(f"hook tabs callback: {hookTabsErr.message()}");
+        return 1;
+    }
+
+    err hookPanedErr = dataSplit.on_change(fn() -> void {
+        f64 ratio, err ratioErr = dataSplit.ratio();
+        if (ratioErr != ok) {
+            fmt.eprintln(f"paned ratio failed: {ratioErr.message()}");
+            return;
+        }
+        statusLabel.set_text(f"Split ratio changed to {ratio}");
+    });
+    if (hookPanedErr != ok) {
+        fmt.eprintln(f"hook paned callback: {hookPanedErr.message()}");
+        return 1;
+    }
+
+    err hookListErr = taskList.on_change(fn() -> void {
+        string item, err itemErr = taskList.selected_text();
+        if (itemErr != ok) {
+            fmt.eprintln(f"list selected_text failed: {itemErr.message()}");
+            return;
+        }
+        statusLabel.set_text(f"Task selected -> {item}");
+        logArea.append(f"\ntask -> {item}");
+    });
+    if (hookListErr != ok) {
+        fmt.eprintln(f"hook list callback: {hookListErr.message()}");
+        return 1;
+    }
+
+    err hookTreeErr = projectTree.on_change(fn() -> void {
+        string node, err nodeErr = projectTree.selected_text();
+        if (nodeErr != ok) {
+            fmt.eprintln(f"tree selected_text failed: {nodeErr.message()}");
+            return;
+        }
+        statusLabel.set_text(f"Tree node selected -> {node}");
+        logArea.append(f"\nnode -> {node}");
+    });
+    if (hookTreeErr != ok) {
+        fmt.eprintln(f"hook tree callback: {hookTreeErr.message()}");
+        return 1;
+    }
+
     err rowAddApplyErr = buttonRow.add(applyBtn);
     if (rowAddApplyErr != ok) {
         fmt.eprintln(f"buttonRow.add(apply): {rowAddApplyErr.message()}");
@@ -561,7 +811,26 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts logCell = gui.cell_opts(5, 0);
+    gui.CellOpts tabsCell = gui.cell_opts(5, 0);
+    tabsCell.col_span = 3;
+    tabsCell.fill_x = true;
+    err placeTabsErr = root.place(inspectorTabs, tabsCell);
+    if (placeTabsErr != ok) {
+        fmt.eprintln(f"grid.place(tabs): {placeTabsErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts panedCell = gui.cell_opts(6, 0);
+    panedCell.col_span = 3;
+    panedCell.fill_x = true;
+    panedCell.fill_y = true;
+    err placePanedErr = root.place(dataSplit, panedCell);
+    if (placePanedErr != ok) {
+        fmt.eprintln(f"grid.place(paned): {placePanedErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts logCell = gui.cell_opts(7, 0);
     logCell.col_span = 3;
     logCell.fill_x = true;
     logCell.fill_y = true;
@@ -571,7 +840,7 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts statusCell = gui.cell_opts(6, 0);
+    gui.CellOpts statusCell = gui.cell_opts(8, 0);
     statusCell.col_span = 3;
     statusCell.fill_x = true;
     err placeStatusErr = root.place(statusLabel, statusCell);
@@ -580,7 +849,7 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts rowCell = gui.cell_opts(7, 0);
+    gui.CellOpts rowCell = gui.cell_opts(9, 0);
     rowCell.col_span = 3;
     rowCell.fill_x = true;
     err placeRowErr = root.place(buttonRow, rowCell);

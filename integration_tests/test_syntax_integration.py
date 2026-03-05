@@ -564,6 +564,19 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 gui.SeparatorOpts separatorOpts = gui.separator_opts();
                 separatorOpts.vertical = false;
                 separatorOpts.length = 120;
+                gui.TabsOpts tabsOpts = gui.tabs_opts();
+                tabsOpts.selected = 0;
+                gui.PanedOpts panedOpts = gui.paned_opts();
+                panedOpts.vertical = false;
+                panedOpts.ratio = 0.65;
+                gui.ListOpts listOpts = gui.list_opts();
+                listOpts.items = ["One", "Two", "Three"];
+                listOpts.selected = 2;
+                listOpts.width = 210;
+                listOpts.height = 130;
+                gui.TreeOpts treeOpts = gui.tree_opts();
+                treeOpts.width = 240;
+                treeOpts.height = 150;
 
                 fmt.print(
                     string(backend.len() > 0) + ":" +
@@ -585,12 +598,18 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                     string(radioOpts.options.len()) + ":" +
                     string(scaleOpts.value) + ":" +
                     string(spinboxOpts.step) + ":" +
-                    string(separatorOpts.length)
+                    string(separatorOpts.length) + ":" +
+                    string(tabsOpts.selected) + ":" +
+                    string(panedOpts.ratio) + ":" +
+                    string(listOpts.items.len()) + ":" +
+                    string(listOpts.selected) + ":" +
+                    string(listOpts.height) + ":" +
+                    string(treeOpts.width)
                 );
                 return 0;
             }
         """
-        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4:10:Tuning:2:42:1:120")
+        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4:10:Tuning:2:42:1:120:0:0.65:3:2:130:240")
 
     def test_stdlib_args_module(self) -> None:
         source = """

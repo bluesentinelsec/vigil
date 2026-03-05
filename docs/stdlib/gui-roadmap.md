@@ -16,6 +16,7 @@ Implemented:
 - Layout: `Grid`, `Box`
 - Core controls: `Label`, `Button`, `Entry`, `Checkbox`, `Select`, `TextArea`, `Progress`
 - Forms/common controls: `Frame`, `Group`, `Radio`, `Scale`, `Spinbox`, `Separator`
+- Data/navigation controls: `Tabs`, `Paned`, `List`, `Tree`
 
 ## Parity Phases
 
@@ -34,7 +35,7 @@ Implemented:
 - `Separator`
 - `Frame` / `LabelFrame` equivalent
 
-### Phase 3 (data and navigation)
+### Phase 3 (data and navigation, completed)
 
 - `List` / listbox
 - `Tree` / treeview

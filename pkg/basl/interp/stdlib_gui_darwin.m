@@ -24,6 +24,33 @@ extern void baslGuiInvokeCallback(uintptr_t callbackId);
 - (void)onSelect:(id)sender;
 @end
 
+@interface BaslTabsTarget : NSObject <NSTabViewDelegate>
+@property(nonatomic, assign) uintptr_t callbackId;
+@end
+
+@interface BaslSplitTarget : NSObject <NSSplitViewDelegate>
+@property(nonatomic, assign) uintptr_t callbackId;
+@end
+
+@interface BaslListTarget : NSObject <NSTableViewDataSource, NSTableViewDelegate>
+@property(nonatomic, strong) NSMutableArray<NSString*>* items;
+@property(nonatomic, assign) uintptr_t callbackId;
+@end
+
+@interface BaslTreeNode : NSObject
+@property(nonatomic, assign) NSInteger nodeID;
+@property(nonatomic, strong) NSString* title;
+@property(nonatomic, strong) NSMutableArray<BaslTreeNode*>* children;
+@property(nonatomic, weak) BaslTreeNode* parent;
+@end
+
+@interface BaslTreeTarget : NSObject <NSOutlineViewDataSource, NSOutlineViewDelegate>
+@property(nonatomic, strong) NSMutableArray<BaslTreeNode*>* roots;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber*, BaslTreeNode*>* nodes;
+@property(nonatomic, assign) NSInteger nextNodeID;
+@property(nonatomic, assign) uintptr_t callbackId;
+@end
+
 @interface BaslAppDelegate : NSObject <NSApplicationDelegate>
 @end
 
@@ -129,6 +156,129 @@ static void basl_gui_radio_apply_selection(NSStackView* group, NSInteger selecte
         if (self.callbackId != 0) {
             baslGuiInvokeCallback(self.callbackId);
         }
+    }
+}
+@end
+
+@implementation BaslTabsTarget
+- (void)tabView:(NSTabView*)tabView didSelectTabViewItem:(NSTabViewItem*)tabViewItem {
+    (void)tabView;
+    (void)tabViewItem;
+    if (self.callbackId != 0) {
+        baslGuiInvokeCallback(self.callbackId);
+    }
+}
+@end
+
+@implementation BaslSplitTarget
+- (void)splitViewDidResizeSubviews:(NSNotification*)notification {
+    (void)notification;
+    if (self.callbackId != 0) {
+        baslGuiInvokeCallback(self.callbackId);
+    }
+}
+@end
+
+@implementation BaslListTarget
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        _items = [NSMutableArray array];
+        _callbackId = 0;
+    }
+    return self;
+}
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView*)tableView {
+    (void)tableView;
+    return [self.items count];
+}
+
+- (id)tableView:(NSTableView*)tableView objectValueForTableColumn:(NSTableColumn*)tableColumn row:(NSInteger)row {
+    (void)tableView;
+    (void)tableColumn;
+    if (row < 0 || row >= (NSInteger)[self.items count]) {
+        return @"";
+    }
+    return [self.items objectAtIndex:row];
+}
+
+- (void)tableViewSelectionDidChange:(NSNotification*)notification {
+    (void)notification;
+    if (self.callbackId != 0) {
+        baslGuiInvokeCallback(self.callbackId);
+    }
+}
+@end
+
+@implementation BaslTreeNode
+@end
+
+@implementation BaslTreeTarget
+- (instancetype)init {
+    self = [super init];
+    if (self != nil) {
+        _roots = [NSMutableArray array];
+        _nodes = [NSMutableDictionary dictionary];
+        _nextNodeID = 1;
+        _callbackId = 0;
+    }
+    return self;
+}
+
+- (NSInteger)outlineView:(NSOutlineView*)outlineView numberOfChildrenOfItem:(id)item {
+    (void)outlineView;
+    if (item == nil) {
+        return [self.roots count];
+    }
+    if (![item isKindOfClass:[BaslTreeNode class]]) {
+        return 0;
+    }
+    BaslTreeNode* node = (BaslTreeNode*)item;
+    return [node.children count];
+}
+
+- (id)outlineView:(NSOutlineView*)outlineView child:(NSInteger)index ofItem:(id)item {
+    (void)outlineView;
+    if (item == nil) {
+        if (index < 0 || index >= (NSInteger)[self.roots count]) {
+            return nil;
+        }
+        return [self.roots objectAtIndex:index];
+    }
+    if (![item isKindOfClass:[BaslTreeNode class]]) {
+        return nil;
+    }
+    BaslTreeNode* node = (BaslTreeNode*)item;
+    if (index < 0 || index >= (NSInteger)[node.children count]) {
+        return nil;
+    }
+    return [node.children objectAtIndex:index];
+}
+
+- (BOOL)outlineView:(NSOutlineView*)outlineView isItemExpandable:(id)item {
+    (void)outlineView;
+    if (![item isKindOfClass:[BaslTreeNode class]]) {
+        return NO;
+    }
+    BaslTreeNode* node = (BaslTreeNode*)item;
+    return [node.children count] > 0;
+}
+
+- (id)outlineView:(NSOutlineView*)outlineView objectValueForTableColumn:(NSTableColumn*)tableColumn byItem:(id)item {
+    (void)outlineView;
+    (void)tableColumn;
+    if (![item isKindOfClass:[BaslTreeNode class]]) {
+        return @"";
+    }
+    BaslTreeNode* node = (BaslTreeNode*)item;
+    return (node.title != nil ? node.title : @"");
+}
+
+- (void)outlineViewSelectionDidChange:(NSNotification*)notification {
+    (void)notification;
+    if (self.callbackId != 0) {
+        baslGuiInvokeCallback(self.callbackId);
     }
 }
 @end
@@ -1258,6 +1408,685 @@ uintptr_t basl_gui_separator_new(int vertical, char** errOut) {
         }
         [separator setBoxType:NSBoxSeparator];
         return (uintptr_t)(__bridge_retained void*)separator;
+    }
+}
+
+static double basl_gui_clamp_ratio(double ratio) {
+    if (ratio != ratio) {
+        return 0.5;
+    }
+    if (ratio < 0.05) {
+        return 0.05;
+    }
+    if (ratio > 0.95) {
+        return 0.95;
+    }
+    return ratio;
+}
+
+static double basl_gui_paned_current_ratio(NSSplitView* split) {
+    if (split == nil || [[split subviews] count] < 2) {
+        return 0.5;
+    }
+    NSView* first = [[split subviews] objectAtIndex:0];
+    CGFloat divider = [split dividerThickness];
+    if ([split isVertical]) {
+        CGFloat total = NSWidth([split bounds]) - divider;
+        if (total <= 0) {
+            return 0.5;
+        }
+        return basl_gui_clamp_ratio((double)(NSWidth([first frame]) / total));
+    }
+    CGFloat total = NSHeight([split bounds]) - divider;
+    if (total <= 0) {
+        return 0.5;
+    }
+    return basl_gui_clamp_ratio((double)(NSHeight([first frame]) / total));
+}
+
+static void basl_gui_paned_apply_ratio(NSSplitView* split) {
+    if (split == nil || [[split subviews] count] < 2) {
+        return;
+    }
+    NSNumber* ratioNum = objc_getAssociatedObject(split, "basl_gui_paned_ratio");
+    double ratio = basl_gui_clamp_ratio(ratioNum != nil ? [ratioNum doubleValue] : 0.5);
+    CGFloat divider = [split dividerThickness];
+    if ([split isVertical]) {
+        CGFloat total = NSWidth([split bounds]) - divider;
+        if (total <= 0) {
+            return;
+        }
+        [split setPosition:(CGFloat)(ratio * total) ofDividerAtIndex:0];
+    } else {
+        CGFloat total = NSHeight([split bounds]) - divider;
+        if (total <= 0) {
+            return;
+        }
+        [split setPosition:(CGFloat)(ratio * total) ofDividerAtIndex:0];
+    }
+}
+
+static int basl_gui_paned_set_child(NSSplitView* split, NSInteger index, NSView* child, char** errOut) {
+    if (split == nil || child == nil) {
+        basl_gui_set_error(errOut, "invalid paned or child handle");
+        return 0;
+    }
+    if ([[split subviews] count] < 2 || index < 0 || index > 1) {
+        basl_gui_set_error(errOut, "invalid paned child index");
+        return 0;
+    }
+    NSArray* subviews = [split subviews];
+    NSView* existing = [subviews objectAtIndex:index];
+    [child removeFromSuperview];
+    [split replaceSubview:existing with:child];
+    [split adjustSubviews];
+    basl_gui_paned_apply_ratio(split);
+    return 1;
+}
+
+static int basl_gui_list_resolve(uintptr_t listPtr, NSTableView** tableOut, BaslListTarget** targetOut, char** errOut) {
+    NSScrollView* scroll = (__bridge NSScrollView*)((void*)listPtr);
+    if (scroll == nil) {
+        basl_gui_set_error(errOut, "invalid list handle");
+        return 0;
+    }
+    id doc = [scroll documentView];
+    if (doc == nil || ![doc isKindOfClass:[NSTableView class]]) {
+        basl_gui_set_error(errOut, "list table view is unavailable");
+        return 0;
+    }
+    id targetObj = objc_getAssociatedObject(scroll, "basl_gui_list_target");
+    if (targetObj == nil || ![targetObj isKindOfClass:[BaslListTarget class]]) {
+        basl_gui_set_error(errOut, "list model is unavailable");
+        return 0;
+    }
+    if (tableOut != NULL) {
+        *tableOut = (NSTableView*)doc;
+    }
+    if (targetOut != NULL) {
+        *targetOut = (BaslListTarget*)targetObj;
+    }
+    return 1;
+}
+
+static int basl_gui_tree_resolve(uintptr_t treePtr, NSOutlineView** outlineOut, BaslTreeTarget** targetOut, char** errOut) {
+    NSScrollView* scroll = (__bridge NSScrollView*)((void*)treePtr);
+    if (scroll == nil) {
+        basl_gui_set_error(errOut, "invalid tree handle");
+        return 0;
+    }
+    id doc = [scroll documentView];
+    if (doc == nil || ![doc isKindOfClass:[NSOutlineView class]]) {
+        basl_gui_set_error(errOut, "tree outline view is unavailable");
+        return 0;
+    }
+    id targetObj = objc_getAssociatedObject(scroll, "basl_gui_tree_target");
+    if (targetObj == nil || ![targetObj isKindOfClass:[BaslTreeTarget class]]) {
+        basl_gui_set_error(errOut, "tree model is unavailable");
+        return 0;
+    }
+    if (outlineOut != NULL) {
+        *outlineOut = (NSOutlineView*)doc;
+    }
+    if (targetOut != NULL) {
+        *targetOut = (BaslTreeTarget*)targetObj;
+    }
+    return 1;
+}
+
+static void basl_gui_tree_expand_parents(NSOutlineView* outline, BaslTreeNode* node) {
+    if (outline == nil || node == nil) {
+        return;
+    }
+    BaslTreeNode* current = node.parent;
+    while (current != nil) {
+        [outline expandItem:current];
+        current = current.parent;
+    }
+}
+
+uintptr_t basl_gui_tabs_new(int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        NSTabView* tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 0, 320, 240)];
+        if (tabs == nil) {
+            basl_gui_set_error(errOut, "failed to create tabs");
+            return 0;
+        }
+        objc_setAssociatedObject(tabs, "basl_gui_tabs_pref_index", @(selectedIndex), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return (uintptr_t)(__bridge_retained void*)tabs;
+    }
+}
+
+int basl_gui_tabs_add_tab(uintptr_t tabsPtr, const char* title, uintptr_t childPtr, char** errOut) {
+    @autoreleasepool {
+        NSTabView* tabs = (__bridge NSTabView*)((void*)tabsPtr);
+        NSView* child = (__bridge NSView*)((void*)childPtr);
+        if (tabs == nil || child == nil) {
+            basl_gui_set_error(errOut, "invalid tabs or child handle");
+            return 0;
+        }
+        NSString* tabTitle = [NSString stringWithUTF8String:(title != NULL ? title : "")];
+        NSTabViewItem* item = [[NSTabViewItem alloc] initWithIdentifier:[[NSUUID UUID] UUIDString]];
+        if (item == nil) {
+            basl_gui_set_error(errOut, "failed to create tab item");
+            return 0;
+        }
+        [item setLabel:(tabTitle != nil ? tabTitle : @"")];
+        [child removeFromSuperview];
+        [item setView:child];
+        [tabs addTabViewItem:item];
+
+        NSInteger count = [tabs numberOfTabViewItems];
+        NSNumber* prefNum = objc_getAssociatedObject(tabs, "basl_gui_tabs_pref_index");
+        if (prefNum != nil) {
+            NSInteger pref = [prefNum integerValue];
+            if (pref >= 0 && pref < count) {
+                [tabs selectTabViewItemAtIndex:pref];
+            }
+        } else if (count == 1) {
+            [tabs selectTabViewItemAtIndex:0];
+        }
+        return 1;
+    }
+}
+
+int basl_gui_tabs_selected_index(uintptr_t tabsPtr, int32_t* outIndex, char** errOut) {
+    @autoreleasepool {
+        NSTabView* tabs = (__bridge NSTabView*)((void*)tabsPtr);
+        if (tabs == nil || outIndex == NULL) {
+            basl_gui_set_error(errOut, "invalid tabs handle");
+            return 0;
+        }
+        NSTabViewItem* selected = [tabs selectedTabViewItem];
+        if (selected == nil) {
+            *outIndex = -1;
+            return 1;
+        }
+        NSInteger index = [tabs indexOfTabViewItem:selected];
+        *outIndex = (index == NSNotFound ? -1 : (int32_t)index);
+        return 1;
+    }
+}
+
+int basl_gui_tabs_set_selected_index(uintptr_t tabsPtr, int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        NSTabView* tabs = (__bridge NSTabView*)((void*)tabsPtr);
+        if (tabs == nil) {
+            basl_gui_set_error(errOut, "invalid tabs handle");
+            return 0;
+        }
+        NSInteger count = [tabs numberOfTabViewItems];
+        if (count == 0) {
+            basl_gui_set_error(errOut, "tabs has no pages");
+            return 0;
+        }
+        if (selectedIndex < 0 || selectedIndex >= count) {
+            basl_gui_set_error(errOut, "tabs selected index out of range");
+            return 0;
+        }
+        objc_setAssociatedObject(tabs, "basl_gui_tabs_pref_index", @(selectedIndex), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [tabs selectTabViewItemAtIndex:selectedIndex];
+        return 1;
+    }
+}
+
+int basl_gui_tabs_set_on_change(uintptr_t tabsPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSTabView* tabs = (__bridge NSTabView*)((void*)tabsPtr);
+        if (tabs == nil) {
+            basl_gui_set_error(errOut, "invalid tabs handle");
+            return 0;
+        }
+        id targetObj = objc_getAssociatedObject(tabs, "basl_gui_tabs_target");
+        BaslTabsTarget* target = nil;
+        if (targetObj != nil && [targetObj isKindOfClass:[BaslTabsTarget class]]) {
+            target = (BaslTabsTarget*)targetObj;
+        } else {
+            target = [[BaslTabsTarget alloc] init];
+            if (target == nil) {
+                basl_gui_set_error(errOut, "failed to allocate tabs target");
+                return 0;
+            }
+            [tabs setDelegate:target];
+            objc_setAssociatedObject(tabs, "basl_gui_tabs_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        target.callbackId = callbackId;
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_paned_new(int vertical, double ratio, char** errOut) {
+    @autoreleasepool {
+        NSSplitView* split = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 480, 260)];
+        if (split == nil) {
+            basl_gui_set_error(errOut, "failed to create paned");
+            return 0;
+        }
+        [split setVertical:(vertical ? NO : YES)];
+        [split setDividerStyle:NSSplitViewDividerStyleThin];
+        [split setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+        NSView* first = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 200)];
+        NSView* second = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 200)];
+        [split addSubview:first];
+        [split addSubview:second];
+
+        objc_setAssociatedObject(split, "basl_gui_paned_ratio", @(basl_gui_clamp_ratio(ratio)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [split adjustSubviews];
+        basl_gui_paned_apply_ratio(split);
+        return (uintptr_t)(__bridge_retained void*)split;
+    }
+}
+
+int basl_gui_paned_set_first(uintptr_t panedPtr, uintptr_t childPtr, char** errOut) {
+    @autoreleasepool {
+        NSSplitView* split = (__bridge NSSplitView*)((void*)panedPtr);
+        NSView* child = (__bridge NSView*)((void*)childPtr);
+        return basl_gui_paned_set_child(split, 0, child, errOut);
+    }
+}
+
+int basl_gui_paned_set_second(uintptr_t panedPtr, uintptr_t childPtr, char** errOut) {
+    @autoreleasepool {
+        NSSplitView* split = (__bridge NSSplitView*)((void*)panedPtr);
+        NSView* child = (__bridge NSView*)((void*)childPtr);
+        return basl_gui_paned_set_child(split, 1, child, errOut);
+    }
+}
+
+int basl_gui_paned_ratio(uintptr_t panedPtr, double* outRatio, char** errOut) {
+    @autoreleasepool {
+        NSSplitView* split = (__bridge NSSplitView*)((void*)panedPtr);
+        if (split == nil || outRatio == NULL) {
+            basl_gui_set_error(errOut, "invalid paned handle");
+            return 0;
+        }
+        *outRatio = basl_gui_paned_current_ratio(split);
+        return 1;
+    }
+}
+
+int basl_gui_paned_set_ratio(uintptr_t panedPtr, double ratio, char** errOut) {
+    @autoreleasepool {
+        NSSplitView* split = (__bridge NSSplitView*)((void*)panedPtr);
+        if (split == nil) {
+            basl_gui_set_error(errOut, "invalid paned handle");
+            return 0;
+        }
+        objc_setAssociatedObject(split, "basl_gui_paned_ratio", @(basl_gui_clamp_ratio(ratio)), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        basl_gui_paned_apply_ratio(split);
+        return 1;
+    }
+}
+
+int basl_gui_paned_set_on_change(uintptr_t panedPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSSplitView* split = (__bridge NSSplitView*)((void*)panedPtr);
+        if (split == nil) {
+            basl_gui_set_error(errOut, "invalid paned handle");
+            return 0;
+        }
+        id targetObj = objc_getAssociatedObject(split, "basl_gui_paned_target");
+        BaslSplitTarget* target = nil;
+        if (targetObj != nil && [targetObj isKindOfClass:[BaslSplitTarget class]]) {
+            target = (BaslSplitTarget*)targetObj;
+        } else {
+            target = [[BaslSplitTarget alloc] init];
+            if (target == nil) {
+                basl_gui_set_error(errOut, "failed to allocate paned target");
+                return 0;
+            }
+            [split setDelegate:target];
+            objc_setAssociatedObject(split, "basl_gui_paned_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        target.callbackId = callbackId;
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_list_new(const char** items, int32_t itemCount, int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        if (itemCount < 0) {
+            basl_gui_set_error(errOut, "itemCount must be >= 0");
+            return 0;
+        }
+        NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 280, 180)];
+        NSTableView* table = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 280, 180)];
+        if (scroll == nil || table == nil) {
+            basl_gui_set_error(errOut, "failed to create list view");
+            return 0;
+        }
+        NSTableColumn* column = [[NSTableColumn alloc] initWithIdentifier:@"value"];
+        [column setWidth:260];
+        [table addTableColumn:column];
+        [table setHeaderView:nil];
+        [table setUsesAlternatingRowBackgroundColors:YES];
+
+        BaslListTarget* target = [[BaslListTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate list model");
+            return 0;
+        }
+        for (int32_t i = 0; i < itemCount; i++) {
+            const char* raw = (items != NULL && items[i] != NULL) ? items[i] : "";
+            [target.items addObject:[NSString stringWithUTF8String:raw]];
+        }
+        [table setDataSource:target];
+        [table setDelegate:target];
+        [table reloadData];
+
+        [scroll setDocumentView:table];
+        [scroll setHasVerticalScroller:YES];
+        [scroll setHasHorizontalScroller:NO];
+        objc_setAssociatedObject(scroll, "basl_gui_list_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+        if (itemCount > 0 && selectedIndex >= 0 && selectedIndex < itemCount) {
+            NSIndexSet* set = [NSIndexSet indexSetWithIndex:(NSUInteger)selectedIndex];
+            [table selectRowIndexes:set byExtendingSelection:NO];
+            [table scrollRowToVisible:selectedIndex];
+        }
+
+        return (uintptr_t)(__bridge_retained void*)scroll;
+    }
+}
+
+int basl_gui_list_selected_index(uintptr_t listPtr, int32_t* outIndex, char** errOut) {
+    @autoreleasepool {
+        NSTableView* table = nil;
+        if (!basl_gui_list_resolve(listPtr, &table, NULL, errOut)) {
+            return 0;
+        }
+        if (outIndex == NULL) {
+            basl_gui_set_error(errOut, "list outIndex pointer is null");
+            return 0;
+        }
+        NSInteger row = [table selectedRow];
+        *outIndex = (row < 0 ? -1 : (int32_t)row);
+        return 1;
+    }
+}
+
+int basl_gui_list_set_selected_index(uintptr_t listPtr, int32_t selectedIndex, char** errOut) {
+    @autoreleasepool {
+        NSTableView* table = nil;
+        BaslListTarget* target = nil;
+        if (!basl_gui_list_resolve(listPtr, &table, &target, errOut)) {
+            return 0;
+        }
+        NSInteger count = [target.items count];
+        if (count == 0) {
+            basl_gui_set_error(errOut, "list has no items");
+            return 0;
+        }
+        if (selectedIndex < 0 || selectedIndex >= count) {
+            basl_gui_set_error(errOut, "list selected index out of range");
+            return 0;
+        }
+        NSIndexSet* set = [NSIndexSet indexSetWithIndex:(NSUInteger)selectedIndex];
+        [table selectRowIndexes:set byExtendingSelection:NO];
+        [table scrollRowToVisible:selectedIndex];
+        return 1;
+    }
+}
+
+char* basl_gui_list_selected_text(uintptr_t listPtr, char** errOut) {
+    @autoreleasepool {
+        NSTableView* table = nil;
+        BaslListTarget* target = nil;
+        if (!basl_gui_list_resolve(listPtr, &table, &target, errOut)) {
+            return NULL;
+        }
+        NSInteger row = [table selectedRow];
+        if (row < 0 || row >= (NSInteger)[target.items count]) {
+            return basl_gui_strdup("");
+        }
+        NSString* text = [target.items objectAtIndex:row];
+        return basl_gui_strdup([(text != nil ? text : @"") UTF8String]);
+    }
+}
+
+int basl_gui_list_add_item(uintptr_t listPtr, const char* text, char** errOut) {
+    @autoreleasepool {
+        NSTableView* table = nil;
+        BaslListTarget* target = nil;
+        if (!basl_gui_list_resolve(listPtr, &table, &target, errOut)) {
+            return 0;
+        }
+        [target.items addObject:[NSString stringWithUTF8String:(text != NULL ? text : "")]];
+        [table reloadData];
+        if ([target.items count] == 1) {
+            NSIndexSet* set = [NSIndexSet indexSetWithIndex:0];
+            [table selectRowIndexes:set byExtendingSelection:NO];
+        }
+        return 1;
+    }
+}
+
+int basl_gui_list_clear(uintptr_t listPtr, char** errOut) {
+    @autoreleasepool {
+        NSTableView* table = nil;
+        BaslListTarget* target = nil;
+        if (!basl_gui_list_resolve(listPtr, &table, &target, errOut)) {
+            return 0;
+        }
+        [target.items removeAllObjects];
+        [table reloadData];
+        [table deselectAll:nil];
+        return 1;
+    }
+}
+
+int basl_gui_list_set_on_change(uintptr_t listPtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        BaslListTarget* target = nil;
+        if (!basl_gui_list_resolve(listPtr, NULL, &target, errOut)) {
+            return 0;
+        }
+        target.callbackId = callbackId;
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_tree_new(char** errOut) {
+    @autoreleasepool {
+        NSScrollView* scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 320, 220)];
+        NSOutlineView* outline = [[NSOutlineView alloc] initWithFrame:NSMakeRect(0, 0, 320, 220)];
+        if (scroll == nil || outline == nil) {
+            basl_gui_set_error(errOut, "failed to create tree view");
+            return 0;
+        }
+        NSTableColumn* column = [[NSTableColumn alloc] initWithIdentifier:@"tree"];
+        [column setWidth:300];
+        [outline addTableColumn:column];
+        [outline setOutlineTableColumn:column];
+        [outline setHeaderView:nil];
+
+        BaslTreeTarget* target = [[BaslTreeTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate tree model");
+            return 0;
+        }
+        [outline setDataSource:target];
+        [outline setDelegate:target];
+
+        [scroll setDocumentView:outline];
+        [scroll setHasVerticalScroller:YES];
+        [scroll setHasHorizontalScroller:NO];
+        objc_setAssociatedObject(scroll, "basl_gui_tree_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return (uintptr_t)(__bridge_retained void*)scroll;
+    }
+}
+
+int basl_gui_tree_add_root(uintptr_t treePtr, const char* title, int32_t* outNodeID, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        BaslTreeTarget* target = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, &target, errOut)) {
+            return 0;
+        }
+        BaslTreeNode* node = [[BaslTreeNode alloc] init];
+        if (node == nil) {
+            basl_gui_set_error(errOut, "failed to allocate tree node");
+            return 0;
+        }
+        node.nodeID = target.nextNodeID++;
+        node.title = [NSString stringWithUTF8String:(title != NULL ? title : "")];
+        node.children = [NSMutableArray array];
+        node.parent = nil;
+        [target.roots addObject:node];
+        [target.nodes setObject:node forKey:@(node.nodeID)];
+        [outline reloadData];
+        [outline expandItem:node];
+        if (outNodeID != NULL) {
+            *outNodeID = (int32_t)node.nodeID;
+        }
+        return 1;
+    }
+}
+
+int basl_gui_tree_add_child(uintptr_t treePtr, int32_t parentID, const char* title, int32_t* outNodeID, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        BaslTreeTarget* target = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, &target, errOut)) {
+            return 0;
+        }
+        BaslTreeNode* parent = [target.nodes objectForKey:@(parentID)];
+        if (parent == nil) {
+            basl_gui_set_error(errOut, "tree parent node does not exist");
+            return 0;
+        }
+        BaslTreeNode* node = [[BaslTreeNode alloc] init];
+        if (node == nil) {
+            basl_gui_set_error(errOut, "failed to allocate tree node");
+            return 0;
+        }
+        node.nodeID = target.nextNodeID++;
+        node.title = [NSString stringWithUTF8String:(title != NULL ? title : "")];
+        node.children = [NSMutableArray array];
+        node.parent = parent;
+        [parent.children addObject:node];
+        [target.nodes setObject:node forKey:@(node.nodeID)];
+        [outline reloadData];
+        [outline expandItem:parent];
+        if (outNodeID != NULL) {
+            *outNodeID = (int32_t)node.nodeID;
+        }
+        return 1;
+    }
+}
+
+int basl_gui_tree_set_text(uintptr_t treePtr, int32_t nodeID, const char* title, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        BaslTreeTarget* target = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, &target, errOut)) {
+            return 0;
+        }
+        BaslTreeNode* node = [target.nodes objectForKey:@(nodeID)];
+        if (node == nil) {
+            basl_gui_set_error(errOut, "tree node does not exist");
+            return 0;
+        }
+        node.title = [NSString stringWithUTF8String:(title != NULL ? title : "")];
+        [outline reloadItem:node reloadChildren:NO];
+        return 1;
+    }
+}
+
+int basl_gui_tree_selected_id(uintptr_t treePtr, int32_t* outNodeID, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, NULL, errOut)) {
+            return 0;
+        }
+        if (outNodeID == NULL) {
+            basl_gui_set_error(errOut, "tree outNodeID pointer is null");
+            return 0;
+        }
+        NSInteger row = [outline selectedRow];
+        if (row < 0) {
+            *outNodeID = -1;
+            return 1;
+        }
+        id item = [outline itemAtRow:row];
+        if (![item isKindOfClass:[BaslTreeNode class]]) {
+            *outNodeID = -1;
+            return 1;
+        }
+        BaslTreeNode* node = (BaslTreeNode*)item;
+        *outNodeID = (int32_t)node.nodeID;
+        return 1;
+    }
+}
+
+int basl_gui_tree_set_selected_id(uintptr_t treePtr, int32_t nodeID, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        BaslTreeTarget* target = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, &target, errOut)) {
+            return 0;
+        }
+        BaslTreeNode* node = [target.nodes objectForKey:@(nodeID)];
+        if (node == nil) {
+            basl_gui_set_error(errOut, "tree node does not exist");
+            return 0;
+        }
+        basl_gui_tree_expand_parents(outline, node);
+        NSInteger row = [outline rowForItem:node];
+        if (row < 0) {
+            basl_gui_set_error(errOut, "tree node is not visible");
+            return 0;
+        }
+        NSIndexSet* set = [NSIndexSet indexSetWithIndex:(NSUInteger)row];
+        [outline selectRowIndexes:set byExtendingSelection:NO];
+        [outline scrollRowToVisible:row];
+        return 1;
+    }
+}
+
+char* basl_gui_tree_selected_text(uintptr_t treePtr, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, NULL, errOut)) {
+            return NULL;
+        }
+        NSInteger row = [outline selectedRow];
+        if (row < 0) {
+            return basl_gui_strdup("");
+        }
+        id item = [outline itemAtRow:row];
+        if (item == nil || ![item isKindOfClass:[BaslTreeNode class]]) {
+            return basl_gui_strdup("");
+        }
+        BaslTreeNode* node = (BaslTreeNode*)item;
+        return basl_gui_strdup([(node.title != nil ? node.title : @"") UTF8String]);
+    }
+}
+
+int basl_gui_tree_clear(uintptr_t treePtr, char** errOut) {
+    @autoreleasepool {
+        NSOutlineView* outline = nil;
+        BaslTreeTarget* target = nil;
+        if (!basl_gui_tree_resolve(treePtr, &outline, &target, errOut)) {
+            return 0;
+        }
+        [target.roots removeAllObjects];
+        [target.nodes removeAllObjects];
+        [outline reloadData];
+        [outline deselectAll:nil];
+        return 1;
+    }
+}
+
+int basl_gui_tree_set_on_change(uintptr_t treePtr, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        BaslTreeTarget* target = nil;
+        if (!basl_gui_tree_resolve(treePtr, NULL, &target, errOut)) {
+            return 0;
+        }
+        target.callbackId = callbackId;
+        return 1;
     }
 }
 
