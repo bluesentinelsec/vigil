@@ -38,6 +38,7 @@ Detailed documentation for each module is in `docs/stdlib/`.
 | [args](args.md) | Argument parsing | `parser`, `flag`, `arg`, `parse` |
 | [thread](thread.md) | OS threads | `spawn`, `join`, `sleep` |
 | [mutex](mutex.md) | Mutual exclusion | `new`, `lock`, `unlock`, `destroy` |
+| [gui](gui.md) | Native GUI widgets | `app`, `vbox`, `hbox`, `button`, `entry` |
 | [test](test.md) | Test framework | `t.assert`, `t.fail`, `basl test` CLI |
 | [unsafe](unsafe.md) | Low-level memory | `alloc`, `Buffer`, `Layout`, `Struct`, `null` |
 | [ffi](ffi.md) | Native FFI | `load`, `bind`, C interop |

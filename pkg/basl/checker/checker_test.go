@@ -336,6 +336,39 @@ fn main() -> i32 {
 	}
 }
 
+func TestCheckFileSupportsFnLiteralCaptures(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
+fn apply(fn() -> i32 cb) -> i32 {
+    return cb();
+}
+
+fn pair() -> (i32, err) {
+    return (2, ok);
+}
+
+fn main() -> i32 {
+    i32 base = 40;
+    i32 out = apply(fn() -> i32 {
+        i32 n, err e = pair();
+        if (e != ok) {
+            return 0;
+        }
+        return n + base;
+    });
+    return out;
+}
+`)
+
+	diags, err := CheckFile(mainPath, []string{root})
+	if err != nil {
+		t.Fatalf("CheckFile() error = %v", err)
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diags)
+	}
+}
+
 func TestCheckFileUsesExactOptionalBuiltinArity(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeFile(t, filepath.Join(root, "main.basl"), `
@@ -380,6 +413,7 @@ import "crypto";
 import "csv";
 import "ffi";
 import "file";
+import "gui";
 import "hash";
 import "hex";
 import "http";
@@ -413,6 +447,10 @@ fn on_log(string level, string msg) -> void {
 
 fn handle(HttpRequest req) -> i32 {
     return 200;
+}
+
+fn worker_ui() -> void {
+    return;
 }
 
 fn main() -> i32 {
@@ -503,6 +541,225 @@ fn main() -> i32 {
     string issuePath = walkIssues[0].path;
     err linkIssueErr = walkLinkIssues[0].err;
     string linkIssuePath = walkLinkIssues[0].path;
+
+    bool uiAvailable = gui.supported();
+    string uiBackend = gui.backend();
+    gui.AppOpts appOpts = gui.app_opts();
+    gui.App app, err appErr = gui.app(appOpts);
+    gui.WindowOpts winOpts = gui.window_opts("Demo");
+    winOpts.width = 320;
+    winOpts.height = 200;
+    gui.GridOpts gridOpts = gui.grid_opts();
+    gridOpts.row_spacing = 10;
+    gridOpts.col_spacing = 16;
+    gui.Grid rootGrid, err gridErr = gui.grid(gridOpts);
+    gui.LabelOpts lblOpts = gui.label_opts("hello");
+    gui.Label lbl, err lblErr = gui.label(lblOpts);
+    gui.ButtonOpts btnOpts = gui.button_opts("click");
+    btnOpts.width = 120;
+    btnOpts.height = 32;
+    btnOpts.on_click = worker_ui;
+    gui.Button btn, err btnErr = gui.button(btnOpts);
+    gui.EntryOpts inputOpts = gui.entry_opts();
+    inputOpts.text = "seed";
+    inputOpts.width = 280;
+    gui.Entry input, err inputErr = gui.entry(inputOpts);
+    gui.CellOpts labelCell = gui.cell_opts(0, 0);
+    labelCell.col_span = 2;
+    labelCell.fill_x = true;
+    labelCell.fill_y = false;
+    err placeLabelErr = rootGrid.place(lbl, labelCell);
+    gui.CellOpts inputCell = gui.cell_opts(1, 0);
+    err placeInputErr = rootGrid.place(input, inputCell);
+    gui.CellOpts buttonCell = gui.cell_opts(1, 1);
+    err placeButtonErr = rootGrid.place(btn, buttonCell);
+    btn.on_click(worker_ui);
+    gui.Window win, err winErr = app.window(winOpts);
+    err childErr = win.set_child(rootGrid);
+    err titleErr = win.set_title("Demo App");
+    string textVal, err textErr = input.text();
+    err setErr = input.set_text("updated");
+    gui.CheckboxOpts chkOpts = gui.checkbox_opts("Enable feature");
+    chkOpts.checked = true;
+    chkOpts.on_toggle = worker_ui;
+    gui.Checkbox chk, err chkErr = gui.checkbox(chkOpts);
+    bool chkState, err chkStateErr = chk.checked();
+    err chkSetStateErr = chk.set_checked(false);
+    err chkSetTextErr = chk.set_text("Enable advanced mode");
+    err chkHookErr = chk.on_toggle(worker_ui);
+
+    gui.SelectOpts selOpts = gui.select_opts();
+    selOpts.options = ["Fast", "Balanced", "Safe"];
+    selOpts.selected = 1;
+    selOpts.width = 220;
+    selOpts.on_change = worker_ui;
+    gui.Select sel, err selErr = gui.select(selOpts);
+    i32 selIndex, err selIndexErr = sel.selected_index();
+    err selSetIndexErr = sel.set_selected_index(2);
+    string selText, err selTextErr = sel.selected_text();
+    err selAddErr = sel.add_item("Debug");
+    err selHookErr = sel.on_change(worker_ui);
+
+    gui.TextAreaOpts taOpts = gui.textarea_opts();
+    taOpts.text = "first line";
+    taOpts.width = 360;
+    taOpts.height = 140;
+    gui.TextArea ta, err taErr = gui.textarea(taOpts);
+    string taText, err taTextErr = ta.text();
+    err taSetErr = ta.set_text("replaced");
+    err taAppendErr = ta.append("\nextra");
+
+    gui.ProgressOpts progOpts = gui.progress_opts();
+    progOpts.min = 0.0;
+    progOpts.max = 10.0;
+    progOpts.value = 3.0;
+    progOpts.indeterminate = false;
+    progOpts.width = 200;
+    gui.Progress prog, err progErr = gui.progress(progOpts);
+    f64 progValue, err progValueErr = prog.value();
+    err progSetErr = prog.set_value(7.0);
+    gui.FrameOpts frameOpts = gui.frame_opts();
+    frameOpts.padding = 12;
+    gui.Frame frame, err frameErr = gui.frame(frameOpts);
+    err frameChildErr = frame.set_child(rootGrid);
+
+    gui.GroupOpts groupOpts = gui.group_opts("Tuning");
+    groupOpts.padding = 6;
+    gui.Group group, err groupErr = gui.group(groupOpts);
+    err groupChildErr = group.set_child(rootGrid);
+    err groupTitleErr = group.set_title("Advanced Tuning");
+
+    gui.RadioOpts radioOpts = gui.radio_opts();
+    radioOpts.options = ["A", "B", "C"];
+    radioOpts.selected = 1;
+    radioOpts.vertical = true;
+    radioOpts.on_change = worker_ui;
+    gui.Radio radio, err radioErr = gui.radio(radioOpts);
+    i32 radioIndex, err radioIndexErr = radio.selected_index();
+    err radioSetErr = radio.set_selected_index(2);
+    string radioText, err radioTextErr = radio.selected_text();
+    err radioHookErr = radio.on_change(worker_ui);
+
+    gui.ScaleOpts scaleOpts = gui.scale_opts();
+    scaleOpts.min = 0.0;
+    scaleOpts.max = 10.0;
+    scaleOpts.value = 5.0;
+    scaleOpts.vertical = false;
+    scaleOpts.width = 180;
+    scaleOpts.on_change = worker_ui;
+    gui.Scale scale, err scaleErr = gui.scale(scaleOpts);
+    f64 scaleValue, err scaleValueErr = scale.value();
+    err scaleSetErr = scale.set_value(6.0);
+    err scaleHookErr = scale.on_change(worker_ui);
+
+    gui.SpinboxOpts spinOpts = gui.spinbox_opts();
+    spinOpts.min = 0.0;
+    spinOpts.max = 20.0;
+    spinOpts.step = 1.0;
+    spinOpts.value = 4.0;
+    spinOpts.width = 120;
+    spinOpts.on_change = worker_ui;
+    gui.Spinbox spin, err spinErr = gui.spinbox(spinOpts);
+    f64 spinValue, err spinValueErr = spin.value();
+    err spinSetErr = spin.set_value(9.0);
+    err spinHookErr = spin.on_change(worker_ui);
+
+    gui.SeparatorOpts sepOpts = gui.separator_opts();
+    sepOpts.vertical = false;
+    sepOpts.length = 200;
+    gui.Separator sep, err sepErr = gui.separator(sepOpts);
+
+    gui.TabsOpts tabsOpts = gui.tabs_opts();
+    tabsOpts.selected = 0;
+    tabsOpts.on_change = worker_ui;
+    gui.Tabs tabs, err tabsErr = gui.tabs(tabsOpts);
+    err tabsAddMainErr = tabs.add_tab("Main", rootGrid);
+    err tabsAddAltErr = tabs.add_tab("Alt", frame);
+    i32 tabsIndex, err tabsIndexErr = tabs.selected_index();
+    err tabsSetErr = tabs.set_selected_index(1);
+    err tabsHookErr = tabs.on_change(worker_ui);
+
+    gui.PanedOpts panedOpts = gui.paned_opts();
+    panedOpts.vertical = false;
+    panedOpts.ratio = 0.4;
+    panedOpts.on_change = worker_ui;
+    gui.Paned paned, err panedErr = gui.paned(panedOpts);
+    err panedFirstErr = paned.set_first(rootGrid);
+    err panedSecondErr = paned.set_second(frame);
+    f64 panedRatio, err panedRatioErr = paned.ratio();
+    err panedSetRatioErr = paned.set_ratio(0.55);
+    err panedHookErr = paned.on_change(worker_ui);
+
+    gui.ListOpts listOpts = gui.list_opts();
+    listOpts.items = ["One", "Two", "Three"];
+    listOpts.selected = 1;
+    listOpts.width = 220;
+    listOpts.height = 140;
+    listOpts.on_change = worker_ui;
+    gui.List list, err listErr = gui.list(listOpts);
+    i32 listIndex, err listIndexErr = list.selected_index();
+    err listSetErr = list.set_selected_index(2);
+    string listText, err listTextErr = list.selected_text();
+    err listAddErr = list.add_item("Four");
+    err listClearErr = list.clear();
+    err listHookErr = list.on_change(worker_ui);
+
+    gui.TreeOpts treeOpts = gui.tree_opts();
+    treeOpts.width = 260;
+    treeOpts.height = 180;
+    treeOpts.on_change = worker_ui;
+    gui.Tree tree, err treeErr = gui.tree(treeOpts);
+    i32 rootNode, err rootNodeErr = tree.add_root("Root");
+    i32 childNode, err childNodeErr = tree.add_child(rootNode, "Child");
+    err treeTextErr = tree.set_text(childNode, "Child 1");
+    i32 selectedNode, err selectedNodeErr = tree.selected_id();
+    err treeSetSelectedErr = tree.set_selected_id(childNode);
+    string treeText, err treeTextErr2 = tree.selected_text();
+    err treeClearErr = tree.clear();
+    err treeHookErr = tree.on_change(worker_ui);
+
+    gui.MenuBarOpts menuBarOpts = gui.menu_bar_opts();
+    gui.MenuBar menuBar, err menuBarErr = gui.menu_bar(menuBarOpts);
+    gui.MenuOpts fileMenuOpts = gui.menu_opts("File");
+    gui.Menu fileMenu, err fileMenuErr = gui.menu(fileMenuOpts);
+    err menuItemErr = fileMenu.add_item("Open", worker_ui);
+    err menuSepErr = fileMenu.add_separator();
+    gui.MenuOpts recentsOpts = gui.menu_opts("Recent");
+    gui.Menu recentMenu, err recentMenuErr = gui.menu(recentsOpts);
+    err recentItemErr = recentMenu.add_item("a.basl", worker_ui);
+    err menuSubErr = fileMenu.add_submenu(recentMenu);
+    err menuBarAddErr = menuBar.add_menu(fileMenu);
+    err setMenuBarErr = app.set_menu_bar(menuBar);
+
+    gui.CanvasOpts canvasOpts = gui.canvas_opts();
+    canvasOpts.width = 360;
+    canvasOpts.height = 220;
+    gui.Canvas canvas, err canvasErr = gui.canvas(canvasOpts);
+    err canvasColorErr = canvas.set_color(0.1, 0.2, 0.9, 1.0);
+    err canvasLineErr = canvas.line(10.0, 10.0, 140.0, 70.0, 2.0);
+    err canvasRectErr = canvas.rect(22.0, 40.0, 120.0, 60.0, false, 2.0, 8.0);
+    err canvasCircleErr = canvas.circle(190.0, 86.0, 32.0, true, 1.0);
+    err canvasTextErr = canvas.text(18.0, 130.0, "Canvas", 14.0);
+    err canvasClearErr = canvas.clear();
+
+    gui.FileDialogOpts fileDialog = gui.file_dialog_opts("Open file");
+    fileDialog.directory = ".";
+    fileDialog.file_name = "out.txt";
+    fileDialog.extensions = ["basl", "txt"];
+    string openPath, err openErr = gui.open_file(fileDialog);
+    string savePath, err saveErr = gui.save_file(fileDialog);
+    string dirPath, err dirErr = gui.open_directory(fileDialog);
+
+    gui.MessageOpts msgOpts = gui.message_opts("Done", "Build complete");
+    err infoErr = gui.info(msgOpts);
+    err warnErr = gui.warn(msgOpts);
+    err dialogErr = gui.error(msgOpts);
+    bool confirmed, err confirmErr = gui.confirm(msgOpts);
+
+    err showErr = win.show();
+    err closeGuiErr = win.close();
+    err quitErr = app.quit();
+
     args.ArgParser ap = args.parser("tool", "desc");
     err flagErr = ap.flag("verbose", "bool", "false", "Verbose");
 

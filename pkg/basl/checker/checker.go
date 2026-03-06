@@ -556,9 +556,14 @@ func (c *Checker) checkModuleValueInit(mod *moduleInfo, declared *ast.TypeExpr, 
 }
 
 func (c *Checker) checkFunctionBody(mod *moduleInfo, class *classInfo, decl *ast.FnDecl) {
+	c.checkFunctionBodyWithParentScope(mod, class, decl, nil)
+}
+
+func (c *Checker) checkFunctionBodyWithParentScope(mod *moduleInfo, class *classInfo, decl *ast.FnDecl, parent *scope) {
+	fnScope := newScope(parent)
 	ctx := &bodyContext{
 		mod:          mod,
-		scope:        newScope(nil),
+		scope:        fnScope,
 		currentClass: class,
 		returns:      returnTypes(decl.Return),
 	}
@@ -903,7 +908,7 @@ func (c *Checker) checkExpr(ctx *bodyContext, expr ast.Expr) exprInfo {
 		c.checkExpr(ctx, e.Kind)
 		return exprInfo{returns: []*ast.TypeExpr{{Name: "err"}}}
 	case *ast.FnLitExpr:
-		c.checkFunctionBody(ctx.mod, nil, e.Decl)
+		c.checkFunctionBodyWithParentScope(ctx.mod, nil, e.Decl, ctx.scope)
 		return exprInfo{returns: []*ast.TypeExpr{fnTypeFromSig(fnSigFromDecl(e.Decl))}}
 	case *ast.UnaryExpr:
 		operand := c.checkExpr(ctx, e.Operand)
@@ -1616,6 +1621,57 @@ func newBuiltinModule(name string) *moduleInfo {
 	typWalkIssue := &ast.TypeExpr{Name: "file.WalkIssue"}
 	typArrayFileEntry := &ast.TypeExpr{Name: "array", ElemType: typFileEntry}
 	typArrayWalkIssue := &ast.TypeExpr{Name: "array", ElemType: typWalkIssue}
+	typGuiApp := &ast.TypeExpr{Name: "gui.App"}
+	typGuiWindow := &ast.TypeExpr{Name: "gui.Window"}
+	typGuiBox := &ast.TypeExpr{Name: "gui.Box"}
+	typGuiGrid := &ast.TypeExpr{Name: "gui.Grid"}
+	typGuiLabel := &ast.TypeExpr{Name: "gui.Label"}
+	typGuiButton := &ast.TypeExpr{Name: "gui.Button"}
+	typGuiEntry := &ast.TypeExpr{Name: "gui.Entry"}
+	typGuiCheckbox := &ast.TypeExpr{Name: "gui.Checkbox"}
+	typGuiSelect := &ast.TypeExpr{Name: "gui.Select"}
+	typGuiTextArea := &ast.TypeExpr{Name: "gui.TextArea"}
+	typGuiProgress := &ast.TypeExpr{Name: "gui.Progress"}
+	typGuiFrame := &ast.TypeExpr{Name: "gui.Frame"}
+	typGuiGroup := &ast.TypeExpr{Name: "gui.Group"}
+	typGuiRadio := &ast.TypeExpr{Name: "gui.Radio"}
+	typGuiScale := &ast.TypeExpr{Name: "gui.Scale"}
+	typGuiSpinbox := &ast.TypeExpr{Name: "gui.Spinbox"}
+	typGuiSeparator := &ast.TypeExpr{Name: "gui.Separator"}
+	typGuiTabs := &ast.TypeExpr{Name: "gui.Tabs"}
+	typGuiPaned := &ast.TypeExpr{Name: "gui.Paned"}
+	typGuiList := &ast.TypeExpr{Name: "gui.List"}
+	typGuiTree := &ast.TypeExpr{Name: "gui.Tree"}
+	typGuiMenuBar := &ast.TypeExpr{Name: "gui.MenuBar"}
+	typGuiMenu := &ast.TypeExpr{Name: "gui.Menu"}
+	typGuiCanvas := &ast.TypeExpr{Name: "gui.Canvas"}
+	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
+	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
+	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
+	typGuiGridOpts := &ast.TypeExpr{Name: "gui.GridOpts"}
+	typGuiCellOpts := &ast.TypeExpr{Name: "gui.CellOpts"}
+	typGuiLabelOpts := &ast.TypeExpr{Name: "gui.LabelOpts"}
+	typGuiButtonOpts := &ast.TypeExpr{Name: "gui.ButtonOpts"}
+	typGuiEntryOpts := &ast.TypeExpr{Name: "gui.EntryOpts"}
+	typGuiCheckboxOpts := &ast.TypeExpr{Name: "gui.CheckboxOpts"}
+	typGuiSelectOpts := &ast.TypeExpr{Name: "gui.SelectOpts"}
+	typGuiTextAreaOpts := &ast.TypeExpr{Name: "gui.TextAreaOpts"}
+	typGuiProgressOpts := &ast.TypeExpr{Name: "gui.ProgressOpts"}
+	typGuiFrameOpts := &ast.TypeExpr{Name: "gui.FrameOpts"}
+	typGuiGroupOpts := &ast.TypeExpr{Name: "gui.GroupOpts"}
+	typGuiRadioOpts := &ast.TypeExpr{Name: "gui.RadioOpts"}
+	typGuiScaleOpts := &ast.TypeExpr{Name: "gui.ScaleOpts"}
+	typGuiSpinboxOpts := &ast.TypeExpr{Name: "gui.SpinboxOpts"}
+	typGuiSeparatorOpts := &ast.TypeExpr{Name: "gui.SeparatorOpts"}
+	typGuiTabsOpts := &ast.TypeExpr{Name: "gui.TabsOpts"}
+	typGuiPanedOpts := &ast.TypeExpr{Name: "gui.PanedOpts"}
+	typGuiListOpts := &ast.TypeExpr{Name: "gui.ListOpts"}
+	typGuiTreeOpts := &ast.TypeExpr{Name: "gui.TreeOpts"}
+	typGuiMenuBarOpts := &ast.TypeExpr{Name: "gui.MenuBarOpts"}
+	typGuiMenuOpts := &ast.TypeExpr{Name: "gui.MenuOpts"}
+	typGuiCanvasOpts := &ast.TypeExpr{Name: "gui.CanvasOpts"}
+	typGuiFileDialogOpts := &ast.TypeExpr{Name: "gui.FileDialogOpts"}
+	typGuiMessageOpts := &ast.TypeExpr{Name: "gui.MessageOpts"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1739,6 +1795,526 @@ func newBuiltinModule(name string) *moduleInfo {
 				"err":  typErr,
 			},
 			methods: make(map[string]*funcSig),
+		})
+	case "gui":
+		addFn("supported", singleReturnType(typBool))
+		addFn("backend", singleReturnType(typString))
+		addFn("app_opts", singleReturnType(typGuiAppOpts))
+		addFn("window_opts", singleReturnType(typGuiWindowOpts), typString)
+		addFn("box_opts", singleReturnType(typGuiBoxOpts))
+		addFn("grid_opts", singleReturnType(typGuiGridOpts))
+		addFn("cell_opts", singleReturnType(typGuiCellOpts), typI32, typI32)
+		addFn("label_opts", singleReturnType(typGuiLabelOpts), typString)
+		addFn("button_opts", singleReturnType(typGuiButtonOpts), typString)
+		addFn("entry_opts", singleReturnType(typGuiEntryOpts))
+		addFn("checkbox_opts", singleReturnType(typGuiCheckboxOpts), typString)
+		addFn("select_opts", singleReturnType(typGuiSelectOpts))
+		addFn("textarea_opts", singleReturnType(typGuiTextAreaOpts))
+		addFn("progress_opts", singleReturnType(typGuiProgressOpts))
+		addFn("frame_opts", singleReturnType(typGuiFrameOpts))
+		addFn("group_opts", singleReturnType(typGuiGroupOpts), typString)
+		addFn("radio_opts", singleReturnType(typGuiRadioOpts))
+		addFn("scale_opts", singleReturnType(typGuiScaleOpts))
+		addFn("spinbox_opts", singleReturnType(typGuiSpinboxOpts))
+		addFn("separator_opts", singleReturnType(typGuiSeparatorOpts))
+		addFn("tabs_opts", singleReturnType(typGuiTabsOpts))
+		addFn("paned_opts", singleReturnType(typGuiPanedOpts))
+		addFn("list_opts", singleReturnType(typGuiListOpts))
+		addFn("tree_opts", singleReturnType(typGuiTreeOpts))
+		addFn("menu_bar_opts", singleReturnType(typGuiMenuBarOpts))
+		addFn("menu_opts", singleReturnType(typGuiMenuOpts), typString)
+		addFn("canvas_opts", singleReturnType(typGuiCanvasOpts))
+		addFn("file_dialog_opts", singleReturnType(typGuiFileDialogOpts), typString)
+		addFn("message_opts", singleReturnType(typGuiMessageOpts), typString, typString)
+		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
+		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
+		addFn("grid", []*ast.TypeExpr{typGuiGrid, typErr}, typGuiGridOpts)
+		addFn("vbox", []*ast.TypeExpr{typGuiBox, typErr})
+		addFn("hbox", []*ast.TypeExpr{typGuiBox, typErr})
+		addFn("label", []*ast.TypeExpr{typGuiLabel, typErr}, typGuiLabelOpts)
+		addFn("button", []*ast.TypeExpr{typGuiButton, typErr}, typGuiButtonOpts)
+		addFn("entry", []*ast.TypeExpr{typGuiEntry, typErr}, typGuiEntryOpts)
+		addFn("checkbox", []*ast.TypeExpr{typGuiCheckbox, typErr}, typGuiCheckboxOpts)
+		addFn("select", []*ast.TypeExpr{typGuiSelect, typErr}, typGuiSelectOpts)
+		addFn("textarea", []*ast.TypeExpr{typGuiTextArea, typErr}, typGuiTextAreaOpts)
+		addFn("progress", []*ast.TypeExpr{typGuiProgress, typErr}, typGuiProgressOpts)
+		addFn("frame", []*ast.TypeExpr{typGuiFrame, typErr}, typGuiFrameOpts)
+		addFn("group", []*ast.TypeExpr{typGuiGroup, typErr}, typGuiGroupOpts)
+		addFn("radio", []*ast.TypeExpr{typGuiRadio, typErr}, typGuiRadioOpts)
+		addFn("scale", []*ast.TypeExpr{typGuiScale, typErr}, typGuiScaleOpts)
+		addFn("spinbox", []*ast.TypeExpr{typGuiSpinbox, typErr}, typGuiSpinboxOpts)
+		addFn("separator", []*ast.TypeExpr{typGuiSeparator, typErr}, typGuiSeparatorOpts)
+		addFn("tabs", []*ast.TypeExpr{typGuiTabs, typErr}, typGuiTabsOpts)
+		addFn("paned", []*ast.TypeExpr{typGuiPaned, typErr}, typGuiPanedOpts)
+		addFn("list", []*ast.TypeExpr{typGuiList, typErr}, typGuiListOpts)
+		addFn("tree", []*ast.TypeExpr{typGuiTree, typErr}, typGuiTreeOpts)
+		addFn("menu_bar", []*ast.TypeExpr{typGuiMenuBar, typErr}, typGuiMenuBarOpts)
+		addFn("menu", []*ast.TypeExpr{typGuiMenu, typErr}, typGuiMenuOpts)
+		addFn("canvas", []*ast.TypeExpr{typGuiCanvas, typErr}, typGuiCanvasOpts)
+		addFn("open_file", []*ast.TypeExpr{typString, typErr}, typGuiFileDialogOpts)
+		addFn("save_file", []*ast.TypeExpr{typString, typErr}, typGuiFileDialogOpts)
+		addFn("open_directory", []*ast.TypeExpr{typString, typErr}, typGuiFileDialogOpts)
+		addFn("info", singleReturnType(typErr), typGuiMessageOpts)
+		addFn("warn", singleReturnType(typErr), typGuiMessageOpts)
+		addFn("error", singleReturnType(typErr), typGuiMessageOpts)
+		addFn("confirm", []*ast.TypeExpr{typBool, typErr}, typGuiMessageOpts)
+
+		addClass(&classInfo{
+			name: "gui.App",
+			methods: map[string]*funcSig{
+				"window":       {name: "window", params: []*ast.TypeExpr{typGuiWindowOpts}, ret: []*ast.TypeExpr{typGuiWindow, typErr}},
+				"run":          {name: "run", ret: []*ast.TypeExpr{typErr}},
+				"quit":         {name: "quit", ret: []*ast.TypeExpr{typErr}},
+				"set_menu_bar": {name: "set_menu_bar", params: []*ast.TypeExpr{typGuiMenuBar}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name:    "gui.AppOpts",
+			fields:  map[string]*ast.TypeExpr{},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.WindowOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":  typString,
+				"width":  typI32,
+				"height": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.BoxOpts",
+			fields: map[string]*ast.TypeExpr{
+				"vertical": typBool,
+				"spacing":  typI32,
+				"padding":  typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.GridOpts",
+			fields: map[string]*ast.TypeExpr{
+				"row_spacing": typI32,
+				"col_spacing": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.CellOpts",
+			fields: map[string]*ast.TypeExpr{
+				"row":      typI32,
+				"col":      typI32,
+				"row_span": typI32,
+				"col_span": typI32,
+				"fill_x":   typBool,
+				"fill_y":   typBool,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.LabelOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ButtonOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":     typString,
+				"width":    typI32,
+				"height":   typI32,
+				"on_click": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.EntryOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":  typString,
+				"width": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.CheckboxOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":      typString,
+				"checked":   typBool,
+				"on_toggle": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.SelectOpts",
+			fields: map[string]*ast.TypeExpr{
+				"options":   typArrayString,
+				"selected":  typI32,
+				"width":     typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.TextAreaOpts",
+			fields: map[string]*ast.TypeExpr{
+				"text":   typString,
+				"width":  typI32,
+				"height": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ProgressOpts",
+			fields: map[string]*ast.TypeExpr{
+				"min":           typF64,
+				"max":           typF64,
+				"value":         typF64,
+				"indeterminate": typBool,
+				"width":         typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.FrameOpts",
+			fields: map[string]*ast.TypeExpr{
+				"padding": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.GroupOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":   typString,
+				"padding": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.RadioOpts",
+			fields: map[string]*ast.TypeExpr{
+				"options":   typArrayString,
+				"selected":  typI32,
+				"vertical":  typBool,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ScaleOpts",
+			fields: map[string]*ast.TypeExpr{
+				"min":       typF64,
+				"max":       typF64,
+				"value":     typF64,
+				"vertical":  typBool,
+				"width":     typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.SpinboxOpts",
+			fields: map[string]*ast.TypeExpr{
+				"min":       typF64,
+				"max":       typF64,
+				"step":      typF64,
+				"value":     typF64,
+				"width":     typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.SeparatorOpts",
+			fields: map[string]*ast.TypeExpr{
+				"vertical": typBool,
+				"length":   typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.TabsOpts",
+			fields: map[string]*ast.TypeExpr{
+				"selected":  typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.PanedOpts",
+			fields: map[string]*ast.TypeExpr{
+				"vertical":  typBool,
+				"ratio":     typF64,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.ListOpts",
+			fields: map[string]*ast.TypeExpr{
+				"items":     typArrayString,
+				"selected":  typI32,
+				"width":     typI32,
+				"height":    typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.TreeOpts",
+			fields: map[string]*ast.TypeExpr{
+				"width":     typI32,
+				"height":    typI32,
+				"on_change": typFn,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name:    "gui.MenuBarOpts",
+			fields:  map[string]*ast.TypeExpr{},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.MenuOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.CanvasOpts",
+			fields: map[string]*ast.TypeExpr{
+				"width":  typI32,
+				"height": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.FileDialogOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":      typString,
+				"directory":  typString,
+				"file_name":  typString,
+				"extensions": typArrayString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.MessageOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":   typString,
+				"message": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.Window",
+			methods: map[string]*funcSig{
+				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"set_title": {name: "set_title", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"show":      {name: "show", ret: []*ast.TypeExpr{typErr}},
+				"close":     {name: "close", ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Box",
+			methods: map[string]*funcSig{
+				"add": {name: "add", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Grid",
+			methods: map[string]*funcSig{
+				"place": {name: "place", params: []*ast.TypeExpr{nil, typGuiCellOpts}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Label",
+			methods: map[string]*funcSig{
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Button",
+			methods: map[string]*funcSig{
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"on_click": {name: "on_click", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Entry",
+			methods: map[string]*funcSig{
+				"text":     {name: "text", ret: []*ast.TypeExpr{typString, typErr}},
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Checkbox",
+			methods: map[string]*funcSig{
+				"checked":     {name: "checked", ret: []*ast.TypeExpr{typBool, typErr}},
+				"set_checked": {name: "set_checked", params: []*ast.TypeExpr{typBool}, ret: []*ast.TypeExpr{typErr}},
+				"set_text":    {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"on_toggle":   {name: "on_toggle", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Select",
+			methods: map[string]*funcSig{
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":      {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"add_item":           {name: "add_item", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.TextArea",
+			methods: map[string]*funcSig{
+				"text":     {name: "text", ret: []*ast.TypeExpr{typString, typErr}},
+				"set_text": {name: "set_text", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"append":   {name: "append", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Progress",
+			methods: map[string]*funcSig{
+				"value":     {name: "value", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Frame",
+			methods: map[string]*funcSig{
+				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Group",
+			methods: map[string]*funcSig{
+				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"set_title": {name: "set_title", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Radio",
+			methods: map[string]*funcSig{
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":      {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Scale",
+			methods: map[string]*funcSig{
+				"value":     {name: "value", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+				"on_change": {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Spinbox",
+			methods: map[string]*funcSig{
+				"value":     {name: "value", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_value": {name: "set_value", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+				"on_change": {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name:    "gui.Separator",
+			fields:  map[string]*ast.TypeExpr{},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.Tabs",
+			methods: map[string]*funcSig{
+				"add_tab":            {name: "add_tab", params: []*ast.TypeExpr{typString, nil}, ret: []*ast.TypeExpr{typErr}},
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Paned",
+			methods: map[string]*funcSig{
+				"set_first":  {name: "set_first", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"set_second": {name: "set_second", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
+				"ratio":      {name: "ratio", ret: []*ast.TypeExpr{typF64, typErr}},
+				"set_ratio":  {name: "set_ratio", params: []*ast.TypeExpr{typF64}, ret: []*ast.TypeExpr{typErr}},
+				"on_change":  {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.List",
+			methods: map[string]*funcSig{
+				"selected_index":     {name: "selected_index", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_index": {name: "set_selected_index", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":      {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"add_item":           {name: "add_item", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typErr}},
+				"clear":              {name: "clear", ret: []*ast.TypeExpr{typErr}},
+				"on_change":          {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Tree",
+			methods: map[string]*funcSig{
+				"add_root":        {name: "add_root", params: []*ast.TypeExpr{typString}, ret: []*ast.TypeExpr{typI32, typErr}},
+				"add_child":       {name: "add_child", params: []*ast.TypeExpr{typI32, typString}, ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_text":        {name: "set_text", params: []*ast.TypeExpr{typI32, typString}, ret: []*ast.TypeExpr{typErr}},
+				"selected_id":     {name: "selected_id", ret: []*ast.TypeExpr{typI32, typErr}},
+				"set_selected_id": {name: "set_selected_id", params: []*ast.TypeExpr{typI32}, ret: []*ast.TypeExpr{typErr}},
+				"selected_text":   {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
+				"clear":           {name: "clear", ret: []*ast.TypeExpr{typErr}},
+				"on_change":       {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.MenuBar",
+			methods: map[string]*funcSig{
+				"add_menu": {name: "add_menu", params: []*ast.TypeExpr{typGuiMenu}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Menu",
+			methods: map[string]*funcSig{
+				"add_item":      {name: "add_item", params: []*ast.TypeExpr{typString, typFn}, ret: []*ast.TypeExpr{typErr}},
+				"add_separator": {name: "add_separator", ret: []*ast.TypeExpr{typErr}},
+				"add_submenu":   {name: "add_submenu", params: []*ast.TypeExpr{typGuiMenu}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Canvas",
+			methods: map[string]*funcSig{
+				"clear":     {name: "clear", ret: []*ast.TypeExpr{typErr}},
+				"set_color": {name: "set_color", params: []*ast.TypeExpr{typF64, typF64, typF64, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"line":      {name: "line", params: []*ast.TypeExpr{typF64, typF64, typF64, typF64, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"rect":      {name: "rect", params: []*ast.TypeExpr{typF64, typF64, typF64, typF64, typBool, typF64, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"circle":    {name: "circle", params: []*ast.TypeExpr{typF64, typF64, typF64, typBool, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"text":      {name: "text", params: []*ast.TypeExpr{typF64, typF64, typString, typF64}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
 		})
 	case "regex":
 		addFn("compile", []*ast.TypeExpr{typRegex, typErr}, typString)

@@ -487,6 +487,144 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
             stdout="hits:3|$12.00|a#b#\n1:true:333:4:c:truetruetruetrue::true",
         )
 
+    def test_stdlib_gui_module_surface(self) -> None:
+        source = """
+            import "fmt";
+            import "gui";
+
+            fn main() -> i32 {
+                bool supported = gui.supported();
+                string backend = gui.backend();
+
+                gui.AppOpts appOpts = gui.app_opts();
+                gui.WindowOpts windowOpts = gui.window_opts("Demo");
+                windowOpts.width = 640;
+                windowOpts.height = 360;
+                gui.BoxOpts boxOpts = gui.box_opts();
+                boxOpts.vertical = true;
+                boxOpts.spacing = 12;
+                boxOpts.padding = 20;
+                gui.GridOpts gridOpts = gui.grid_opts();
+                gridOpts.row_spacing = 14;
+                gridOpts.col_spacing = 18;
+                gui.CellOpts cellOpts = gui.cell_opts(2, 3);
+                cellOpts.row_span = 2;
+                cellOpts.col_span = 4;
+                cellOpts.fill_x = true;
+                cellOpts.fill_y = false;
+                gui.LabelOpts labelOpts = gui.label_opts("Hello");
+                gui.ButtonOpts buttonOpts = gui.button_opts("Save");
+                buttonOpts.width = 120;
+                buttonOpts.height = 32;
+                buttonOpts.on_click = fn() -> void { fmt.print("cb"); };
+                gui.EntryOpts entryOpts = gui.entry_opts();
+                entryOpts.text = "seed";
+                entryOpts.width = 260;
+                gui.CheckboxOpts checkboxOpts = gui.checkbox_opts("Enable");
+                checkboxOpts.checked = true;
+                checkboxOpts.on_toggle = fn() -> void { fmt.print("t"); };
+                gui.SelectOpts selectOpts = gui.select_opts();
+                selectOpts.options = ["One", "Two"];
+                selectOpts.selected = 1;
+                selectOpts.width = 200;
+                selectOpts.on_change = fn() -> void { fmt.print("c"); };
+                gui.TextAreaOpts textAreaOpts = gui.textarea_opts();
+                textAreaOpts.text = "body";
+                textAreaOpts.width = 320;
+                textAreaOpts.height = 120;
+                gui.ProgressOpts progressOpts = gui.progress_opts();
+                progressOpts.min = 0.0;
+                progressOpts.max = 10.0;
+                progressOpts.value = 4.0;
+                progressOpts.indeterminate = false;
+                progressOpts.width = 220;
+                gui.FrameOpts frameOpts = gui.frame_opts();
+                frameOpts.padding = 10;
+                gui.GroupOpts groupOpts = gui.group_opts("Tuning");
+                groupOpts.padding = 6;
+                gui.RadioOpts radioOpts = gui.radio_opts();
+                radioOpts.options = ["A", "B"];
+                radioOpts.selected = 1;
+                radioOpts.vertical = true;
+                radioOpts.on_change = fn() -> void { fmt.print("r"); };
+                gui.ScaleOpts scaleOpts = gui.scale_opts();
+                scaleOpts.min = 0.0;
+                scaleOpts.max = 100.0;
+                scaleOpts.value = 42.0;
+                scaleOpts.vertical = false;
+                scaleOpts.width = 180;
+                scaleOpts.on_change = fn() -> void { fmt.print("s"); };
+                gui.SpinboxOpts spinboxOpts = gui.spinbox_opts();
+                spinboxOpts.min = 0.0;
+                spinboxOpts.max = 9.0;
+                spinboxOpts.step = 1.0;
+                spinboxOpts.value = 3.0;
+                spinboxOpts.width = 100;
+                spinboxOpts.on_change = fn() -> void { fmt.print("p"); };
+                gui.SeparatorOpts separatorOpts = gui.separator_opts();
+                separatorOpts.vertical = false;
+                separatorOpts.length = 120;
+                gui.TabsOpts tabsOpts = gui.tabs_opts();
+                tabsOpts.selected = 0;
+                gui.PanedOpts panedOpts = gui.paned_opts();
+                panedOpts.vertical = false;
+                panedOpts.ratio = 0.65;
+                gui.ListOpts listOpts = gui.list_opts();
+                listOpts.items = ["One", "Two", "Three"];
+                listOpts.selected = 2;
+                listOpts.width = 210;
+                listOpts.height = 130;
+                gui.TreeOpts treeOpts = gui.tree_opts();
+                treeOpts.width = 240;
+                treeOpts.height = 150;
+                gui.MenuBarOpts menuBarOpts = gui.menu_bar_opts();
+                gui.MenuOpts menuOpts = gui.menu_opts("File");
+                gui.CanvasOpts canvasOpts = gui.canvas_opts();
+                canvasOpts.width = 360;
+                canvasOpts.height = 220;
+                gui.FileDialogOpts dialogOpts = gui.file_dialog_opts("Open");
+                dialogOpts.directory = ".";
+                dialogOpts.file_name = "main.basl";
+                dialogOpts.extensions = ["basl", "txt"];
+                gui.MessageOpts messageOpts = gui.message_opts("Title", "Body");
+
+                fmt.print(
+                    string(backend.len() > 0) + ":" +
+                    string(supported || !supported) + ":" +
+                    string(windowOpts.width) + ":" +
+                    string(boxOpts.padding) + ":" +
+                    string(gridOpts.row_spacing) + ":" +
+                    string(cellOpts.col_span) + ":" +
+                    string(cellOpts.fill_x) + ":" +
+                    labelOpts.text + ":" +
+                    buttonOpts.text + ":" +
+                    entryOpts.text + ":" +
+                    checkboxOpts.text + ":" +
+                    selectOpts.options[1] + ":" +
+                    textAreaOpts.text + ":" +
+                    string(progressOpts.value) + ":" +
+                    string(frameOpts.padding) + ":" +
+                    groupOpts.title + ":" +
+                    string(radioOpts.options.len()) + ":" +
+                    string(scaleOpts.value) + ":" +
+                    string(spinboxOpts.step) + ":" +
+                    string(separatorOpts.length) + ":" +
+                    string(tabsOpts.selected) + ":" +
+                    string(panedOpts.ratio) + ":" +
+                    string(listOpts.items.len()) + ":" +
+                    string(listOpts.selected) + ":" +
+                    string(listOpts.height) + ":" +
+                    string(treeOpts.width) + ":" +
+                    menuOpts.title + ":" +
+                    string(canvasOpts.height) + ":" +
+                    dialogOpts.file_name + ":" +
+                    messageOpts.message
+                );
+                return 0;
+            }
+        """
+        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4:10:Tuning:2:42:1:120:0:0.65:3:2:130:240:File:220:main.basl:Body")
+
     def test_stdlib_args_module(self) -> None:
         source = """
             import "fmt";
