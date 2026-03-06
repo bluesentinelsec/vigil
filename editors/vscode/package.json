@@ -1,7 +1,7 @@
 {
   "name": "basl",
   "displayName": "BASL",
-  "description": "Syntax highlighting, snippets, and stdlib completions for BASL",
+  "description": "Syntax highlighting plus a local BASL language server client for diagnostics, navigation, rename, symbols, and completions",
   "version": "0.1.0",
   "engines": { "vscode": "^1.75.0" },
   "categories": ["Programming Languages"],
@@ -22,6 +22,16 @@
     "snippets": [{
       "language": "basl",
       "path": "./snippets/basl.json"
-    }]
+    }],
+    "configuration": {
+      "title": "BASL",
+      "properties": {
+        "basl.path": {
+          "type": "string",
+          "default": "basl",
+          "description": "Path to the basl CLI used to launch `basl lsp` for diagnostics, definitions, hover, rename, references, symbols, and completions."
+        }
+      }
+    }
   }
 }

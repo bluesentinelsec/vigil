@@ -15,7 +15,7 @@ type helpEntry struct {
 	Examples    []string
 }
 
-var commandHelpOrder = []string{"new", "fmt", "check", "doc", "test", "debug", "get", "remove", "upgrade", "deps", "package", "editor", "embed", "help"}
+var commandHelpOrder = []string{"new", "fmt", "check", "doc", "test", "debug", "get", "remove", "upgrade", "deps", "package", "editor", "lsp", "embed", "help"}
 var topicHelpOrder = []string{"run", "imports", "packaging"}
 
 var commandHelp = map[string]helpEntry{
@@ -200,23 +200,42 @@ var commandHelp = map[string]helpEntry{
 	},
 	"editor": {
 		Name:    "editor",
-		Summary: "List, install, or remove bundled editor integrations",
+		Summary: "Manage bundled editor integrations and semantic editor queries",
 		Usage: []string{
 			"basl editor list",
 			"basl editor install [--home dir] [--force] <editor...>",
 			"basl editor uninstall [--home dir] <editor...>",
+			"basl editor semantic <operation> --file path [options]",
 		},
 		Description: []string{
 			"Installs or removes the editor files bundled into the basl binary.",
 			"Use `basl editor list` to see the supported editor targets.",
 			"`--home` installs into an alternate home directory, which is useful for testing or custom setups.",
 			"`--force` overwrites existing editor files when installing.",
+			"`basl editor semantic` exposes JSON diagnostics, definitions, hover, references, rename edits, and completions for editor integrations.",
 		},
 		Examples: []string{
 			"basl editor list",
 			"basl editor install vim",
 			"basl editor install vscode --force",
 			"basl editor uninstall vim vscode",
+			"basl editor semantic diagnostics --file main.basl",
+			"basl editor semantic definition --file main.basl --line 12 --col 9",
+		},
+	},
+	"lsp": {
+		Name:    "lsp",
+		Summary: "Run the BASL language server over stdio",
+		Usage: []string{
+			"basl lsp",
+		},
+		Description: []string{
+			"Starts the BASL Language Server Protocol (LSP) server over stdin/stdout.",
+			"Intended for editor integrations such as VS Code.",
+			"The existing Vim/VS Code grammar files still handle syntax highlighting; the language server adds diagnostics, navigation, rename, references, symbols, and completions.",
+		},
+		Examples: []string{
+			"basl lsp",
 		},
 	},
 	"embed": {
