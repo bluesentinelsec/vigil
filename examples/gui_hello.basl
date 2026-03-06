@@ -15,7 +15,7 @@ fn main() -> i32 {
 
     gui.WindowOpts winOpts = gui.window_opts("BASL GUI Demo");
     winOpts.width = 1320;
-    winOpts.height = 960;
+    winOpts.height = 1120;
     guard gui.Window win, err winErr = app.window(winOpts) {
         fmt.eprintln(f"app.window: {winErr.message()}");
         return 1;
@@ -312,6 +312,184 @@ fn main() -> i32 {
         return 1;
     }
 
+    gui.CanvasOpts canvasOpts = gui.canvas_opts();
+    canvasOpts.width = 0;
+    canvasOpts.height = 170;
+    guard gui.Canvas previewCanvas, err canvasErr = gui.canvas(canvasOpts) {
+        fmt.eprintln(f"gui.canvas: {canvasErr.message()}");
+        return 1;
+    }
+    previewCanvas.set_color(0.10, 0.20, 0.88, 1.0);
+    previewCanvas.line(14.0, 16.0, 150.0, 34.0, 2.0);
+    previewCanvas.rect(18.0, 42.0, 120.0, 56.0, false, 2.0, 8.0);
+    previewCanvas.set_color(0.16, 0.68, 0.38, 0.92);
+    previewCanvas.circle(198.0, 70.0, 30.0, true, 1.0);
+    previewCanvas.set_color(0.18, 0.18, 0.18, 1.0);
+    previewCanvas.text(16.0, 118.0, "Canvas preview", 14.0);
+
+    gui.MenuBarOpts menuBarOpts = gui.menu_bar_opts();
+    guard gui.MenuBar menuBar, err menuBarErr = gui.menu_bar(menuBarOpts) {
+        fmt.eprintln(f"gui.menu_bar: {menuBarErr.message()}");
+        return 1;
+    }
+    gui.MenuOpts fileMenuOpts = gui.menu_opts("File");
+    guard gui.Menu fileMenu, err fileMenuErr = gui.menu(fileMenuOpts) {
+        fmt.eprintln(f"gui.menu(File): {fileMenuErr.message()}");
+        return 1;
+    }
+    gui.MenuOpts toolsMenuOpts = gui.menu_opts("Tools");
+    guard gui.Menu toolsMenu, err toolsMenuErr = gui.menu(toolsMenuOpts) {
+        fmt.eprintln(f"gui.menu(Tools): {toolsMenuErr.message()}");
+        return 1;
+    }
+    gui.MenuOpts helpMenuOpts = gui.menu_opts("Help");
+    guard gui.Menu helpMenu, err helpMenuErr = gui.menu(helpMenuOpts) {
+        fmt.eprintln(f"gui.menu(Help): {helpMenuErr.message()}");
+        return 1;
+    }
+
+    err addOpenItemErr = fileMenu.add_item("Open File...", fn() -> void {
+        gui.FileDialogOpts d = gui.file_dialog_opts("Open BASL source");
+        d.directory = ".";
+        d.extensions = ["basl", "txt", "md"];
+        string path, err dialogErr = gui.open_file(d);
+        if (dialogErr != ok) {
+            fmt.eprintln(f"open_file failed: {dialogErr.message()}");
+            return;
+        }
+        if (path.len() > 0) {
+            statusLabel.set_text(f"Opened file: {path}");
+            logArea.append(f"\nopen_file -> {path}");
+        }
+    });
+    if (addOpenItemErr != ok) {
+        fmt.eprintln(f"fileMenu.add_item(Open): {addOpenItemErr.message()}");
+        return 1;
+    }
+
+    err addSaveItemErr = fileMenu.add_item("Save File As...", fn() -> void {
+        gui.FileDialogOpts d = gui.file_dialog_opts("Save output file");
+        d.directory = ".";
+        d.file_name = "output.txt";
+        d.extensions = ["txt", "log"];
+        string path, err dialogErr = gui.save_file(d);
+        if (dialogErr != ok) {
+            fmt.eprintln(f"save_file failed: {dialogErr.message()}");
+            return;
+        }
+        if (path.len() > 0) {
+            statusLabel.set_text(f"Save path: {path}");
+            logArea.append(f"\nsave_file -> {path}");
+        }
+    });
+    if (addSaveItemErr != ok) {
+        fmt.eprintln(f"fileMenu.add_item(Save): {addSaveItemErr.message()}");
+        return 1;
+    }
+
+    err addOpenDirItemErr = fileMenu.add_item("Open Directory...", fn() -> void {
+        gui.FileDialogOpts d = gui.file_dialog_opts("Select directory");
+        d.directory = ".";
+        string path, err dialogErr = gui.open_directory(d);
+        if (dialogErr != ok) {
+            fmt.eprintln(f"open_directory failed: {dialogErr.message()}");
+            return;
+        }
+        if (path.len() > 0) {
+            statusLabel.set_text(f"Directory: {path}");
+            logArea.append(f"\nopen_directory -> {path}");
+        }
+    });
+    if (addOpenDirItemErr != ok) {
+        fmt.eprintln(f"fileMenu.add_item(Open Directory): {addOpenDirItemErr.message()}");
+        return 1;
+    }
+
+    err fileSepErr = fileMenu.add_separator();
+    if (fileSepErr != ok) {
+        fmt.eprintln(f"fileMenu.add_separator: {fileSepErr.message()}");
+        return 1;
+    }
+
+    err toolsClearCanvasErr = toolsMenu.add_item("Clear Canvas", fn() -> void {
+        previewCanvas.clear();
+        previewCanvas.set_color(0.35, 0.35, 0.35, 1.0);
+        previewCanvas.text(18.0, 30.0, "Canvas cleared", 13.0);
+        statusLabel.set_text("Canvas cleared from menu");
+    });
+    if (toolsClearCanvasErr != ok) {
+        fmt.eprintln(f"toolsMenu.add_item(Clear Canvas): {toolsClearCanvasErr.message()}");
+        return 1;
+    }
+
+    err toolsWarnErr = toolsMenu.add_item("Show Warning", fn() -> void {
+        gui.MessageOpts msg = gui.message_opts("Attention", "This is a warning dialog from the menu.");
+        gui.warn(msg);
+    });
+    if (toolsWarnErr != ok) {
+        fmt.eprintln(f"toolsMenu.add_item(Show Warning): {toolsWarnErr.message()}");
+        return 1;
+    }
+
+    err toolsErrorErr = toolsMenu.add_item("Show Error", fn() -> void {
+        gui.MessageOpts msg = gui.message_opts("Error", "Example error dialog from the Tools menu.");
+        gui.error(msg);
+    });
+    if (toolsErrorErr != ok) {
+        fmt.eprintln(f"toolsMenu.add_item(Show Error): {toolsErrorErr.message()}");
+        return 1;
+    }
+
+    err addToolsSubmenuErr = fileMenu.add_submenu(toolsMenu);
+    if (addToolsSubmenuErr != ok) {
+        fmt.eprintln(f"fileMenu.add_submenu(Tools): {addToolsSubmenuErr.message()}");
+        return 1;
+    }
+
+    err fileQuitItemErr = fileMenu.add_item("Quit", fn() -> void {
+        gui.MessageOpts confirmMsg = gui.message_opts("Quit", "Quit BASL GUI demo?");
+        bool okToQuit, err confirmErr = gui.confirm(confirmMsg);
+        if (confirmErr != ok) {
+            fmt.eprintln(f"confirm failed: {confirmErr.message()}");
+            return;
+        }
+        if (okToQuit) {
+            err quitErr = app.quit();
+            if (quitErr != ok) {
+                fmt.eprintln(f"app.quit failed: {quitErr.message()}");
+            }
+        }
+    });
+    if (fileQuitItemErr != ok) {
+        fmt.eprintln(f"fileMenu.add_item(Quit): {fileQuitItemErr.message()}");
+        return 1;
+    }
+
+    err helpAboutErr = helpMenu.add_item("About", fn() -> void {
+        gui.MessageOpts msg = gui.message_opts("About BASL GUI", "Native widgets, explicit errors, and typed options.");
+        gui.info(msg);
+    });
+    if (helpAboutErr != ok) {
+        fmt.eprintln(f"helpMenu.add_item(About): {helpAboutErr.message()}");
+        return 1;
+    }
+
+    err addFileMenuErr = menuBar.add_menu(fileMenu);
+    if (addFileMenuErr != ok) {
+        fmt.eprintln(f"menuBar.add_menu(File): {addFileMenuErr.message()}");
+        return 1;
+    }
+    err addHelpMenuErr = menuBar.add_menu(helpMenu);
+    if (addHelpMenuErr != ok) {
+        fmt.eprintln(f"menuBar.add_menu(Help): {addHelpMenuErr.message()}");
+        return 1;
+    }
+    err setMenuBarErr = app.set_menu_bar(menuBar);
+    if (setMenuBarErr != ok) {
+        fmt.eprintln(f"app.set_menu_bar: {setMenuBarErr.message()}");
+        return 1;
+    }
+
     gui.LabelOpts intensityLabelOpts = gui.label_opts("Intensity");
     guard gui.Label intensityLabel, err intensityLabelErr = gui.label(intensityLabelOpts) {
         fmt.eprintln(f"gui.label(intensity): {intensityLabelErr.message()}");
@@ -458,6 +636,14 @@ fn main() -> i32 {
         if (setGroupTitleErr != ok) {
             fmt.eprintln(f"group set_title failed: {setGroupTitleErr.message()}");
         }
+
+        previewCanvas.clear();
+        previewCanvas.set_color(0.12, 0.20, 0.82, 1.0);
+        previewCanvas.rect(18.0, 20.0, 180.0, 64.0, false, 2.0, 10.0);
+        previewCanvas.set_color(0.12, 0.62, 0.36, 0.92);
+        previewCanvas.circle(250.0, 52.0, 24.0 + (retries * 2.0), true, 1.0);
+        previewCanvas.set_color(0.18, 0.18, 0.18, 1.0);
+        previewCanvas.text(20.0, 104.0, f"{text} / {mode} / {selectedTask}", 13.0);
     });
     if (hookApplyErr != ok) {
         fmt.eprintln(f"hook apply callback: {hookApplyErr.message()}");
@@ -505,6 +691,9 @@ fn main() -> i32 {
         }
         inspectorTabs.set_selected_index(0);
         dataSplit.set_ratio(0.46);
+        previewCanvas.clear();
+        previewCanvas.set_color(0.35, 0.35, 0.35, 1.0);
+        previewCanvas.text(16.0, 26.0, "Canvas reset", 13.0);
         err setStatusErr = statusLabel.set_text("Cleared");
         if (setStatusErr != ok) {
             fmt.eprintln(f"status set_text failed: {setStatusErr.message()}");
@@ -565,9 +754,17 @@ fn main() -> i32 {
     }
 
     err hookQuitErr = quitBtn.on_click(fn() -> void {
-        err shutdownErr = app.quit();
-        if (shutdownErr != ok) {
-            fmt.eprintln(f"app.quit failed: {shutdownErr.message()}");
+        gui.MessageOpts confirmMsg = gui.message_opts("Quit", "Quit BASL GUI demo?");
+        bool okToQuit, err confirmErr = gui.confirm(confirmMsg);
+        if (confirmErr != ok) {
+            fmt.eprintln(f"confirm failed: {confirmErr.message()}");
+            return;
+        }
+        if (okToQuit) {
+            err shutdownErr = app.quit();
+            if (shutdownErr != ok) {
+                fmt.eprintln(f"app.quit failed: {shutdownErr.message()}");
+            }
         }
     });
     if (hookQuitErr != ok) {
@@ -830,7 +1027,16 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts logCell = gui.cell_opts(7, 0);
+    gui.CellOpts canvasCell = gui.cell_opts(7, 0);
+    canvasCell.col_span = 3;
+    canvasCell.fill_x = true;
+    err placeCanvasErr = root.place(previewCanvas, canvasCell);
+    if (placeCanvasErr != ok) {
+        fmt.eprintln(f"grid.place(canvas): {placeCanvasErr.message()}");
+        return 1;
+    }
+
+    gui.CellOpts logCell = gui.cell_opts(8, 0);
     logCell.col_span = 3;
     logCell.fill_x = true;
     logCell.fill_y = true;
@@ -840,7 +1046,7 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts statusCell = gui.cell_opts(8, 0);
+    gui.CellOpts statusCell = gui.cell_opts(9, 0);
     statusCell.col_span = 3;
     statusCell.fill_x = true;
     err placeStatusErr = root.place(statusLabel, statusCell);
@@ -849,7 +1055,7 @@ fn main() -> i32 {
         return 1;
     }
 
-    gui.CellOpts rowCell = gui.cell_opts(9, 0);
+    gui.CellOpts rowCell = gui.cell_opts(10, 0);
     rowCell.col_span = 3;
     rowCell.fill_x = true;
     err placeRowErr = root.place(buttonRow, rowCell);

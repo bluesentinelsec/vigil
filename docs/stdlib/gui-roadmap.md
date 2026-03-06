@@ -17,6 +17,7 @@ Implemented:
 - Core controls: `Label`, `Button`, `Entry`, `Checkbox`, `Select`, `TextArea`, `Progress`
 - Forms/common controls: `Frame`, `Group`, `Radio`, `Scale`, `Spinbox`, `Separator`
 - Data/navigation controls: `Tabs`, `Paned`, `List`, `Tree`
+- Menus/dialogs/drawing: `MenuBar`, `Menu`, file dialogs, message dialogs, `Canvas`
 
 ## Parity Phases
 
@@ -42,7 +43,7 @@ Implemented:
 - `Tabs` / notebook
 - `Paned` split view
 
-### Phase 4 (menus, dialogs, drawing)
+### Phase 4 (menus, dialogs, drawing, completed)
 
 - `Menu` + menu bar helpers
 - File/open/save dialogs

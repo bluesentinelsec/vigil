@@ -94,6 +94,27 @@ int basl_gui_tree_set_selected_id(uintptr_t treePtr, int32_t nodeID, char** errO
 char* basl_gui_tree_selected_text(uintptr_t treePtr, char** errOut);
 int basl_gui_tree_clear(uintptr_t treePtr, char** errOut);
 int basl_gui_tree_set_on_change(uintptr_t treePtr, uintptr_t callbackId, char** errOut);
+uintptr_t basl_gui_menu_bar_new(char** errOut);
+int basl_gui_app_set_menu_bar(uintptr_t menuBarPtr, char** errOut);
+uintptr_t basl_gui_menu_new(const char* title, char** errOut);
+int basl_gui_menu_bar_add_menu(uintptr_t menuBarPtr, uintptr_t menuPtr, char** errOut);
+int basl_gui_menu_add_item(uintptr_t menuPtr, const char* title, uintptr_t callbackId, char** errOut);
+int basl_gui_menu_add_separator(uintptr_t menuPtr, char** errOut);
+int basl_gui_menu_add_submenu(uintptr_t menuPtr, uintptr_t subMenuPtr, char** errOut);
+uintptr_t basl_gui_canvas_new(int32_t width, int32_t height, char** errOut);
+int basl_gui_canvas_clear(uintptr_t canvasPtr, char** errOut);
+int basl_gui_canvas_set_color(uintptr_t canvasPtr, double r, double g, double b, double a, char** errOut);
+int basl_gui_canvas_line(uintptr_t canvasPtr, double x1, double y1, double x2, double y2, double width, char** errOut);
+int basl_gui_canvas_rect(uintptr_t canvasPtr, double x, double y, double w, double h, int fill, double lineWidth, double cornerRadius, char** errOut);
+int basl_gui_canvas_circle(uintptr_t canvasPtr, double x, double y, double radius, int fill, double lineWidth, char** errOut);
+int basl_gui_canvas_text(uintptr_t canvasPtr, double x, double y, const char* text, double size, char** errOut);
+char* basl_gui_dialog_open_file(const char* title, const char* directory, const char** extensions, int32_t extCount, char** errOut);
+char* basl_gui_dialog_save_file(const char* title, const char* directory, const char* fileName, const char** extensions, int32_t extCount, char** errOut);
+char* basl_gui_dialog_open_directory(const char* title, const char* directory, char** errOut);
+int basl_gui_dialog_info(const char* title, const char* message, char** errOut);
+int basl_gui_dialog_warn(const char* title, const char* message, char** errOut);
+int basl_gui_dialog_error(const char* title, const char* message, char** errOut);
+int basl_gui_dialog_confirm(const char* title, const char* message, int* outConfirmed, char** errOut);
 int basl_gui_widget_set_size(uintptr_t viewPtr, int32_t width, int32_t height, char** errOut);
 void basl_gui_free_string(char* s);
 */
@@ -1070,6 +1091,281 @@ func guiTreeSetOnChange(treeHandle uintptr, callbackID uintptr) error {
 		return guiErr(errOut)
 	}
 	return nil
+}
+
+func guiMenuBarCreate() (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_menu_bar_new(&errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiAppSetMenuBar(_ uintptr, menuBarHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_app_set_menu_bar(C.uintptr_t(menuBarHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiMenuCreate(title string) (uintptr, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	handle := C.basl_gui_menu_new(cTitle, &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiMenuBarAddMenu(menuBarHandle uintptr, menuHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_menu_bar_add_menu(C.uintptr_t(menuBarHandle), C.uintptr_t(menuHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiMenuAddItem(menuHandle uintptr, title string, callbackID uintptr) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	var errOut *C.char
+	ok := C.basl_gui_menu_add_item(C.uintptr_t(menuHandle), cTitle, C.uintptr_t(callbackID), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiMenuAddSeparator(menuHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_menu_add_separator(C.uintptr_t(menuHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiMenuAddSubMenu(menuHandle uintptr, subMenuHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_menu_add_submenu(C.uintptr_t(menuHandle), C.uintptr_t(subMenuHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCanvasCreate(width int32, height int32) (uintptr, error) {
+	var errOut *C.char
+	handle := C.basl_gui_canvas_new(C.int32_t(width), C.int32_t(height), &errOut)
+	if handle == 0 {
+		return 0, guiErr(errOut)
+	}
+	return uintptr(handle), nil
+}
+
+func guiCanvasClear(canvasHandle uintptr) error {
+	var errOut *C.char
+	ok := C.basl_gui_canvas_clear(C.uintptr_t(canvasHandle), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCanvasSetColor(canvasHandle uintptr, r float64, g float64, b float64, a float64) error {
+	var errOut *C.char
+	ok := C.basl_gui_canvas_set_color(C.uintptr_t(canvasHandle), C.double(r), C.double(g), C.double(b), C.double(a), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCanvasLine(canvasHandle uintptr, x1 float64, y1 float64, x2 float64, y2 float64, width float64) error {
+	var errOut *C.char
+	ok := C.basl_gui_canvas_line(C.uintptr_t(canvasHandle), C.double(x1), C.double(y1), C.double(x2), C.double(y2), C.double(width), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCanvasRect(canvasHandle uintptr, x float64, y float64, w float64, h float64, fill bool, lineWidth float64, cornerRadius float64) error {
+	var errOut *C.char
+	fillFlag := C.int(0)
+	if fill {
+		fillFlag = 1
+	}
+	ok := C.basl_gui_canvas_rect(C.uintptr_t(canvasHandle), C.double(x), C.double(y), C.double(w), C.double(h), fillFlag, C.double(lineWidth), C.double(cornerRadius), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCanvasCircle(canvasHandle uintptr, x float64, y float64, radius float64, fill bool, lineWidth float64) error {
+	var errOut *C.char
+	fillFlag := C.int(0)
+	if fill {
+		fillFlag = 1
+	}
+	ok := C.basl_gui_canvas_circle(C.uintptr_t(canvasHandle), C.double(x), C.double(y), C.double(radius), fillFlag, C.double(lineWidth), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiCanvasText(canvasHandle uintptr, x float64, y float64, text string, size float64) error {
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+	var errOut *C.char
+	ok := C.basl_gui_canvas_text(C.uintptr_t(canvasHandle), C.double(x), C.double(y), cText, C.double(size), &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiMakeCStringArray(values []string) (unsafe.Pointer, **C.char, func()) {
+	if len(values) == 0 {
+		return nil, nil, func() {}
+	}
+	raw := C.malloc(C.size_t(len(values)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+	items := unsafe.Slice((**C.char)(raw), len(values))
+	cStrs := make([]*C.char, len(values))
+	for i, v := range values {
+		cStrs[i] = C.CString(v)
+		items[i] = cStrs[i]
+	}
+	cleanup := func() {
+		for _, cStr := range cStrs {
+			C.free(unsafe.Pointer(cStr))
+		}
+		C.free(raw)
+	}
+	return raw, (**C.char)(raw), cleanup
+}
+
+func guiDialogOpenFile(title string, directory string, extensions []string) (string, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cDir := C.CString(directory)
+	defer C.free(unsafe.Pointer(cDir))
+	raw, cExts, cleanup := guiMakeCStringArray(extensions)
+	_ = raw
+	defer cleanup()
+	var errOut *C.char
+	result := C.basl_gui_dialog_open_file(cTitle, cDir, cExts, C.int32_t(len(extensions)), &errOut)
+	if result == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(result)
+	C.basl_gui_free_string(result)
+	return out, nil
+}
+
+func guiDialogSaveFile(title string, directory string, fileName string, extensions []string) (string, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cDir := C.CString(directory)
+	defer C.free(unsafe.Pointer(cDir))
+	cName := C.CString(fileName)
+	defer C.free(unsafe.Pointer(cName))
+	raw, cExts, cleanup := guiMakeCStringArray(extensions)
+	_ = raw
+	defer cleanup()
+	var errOut *C.char
+	result := C.basl_gui_dialog_save_file(cTitle, cDir, cName, cExts, C.int32_t(len(extensions)), &errOut)
+	if result == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(result)
+	C.basl_gui_free_string(result)
+	return out, nil
+}
+
+func guiDialogOpenDirectory(title string, directory string) (string, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cDir := C.CString(directory)
+	defer C.free(unsafe.Pointer(cDir))
+	var errOut *C.char
+	result := C.basl_gui_dialog_open_directory(cTitle, cDir, &errOut)
+	if result == nil {
+		if err := guiErr(errOut); err != nil {
+			return "", err
+		}
+		return "", nil
+	}
+	out := C.GoString(result)
+	C.basl_gui_free_string(result)
+	return out, nil
+}
+
+func guiDialogInfo(title string, message string) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cMessage := C.CString(message)
+	defer C.free(unsafe.Pointer(cMessage))
+	var errOut *C.char
+	ok := C.basl_gui_dialog_info(cTitle, cMessage, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiDialogWarn(title string, message string) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cMessage := C.CString(message)
+	defer C.free(unsafe.Pointer(cMessage))
+	var errOut *C.char
+	ok := C.basl_gui_dialog_warn(cTitle, cMessage, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiDialogError(title string, message string) error {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cMessage := C.CString(message)
+	defer C.free(unsafe.Pointer(cMessage))
+	var errOut *C.char
+	ok := C.basl_gui_dialog_error(cTitle, cMessage, &errOut)
+	if ok == 0 {
+		return guiErr(errOut)
+	}
+	return nil
+}
+
+func guiDialogConfirm(title string, message string) (bool, error) {
+	cTitle := C.CString(title)
+	defer C.free(unsafe.Pointer(cTitle))
+	cMessage := C.CString(message)
+	defer C.free(unsafe.Pointer(cMessage))
+	var errOut *C.char
+	var confirmed C.int
+	ok := C.basl_gui_dialog_confirm(cTitle, cMessage, &confirmed, &errOut)
+	if ok == 0 {
+		return false, guiErr(errOut)
+	}
+	return confirmed != 0, nil
 }
 
 func guiWidgetSetSize(widgetHandle uintptr, width int32, height int32) error {

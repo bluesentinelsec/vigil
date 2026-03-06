@@ -577,6 +577,16 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                 gui.TreeOpts treeOpts = gui.tree_opts();
                 treeOpts.width = 240;
                 treeOpts.height = 150;
+                gui.MenuBarOpts menuBarOpts = gui.menu_bar_opts();
+                gui.MenuOpts menuOpts = gui.menu_opts("File");
+                gui.CanvasOpts canvasOpts = gui.canvas_opts();
+                canvasOpts.width = 360;
+                canvasOpts.height = 220;
+                gui.FileDialogOpts dialogOpts = gui.file_dialog_opts("Open");
+                dialogOpts.directory = ".";
+                dialogOpts.file_name = "main.basl";
+                dialogOpts.extensions = ["basl", "txt"];
+                gui.MessageOpts messageOpts = gui.message_opts("Title", "Body");
 
                 fmt.print(
                     string(backend.len() > 0) + ":" +
@@ -604,12 +614,16 @@ class BaslSyntaxIntegrationTests(unittest.TestCase):
                     string(listOpts.items.len()) + ":" +
                     string(listOpts.selected) + ":" +
                     string(listOpts.height) + ":" +
-                    string(treeOpts.width)
+                    string(treeOpts.width) + ":" +
+                    menuOpts.title + ":" +
+                    string(canvasOpts.height) + ":" +
+                    dialogOpts.file_name + ":" +
+                    messageOpts.message
                 );
                 return 0;
             }
         """
-        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4:10:Tuning:2:42:1:120:0:0.65:3:2:130:240")
+        self._assert_success(source, stdout="true:true:640:20:14:4:true:Hello:Save:seed:Enable:Two:body:4:10:Tuning:2:42:1:120:0:0.65:3:2:130:240:File:220:main.basl:Body")
 
     def test_stdlib_args_module(self) -> None:
         source = """

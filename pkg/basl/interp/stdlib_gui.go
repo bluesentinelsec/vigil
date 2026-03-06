@@ -29,29 +29,37 @@ const (
 	guiClassPaned     = "gui.Paned"
 	guiClassList      = "gui.List"
 	guiClassTree      = "gui.Tree"
+	guiClassMenuBar   = "gui.MenuBar"
+	guiClassMenu      = "gui.Menu"
+	guiClassCanvas    = "gui.Canvas"
 
-	guiClassAppOpts       = "gui.AppOpts"
-	guiClassWindowOpts    = "gui.WindowOpts"
-	guiClassBoxOpts       = "gui.BoxOpts"
-	guiClassGridOpts      = "gui.GridOpts"
-	guiClassCellOpts      = "gui.CellOpts"
-	guiClassLabelOpts     = "gui.LabelOpts"
-	guiClassButtonOpts    = "gui.ButtonOpts"
-	guiClassEntryOpts     = "gui.EntryOpts"
-	guiClassCheckboxOpts  = "gui.CheckboxOpts"
-	guiClassSelectOpts    = "gui.SelectOpts"
-	guiClassTextAreaOpts  = "gui.TextAreaOpts"
-	guiClassProgressOpts  = "gui.ProgressOpts"
-	guiClassFrameOpts     = "gui.FrameOpts"
-	guiClassGroupOpts     = "gui.GroupOpts"
-	guiClassRadioOpts     = "gui.RadioOpts"
-	guiClassScaleOpts     = "gui.ScaleOpts"
-	guiClassSpinboxOpts   = "gui.SpinboxOpts"
-	guiClassSeparatorOpts = "gui.SeparatorOpts"
-	guiClassTabsOpts      = "gui.TabsOpts"
-	guiClassPanedOpts     = "gui.PanedOpts"
-	guiClassListOpts      = "gui.ListOpts"
-	guiClassTreeOpts      = "gui.TreeOpts"
+	guiClassAppOpts        = "gui.AppOpts"
+	guiClassWindowOpts     = "gui.WindowOpts"
+	guiClassBoxOpts        = "gui.BoxOpts"
+	guiClassGridOpts       = "gui.GridOpts"
+	guiClassCellOpts       = "gui.CellOpts"
+	guiClassLabelOpts      = "gui.LabelOpts"
+	guiClassButtonOpts     = "gui.ButtonOpts"
+	guiClassEntryOpts      = "gui.EntryOpts"
+	guiClassCheckboxOpts   = "gui.CheckboxOpts"
+	guiClassSelectOpts     = "gui.SelectOpts"
+	guiClassTextAreaOpts   = "gui.TextAreaOpts"
+	guiClassProgressOpts   = "gui.ProgressOpts"
+	guiClassFrameOpts      = "gui.FrameOpts"
+	guiClassGroupOpts      = "gui.GroupOpts"
+	guiClassRadioOpts      = "gui.RadioOpts"
+	guiClassScaleOpts      = "gui.ScaleOpts"
+	guiClassSpinboxOpts    = "gui.SpinboxOpts"
+	guiClassSeparatorOpts  = "gui.SeparatorOpts"
+	guiClassTabsOpts       = "gui.TabsOpts"
+	guiClassPanedOpts      = "gui.PanedOpts"
+	guiClassListOpts       = "gui.ListOpts"
+	guiClassTreeOpts       = "gui.TreeOpts"
+	guiClassMenuBarOpts    = "gui.MenuBarOpts"
+	guiClassMenuOpts       = "gui.MenuOpts"
+	guiClassCanvasOpts     = "gui.CanvasOpts"
+	guiClassFileDialogOpts = "gui.FileDialogOpts"
+	guiClassMessageOpts    = "gui.MessageOpts"
 )
 
 type guiCallback struct {
@@ -127,7 +135,7 @@ func guiWidgetHandle(v value.Value) (uintptr, error) {
 	}
 	obj := v.AsObject()
 	switch obj.ClassName {
-	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress, guiClassFrame, guiClassGroup, guiClassRadio, guiClassScale, guiClassSpinbox, guiClassSeparator, guiClassTabs, guiClassPaned, guiClassList, guiClassTree:
+	case guiClassBox, guiClassGrid, guiClassLabel, guiClassButton, guiClassEntry, guiClassCheckbox, guiClassSelect, guiClassTextArea, guiClassProgress, guiClassFrame, guiClassGroup, guiClassRadio, guiClassScale, guiClassSpinbox, guiClassSeparator, guiClassTabs, guiClassPaned, guiClassList, guiClassTree, guiClassCanvas:
 	default:
 		return 0, fmt.Errorf("expected gui widget, got %s", obj.ClassName)
 	}
@@ -151,6 +159,29 @@ func guiExpectOpts(args []value.Value, className string, fnName string) (*value.
 		return nil, fmt.Errorf("%s: expected %s, got %s", fnName, className, obj.ClassName)
 	}
 	return obj, nil
+}
+
+func guiExpectHandleArg(v value.Value, className string, fnName string) (uintptr, error) {
+	if v.T != value.TypeObject {
+		return 0, fmt.Errorf("%s: expected %s", fnName, className)
+	}
+	obj := v.AsObject()
+	if obj.ClassName != className {
+		return 0, fmt.Errorf("%s: expected %s, got %s", fnName, className, obj.ClassName)
+	}
+	handle, ok := obj.Fields["__handle"]
+	if !ok || handle.T != value.TypePtr {
+		return 0, fmt.Errorf("%s: invalid %s handle", fnName, className)
+	}
+	return handle.AsPtr(), nil
+}
+
+func guiMenuBarHandle(v value.Value, fnName string) (uintptr, error) {
+	return guiExpectHandleArg(v, guiClassMenuBar, fnName)
+}
+
+func guiMenuHandle(v value.Value, fnName string) (uintptr, error) {
+	return guiExpectHandleArg(v, guiClassMenu, fnName)
 }
 
 func guiReadStringOpt(obj *value.ObjectVal, field string, fnName string) (string, error) {
@@ -391,6 +422,39 @@ func (interp *Interpreter) makeDefaultTreeOpts() value.Value {
 	})
 }
 
+func (interp *Interpreter) makeDefaultMenuBarOpts() value.Value {
+	return newGuiOptsObject(guiClassMenuBarOpts, nil)
+}
+
+func (interp *Interpreter) makeDefaultMenuOpts(title string) value.Value {
+	return newGuiOptsObject(guiClassMenuOpts, map[string]value.Value{
+		"title": value.NewString(title),
+	})
+}
+
+func (interp *Interpreter) makeDefaultCanvasOpts() value.Value {
+	return newGuiOptsObject(guiClassCanvasOpts, map[string]value.Value{
+		"width":  value.NewI32(420),
+		"height": value.NewI32(260),
+	})
+}
+
+func (interp *Interpreter) makeDefaultFileDialogOpts(title string) value.Value {
+	return newGuiOptsObject(guiClassFileDialogOpts, map[string]value.Value{
+		"title":      value.NewString(title),
+		"directory":  value.NewString(""),
+		"file_name":  value.NewString(""),
+		"extensions": value.NewArray(nil),
+	})
+}
+
+func (interp *Interpreter) makeDefaultMessageOpts(title string, message string) value.Value {
+	return newGuiOptsObject(guiClassMessageOpts, map[string]value.Value{
+		"title":   value.NewString(title),
+		"message": value.NewString(message),
+	})
+}
+
 func (interp *Interpreter) makeGuiModule() *Env {
 	env := NewEnv(nil)
 
@@ -560,6 +624,41 @@ func (interp *Interpreter) makeGuiModule() *Env {
 			return value.Void, fmt.Errorf("gui.tree_opts: expected 0 arguments")
 		}
 		return interp.makeDefaultTreeOpts(), nil
+	}))
+
+	env.Define("menu_bar_opts", value.NewNativeFunc("gui.menu_bar_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.menu_bar_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultMenuBarOpts(), nil
+	}))
+
+	env.Define("menu_opts", value.NewNativeFunc("gui.menu_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.menu_opts: expected string title")
+		}
+		return interp.makeDefaultMenuOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("canvas_opts", value.NewNativeFunc("gui.canvas_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 0 {
+			return value.Void, fmt.Errorf("gui.canvas_opts: expected 0 arguments")
+		}
+		return interp.makeDefaultCanvasOpts(), nil
+	}))
+
+	env.Define("file_dialog_opts", value.NewNativeFunc("gui.file_dialog_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 1 || args[0].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.file_dialog_opts: expected string title")
+		}
+		return interp.makeDefaultFileDialogOpts(args[0].AsString()), nil
+	}))
+
+	env.Define("message_opts", value.NewNativeFunc("gui.message_opts", func(args []value.Value) (value.Value, error) {
+		if len(args) != 2 || args[0].T != value.TypeString || args[1].T != value.TypeString {
+			return value.Void, fmt.Errorf("gui.message_opts: expected string title, string message")
+		}
+		return interp.makeDefaultMessageOpts(args[0].AsString(), args[1].AsString()), nil
 	}))
 
 	env.Define("app", value.NewNativeFunc("gui.app", func(args []value.Value) (value.Value, error) {
@@ -1212,6 +1311,202 @@ func (interp *Interpreter) makeGuiModule() *Env {
 		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiTree(handle), value.Ok}}
 	}))
 
+	env.Define("menu_bar", value.NewNativeFunc("gui.menu_bar", func(args []value.Value) (value.Value, error) {
+		if _, err := guiExpectOpts(args, guiClassMenuBarOpts, "gui.menu_bar"); err != nil {
+			return value.Void, err
+		}
+		handle, err := guiMenuBarCreate()
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiMenuBar(handle), value.Ok}}
+	}))
+
+	env.Define("menu", value.NewNativeFunc("gui.menu", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassMenuOpts, "gui.menu")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.menu")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiMenuCreate(title)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiMenu(handle), value.Ok}}
+	}))
+
+	env.Define("canvas", value.NewNativeFunc("gui.canvas", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassCanvasOpts, "gui.canvas")
+		if err != nil {
+			return value.Void, err
+		}
+		width, err := guiReadI32Opt(opts, "width", "gui.canvas")
+		if err != nil {
+			return value.Void, err
+		}
+		height, err := guiReadI32Opt(opts, "height", "gui.canvas")
+		if err != nil {
+			return value.Void, err
+		}
+		handle, err := guiCanvasCreate(width, height)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.Void, guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{interp.newGuiCanvas(handle), value.Ok}}
+	}))
+
+	env.Define("open_file", value.NewNativeFunc("gui.open_file", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassFileDialogOpts, "gui.open_file")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.open_file")
+		if err != nil {
+			return value.Void, err
+		}
+		dir, err := guiReadStringOpt(opts, "directory", "gui.open_file")
+		if err != nil {
+			return value.Void, err
+		}
+		exts, err := guiReadStringArrayOpt(opts, "extensions", "gui.open_file")
+		if err != nil {
+			return value.Void, err
+		}
+		path, err := guiDialogOpenFile(title, dir, exts)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(path), value.Ok}}
+	}))
+
+	env.Define("save_file", value.NewNativeFunc("gui.save_file", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassFileDialogOpts, "gui.save_file")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.save_file")
+		if err != nil {
+			return value.Void, err
+		}
+		dir, err := guiReadStringOpt(opts, "directory", "gui.save_file")
+		if err != nil {
+			return value.Void, err
+		}
+		fileName, err := guiReadStringOpt(opts, "file_name", "gui.save_file")
+		if err != nil {
+			return value.Void, err
+		}
+		exts, err := guiReadStringArrayOpt(opts, "extensions", "gui.save_file")
+		if err != nil {
+			return value.Void, err
+		}
+		path, err := guiDialogSaveFile(title, dir, fileName, exts)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(path), value.Ok}}
+	}))
+
+	env.Define("open_directory", value.NewNativeFunc("gui.open_directory", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassFileDialogOpts, "gui.open_directory")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.open_directory")
+		if err != nil {
+			return value.Void, err
+		}
+		dir, err := guiReadStringOpt(opts, "directory", "gui.open_directory")
+		if err != nil {
+			return value.Void, err
+		}
+		path, err := guiDialogOpenDirectory(title, dir)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(""), guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewString(path), value.Ok}}
+	}))
+
+	env.Define("info", value.NewNativeFunc("gui.info", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassMessageOpts, "gui.info")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.info")
+		if err != nil {
+			return value.Void, err
+		}
+		message, err := guiReadStringOpt(opts, "message", "gui.info")
+		if err != nil {
+			return value.Void, err
+		}
+		if err := guiDialogInfo(title, message); err != nil {
+			return guiStateErr(err), nil
+		}
+		return value.Ok, nil
+	}))
+
+	env.Define("warn", value.NewNativeFunc("gui.warn", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassMessageOpts, "gui.warn")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.warn")
+		if err != nil {
+			return value.Void, err
+		}
+		message, err := guiReadStringOpt(opts, "message", "gui.warn")
+		if err != nil {
+			return value.Void, err
+		}
+		if err := guiDialogWarn(title, message); err != nil {
+			return guiStateErr(err), nil
+		}
+		return value.Ok, nil
+	}))
+
+	env.Define("error", value.NewNativeFunc("gui.error", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassMessageOpts, "gui.error")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.error")
+		if err != nil {
+			return value.Void, err
+		}
+		message, err := guiReadStringOpt(opts, "message", "gui.error")
+		if err != nil {
+			return value.Void, err
+		}
+		if err := guiDialogError(title, message); err != nil {
+			return guiStateErr(err), nil
+		}
+		return value.Ok, nil
+	}))
+
+	env.Define("confirm", value.NewNativeFunc("gui.confirm", func(args []value.Value) (value.Value, error) {
+		opts, err := guiExpectOpts(args, guiClassMessageOpts, "gui.confirm")
+		if err != nil {
+			return value.Void, err
+		}
+		title, err := guiReadStringOpt(opts, "title", "gui.confirm")
+		if err != nil {
+			return value.Void, err
+		}
+		message, err := guiReadStringOpt(opts, "message", "gui.confirm")
+		if err != nil {
+			return value.Void, err
+		}
+		confirmed, err := guiDialogConfirm(title, message)
+		if err != nil {
+			return value.Void, &MultiReturnVal{Values: []value.Value{value.NewBool(false), guiStateErr(err)}}
+		}
+		return value.Void, &MultiReturnVal{Values: []value.Value{value.NewBool(confirmed), value.Ok}}
+	}))
+
 	return env
 }
 
@@ -1231,6 +1526,19 @@ func (interp *Interpreter) newGuiApp(handle uintptr) value.Value {
 				return value.Void, fmt.Errorf("App.quit: expected 0 arguments")
 			}
 			if err := guiAppQuit(handle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"set_menu_bar": value.NewNativeFunc("gui.App.set_menu_bar", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("App.set_menu_bar: expected gui.MenuBar")
+			}
+			barHandle, err := guiMenuBarHandle(args[0], "App.set_menu_bar")
+			if err != nil {
+				return value.Void, err
+			}
+			if err := guiAppSetMenuBar(handle, barHandle); err != nil {
 				return guiStateErr(err), nil
 			}
 			return value.Ok, nil
@@ -2051,4 +2359,124 @@ func (interp *Interpreter) newGuiTree(handle uintptr) value.Value {
 		}),
 	}
 	return newGuiObject(guiClassTree, handle, methods)
+}
+
+func (interp *Interpreter) newGuiMenuBar(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"add_menu": value.NewNativeFunc("gui.MenuBar.add_menu", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("MenuBar.add_menu: expected gui.Menu")
+			}
+			menuHandle, err := guiMenuHandle(args[0], "MenuBar.add_menu")
+			if err != nil {
+				return value.Void, err
+			}
+			if err := guiMenuBarAddMenu(handle, menuHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassMenuBar, handle, methods)
+}
+
+func (interp *Interpreter) newGuiMenu(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"add_item": value.NewNativeFunc("gui.Menu.add_item", func(args []value.Value) (value.Value, error) {
+			if len(args) != 2 || args[0].T != value.TypeString {
+				return value.Void, fmt.Errorf("Menu.add_item: expected string title, fn callback")
+			}
+			if args[1].T != value.TypeFunc && args[1].T != value.TypeNativeFunc {
+				return value.Void, fmt.Errorf("Menu.add_item: expected fn callback")
+			}
+			cbID := registerGuiCallback(interp, args[1])
+			if err := guiMenuAddItem(handle, args[0].AsString(), cbID); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"add_separator": value.NewNativeFunc("gui.Menu.add_separator", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Menu.add_separator: expected 0 arguments")
+			}
+			if err := guiMenuAddSeparator(handle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"add_submenu": value.NewNativeFunc("gui.Menu.add_submenu", func(args []value.Value) (value.Value, error) {
+			if len(args) != 1 {
+				return value.Void, fmt.Errorf("Menu.add_submenu: expected gui.Menu")
+			}
+			subMenuHandle, err := guiMenuHandle(args[0], "Menu.add_submenu")
+			if err != nil {
+				return value.Void, err
+			}
+			if err := guiMenuAddSubMenu(handle, subMenuHandle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassMenu, handle, methods)
+}
+
+func (interp *Interpreter) newGuiCanvas(handle uintptr) value.Value {
+	methods := map[string]value.Value{
+		"clear": value.NewNativeFunc("gui.Canvas.clear", func(args []value.Value) (value.Value, error) {
+			if len(args) != 0 {
+				return value.Void, fmt.Errorf("Canvas.clear: expected 0 arguments")
+			}
+			if err := guiCanvasClear(handle); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"set_color": value.NewNativeFunc("gui.Canvas.set_color", func(args []value.Value) (value.Value, error) {
+			if len(args) != 4 || args[0].T != value.TypeF64 || args[1].T != value.TypeF64 || args[2].T != value.TypeF64 || args[3].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Canvas.set_color: expected f64 r, f64 g, f64 b, f64 a")
+			}
+			if err := guiCanvasSetColor(handle, args[0].AsF64(), args[1].AsF64(), args[2].AsF64(), args[3].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"line": value.NewNativeFunc("gui.Canvas.line", func(args []value.Value) (value.Value, error) {
+			if len(args) != 5 || args[0].T != value.TypeF64 || args[1].T != value.TypeF64 || args[2].T != value.TypeF64 || args[3].T != value.TypeF64 || args[4].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Canvas.line: expected f64 x1, f64 y1, f64 x2, f64 y2, f64 width")
+			}
+			if err := guiCanvasLine(handle, args[0].AsF64(), args[1].AsF64(), args[2].AsF64(), args[3].AsF64(), args[4].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"rect": value.NewNativeFunc("gui.Canvas.rect", func(args []value.Value) (value.Value, error) {
+			if len(args) != 7 || args[0].T != value.TypeF64 || args[1].T != value.TypeF64 || args[2].T != value.TypeF64 || args[3].T != value.TypeF64 || args[4].T != value.TypeBool || args[5].T != value.TypeF64 || args[6].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Canvas.rect: expected f64 x, f64 y, f64 w, f64 h, bool fill, f64 line_width, f64 corner_radius")
+			}
+			if err := guiCanvasRect(handle, args[0].AsF64(), args[1].AsF64(), args[2].AsF64(), args[3].AsF64(), args[4].AsBool(), args[5].AsF64(), args[6].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"circle": value.NewNativeFunc("gui.Canvas.circle", func(args []value.Value) (value.Value, error) {
+			if len(args) != 5 || args[0].T != value.TypeF64 || args[1].T != value.TypeF64 || args[2].T != value.TypeF64 || args[3].T != value.TypeBool || args[4].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Canvas.circle: expected f64 x, f64 y, f64 radius, bool fill, f64 line_width")
+			}
+			if err := guiCanvasCircle(handle, args[0].AsF64(), args[1].AsF64(), args[2].AsF64(), args[3].AsBool(), args[4].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+		"text": value.NewNativeFunc("gui.Canvas.text", func(args []value.Value) (value.Value, error) {
+			if len(args) != 4 || args[0].T != value.TypeF64 || args[1].T != value.TypeF64 || args[2].T != value.TypeString || args[3].T != value.TypeF64 {
+				return value.Void, fmt.Errorf("Canvas.text: expected f64 x, f64 y, string text, f64 size")
+			}
+			if err := guiCanvasText(handle, args[0].AsF64(), args[1].AsF64(), args[2].AsString(), args[3].AsF64()); err != nil {
+				return guiStateErr(err), nil
+			}
+			return value.Ok, nil
+		}),
+	}
+	return newGuiObject(guiClassCanvas, handle, methods)
 }

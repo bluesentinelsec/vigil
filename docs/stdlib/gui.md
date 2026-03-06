@@ -62,6 +62,11 @@ Returns backend name:
 ### gui.paned_opts() -> gui.PanedOpts
 ### gui.list_opts() -> gui.ListOpts
 ### gui.tree_opts() -> gui.TreeOpts
+### gui.menu_bar_opts() -> gui.MenuBarOpts
+### gui.menu_opts(string title) -> gui.MenuOpts
+### gui.canvas_opts() -> gui.CanvasOpts
+### gui.file_dialog_opts(string title) -> gui.FileDialogOpts
+### gui.message_opts(string title, string message) -> gui.MessageOpts
 
 ## Widget Constructors
 
@@ -87,6 +92,19 @@ Returns backend name:
 ### gui.paned(gui.PanedOpts opts) -> (gui.Paned, err)
 ### gui.list(gui.ListOpts opts) -> (gui.List, err)
 ### gui.tree(gui.TreeOpts opts) -> (gui.Tree, err)
+### gui.menu_bar(gui.MenuBarOpts opts) -> (gui.MenuBar, err)
+### gui.menu(gui.MenuOpts opts) -> (gui.Menu, err)
+### gui.canvas(gui.CanvasOpts opts) -> (gui.Canvas, err)
+
+## Dialog APIs
+
+### gui.open_file(gui.FileDialogOpts opts) -> (string path, err)
+### gui.save_file(gui.FileDialogOpts opts) -> (string path, err)
+### gui.open_directory(gui.FileDialogOpts opts) -> (string path, err)
+### gui.info(gui.MessageOpts opts) -> err
+### gui.warn(gui.MessageOpts opts) -> err
+### gui.error(gui.MessageOpts opts) -> err
+### gui.confirm(gui.MessageOpts opts) -> (bool confirmed, err)
 
 ## Option Types
 
@@ -268,11 +286,45 @@ Reserved for app-level configuration.
 | `height` | `i32` | `220` |
 | `on_change` | `fn` | unset |
 
+### gui.MenuBarOpts
+
+No fields (reserved for future menu bar configuration).
+
+### gui.MenuOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `title` | `string` | required via `menu_opts(title)` |
+
+### gui.CanvasOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `width` | `i32` | `420` |
+| `height` | `i32` | `260` |
+
+### gui.FileDialogOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `title` | `string` | required via `file_dialog_opts(title)` |
+| `directory` | `string` | `""` |
+| `file_name` | `string` | `""` |
+| `extensions` | `array<string>` | `[]` |
+
+### gui.MessageOpts
+
+| Field | Type | Default |
+|------|------|---------|
+| `title` | `string` | required via `message_opts(title, message)` |
+| `message` | `string` | required via `message_opts(title, message)` |
+
 ## gui.App Methods
 
 ### app.window(gui.WindowOpts opts) -> (gui.Window, err)
 ### app.run() -> err
 ### app.quit() -> err
+### app.set_menu_bar(gui.MenuBar menu_bar) -> err
 
 ## gui.Window Methods
 
@@ -293,6 +345,10 @@ Supports `gui.Box`, `gui.Grid`, `gui.Frame`, `gui.Group`, `gui.Tabs`, `gui.Paned
 ### tabs.add_tab(string title, widget) -> err
 ### paned.set_first(widget) -> err
 ### paned.set_second(widget) -> err
+### menu_bar.add_menu(gui.Menu menu) -> err
+### menu.add_item(string title, fn callback) -> err
+### menu.add_separator() -> err
+### menu.add_submenu(gui.Menu menu) -> err
 
 `fill_x` / `fill_y` control whether a widget expands with window resize.
 
@@ -370,3 +426,10 @@ Responsive recommendation:
 ### tree.on_change(fn callback) -> err
 
 Tree nodes are addressed by explicit `node_id` values returned from `add_root` / `add_child`.
+
+### canvas.clear() -> err
+### canvas.set_color(f64 r, f64 g, f64 b, f64 a) -> err
+### canvas.line(f64 x1, f64 y1, f64 x2, f64 y2, f64 width) -> err
+### canvas.rect(f64 x, f64 y, f64 w, f64 h, bool fill, f64 line_width, f64 corner_radius) -> err
+### canvas.circle(f64 x, f64 y, f64 radius, bool fill, f64 line_width) -> err
+### canvas.text(f64 x, f64 y, string text, f64 size) -> err

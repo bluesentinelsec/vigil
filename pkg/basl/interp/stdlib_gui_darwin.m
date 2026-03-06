@@ -51,6 +51,16 @@ extern void baslGuiInvokeCallback(uintptr_t callbackId);
 @property(nonatomic, assign) uintptr_t callbackId;
 @end
 
+@interface BaslMenuItemTarget : NSObject
+@property(nonatomic, assign) uintptr_t callbackId;
+- (void)onAction:(id)sender;
+@end
+
+@interface BaslCanvasView : NSView
+@property(nonatomic, strong) NSMutableArray<NSDictionary*>* commands;
+@property(nonatomic, strong) NSColor* currentColor;
+@end
+
 @interface BaslAppDelegate : NSObject <NSApplicationDelegate>
 @end
 
@@ -279,6 +289,88 @@ static void basl_gui_radio_apply_selection(NSStackView* group, NSInteger selecte
     (void)notification;
     if (self.callbackId != 0) {
         baslGuiInvokeCallback(self.callbackId);
+    }
+}
+@end
+
+@implementation BaslMenuItemTarget
+- (void)onAction:(id)sender {
+    (void)sender;
+    if (self.callbackId != 0) {
+        baslGuiInvokeCallback(self.callbackId);
+    }
+}
+@end
+
+@implementation BaslCanvasView
+- (instancetype)initWithFrame:(NSRect)frameRect {
+    self = [super initWithFrame:frameRect];
+    if (self != nil) {
+        _commands = [NSMutableArray array];
+        _currentColor = [NSColor colorWithCalibratedRed:0.15 green:0.20 blue:0.85 alpha:1.0];
+        [self setWantsLayer:YES];
+        [self setLayerContentsRedrawPolicy:NSViewLayerContentsRedrawOnSetNeedsDisplay];
+    }
+    return self;
+}
+
+- (BOOL)isFlipped {
+    return YES;
+}
+
+- (void)drawRect:(NSRect)dirtyRect {
+    [super drawRect:dirtyRect];
+    [[NSColor windowBackgroundColor] setFill];
+    NSRectFill(dirtyRect);
+    for (NSDictionary* command in self.commands) {
+        NSString* kind = [command objectForKey:@"kind"];
+        NSColor* color = [command objectForKey:@"color"];
+        if (color == nil) {
+            color = self.currentColor;
+        }
+        [color setStroke];
+        [color setFill];
+        if ([kind isEqualToString:@"line"]) {
+            NSBezierPath* p = [NSBezierPath bezierPath];
+            [p setLineWidth:[[command objectForKey:@"width"] doubleValue]];
+            [p moveToPoint:NSMakePoint([[command objectForKey:@"x1"] doubleValue], [[command objectForKey:@"y1"] doubleValue])];
+            [p lineToPoint:NSMakePoint([[command objectForKey:@"x2"] doubleValue], [[command objectForKey:@"y2"] doubleValue])];
+            [p stroke];
+            continue;
+        }
+        if ([kind isEqualToString:@"rect"]) {
+            NSRect rect = NSMakeRect([[command objectForKey:@"x"] doubleValue], [[command objectForKey:@"y"] doubleValue], [[command objectForKey:@"w"] doubleValue], [[command objectForKey:@"h"] doubleValue]);
+            CGFloat radius = [[command objectForKey:@"corner_radius"] doubleValue];
+            NSBezierPath* p = (radius > 0.0 ? [NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius] : [NSBezierPath bezierPathWithRect:rect]);
+            [p setLineWidth:[[command objectForKey:@"line_width"] doubleValue]];
+            if ([[command objectForKey:@"fill"] boolValue]) {
+                [p fill];
+            } else {
+                [p stroke];
+            }
+            continue;
+        }
+        if ([kind isEqualToString:@"circle"]) {
+            double radius = [[command objectForKey:@"radius"] doubleValue];
+            NSRect oval = NSMakeRect([[command objectForKey:@"x"] doubleValue] - radius, [[command objectForKey:@"y"] doubleValue] - radius, radius * 2.0, radius * 2.0);
+            NSBezierPath* p = [NSBezierPath bezierPathWithOvalInRect:oval];
+            [p setLineWidth:[[command objectForKey:@"line_width"] doubleValue]];
+            if ([[command objectForKey:@"fill"] boolValue]) {
+                [p fill];
+            } else {
+                [p stroke];
+            }
+            continue;
+        }
+        if ([kind isEqualToString:@"text"]) {
+            NSString* text = [command objectForKey:@"text"];
+            NSDictionary* attrs = @{
+                NSForegroundColorAttributeName: color,
+                NSFontAttributeName: [NSFont systemFontOfSize:[[command objectForKey:@"size"] doubleValue]]
+            };
+            [text drawAtPoint:NSMakePoint([[command objectForKey:@"x"] doubleValue], [[command objectForKey:@"y"] doubleValue]) withAttributes:attrs];
+            continue;
+        }
     }
 }
 @end
@@ -2087,6 +2179,460 @@ int basl_gui_tree_set_on_change(uintptr_t treePtr, uintptr_t callbackId, char** 
         }
         target.callbackId = callbackId;
         return 1;
+    }
+}
+
+static NSString* basl_gui_menu_title(NSMenu* menu) {
+    id titleObj = objc_getAssociatedObject(menu, "basl_gui_menu_title");
+    if (titleObj != nil && [titleObj isKindOfClass:[NSString class]]) {
+        return (NSString*)titleObj;
+    }
+    return @"Menu";
+}
+
+static void basl_gui_menu_ensure_app_menu(NSMenu* menubar) {
+    if (menubar == nil) {
+        return;
+    }
+    NSInteger count = [menubar numberOfItems];
+    if (count > 0) {
+        NSMenuItem* first = [menubar itemAtIndex:0];
+        if (first != nil && [first submenu] != nil) {
+            return;
+        }
+    }
+
+    NSString* appName = [[NSProcessInfo processInfo] processName];
+    NSMenuItem* appItem = [[NSMenuItem alloc] initWithTitle:appName action:nil keyEquivalent:@""];
+    NSMenu* appMenu = [[NSMenu alloc] initWithTitle:appName];
+    NSString* quitTitle = [NSString stringWithFormat:@"Quit %@", appName];
+    NSMenuItem* quitItem = [[NSMenuItem alloc] initWithTitle:quitTitle action:@selector(terminate:) keyEquivalent:@"q"];
+    [appMenu addItem:quitItem];
+    [appItem setSubmenu:appMenu];
+    [menubar insertItem:appItem atIndex:0];
+}
+
+static void basl_gui_apply_allowed_extensions(NSSavePanel* panel, const char** extensions, int32_t extCount) {
+    if (panel == nil || extensions == NULL || extCount <= 0) {
+        return;
+    }
+    NSMutableArray* types = [NSMutableArray arrayWithCapacity:(NSUInteger)extCount];
+    for (int32_t i = 0; i < extCount; i++) {
+        const char* raw = extensions[i];
+        if (raw == NULL || raw[0] == '\0') {
+            continue;
+        }
+        NSString* ext = [NSString stringWithUTF8String:raw];
+        if (ext == nil) {
+            continue;
+        }
+        if ([ext hasPrefix:@"."]) {
+            ext = [ext substringFromIndex:1];
+        }
+        if ([ext length] > 0) {
+            [types addObject:ext];
+        }
+    }
+    if ([types count] > 0) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [panel setAllowedFileTypes:types];
+#pragma clang diagnostic pop
+    }
+}
+
+static BaslCanvasView* basl_gui_canvas_resolve(uintptr_t canvasPtr, char** errOut) {
+    NSView* view = (__bridge NSView*)((void*)canvasPtr);
+    if (view == nil || ![view isKindOfClass:[BaslCanvasView class]]) {
+        basl_gui_set_error(errOut, "invalid canvas handle");
+        return nil;
+    }
+    return (BaslCanvasView*)view;
+}
+
+uintptr_t basl_gui_menu_bar_new(char** errOut) {
+    @autoreleasepool {
+        NSMenu* menubar = [[NSMenu alloc] initWithTitle:@""];
+        if (menubar == nil) {
+            basl_gui_set_error(errOut, "failed to create menu bar");
+            return 0;
+        }
+        return (uintptr_t)(__bridge_retained void*)menubar;
+    }
+}
+
+int basl_gui_app_set_menu_bar(uintptr_t menuBarPtr, char** errOut) {
+    @autoreleasepool {
+        NSMenu* menubar = (__bridge NSMenu*)((void*)menuBarPtr);
+        NSApplication* app = [NSApplication sharedApplication];
+        if (menubar == nil || app == nil) {
+            basl_gui_set_error(errOut, "invalid menu bar handle");
+            return 0;
+        }
+        basl_gui_menu_ensure_app_menu(menubar);
+        [app setMainMenu:menubar];
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_menu_new(const char* title, char** errOut) {
+    @autoreleasepool {
+        NSMenu* menu = [[NSMenu alloc] initWithTitle:[NSString stringWithUTF8String:(title != NULL ? title : "Menu")]];
+        if (menu == nil) {
+            basl_gui_set_error(errOut, "failed to create menu");
+            return 0;
+        }
+        objc_setAssociatedObject(menu, "basl_gui_menu_title", [NSString stringWithUTF8String:(title != NULL ? title : "Menu")], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return (uintptr_t)(__bridge_retained void*)menu;
+    }
+}
+
+int basl_gui_menu_bar_add_menu(uintptr_t menuBarPtr, uintptr_t menuPtr, char** errOut) {
+    @autoreleasepool {
+        NSMenu* menubar = (__bridge NSMenu*)((void*)menuBarPtr);
+        NSMenu* menu = (__bridge NSMenu*)((void*)menuPtr);
+        if (menubar == nil || menu == nil) {
+            basl_gui_set_error(errOut, "invalid menu bar or menu handle");
+            return 0;
+        }
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:basl_gui_menu_title(menu) action:nil keyEquivalent:@""];
+        [item setSubmenu:menu];
+        [menubar addItem:item];
+        return 1;
+    }
+}
+
+int basl_gui_menu_add_item(uintptr_t menuPtr, const char* title, uintptr_t callbackId, char** errOut) {
+    @autoreleasepool {
+        NSMenu* menu = (__bridge NSMenu*)((void*)menuPtr);
+        if (menu == nil) {
+            basl_gui_set_error(errOut, "invalid menu handle");
+            return 0;
+        }
+        BaslMenuItemTarget* target = [[BaslMenuItemTarget alloc] init];
+        if (target == nil) {
+            basl_gui_set_error(errOut, "failed to allocate menu callback target");
+            return 0;
+        }
+        target.callbackId = callbackId;
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:(title != NULL ? title : "Item")] action:@selector(onAction:) keyEquivalent:@""];
+        [item setTarget:target];
+        objc_setAssociatedObject(item, "basl_gui_menu_item_target", target, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [menu addItem:item];
+        return 1;
+    }
+}
+
+int basl_gui_menu_add_separator(uintptr_t menuPtr, char** errOut) {
+    @autoreleasepool {
+        NSMenu* menu = (__bridge NSMenu*)((void*)menuPtr);
+        if (menu == nil) {
+            basl_gui_set_error(errOut, "invalid menu handle");
+            return 0;
+        }
+        [menu addItem:[NSMenuItem separatorItem]];
+        return 1;
+    }
+}
+
+int basl_gui_menu_add_submenu(uintptr_t menuPtr, uintptr_t subMenuPtr, char** errOut) {
+    @autoreleasepool {
+        NSMenu* menu = (__bridge NSMenu*)((void*)menuPtr);
+        NSMenu* subMenu = (__bridge NSMenu*)((void*)subMenuPtr);
+        if (menu == nil || subMenu == nil) {
+            basl_gui_set_error(errOut, "invalid menu or submenu handle");
+            return 0;
+        }
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:basl_gui_menu_title(subMenu) action:nil keyEquivalent:@""];
+        [item setSubmenu:subMenu];
+        [menu addItem:item];
+        return 1;
+    }
+}
+
+uintptr_t basl_gui_canvas_new(int32_t width, int32_t height, char** errOut) {
+    @autoreleasepool {
+        if (width <= 0) {
+            width = 420;
+        }
+        if (height <= 0) {
+            height = 260;
+        }
+        BaslCanvasView* canvas = [[BaslCanvasView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+        if (canvas == nil) {
+            basl_gui_set_error(errOut, "failed to create canvas");
+            return 0;
+        }
+        return (uintptr_t)(__bridge_retained void*)canvas;
+    }
+}
+
+int basl_gui_canvas_clear(uintptr_t canvasPtr, char** errOut) {
+    @autoreleasepool {
+        BaslCanvasView* canvas = basl_gui_canvas_resolve(canvasPtr, errOut);
+        if (canvas == nil) {
+            return 0;
+        }
+        [canvas.commands removeAllObjects];
+        [canvas setNeedsDisplay:YES];
+        return 1;
+    }
+}
+
+int basl_gui_canvas_set_color(uintptr_t canvasPtr, double r, double g, double b, double a, char** errOut) {
+    @autoreleasepool {
+        BaslCanvasView* canvas = basl_gui_canvas_resolve(canvasPtr, errOut);
+        if (canvas == nil) {
+            return 0;
+        }
+        if (r < 0) r = 0;
+        if (g < 0) g = 0;
+        if (b < 0) b = 0;
+        if (a < 0) a = 0;
+        if (r > 1) r = 1;
+        if (g > 1) g = 1;
+        if (b > 1) b = 1;
+        if (a > 1) a = 1;
+        canvas.currentColor = [NSColor colorWithCalibratedRed:r green:g blue:b alpha:a];
+        return 1;
+    }
+}
+
+int basl_gui_canvas_line(uintptr_t canvasPtr, double x1, double y1, double x2, double y2, double width, char** errOut) {
+    @autoreleasepool {
+        BaslCanvasView* canvas = basl_gui_canvas_resolve(canvasPtr, errOut);
+        if (canvas == nil) {
+            return 0;
+        }
+        if (width <= 0.0) {
+            width = 1.0;
+        }
+        NSDictionary* command = @{
+            @"kind": @"line",
+            @"x1": @(x1),
+            @"y1": @(y1),
+            @"x2": @(x2),
+            @"y2": @(y2),
+            @"width": @(width),
+            @"color": canvas.currentColor
+        };
+        [canvas.commands addObject:command];
+        [canvas setNeedsDisplay:YES];
+        return 1;
+    }
+}
+
+int basl_gui_canvas_rect(uintptr_t canvasPtr, double x, double y, double w, double h, int fill, double lineWidth, double cornerRadius, char** errOut) {
+    @autoreleasepool {
+        BaslCanvasView* canvas = basl_gui_canvas_resolve(canvasPtr, errOut);
+        if (canvas == nil) {
+            return 0;
+        }
+        if (w <= 0 || h <= 0) {
+            basl_gui_set_error(errOut, "canvas rect width/height must be > 0");
+            return 0;
+        }
+        if (lineWidth <= 0.0) {
+            lineWidth = 1.0;
+        }
+        if (cornerRadius < 0.0) {
+            cornerRadius = 0.0;
+        }
+        NSDictionary* command = @{
+            @"kind": @"rect",
+            @"x": @(x),
+            @"y": @(y),
+            @"w": @(w),
+            @"h": @(h),
+            @"fill": @((fill != 0) ? YES : NO),
+            @"line_width": @(lineWidth),
+            @"corner_radius": @(cornerRadius),
+            @"color": canvas.currentColor
+        };
+        [canvas.commands addObject:command];
+        [canvas setNeedsDisplay:YES];
+        return 1;
+    }
+}
+
+int basl_gui_canvas_circle(uintptr_t canvasPtr, double x, double y, double radius, int fill, double lineWidth, char** errOut) {
+    @autoreleasepool {
+        BaslCanvasView* canvas = basl_gui_canvas_resolve(canvasPtr, errOut);
+        if (canvas == nil) {
+            return 0;
+        }
+        if (radius <= 0.0) {
+            basl_gui_set_error(errOut, "canvas circle radius must be > 0");
+            return 0;
+        }
+        if (lineWidth <= 0.0) {
+            lineWidth = 1.0;
+        }
+        NSDictionary* command = @{
+            @"kind": @"circle",
+            @"x": @(x),
+            @"y": @(y),
+            @"radius": @(radius),
+            @"fill": @((fill != 0) ? YES : NO),
+            @"line_width": @(lineWidth),
+            @"color": canvas.currentColor
+        };
+        [canvas.commands addObject:command];
+        [canvas setNeedsDisplay:YES];
+        return 1;
+    }
+}
+
+int basl_gui_canvas_text(uintptr_t canvasPtr, double x, double y, const char* text, double size, char** errOut) {
+    @autoreleasepool {
+        BaslCanvasView* canvas = basl_gui_canvas_resolve(canvasPtr, errOut);
+        if (canvas == nil) {
+            return 0;
+        }
+        if (size <= 0.0) {
+            size = 12.0;
+        }
+        NSDictionary* command = @{
+            @"kind": @"text",
+            @"x": @(x),
+            @"y": @(y),
+            @"text": [NSString stringWithUTF8String:(text != NULL ? text : "")],
+            @"size": @(size),
+            @"color": canvas.currentColor
+        };
+        [canvas.commands addObject:command];
+        [canvas setNeedsDisplay:YES];
+        return 1;
+    }
+}
+
+char* basl_gui_dialog_open_file(const char* title, const char* directory, const char** extensions, int32_t extCount, char** errOut) {
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        if (panel == nil) {
+            basl_gui_set_error(errOut, "failed to create open file dialog");
+            return NULL;
+        }
+        [panel setCanChooseFiles:YES];
+        [panel setCanChooseDirectories:NO];
+        [panel setAllowsMultipleSelection:NO];
+        [panel setTitle:[NSString stringWithUTF8String:(title != NULL ? title : "Open File")]];
+        if (directory != NULL && directory[0] != '\0') {
+            [panel setDirectoryURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:directory]]];
+        }
+        basl_gui_apply_allowed_extensions(panel, extensions, extCount);
+        NSModalResponse response = [panel runModal];
+        if (response != NSModalResponseOK) {
+            return basl_gui_strdup("");
+        }
+        NSURL* url = [[panel URLs] firstObject];
+        if (url == nil) {
+            return basl_gui_strdup("");
+        }
+        return basl_gui_strdup([[[url path] description] UTF8String]);
+    }
+}
+
+char* basl_gui_dialog_save_file(const char* title, const char* directory, const char* fileName, const char** extensions, int32_t extCount, char** errOut) {
+    @autoreleasepool {
+        NSSavePanel* panel = [NSSavePanel savePanel];
+        if (panel == nil) {
+            basl_gui_set_error(errOut, "failed to create save file dialog");
+            return NULL;
+        }
+        [panel setTitle:[NSString stringWithUTF8String:(title != NULL ? title : "Save File")]];
+        if (directory != NULL && directory[0] != '\0') {
+            [panel setDirectoryURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:directory]]];
+        }
+        if (fileName != NULL && fileName[0] != '\0') {
+            [panel setNameFieldStringValue:[NSString stringWithUTF8String:fileName]];
+        }
+        basl_gui_apply_allowed_extensions(panel, extensions, extCount);
+        NSModalResponse response = [panel runModal];
+        if (response != NSModalResponseOK) {
+            return basl_gui_strdup("");
+        }
+        NSURL* url = [panel URL];
+        if (url == nil) {
+            return basl_gui_strdup("");
+        }
+        return basl_gui_strdup([[[url path] description] UTF8String]);
+    }
+}
+
+char* basl_gui_dialog_open_directory(const char* title, const char* directory, char** errOut) {
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        if (panel == nil) {
+            basl_gui_set_error(errOut, "failed to create open directory dialog");
+            return NULL;
+        }
+        [panel setCanChooseFiles:NO];
+        [panel setCanChooseDirectories:YES];
+        [panel setAllowsMultipleSelection:NO];
+        [panel setTitle:[NSString stringWithUTF8String:(title != NULL ? title : "Open Directory")]];
+        if (directory != NULL && directory[0] != '\0') {
+            [panel setDirectoryURL:[NSURL fileURLWithPath:[NSString stringWithUTF8String:directory]]];
+        }
+        NSModalResponse response = [panel runModal];
+        if (response != NSModalResponseOK) {
+            return basl_gui_strdup("");
+        }
+        NSURL* url = [[panel URLs] firstObject];
+        if (url == nil) {
+            return basl_gui_strdup("");
+        }
+        return basl_gui_strdup([[[url path] description] UTF8String]);
+    }
+}
+
+static int basl_gui_dialog_alert_common(NSAlertStyle style, const char* title, const char* message, int confirmMode, int* outConfirmed, char** errOut) {
+    NSAlert* alert = [[NSAlert alloc] init];
+    if (alert == nil) {
+        basl_gui_set_error(errOut, "failed to create alert dialog");
+        return 0;
+    }
+    [alert setAlertStyle:style];
+    [alert setMessageText:[NSString stringWithUTF8String:(title != NULL ? title : "")]];
+    [alert setInformativeText:[NSString stringWithUTF8String:(message != NULL ? message : "")]];
+    if (confirmMode) {
+        [alert addButtonWithTitle:@"OK"];
+        [alert addButtonWithTitle:@"Cancel"];
+    } else {
+        [alert addButtonWithTitle:@"OK"];
+    }
+    NSModalResponse response = [alert runModal];
+    if (confirmMode && outConfirmed != NULL) {
+        *outConfirmed = (response == NSAlertFirstButtonReturn) ? 1 : 0;
+    }
+    return 1;
+}
+
+int basl_gui_dialog_info(const char* title, const char* message, char** errOut) {
+    @autoreleasepool {
+        return basl_gui_dialog_alert_common(NSAlertStyleInformational, title, message, 0, NULL, errOut);
+    }
+}
+
+int basl_gui_dialog_warn(const char* title, const char* message, char** errOut) {
+    @autoreleasepool {
+        return basl_gui_dialog_alert_common(NSAlertStyleWarning, title, message, 0, NULL, errOut);
+    }
+}
+
+int basl_gui_dialog_error(const char* title, const char* message, char** errOut) {
+    @autoreleasepool {
+        return basl_gui_dialog_alert_common(NSAlertStyleCritical, title, message, 0, NULL, errOut);
+    }
+}
+
+int basl_gui_dialog_confirm(const char* title, const char* message, int* outConfirmed, char** errOut) {
+    @autoreleasepool {
+        if (outConfirmed == NULL) {
+            basl_gui_set_error(errOut, "confirm dialog outConfirmed pointer is null");
+            return 0;
+        }
+        return basl_gui_dialog_alert_common(NSAlertStyleInformational, title, message, 1, outConfirmed, errOut);
     }
 }
 

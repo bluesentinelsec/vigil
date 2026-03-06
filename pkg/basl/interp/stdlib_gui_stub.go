@@ -358,6 +358,90 @@ func guiTreeSetOnChange(_ uintptr, _ uintptr) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }
 
+func guiMenuBarCreate() (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiAppSetMenuBar(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiMenuCreate(_ string) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiMenuBarAddMenu(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiMenuAddItem(_ uintptr, _ string, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiMenuAddSeparator(_ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiMenuAddSubMenu(_ uintptr, _ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasCreate(_ int32, _ int32) (uintptr, error) {
+	return 0, fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasClear(_ uintptr) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasSetColor(_ uintptr, _ float64, _ float64, _ float64, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasLine(_ uintptr, _ float64, _ float64, _ float64, _ float64, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasRect(_ uintptr, _ float64, _ float64, _ float64, _ float64, _ bool, _ float64, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasCircle(_ uintptr, _ float64, _ float64, _ float64, _ bool, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiCanvasText(_ uintptr, _ float64, _ float64, _ string, _ float64) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogOpenFile(_ string, _ string, _ []string) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogSaveFile(_ string, _ string, _ string, _ []string) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogOpenDirectory(_ string, _ string) (string, error) {
+	return "", fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogInfo(_ string, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogWarn(_ string, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogError(_ string, _ string) error {
+	return fmt.Errorf(guiUnsupportedMsg)
+}
+
+func guiDialogConfirm(_ string, _ string) (bool, error) {
+	return false, fmt.Errorf(guiUnsupportedMsg)
+}
+
 func guiWidgetSetSize(_ uintptr, _ int32, _ int32) error {
 	return fmt.Errorf(guiUnsupportedMsg)
 }

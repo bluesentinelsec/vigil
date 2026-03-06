@@ -718,6 +718,44 @@ fn main() -> i32 {
     err treeClearErr = tree.clear();
     err treeHookErr = tree.on_change(worker_ui);
 
+    gui.MenuBarOpts menuBarOpts = gui.menu_bar_opts();
+    gui.MenuBar menuBar, err menuBarErr = gui.menu_bar(menuBarOpts);
+    gui.MenuOpts fileMenuOpts = gui.menu_opts("File");
+    gui.Menu fileMenu, err fileMenuErr = gui.menu(fileMenuOpts);
+    err menuItemErr = fileMenu.add_item("Open", worker_ui);
+    err menuSepErr = fileMenu.add_separator();
+    gui.MenuOpts recentsOpts = gui.menu_opts("Recent");
+    gui.Menu recentMenu, err recentMenuErr = gui.menu(recentsOpts);
+    err recentItemErr = recentMenu.add_item("a.basl", worker_ui);
+    err menuSubErr = fileMenu.add_submenu(recentMenu);
+    err menuBarAddErr = menuBar.add_menu(fileMenu);
+    err setMenuBarErr = app.set_menu_bar(menuBar);
+
+    gui.CanvasOpts canvasOpts = gui.canvas_opts();
+    canvasOpts.width = 360;
+    canvasOpts.height = 220;
+    gui.Canvas canvas, err canvasErr = gui.canvas(canvasOpts);
+    err canvasColorErr = canvas.set_color(0.1, 0.2, 0.9, 1.0);
+    err canvasLineErr = canvas.line(10.0, 10.0, 140.0, 70.0, 2.0);
+    err canvasRectErr = canvas.rect(22.0, 40.0, 120.0, 60.0, false, 2.0, 8.0);
+    err canvasCircleErr = canvas.circle(190.0, 86.0, 32.0, true, 1.0);
+    err canvasTextErr = canvas.text(18.0, 130.0, "Canvas", 14.0);
+    err canvasClearErr = canvas.clear();
+
+    gui.FileDialogOpts fileDialog = gui.file_dialog_opts("Open file");
+    fileDialog.directory = ".";
+    fileDialog.file_name = "out.txt";
+    fileDialog.extensions = ["basl", "txt"];
+    string openPath, err openErr = gui.open_file(fileDialog);
+    string savePath, err saveErr = gui.save_file(fileDialog);
+    string dirPath, err dirErr = gui.open_directory(fileDialog);
+
+    gui.MessageOpts msgOpts = gui.message_opts("Done", "Build complete");
+    err infoErr = gui.info(msgOpts);
+    err warnErr = gui.warn(msgOpts);
+    err dialogErr = gui.error(msgOpts);
+    bool confirmed, err confirmErr = gui.confirm(msgOpts);
+
     err showErr = win.show();
     err closeGuiErr = win.close();
     err quitErr = app.quit();

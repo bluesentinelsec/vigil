@@ -1642,6 +1642,9 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiPaned := &ast.TypeExpr{Name: "gui.Paned"}
 	typGuiList := &ast.TypeExpr{Name: "gui.List"}
 	typGuiTree := &ast.TypeExpr{Name: "gui.Tree"}
+	typGuiMenuBar := &ast.TypeExpr{Name: "gui.MenuBar"}
+	typGuiMenu := &ast.TypeExpr{Name: "gui.Menu"}
+	typGuiCanvas := &ast.TypeExpr{Name: "gui.Canvas"}
 	typGuiAppOpts := &ast.TypeExpr{Name: "gui.AppOpts"}
 	typGuiWindowOpts := &ast.TypeExpr{Name: "gui.WindowOpts"}
 	typGuiBoxOpts := &ast.TypeExpr{Name: "gui.BoxOpts"}
@@ -1664,6 +1667,11 @@ func newBuiltinModule(name string) *moduleInfo {
 	typGuiPanedOpts := &ast.TypeExpr{Name: "gui.PanedOpts"}
 	typGuiListOpts := &ast.TypeExpr{Name: "gui.ListOpts"}
 	typGuiTreeOpts := &ast.TypeExpr{Name: "gui.TreeOpts"}
+	typGuiMenuBarOpts := &ast.TypeExpr{Name: "gui.MenuBarOpts"}
+	typGuiMenuOpts := &ast.TypeExpr{Name: "gui.MenuOpts"}
+	typGuiCanvasOpts := &ast.TypeExpr{Name: "gui.CanvasOpts"}
+	typGuiFileDialogOpts := &ast.TypeExpr{Name: "gui.FileDialogOpts"}
+	typGuiMessageOpts := &ast.TypeExpr{Name: "gui.MessageOpts"}
 	typRegex := &ast.TypeExpr{Name: "regex.Regex"}
 	typArgParser := &ast.TypeExpr{Name: "args.ArgParser"}
 	typArgsResult := &ast.TypeExpr{Name: "args.Result"}
@@ -1813,6 +1821,11 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("paned_opts", singleReturnType(typGuiPanedOpts))
 		addFn("list_opts", singleReturnType(typGuiListOpts))
 		addFn("tree_opts", singleReturnType(typGuiTreeOpts))
+		addFn("menu_bar_opts", singleReturnType(typGuiMenuBarOpts))
+		addFn("menu_opts", singleReturnType(typGuiMenuOpts), typString)
+		addFn("canvas_opts", singleReturnType(typGuiCanvasOpts))
+		addFn("file_dialog_opts", singleReturnType(typGuiFileDialogOpts), typString)
+		addFn("message_opts", singleReturnType(typGuiMessageOpts), typString, typString)
 		addFn("app", []*ast.TypeExpr{typGuiApp, typErr}, typGuiAppOpts)
 		addFn("box", []*ast.TypeExpr{typGuiBox, typErr}, typGuiBoxOpts)
 		addFn("grid", []*ast.TypeExpr{typGuiGrid, typErr}, typGuiGridOpts)
@@ -1835,13 +1848,24 @@ func newBuiltinModule(name string) *moduleInfo {
 		addFn("paned", []*ast.TypeExpr{typGuiPaned, typErr}, typGuiPanedOpts)
 		addFn("list", []*ast.TypeExpr{typGuiList, typErr}, typGuiListOpts)
 		addFn("tree", []*ast.TypeExpr{typGuiTree, typErr}, typGuiTreeOpts)
+		addFn("menu_bar", []*ast.TypeExpr{typGuiMenuBar, typErr}, typGuiMenuBarOpts)
+		addFn("menu", []*ast.TypeExpr{typGuiMenu, typErr}, typGuiMenuOpts)
+		addFn("canvas", []*ast.TypeExpr{typGuiCanvas, typErr}, typGuiCanvasOpts)
+		addFn("open_file", []*ast.TypeExpr{typString, typErr}, typGuiFileDialogOpts)
+		addFn("save_file", []*ast.TypeExpr{typString, typErr}, typGuiFileDialogOpts)
+		addFn("open_directory", []*ast.TypeExpr{typString, typErr}, typGuiFileDialogOpts)
+		addFn("info", singleReturnType(typErr), typGuiMessageOpts)
+		addFn("warn", singleReturnType(typErr), typGuiMessageOpts)
+		addFn("error", singleReturnType(typErr), typGuiMessageOpts)
+		addFn("confirm", []*ast.TypeExpr{typBool, typErr}, typGuiMessageOpts)
 
 		addClass(&classInfo{
 			name: "gui.App",
 			methods: map[string]*funcSig{
-				"window": {name: "window", params: []*ast.TypeExpr{typGuiWindowOpts}, ret: []*ast.TypeExpr{typGuiWindow, typErr}},
-				"run":    {name: "run", ret: []*ast.TypeExpr{typErr}},
-				"quit":   {name: "quit", ret: []*ast.TypeExpr{typErr}},
+				"window":       {name: "window", params: []*ast.TypeExpr{typGuiWindowOpts}, ret: []*ast.TypeExpr{typGuiWindow, typErr}},
+				"run":          {name: "run", ret: []*ast.TypeExpr{typErr}},
+				"quit":         {name: "quit", ret: []*ast.TypeExpr{typErr}},
+				"set_menu_bar": {name: "set_menu_bar", params: []*ast.TypeExpr{typGuiMenuBar}, ret: []*ast.TypeExpr{typErr}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
 		})
@@ -2047,6 +2071,44 @@ func newBuiltinModule(name string) *moduleInfo {
 			methods: make(map[string]*funcSig),
 		})
 		addClass(&classInfo{
+			name:    "gui.MenuBarOpts",
+			fields:  map[string]*ast.TypeExpr{},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.MenuOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.CanvasOpts",
+			fields: map[string]*ast.TypeExpr{
+				"width":  typI32,
+				"height": typI32,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.FileDialogOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":      typString,
+				"directory":  typString,
+				"file_name":  typString,
+				"extensions": typArrayString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
+			name: "gui.MessageOpts",
+			fields: map[string]*ast.TypeExpr{
+				"title":   typString,
+				"message": typString,
+			},
+			methods: make(map[string]*funcSig),
+		})
+		addClass(&classInfo{
 			name: "gui.Window",
 			methods: map[string]*funcSig{
 				"set_child": {name: "set_child", params: []*ast.TypeExpr{nil}, ret: []*ast.TypeExpr{typErr}},
@@ -2223,6 +2285,34 @@ func newBuiltinModule(name string) *moduleInfo {
 				"selected_text":   {name: "selected_text", ret: []*ast.TypeExpr{typString, typErr}},
 				"clear":           {name: "clear", ret: []*ast.TypeExpr{typErr}},
 				"on_change":       {name: "on_change", params: []*ast.TypeExpr{typFn}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.MenuBar",
+			methods: map[string]*funcSig{
+				"add_menu": {name: "add_menu", params: []*ast.TypeExpr{typGuiMenu}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Menu",
+			methods: map[string]*funcSig{
+				"add_item":      {name: "add_item", params: []*ast.TypeExpr{typString, typFn}, ret: []*ast.TypeExpr{typErr}},
+				"add_separator": {name: "add_separator", ret: []*ast.TypeExpr{typErr}},
+				"add_submenu":   {name: "add_submenu", params: []*ast.TypeExpr{typGuiMenu}, ret: []*ast.TypeExpr{typErr}},
+			},
+			fields: make(map[string]*ast.TypeExpr),
+		})
+		addClass(&classInfo{
+			name: "gui.Canvas",
+			methods: map[string]*funcSig{
+				"clear":     {name: "clear", ret: []*ast.TypeExpr{typErr}},
+				"set_color": {name: "set_color", params: []*ast.TypeExpr{typF64, typF64, typF64, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"line":      {name: "line", params: []*ast.TypeExpr{typF64, typF64, typF64, typF64, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"rect":      {name: "rect", params: []*ast.TypeExpr{typF64, typF64, typF64, typF64, typBool, typF64, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"circle":    {name: "circle", params: []*ast.TypeExpr{typF64, typF64, typF64, typBool, typF64}, ret: []*ast.TypeExpr{typErr}},
+				"text":      {name: "text", params: []*ast.TypeExpr{typF64, typF64, typString, typF64}, ret: []*ast.TypeExpr{typErr}},
 			},
 			fields: make(map[string]*ast.TypeExpr),
 		})
