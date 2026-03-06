@@ -50,6 +50,12 @@ Implemented:
 - Message dialogs
 - `Canvas` (native drawing surface)
 
+### Phase 5 (API freeze, completed)
+
+- Freeze `v0.1.3` `gui` public API surface for cross-platform backend onboarding.
+- Add explicit contract doc: [gui-api-freeze-v0.1.3.md](./gui-api-freeze-v0.1.3.md).
+- Add checker snapshot coverage to catch accidental API drift in CI.
+
 ## Platform Strategy
 
 - macOS: Cocoa backend (current reference implementation)

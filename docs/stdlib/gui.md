@@ -7,6 +7,7 @@ Current backend support:
 - other platforms currently return explicit `err.state` for constructor/runtime calls
 
 Roadmap: see [gui-roadmap.md](./gui-roadmap.md) for Tk parity phases.
+API stability contract for this release: [gui-api-freeze-v0.1.3.md](./gui-api-freeze-v0.1.3.md).
 
 ```c
 import "gui";
