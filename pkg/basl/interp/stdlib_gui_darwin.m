@@ -2250,6 +2250,21 @@ static BaslCanvasView* basl_gui_canvas_resolve(uintptr_t canvasPtr, char** errOu
     return (BaslCanvasView*)view;
 }
 
+static int basl_gui_canvas_append_command(BaslCanvasView* canvas, NSDictionary* command, char** errOut) {
+    if (canvas == nil || command == nil) {
+        basl_gui_set_error(errOut, "invalid canvas command");
+        return 0;
+    }
+    const NSUInteger maxCommands = 20000;
+    if ([canvas.commands count] >= maxCommands) {
+        basl_gui_set_error(errOut, "canvas command limit reached; call canvas.clear()");
+        return 0;
+    }
+    [canvas.commands addObject:command];
+    [canvas setNeedsDisplay:YES];
+    return 1;
+}
+
 uintptr_t basl_gui_menu_bar_new(char** errOut) {
     @autoreleasepool {
         NSMenu* menubar = [[NSMenu alloc] initWithTitle:@""];
@@ -2261,12 +2276,12 @@ uintptr_t basl_gui_menu_bar_new(char** errOut) {
     }
 }
 
-int basl_gui_app_set_menu_bar(uintptr_t menuBarPtr, char** errOut) {
+int basl_gui_app_set_menu_bar(uintptr_t appPtr, uintptr_t menuBarPtr, char** errOut) {
     @autoreleasepool {
+        NSApplication* app = (__bridge NSApplication*)((void*)appPtr);
         NSMenu* menubar = (__bridge NSMenu*)((void*)menuBarPtr);
-        NSApplication* app = [NSApplication sharedApplication];
         if (menubar == nil || app == nil) {
-            basl_gui_set_error(errOut, "invalid menu bar handle");
+            basl_gui_set_error(errOut, "invalid app or menu bar handle");
             return 0;
         }
         basl_gui_menu_ensure_app_menu(menubar);
@@ -2416,9 +2431,7 @@ int basl_gui_canvas_line(uintptr_t canvasPtr, double x1, double y1, double x2, d
             @"width": @(width),
             @"color": canvas.currentColor
         };
-        [canvas.commands addObject:command];
-        [canvas setNeedsDisplay:YES];
-        return 1;
+        return basl_gui_canvas_append_command(canvas, command, errOut);
     }
 }
 
@@ -2449,9 +2462,7 @@ int basl_gui_canvas_rect(uintptr_t canvasPtr, double x, double y, double w, doub
             @"corner_radius": @(cornerRadius),
             @"color": canvas.currentColor
         };
-        [canvas.commands addObject:command];
-        [canvas setNeedsDisplay:YES];
-        return 1;
+        return basl_gui_canvas_append_command(canvas, command, errOut);
     }
 }
 
@@ -2477,9 +2488,7 @@ int basl_gui_canvas_circle(uintptr_t canvasPtr, double x, double y, double radiu
             @"line_width": @(lineWidth),
             @"color": canvas.currentColor
         };
-        [canvas.commands addObject:command];
-        [canvas setNeedsDisplay:YES];
-        return 1;
+        return basl_gui_canvas_append_command(canvas, command, errOut);
     }
 }
 
@@ -2500,9 +2509,7 @@ int basl_gui_canvas_text(uintptr_t canvasPtr, double x, double y, const char* te
             @"size": @(size),
             @"color": canvas.currentColor
         };
-        [canvas.commands addObject:command];
-        [canvas setNeedsDisplay:YES];
-        return 1;
+        return basl_gui_canvas_append_command(canvas, command, errOut);
     }
 }
 

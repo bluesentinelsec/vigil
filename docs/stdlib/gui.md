@@ -106,6 +106,9 @@ Returns backend name:
 ### gui.error(gui.MessageOpts opts) -> err
 ### gui.confirm(gui.MessageOpts opts) -> (bool confirmed, err)
 
+Dialog cancel behavior:
+- `open_file`, `save_file`, and `open_directory` return `""` path with `err == ok` when cancelled.
+
 ## Option Types
 
 ### gui.AppOpts
@@ -267,6 +270,8 @@ Reserved for app-level configuration.
 | `vertical` | `bool` | `false` |
 | `ratio` | `f64` | `0.5` |
 | `on_change` | `fn` | unset |
+
+`vertical = true` means top/bottom split. `vertical = false` means left/right split.
 
 ### gui.ListOpts
 
@@ -433,3 +438,7 @@ Tree nodes are addressed by explicit `node_id` values returned from `add_root` /
 ### canvas.rect(f64 x, f64 y, f64 w, f64 h, bool fill, f64 line_width, f64 corner_radius) -> err
 ### canvas.circle(f64 x, f64 y, f64 radius, bool fill, f64 line_width) -> err
 ### canvas.text(f64 x, f64 y, string text, f64 size) -> err
+
+Canvas command safety:
+- Drawing commands accumulate until `canvas.clear()`.
+- For long-running redraw loops, call `canvas.clear()` periodically.

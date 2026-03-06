@@ -95,7 +95,7 @@ char* basl_gui_tree_selected_text(uintptr_t treePtr, char** errOut);
 int basl_gui_tree_clear(uintptr_t treePtr, char** errOut);
 int basl_gui_tree_set_on_change(uintptr_t treePtr, uintptr_t callbackId, char** errOut);
 uintptr_t basl_gui_menu_bar_new(char** errOut);
-int basl_gui_app_set_menu_bar(uintptr_t menuBarPtr, char** errOut);
+int basl_gui_app_set_menu_bar(uintptr_t appPtr, uintptr_t menuBarPtr, char** errOut);
 uintptr_t basl_gui_menu_new(const char* title, char** errOut);
 int basl_gui_menu_bar_add_menu(uintptr_t menuBarPtr, uintptr_t menuPtr, char** errOut);
 int basl_gui_menu_add_item(uintptr_t menuPtr, const char* title, uintptr_t callbackId, char** errOut);
@@ -1102,9 +1102,9 @@ func guiMenuBarCreate() (uintptr, error) {
 	return uintptr(handle), nil
 }
 
-func guiAppSetMenuBar(_ uintptr, menuBarHandle uintptr) error {
+func guiAppSetMenuBar(appHandle uintptr, menuBarHandle uintptr) error {
 	var errOut *C.char
-	ok := C.basl_gui_app_set_menu_bar(C.uintptr_t(menuBarHandle), &errOut)
+	ok := C.basl_gui_app_set_menu_bar(C.uintptr_t(appHandle), C.uintptr_t(menuBarHandle), &errOut)
 	if ok == 0 {
 		return guiErr(errOut)
 	}
