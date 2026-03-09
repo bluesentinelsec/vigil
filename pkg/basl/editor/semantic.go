@@ -38,6 +38,12 @@ type DocumentHighlight struct {
 	Kind     string   `json:"kind,omitempty"`
 }
 
+type SemanticToken struct {
+	Location  Location `json:"location"`
+	Type      string   `json:"type"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
 type CompletionItem struct {
 	Label         string `json:"label"`
 	Kind          string `json:"kind"`
@@ -126,11 +132,19 @@ type symbolDef struct {
 	renameable bool
 	ownerFile  *fileModel
 	explicit   bool
+	container  symbolKind
+	parentName string
 }
 
 type classInfo struct {
+	symbol     *symbolDef
+	fields     map[string]*symbolDef
+	methods    map[string]*symbolDef
+	implements []string
+}
+
+type ifaceInfo struct {
 	symbol  *symbolDef
-	fields  map[string]*symbolDef
 	methods map[string]*symbolDef
 }
 
@@ -179,6 +193,7 @@ type fileModel struct {
 	imports       map[string]*symbolDef
 	importTargets map[string]*fileModel
 	classes       map[string]*classInfo
+	ifaces        map[string]*ifaceInfo
 	topLevel      map[string]*symbolDef
 	occurrences   []occurrence
 	tokenPos      int
@@ -226,6 +241,37 @@ func DefinitionWithOptions(path string, pos Position, opts Options) (*Location, 
 		return nil, nil
 	}
 	return occ.symbol.location, nil
+}
+
+func Declaration(path string, pos Position, extraSearchPaths []string) (*Location, error) {
+	return DeclarationWithOptions(path, pos, Options{SearchPaths: extraSearchPaths})
+}
+
+func DeclarationWithOptions(path string, pos Position, opts Options) (*Location, error) {
+	return DefinitionWithOptions(path, pos, opts)
+}
+
+func Implementations(path string, pos Position, extraSearchPaths []string) ([]Location, error) {
+	return ImplementationsWithOptions(path, pos, Options{SearchPaths: extraSearchPaths})
+}
+
+func ImplementationsWithOptions(path string, pos Position, opts Options) ([]Location, error) {
+	a, file, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	occ := file.occurrenceAt(pos)
+	if occ == nil || occ.symbol == nil {
+		return nil, nil
+	}
+	switch {
+	case occ.symbol.kind == kindIface:
+		return dedupeLocations(interfaceImplementationLocations(a, occ.symbol.name)), nil
+	case occ.symbol.kind == kindMethod && occ.symbol.container == kindIface:
+		return dedupeLocations(interfaceMethodImplementationLocations(a, occ.symbol.parentName, occ.symbol.name)), nil
+	default:
+		return nil, nil
+	}
 }
 
 func HoverAt(path string, pos Position, extraSearchPaths []string) (*Hover, error) {
@@ -424,6 +470,29 @@ func WorkspaceSymbolsWithOptions(path string, query string, opts Options) ([]Sym
 	return dedupeSymbolItems(out), nil
 }
 
+func SemanticTokens(path string, extraSearchPaths []string) ([]SemanticToken, error) {
+	return SemanticTokensWithOptions(path, Options{SearchPaths: extraSearchPaths})
+}
+
+func SemanticTokensWithOptions(path string, opts Options) ([]SemanticToken, error) {
+	_, file, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	lexed, err := lexer.New(file.src).TokenizeWithComments()
+	if err != nil {
+		return nil, err
+	}
+	collector := newSemanticTokenCollector()
+	for _, tok := range lexed {
+		collector.addLexerToken(file.path, tok)
+	}
+	for _, occ := range file.occurrences {
+		collector.addOccurrence(occ)
+	}
+	return collector.tokens(), nil
+}
+
 func documentSymbolsForFile(file *fileModel) []SymbolItem {
 	var out []SymbolItem
 	for _, decl := range file.prog.Decls {
@@ -465,14 +534,28 @@ func documentSymbolsForFile(file *fileModel) []SymbolItem {
 				})
 			}
 		case *ast.InterfaceDecl:
-			if sym := file.topLevel[d.Name]; sym != nil && sym.location != nil {
-				out = append(out, SymbolItem{
-					Name:     d.Name,
-					Detail:   sym.detail,
-					Kind:     string(sym.kind),
-					Location: *sym.location,
-				})
+			iface := file.ifaces[d.Name]
+			if iface == nil || iface.symbol == nil || iface.symbol.location == nil {
+				continue
 			}
+			item := SymbolItem{
+				Name:     d.Name,
+				Detail:   iface.symbol.detail,
+				Kind:     string(iface.symbol.kind),
+				Location: *iface.symbol.location,
+			}
+			for _, method := range d.Methods {
+				if sym := iface.methods[method.Name]; sym != nil && sym.location != nil {
+					item.Children = append(item.Children, SymbolItem{
+						Name:          method.Name,
+						Detail:        sym.detail,
+						Kind:          string(sym.kind),
+						Location:      *sym.location,
+						ContainerName: d.Name,
+					})
+				}
+			}
+			out = append(out, item)
 		case *ast.ClassDecl:
 			class := file.classes[d.Name]
 			if class == nil || class.symbol == nil || class.symbol.location == nil {
@@ -521,6 +604,60 @@ func appendWorkspaceSymbolItems(out *[]SymbolItem, item SymbolItem, query string
 	for _, child := range item.Children {
 		appendWorkspaceSymbolItems(out, child, query)
 	}
+}
+
+func interfaceImplementationLocations(a *Analyzer, ifaceName string) []Location {
+	var out []Location
+	for _, file := range a.files {
+		for _, class := range file.classes {
+			if class.symbol == nil || class.symbol.location == nil {
+				continue
+			}
+			for _, implemented := range class.implements {
+				if interfaceNameMatches(implemented, ifaceName) {
+					out = append(out, *class.symbol.location)
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+func interfaceMethodImplementationLocations(a *Analyzer, ifaceName string, methodName string) []Location {
+	var out []Location
+	for _, file := range a.files {
+		for _, class := range file.classes {
+			if !classImplementsInterface(class, ifaceName) {
+				continue
+			}
+			method := class.methods[methodName]
+			if method == nil || method.location == nil {
+				continue
+			}
+			out = append(out, *method.location)
+		}
+	}
+	return out
+}
+
+func classImplementsInterface(class *classInfo, ifaceName string) bool {
+	if class == nil {
+		return false
+	}
+	for _, item := range class.implements {
+		if interfaceNameMatches(item, ifaceName) {
+			return true
+		}
+	}
+	return false
+}
+
+func interfaceNameMatches(candidate string, ifaceName string) bool {
+	if candidate == ifaceName {
+		return true
+	}
+	return strings.HasSuffix(candidate, "."+ifaceName)
 }
 
 func matchesWorkspaceSymbolQuery(item SymbolItem, query string) bool {
@@ -616,6 +753,7 @@ func (a *Analyzer) loadFile(path string) (*fileModel, error) {
 		imports:       make(map[string]*symbolDef),
 		importTargets: make(map[string]*fileModel),
 		classes:       make(map[string]*classInfo),
+		ifaces:        make(map[string]*ifaceInfo),
 		topLevel:      make(map[string]*symbolDef),
 	}
 	a.files[absPath] = file
@@ -757,6 +895,26 @@ func (f *fileModel) collectTopLevel() {
 				renameable: true,
 				ownerFile:  f,
 			}
+			iface := &ifaceInfo{
+				symbol:  sym,
+				methods: make(map[string]*symbolDef),
+			}
+			for _, method := range d.Methods {
+				methodSym := &symbolDef{
+					id:         fmt.Sprintf("%s:iface_method:%d:%s", f.path, method.Line, method.Name),
+					kind:       kindMethod,
+					name:       method.Name,
+					detail:     fnDetail(d.Name, method.Name, method.Params, method.Return),
+					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, ""),
+					location:   f.nextIdentLocation(method.Name, method.Line),
+					renameable: true,
+					ownerFile:  f,
+					container:  kindIface,
+					parentName: d.Name,
+				}
+				iface.methods[method.Name] = methodSym
+			}
+			f.ifaces[d.Name] = iface
 			f.topLevel[d.Name] = sym
 		case *ast.ClassDecl:
 			classSym := &symbolDef{
@@ -769,9 +927,10 @@ func (f *fileModel) collectTopLevel() {
 				ownerFile:  f,
 			}
 			class := &classInfo{
-				symbol:  classSym,
-				fields:  make(map[string]*symbolDef),
-				methods: make(map[string]*symbolDef),
+				symbol:     classSym,
+				fields:     make(map[string]*symbolDef),
+				methods:    make(map[string]*symbolDef),
+				implements: append([]string(nil), d.Implements...),
 			}
 			classSym.typ = typeInfo{kind: typeClassCtor, name: d.Name, class: class}
 			for _, field := range d.Fields {
@@ -784,6 +943,8 @@ func (f *fileModel) collectTopLevel() {
 					typ:        f.resolveType(field.Type),
 					renameable: true,
 					ownerFile:  f,
+					container:  kindClass,
+					parentName: d.Name,
 				}
 				class.fields[field.Name] = fieldSym
 			}
@@ -798,6 +959,8 @@ func (f *fileModel) collectTopLevel() {
 					typ:        callableTypeFromDecl(method),
 					renameable: method.Name != "init",
 					ownerFile:  f,
+					container:  kindClass,
+					parentName: d.Name,
 				}
 				class.methods[method.Name] = methodSym
 			}
@@ -832,6 +995,13 @@ func (f *fileModel) analyze() {
 			}
 		}
 		for _, method := range class.methods {
+			if method.location != nil {
+				f.addOccurrence(method, *method.location, true)
+			}
+		}
+	}
+	for _, iface := range f.ifaces {
+		for _, method := range iface.methods {
 			if method.location != nil {
 				f.addOccurrence(method, *method.location, true)
 			}
@@ -1596,6 +1766,186 @@ func tokenLocation(path string, tok lexer.Token) *Location {
 		Col:    tok.Col,
 		EndCol: tok.Col + len(tok.Literal) - 1,
 	}
+}
+
+type semanticTokenCollector struct {
+	items map[string]semanticTokenEntry
+}
+
+type semanticTokenEntry struct {
+	token    SemanticToken
+	priority int
+}
+
+func newSemanticTokenCollector() *semanticTokenCollector {
+	return &semanticTokenCollector{items: make(map[string]semanticTokenEntry)}
+}
+
+func (c *semanticTokenCollector) addLexerToken(path string, tok lexer.Token) {
+	tokenType := semanticTokenTypeForLexer(tok.Type)
+	if tokenType == "" || tok.Type == lexer.TOKEN_EOF {
+		return
+	}
+	loc := tokenLocation(path, tok)
+	if loc == nil {
+		return
+	}
+	c.add(SemanticToken{Location: *loc, Type: tokenType}, 1)
+}
+
+func (c *semanticTokenCollector) addOccurrence(occ occurrence) {
+	if occ.symbol == nil {
+		return
+	}
+	tokenType := semanticTokenTypeForSymbol(occ.symbol.kind)
+	if tokenType == "" {
+		return
+	}
+	var modifiers []string
+	if occ.isDecl {
+		modifiers = append(modifiers, "declaration")
+	}
+	if occ.symbol.kind == kindConstant {
+		modifiers = append(modifiers, "readonly")
+	}
+	if strings.HasPrefix(occ.symbol.id, "builtin:") || (occ.symbol.kind == kindImport && occ.symbol.typ.builtin != "") {
+		modifiers = append(modifiers, "defaultLibrary")
+	}
+	c.add(SemanticToken{
+		Location:  occ.location,
+		Type:      tokenType,
+		Modifiers: dedupeSemanticModifiers(modifiers),
+	}, 2)
+}
+
+func (c *semanticTokenCollector) add(token SemanticToken, priority int) {
+	if token.Location.Line <= 0 || token.Location.Col <= 0 || token.Location.EndCol < token.Location.Col {
+		return
+	}
+	key := fmt.Sprintf("%d:%d:%d", token.Location.Line, token.Location.Col, token.Location.EndCol)
+	existing, ok := c.items[key]
+	if ok {
+		if existing.priority > priority {
+			return
+		}
+		if existing.priority == priority && len(existing.token.Modifiers) >= len(token.Modifiers) {
+			return
+		}
+	}
+	c.items[key] = semanticTokenEntry{token: token, priority: priority}
+}
+
+func (c *semanticTokenCollector) tokens() []SemanticToken {
+	out := make([]SemanticToken, 0, len(c.items))
+	for _, item := range c.items {
+		out = append(out, item.token)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Location.Line != out[j].Location.Line {
+			return out[i].Location.Line < out[j].Location.Line
+		}
+		if out[i].Location.Col != out[j].Location.Col {
+			return out[i].Location.Col < out[j].Location.Col
+		}
+		if out[i].Location.EndCol != out[j].Location.EndCol {
+			return out[i].Location.EndCol < out[j].Location.EndCol
+		}
+		return out[i].Type < out[j].Type
+	})
+	return out
+}
+
+func semanticTokenTypeForLexer(tt lexer.TokenType) string {
+	switch tt {
+	case lexer.TOKEN_FN,
+		lexer.TOKEN_RETURN,
+		lexer.TOKEN_IF,
+		lexer.TOKEN_ELSE,
+		lexer.TOKEN_WHILE,
+		lexer.TOKEN_FOR,
+		lexer.TOKEN_BREAK,
+		lexer.TOKEN_CONTINUE,
+		lexer.TOKEN_CLASS,
+		lexer.TOKEN_PUB,
+		lexer.TOKEN_SELF,
+		lexer.TOKEN_IMPORT,
+		lexer.TOKEN_AS,
+		lexer.TOKEN_TRUE,
+		lexer.TOKEN_FALSE,
+		lexer.TOKEN_OK,
+		lexer.TOKEN_DEFER,
+		lexer.TOKEN_GUARD,
+		lexer.TOKEN_IN,
+		lexer.TOKEN_CONST,
+		lexer.TOKEN_ENUM,
+		lexer.TOKEN_SWITCH,
+		lexer.TOKEN_CASE,
+		lexer.TOKEN_DEFAULT,
+		lexer.TOKEN_INTERFACE,
+		lexer.TOKEN_IMPLEMENTS:
+		return "keyword"
+	case lexer.TOKEN_BOOL_TYPE,
+		lexer.TOKEN_I32,
+		lexer.TOKEN_I64,
+		lexer.TOKEN_F64,
+		lexer.TOKEN_U8,
+		lexer.TOKEN_U32,
+		lexer.TOKEN_U64,
+		lexer.TOKEN_STRING_TYPE,
+		lexer.TOKEN_VOID,
+		lexer.TOKEN_ERR,
+		lexer.TOKEN_ARRAY,
+		lexer.TOKEN_MAP:
+		return "type"
+	case lexer.TOKEN_INT, lexer.TOKEN_FLOAT:
+		return "number"
+	case lexer.TOKEN_LINE_COMMENT, lexer.TOKEN_BLOCK_COMMENT:
+		return "comment"
+	default:
+		return ""
+	}
+}
+
+func semanticTokenTypeForSymbol(kind symbolKind) string {
+	switch kind {
+	case kindImport, kindModule:
+		return "namespace"
+	case kindClass:
+		return "class"
+	case kindEnum:
+		return "enum"
+	case kindIface:
+		return "interface"
+	case kindField:
+		return "property"
+	case kindMethod:
+		return "method"
+	case kindFunction:
+		return "function"
+	case kindParameter:
+		return "parameter"
+	case kindVariable, kindConstant:
+		return "variable"
+	default:
+		return ""
+	}
+}
+
+func dedupeSemanticModifiers(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func isIdentifierish(tt lexer.TokenType) bool {

@@ -119,6 +119,26 @@ fn main() -> void {
 
 	send(t, clientConn, map[string]any{
 		"jsonrpc": "2.0",
+		"id":      21,
+		"method":  "textDocument/declaration",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "message();", false),
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "21")
+	var decl struct {
+		URI   string   `json:"uri"`
+		Range lspRange `json:"range"`
+	}
+	decodeResult(t, msg.Result, &decl)
+	if filepath.Base(mustURIPath(t, decl.URI)) != "helper.basl" {
+		t.Fatalf("declaration uri = %s, want helper.basl", decl.URI)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
 		"id":      3,
 		"method":  "textDocument/hover",
 		"params": map[string]any{
@@ -149,6 +169,35 @@ fn main() -> void {
 	decodeResult(t, msg.Result, &highlights)
 	if len(highlights) != 3 {
 		t.Fatalf("documentHighlight len = %d, want 3", len(highlights))
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      32,
+		"method":  "textDocument/semanticTokens/full",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "32")
+	var semanticTokens semanticTokensResult
+	decodeResult(t, msg.Result, &semanticTokens)
+	if len(semanticTokens.Data) == 0 || len(semanticTokens.Data)%5 != 0 {
+		t.Fatalf("semantic tokens = %#v, want non-empty 5-tuples", semanticTokens)
+	}
+	var sawClass bool
+	var sawKeyword bool
+	for i := 0; i < len(semanticTokens.Data); i += 5 {
+		switch semanticTokens.Data[i+3] {
+		case uint32(semanticTokenTypeIndex("class")):
+			sawClass = true
+		case uint32(semanticTokenTypeIndex("keyword")):
+			sawKeyword = true
+		}
+	}
+	if !sawClass || !sawKeyword {
+		t.Fatalf("semantic token data = %#v, want class and keyword entries", semanticTokens.Data)
 	}
 
 	send(t, clientConn, map[string]any{
@@ -299,6 +348,305 @@ func TestFileURIPathRoundTrip(t *testing.T) {
 	}
 	if filepath.Clean(got) != filepath.Clean(path) {
 		t.Fatalf("roundtrip path = %q, want %q (uri=%q)", got, path, uri)
+	}
+}
+
+func TestCodeActionQuickFixAddsMissingImport(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeTestFile(t, root, "main.basl", `
+fn main() -> void {
+    fmt.println("hi");
+}
+`)
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), serverConn, serverConn)
+	}()
+
+	reader := bufio.NewReader(clientConn)
+	rootURI := pathToURI(root)
+	mainURI := pathToURI(mainPath)
+	mainText, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(main) error = %v", err)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"rootUri": rootURI,
+			"workspaceFolders": []map[string]any{
+				{"uri": rootURI, "name": "demo"},
+			},
+		},
+	})
+	assertID(t, readOne(t, reader), "1")
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "initialized",
+		"params":  map[string]any{},
+	})
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didOpen",
+		"params": map[string]any{
+			"textDocument": map[string]any{
+				"uri":     mainURI,
+				"version": 1,
+				"text":    string(mainText),
+			},
+		},
+	})
+	_ = readOne(t, reader)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "textDocument/codeAction",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"range":        map[string]any{"start": map[string]any{"line": 1, "character": 4}, "end": map[string]any{"line": 1, "character": 7}},
+			"context": map[string]any{
+				"only": []string{"quickfix"},
+				"diagnostics": []map[string]any{{
+					"range":   map[string]any{"start": map[string]any{"line": 1, "character": 0}, "end": map[string]any{"line": 1, "character": 1}},
+					"message": `unknown identifier "fmt"`,
+					"source":  "basl",
+				}},
+			},
+		},
+	})
+	msg := readOne(t, reader)
+	assertID(t, msg, "2")
+	var codeActions []codeAction
+	decodeResult(t, msg.Result, &codeActions)
+	found := false
+	for _, item := range codeActions {
+		if item.Title != `Add import "fmt"` || item.Edit == nil {
+			continue
+		}
+		edits := item.Edit.Changes[mainURI]
+		if len(edits) == 1 && strings.Contains(edits[0].NewText, "import \"fmt\";") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("code actions = %#v, want Add import fmt quick fix", codeActions)
+	}
+
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
+	assertID(t, readOne(t, reader), "3")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	select {
+	case err := <-done:
+		if err != nil && err != io.EOF && err != context.Canceled {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not exit")
+	}
+}
+
+func TestCodeActionOrganizeImportsSortsImportBlock(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeTestFile(t, root, "main.basl", `
+import "helper";
+import "fmt";
+
+fn main() -> void {
+    fmt.println("hi");
+}
+`)
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), serverConn, serverConn)
+	}()
+
+	reader := bufio.NewReader(clientConn)
+	rootURI := pathToURI(root)
+	mainURI := pathToURI(mainPath)
+	mainText, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(main) error = %v", err)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"rootUri": rootURI,
+			"workspaceFolders": []map[string]any{
+				{"uri": rootURI, "name": "demo"},
+			},
+		},
+	})
+	assertID(t, readOne(t, reader), "1")
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "initialized",
+		"params":  map[string]any{},
+	})
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didOpen",
+		"params": map[string]any{
+			"textDocument": map[string]any{
+				"uri":     mainURI,
+				"version": 1,
+				"text":    string(mainText),
+			},
+		},
+	})
+	_ = readOne(t, reader)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "textDocument/codeAction",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"range":        map[string]any{"start": map[string]any{"line": 0, "character": 0}, "end": map[string]any{"line": 0, "character": 0}},
+			"context": map[string]any{
+				"only":        []string{"source.organizeImports"},
+				"diagnostics": []map[string]any{},
+			},
+		},
+	})
+	msg := readOne(t, reader)
+	assertID(t, msg, "2")
+	var codeActions []codeAction
+	decodeResult(t, msg.Result, &codeActions)
+	found := false
+	for _, item := range codeActions {
+		if item.Kind != "source.organizeImports" || item.Edit == nil {
+			continue
+		}
+		edits := item.Edit.Changes[mainURI]
+		if len(edits) == 1 && strings.Contains(edits[0].NewText, "import \"fmt\";\nimport \"helper\";\n") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("code actions = %#v, want organize imports action", codeActions)
+	}
+
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
+	assertID(t, readOne(t, reader), "3")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	select {
+	case err := <-done:
+		if err != nil && err != io.EOF && err != context.Canceled {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not exit")
+	}
+}
+
+func TestImplementationReturnsInterfaceImplementations(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeTestFile(t, root, "main.basl", `
+interface Greeter {
+    fn greet(string name) -> string;
+}
+
+class Person implements Greeter {
+    pub fn greet(string name) -> string {
+        return "hello " + name;
+    }
+}
+
+class Robot implements Greeter {
+    pub fn greet(string name) -> string {
+        return "beep " + name;
+    }
+}
+`)
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), serverConn, serverConn)
+	}()
+
+	reader := bufio.NewReader(clientConn)
+	rootURI := pathToURI(root)
+	mainURI := pathToURI(mainPath)
+	mainText, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(main) error = %v", err)
+	}
+	mainSrc := string(mainText)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"rootUri": rootURI,
+			"workspaceFolders": []map[string]any{
+				{"uri": rootURI, "name": "demo"},
+			},
+		},
+	})
+	assertID(t, readOne(t, reader), "1")
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "initialized",
+		"params":  map[string]any{},
+	})
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didOpen",
+		"params": map[string]any{
+			"textDocument": map[string]any{
+				"uri":     mainURI,
+				"version": 1,
+				"text":    string(mainText),
+			},
+		},
+	})
+	_ = readOne(t, reader)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "textDocument/implementation",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "Greeter {", false),
+		},
+	})
+	msg := readOne(t, reader)
+	assertID(t, msg, "2")
+	var impls []lspLocation
+	decodeResult(t, msg.Result, &impls)
+	if len(impls) != 2 {
+		t.Fatalf("implementations = %#v, want 2 class locations", impls)
+	}
+
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
+	assertID(t, readOne(t, reader), "3")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	select {
+	case err := <-done:
+		if err != nil && err != io.EOF && err != context.Canceled {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not exit")
 	}
 }
 

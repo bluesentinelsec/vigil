@@ -179,6 +179,25 @@ type workspaceEdit struct {
 	Changes map[string][]textEdit `json:"changes"`
 }
 
+type codeActionContext struct {
+	Diagnostics []diagnosticItem `json:"diagnostics,omitempty"`
+	Only        []string         `json:"only,omitempty"`
+}
+
+type codeActionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Range        lspRange               `json:"range"`
+	Context      codeActionContext      `json:"context"`
+}
+
+type codeAction struct {
+	Title       string           `json:"title"`
+	Kind        string           `json:"kind,omitempty"`
+	IsPreferred bool             `json:"isPreferred,omitempty"`
+	Diagnostics []diagnosticItem `json:"diagnostics,omitempty"`
+	Edit        *workspaceEdit   `json:"edit,omitempty"`
+}
+
 type prepareRenameResult struct {
 	Range       lspRange `json:"range"`
 	Placeholder string   `json:"placeholder,omitempty"`
@@ -198,6 +217,32 @@ type symbolInformation struct {
 	Kind          int         `json:"kind"`
 	Location      lspLocation `json:"location"`
 	ContainerName string      `json:"containerName,omitempty"`
+}
+
+type semanticTokensResult struct {
+	Data []uint32 `json:"data"`
+}
+
+var semanticTokenTypesLegend = []string{
+	"namespace",
+	"class",
+	"enum",
+	"interface",
+	"function",
+	"method",
+	"property",
+	"parameter",
+	"variable",
+	"type",
+	"keyword",
+	"comment",
+	"number",
+}
+
+var semanticTokenModifiersLegend = []string{
+	"declaration",
+	"readonly",
+	"defaultLibrary",
 }
 
 func NewServer(sender func(message) error) *Server {
@@ -256,6 +301,10 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleDidClose(msg.Params)
 	case "textDocument/definition":
 		return s.handleDefinition(msg)
+	case "textDocument/declaration":
+		return s.handleDeclaration(msg)
+	case "textDocument/implementation":
+		return s.handleImplementation(msg)
 	case "textDocument/hover":
 		return s.handleHover(msg)
 	case "textDocument/references":
@@ -274,6 +323,10 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleDocumentSymbol(msg)
 	case "workspace/symbol":
 		return s.handleWorkspaceSymbol(msg)
+	case "textDocument/semanticTokens/full":
+		return s.handleSemanticTokens(msg)
+	case "textDocument/codeAction":
+		return s.handleCodeAction(msg)
 	case "textDocument/formatting":
 		return s.handleFormatting(msg)
 	default:
@@ -307,6 +360,8 @@ func (s *Server) handleInitialize(msg message) error {
 		"capabilities": map[string]any{
 			"textDocumentSync":           1,
 			"definitionProvider":         true,
+			"declarationProvider":        true,
+			"implementationProvider":     true,
 			"hoverProvider":              true,
 			"referencesProvider":         true,
 			"documentHighlightProvider":  true,
@@ -314,6 +369,16 @@ func (s *Server) handleInitialize(msg message) error {
 			"documentSymbolProvider":     true,
 			"workspaceSymbolProvider":    true,
 			"documentFormattingProvider": true,
+			"codeActionProvider": map[string]any{
+				"codeActionKinds": []string{"quickfix", "source.organizeImports"},
+			},
+			"semanticTokensProvider": map[string]any{
+				"legend": map[string]any{
+					"tokenTypes":     semanticTokenTypesLegend,
+					"tokenModifiers": semanticTokenModifiersLegend,
+				},
+				"full": true,
+			},
 			"completionProvider": map[string]any{
 				"triggerCharacters": []string{"."},
 			},
@@ -410,6 +475,45 @@ func (s *Server) handleDefinition(msg message) error {
 		return s.reply(msg.ID, nil)
 	}
 	return s.reply(msg.ID, toLSPLocation(*loc))
+}
+
+func (s *Server) handleDeclaration(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, nil)
+	}
+	loc, err := basleditor.DeclarationWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	if loc == nil {
+		return s.reply(msg.ID, nil)
+	}
+	return s.reply(msg.ID, toLSPLocation(*loc))
+}
+
+func (s *Server) handleImplementation(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []lspLocation{})
+	}
+	locations, err := basleditor.ImplementationsWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]lspLocation, 0, len(locations))
+	for _, item := range locations {
+		out = append(out, toLSPLocation(item))
+	}
+	return s.reply(msg.ID, out)
 }
 
 func (s *Server) handleHover(msg message) error {
@@ -669,6 +773,84 @@ func (s *Server) handleWorkspaceSymbol(msg message) error {
 			Location:      toLSPLocation(item.Location),
 			ContainerName: item.ContainerName,
 		})
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleSemanticTokens(msg message) error {
+	var params struct {
+		TextDocument textDocumentIdentifier `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, semanticTokensResult{Data: []uint32{}})
+	}
+	items, err := basleditor.SemanticTokensWithOptions(path, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	return s.reply(msg.ID, semanticTokensResult{Data: encodeSemanticTokens(items)})
+}
+
+func (s *Server) handleCodeAction(msg message) error {
+	var params codeActionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []codeAction{})
+	}
+	diagMessages := make([]string, 0, len(params.Context.Diagnostics))
+	for _, item := range params.Context.Diagnostics {
+		diagMessages = append(diagMessages, item.Message)
+	}
+	actions, err := basleditor.CodeActionsWithOptions(path, diagMessages, params.Context.Only, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]codeAction, 0, len(actions))
+	for _, item := range actions {
+		action := codeAction{
+			Title:       item.Title,
+			Kind:        item.Kind,
+			IsPreferred: item.IsPreferred,
+		}
+		if len(item.Diagnostics) > 0 {
+			for _, message := range item.Diagnostics {
+				for _, diag := range params.Context.Diagnostics {
+					if diag.Message == message {
+						action.Diagnostics = append(action.Diagnostics, diag)
+					}
+				}
+			}
+		}
+		if len(item.Edits) > 0 {
+			edit := &workspaceEdit{Changes: make(map[string][]textEdit)}
+			for _, change := range item.Edits {
+				uri := pathToURI(change.Path)
+				rng := toLSPRange(basleditor.Location{
+					Path:   change.Path,
+					Line:   change.Line,
+					Col:    change.Col,
+					EndCol: change.EndCol,
+				})
+				if change.Line == 1 && change.Col == 1 && change.EndCol == 1 && strings.Contains(change.NewText, "\n") {
+					if original, err := s.documentTextForURI(uri); err == nil {
+						rng = fullDocumentRange(original)
+					}
+				}
+				edit.Changes[uri] = append(edit.Changes[uri], textEdit{
+					Range:   rng,
+					NewText: change.NewText,
+				})
+			}
+			action.Edit = edit
+		}
+		out = append(out, action)
 	}
 	return s.reply(msg.ID, out)
 }
@@ -981,6 +1163,66 @@ func documentHighlightKind(kind string) int {
 	default:
 		return 1
 	}
+}
+
+func encodeSemanticTokens(items []basleditor.SemanticToken) []uint32 {
+	out := make([]uint32, 0, len(items)*5)
+	prevLine := 0
+	prevStart := 0
+	first := true
+	for _, item := range items {
+		tokenType := semanticTokenTypeIndex(item.Type)
+		if tokenType < 0 {
+			continue
+		}
+		line := max(item.Location.Line-1, 0)
+		start := max(item.Location.Col-1, 0)
+		length := item.Location.EndCol - item.Location.Col + 1
+		if length <= 0 {
+			continue
+		}
+		deltaLine := line
+		deltaStart := start
+		if !first {
+			deltaLine = line - prevLine
+			if deltaLine == 0 {
+				deltaStart = start - prevStart
+			}
+		}
+		out = append(out,
+			uint32(deltaLine),
+			uint32(deltaStart),
+			uint32(length),
+			uint32(tokenType),
+			uint32(semanticTokenModifiersBitset(item.Modifiers)),
+		)
+		prevLine = line
+		prevStart = start
+		first = false
+	}
+	return out
+}
+
+func semanticTokenTypeIndex(name string) int {
+	for i, item := range semanticTokenTypesLegend {
+		if item == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func semanticTokenModifiersBitset(items []string) int {
+	bits := 0
+	for _, item := range items {
+		for i, modifier := range semanticTokenModifiersLegend {
+			if modifier == item {
+				bits |= 1 << i
+				break
+			}
+		}
+	}
+	return bits
 }
 
 func samePath(a, b string) bool {

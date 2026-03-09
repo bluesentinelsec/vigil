@@ -27,6 +27,65 @@ func TestDefinitionResolvesImportedModuleMember(t *testing.T) {
 	}
 }
 
+func TestDeclarationResolvesImportedModuleMember(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	pos := mustFindPosition(t, mainPath, "message();")
+	got, err := Declaration(mainPath, pos, nil)
+	if err != nil {
+		t.Fatalf("Declaration() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Declaration() returned nil location")
+	}
+	if filepath.Base(got.Path) != "helper.basl" {
+		t.Fatalf("declaration path = %s, want helper.basl", got.Path)
+	}
+	if got.Line != 13 {
+		t.Fatalf("declaration line = %d, want 13", got.Line)
+	}
+}
+
+func TestImplementationsResolveInterfaceTargets(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `interface Greeter {
+    fn greet(string name) -> string;
+}
+
+class Person implements Greeter {
+    pub fn greet(string name) -> string {
+        return "hello " + name;
+    }
+}
+
+class Robot implements Greeter {
+    pub fn greet(string name) -> string {
+        return "beep " + name;
+    }
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := Implementations(mainPath, mustFindPosition(t, mainPath, "Greeter {"), nil)
+	if err != nil {
+		t.Fatalf("Implementations(interface) error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("Implementations(interface) len = %d, want 2", len(items))
+	}
+
+	methodItems, err := Implementations(mainPath, mustFindPosition(t, mainPath, "greet(string name) -> string;"), nil)
+	if err != nil {
+		t.Fatalf("Implementations(method) error = %v", err)
+	}
+	if len(methodItems) != 2 {
+		t.Fatalf("Implementations(method) len = %d, want 2", len(methodItems))
+	}
+}
+
 func TestHoverReferencesAndRenameForLocalVariable(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 
@@ -224,6 +283,116 @@ func TestBuiltinMetadataFeedsHoverCompletionsAndSignatureHelp(t *testing.T) {
 	}
 	if help == nil || len(help.Signatures) == 0 || help.Signatures[0].Label != "fmt.println(val) -> err" {
 		t.Fatalf("signature help = %#v, want fmt.println signature", help)
+	}
+}
+
+func TestSemanticTokensCoverKeywordsSymbolsAndBuiltins(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "fmt";
+// announce birthday flow
+const i32 answer = 42;
+
+class Person {
+    pub string name;
+
+    pub fn greet(string msg) -> void {
+        fmt.println(msg);
+    }
+}
+
+fn main() -> void {
+    Person alice = Person();
+    alice.greet("hi");
+    fmt.println(answer);
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := SemanticTokens(mainPath, nil)
+	if err != nil {
+		t.Fatalf("SemanticTokens() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("SemanticTokens() returned no tokens")
+	}
+
+	assertSemanticToken(t, src, items, "import", "keyword")
+	assertSemanticToken(t, src, items, "// announce birthday flow", "comment")
+	assertSemanticToken(t, src, items, "i32", "type")
+	assertSemanticToken(t, src, items, "42", "number")
+	assertSemanticToken(t, src, items, "Person", "class", "declaration")
+	assertSemanticToken(t, src, items, "name", "property", "declaration")
+	assertSemanticToken(t, src, items, "greet", "method", "declaration")
+	assertSemanticToken(t, src, items, "msg", "parameter", "declaration")
+	assertSemanticToken(t, src, items, "alice", "variable", "declaration")
+	assertSemanticToken(t, src, items, "fmt", "namespace", "defaultLibrary")
+	assertSemanticToken(t, src, items, "println", "function", "defaultLibrary")
+	assertSemanticToken(t, src, items, "answer", "variable", "readonly")
+}
+
+func TestCodeActionsProvideMissingImportQuickFixAndOrganizeImports(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "basl.toml"), []byte("name = \"demo\"\nversion = \"0.1.0\"\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile(basl.toml) error = %v", err)
+	}
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "helper";
+import "fmt";
+
+fn main() -> void {
+    fmt.println("hi");
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	actions, err := CodeActions(mainPath, nil, []string{"source.organizeImports"}, nil)
+	if err != nil {
+		t.Fatalf("CodeActions(organize) error = %v", err)
+	}
+	if len(actions) != 1 || actions[0].Kind != "source.organizeImports" {
+		t.Fatalf("organize imports actions = %#v, want organizeImports action", actions)
+	}
+	if len(actions[0].Edits) != 1 || !strings.Contains(actions[0].Edits[0].NewText, "import \"fmt\";\nimport \"helper\";\n") {
+		t.Fatalf("organize imports edit = %#v, want sorted imports", actions[0].Edits)
+	}
+
+	missingPath := filepath.Join(root, "missing.basl")
+	missingSrc := `fn main() -> void {
+    fmt.println("hi");
+}
+`
+	if err := os.WriteFile(missingPath, []byte(missingSrc), 0644); err != nil {
+		t.Fatalf("os.WriteFile(missing) error = %v", err)
+	}
+	diags, err := Diagnostics(missingPath, nil)
+	if err != nil {
+		t.Fatalf("Diagnostics(missing) error = %v", err)
+	}
+	var messages []string
+	for _, diag := range diags {
+		messages = append(messages, diag.Message)
+	}
+	actions, err = CodeActions(missingPath, messages, []string{"quickfix"}, nil)
+	if err != nil {
+		t.Fatalf("CodeActions(quickfix) error = %v", err)
+	}
+	if len(actions) == 0 {
+		t.Fatal("CodeActions(quickfix) returned no actions")
+	}
+	found := false
+	for _, action := range actions {
+		if action.Title == `Add import "fmt"` && len(action.Edits) == 1 && strings.Contains(action.Edits[0].NewText, "import \"fmt\";") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("quickfix actions = %#v, want Add import \"fmt\"", actions)
 	}
 }
 
@@ -490,4 +659,52 @@ func hasCompletion(items []CompletionItem, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertSemanticToken(t *testing.T, src string, items []SemanticToken, text string, wantType string, modifiers ...string) {
+	t.Helper()
+	for _, item := range items {
+		if semanticTokenText(t, src, item.Location) != text {
+			continue
+		}
+		if item.Type != wantType {
+			continue
+		}
+		if !semanticModifiersInclude(item.Modifiers, modifiers...) {
+			continue
+		}
+		return
+	}
+	t.Fatalf("semantic token %q of type %q with modifiers %v not found in %#v", text, wantType, modifiers, items)
+}
+
+func semanticTokenText(t *testing.T, src string, loc Location) string {
+	t.Helper()
+	lines := strings.Split(src, "\n")
+	if loc.Line <= 0 || loc.Line > len(lines) {
+		t.Fatalf("semantic token line %d out of range", loc.Line)
+	}
+	line := lines[loc.Line-1]
+	start := loc.Col - 1
+	end := loc.EndCol
+	if start < 0 || end < start || end > len(line) {
+		t.Fatalf("semantic token columns %d:%d out of range for line %q", loc.Col, loc.EndCol, line)
+	}
+	return line[start:end]
+}
+
+func semanticModifiersInclude(got []string, want ...string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	set := make(map[string]bool, len(got))
+	for _, item := range got {
+		set[item] = true
+	}
+	for _, item := range want {
+		if !set[item] {
+			return false
+		}
+	}
+	return true
 }

@@ -37,6 +37,15 @@ type PrepareRename struct {
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var unknownIdentifierDiagnosticPattern = regexp.MustCompile(`unknown identifier "([^"]+)"`)
+
+type CodeAction struct {
+	Title       string       `json:"title"`
+	Kind        string       `json:"kind,omitempty"`
+	IsPreferred bool         `json:"is_preferred,omitempty"`
+	Diagnostics []string     `json:"diagnostics,omitempty"`
+	Edits       []RenameEdit `json:"edits,omitempty"`
+}
 
 func validIdentifier(name string) bool {
 	return identifierPattern.MatchString(name)
@@ -273,6 +282,37 @@ func positionFromIndex(src string, idx int) Position {
 	return Position{Line: line, Col: col}
 }
 
+func CodeActions(path string, diagnostics []string, only []string, extraSearchPaths []string) ([]CodeAction, error) {
+	return CodeActionsWithOptions(path, diagnostics, only, Options{SearchPaths: extraSearchPaths})
+}
+
+func CodeActionsWithOptions(path string, diagnostics []string, only []string, opts Options) ([]CodeAction, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	src, err := readDocumentSource(absPath, opts)
+	if err != nil {
+		return nil, err
+	}
+	a, file, err := newAnalyzerWithOptions(absPath, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var actions []CodeAction
+	if action, err := organizeImportsAction(absPath, src, only); err != nil {
+		return nil, err
+	} else if action != nil {
+		actions = append(actions, *action)
+	}
+
+	if wantsCodeActionKind("quickfix", only) {
+		actions = append(actions, missingImportActions(a, file, diagnostics, src)...)
+	}
+	return dedupeCodeActions(actions), nil
+}
+
 func FormatDocument(path string, extraSearchPaths []string) (string, error) {
 	return FormatDocumentWithOptions(path, Options{SearchPaths: extraSearchPaths})
 }
@@ -323,4 +363,225 @@ func formatSource(src string) ([]byte, error) {
 		return []byte(src), nil
 	}
 	return out, nil
+}
+
+func organizeImportsAction(path string, src string, only []string) (*CodeAction, error) {
+	if !wantsCodeActionKind("source.organizeImports", only) {
+		return nil, nil
+	}
+	if !strings.Contains(src, "import ") {
+		return nil, nil
+	}
+	formatted, err := formatSource(src)
+	if err != nil {
+		return nil, err
+	}
+	if string(formatted) == src {
+		return nil, nil
+	}
+	return &CodeAction{
+		Title: "Organize Imports",
+		Kind:  "source.organizeImports",
+		Edits: []RenameEdit{{
+			Path:    path,
+			Line:    1,
+			Col:     1,
+			EndCol:  1,
+			NewText: string(formatted),
+		}},
+	}, nil
+}
+
+func missingImportActions(a *Analyzer, file *fileModel, diagnostics []string, src string) []CodeAction {
+	candidates := missingImportCandidates(a, file)
+	if len(candidates) == 0 {
+		return nil
+	}
+	imported := existingImportPaths(file.prog)
+	var actions []CodeAction
+	seen := make(map[string]bool)
+	for _, diag := range diagnostics {
+		match := unknownIdentifierDiagnosticPattern.FindStringSubmatch(diag)
+		if len(match) != 2 {
+			continue
+		}
+		name := match[1]
+		modulePath, ok := candidates[name]
+		if !ok || imported[modulePath] {
+			continue
+		}
+		key := name + ":" + modulePath
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		newSrc, err := sourceWithAddedImport(src, modulePath)
+		if err != nil || newSrc == src {
+			continue
+		}
+		actions = append(actions, CodeAction{
+			Title:       fmt.Sprintf("Add import %q", modulePath),
+			Kind:        "quickfix",
+			IsPreferred: true,
+			Diagnostics: []string{diag},
+			Edits: []RenameEdit{{
+				Path:    file.path,
+				Line:    1,
+				Col:     1,
+				EndCol:  1,
+				NewText: newSrc,
+			}},
+		})
+	}
+	return actions
+}
+
+func missingImportCandidates(a *Analyzer, file *fileModel) map[string]string {
+	out := make(map[string]string)
+	for name := range a.builtinCompletions {
+		if _, imported := file.imports[name]; !imported {
+			out[name] = name
+		}
+	}
+	for _, candidate := range workspaceFileCandidates(file.path, a.searchPaths) {
+		if sameDocumentPath(candidate, file.path) {
+			continue
+		}
+		modulePath := moduleImportPath(candidate, a.searchPaths)
+		if modulePath == "" {
+			continue
+		}
+		alias := defaultImportAlias(modulePath)
+		if alias == "" {
+			continue
+		}
+		if _, imported := file.imports[alias]; imported {
+			continue
+		}
+		if _, exists := out[alias]; !exists {
+			out[alias] = modulePath
+		}
+	}
+	return out
+}
+
+func sameDocumentPath(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return filepath.Clean(aa) == filepath.Clean(bb)
+}
+
+func existingImportPaths(prog *ast.Program) map[string]bool {
+	out := make(map[string]bool)
+	if prog == nil {
+		return out
+	}
+	for _, decl := range prog.Decls {
+		imp, ok := decl.(*ast.ImportDecl)
+		if !ok {
+			continue
+		}
+		out[imp.Path] = true
+	}
+	return out
+}
+
+func sourceWithAddedImport(src string, modulePath string) (string, error) {
+	tokensWithComments, err := lexer.New(src).TokenizeWithComments()
+	if err != nil {
+		return "", err
+	}
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return "", err
+	}
+	prog, err := parser.New(tokens).Parse()
+	if err != nil {
+		return "", err
+	}
+	for _, decl := range prog.Decls {
+		if imp, ok := decl.(*ast.ImportDecl); ok && imp.Path == modulePath {
+			return src, nil
+		}
+	}
+	line := 1
+	for _, decl := range prog.Decls {
+		if imp, ok := decl.(*ast.ImportDecl); ok && imp.Line > 0 {
+			line = imp.Line
+			break
+		}
+	}
+	prog.Decls = append(prog.Decls, &ast.ImportDecl{Path: modulePath, Line: line})
+	return string(formatter.Format(prog, tokensWithComments)), nil
+}
+
+func moduleImportPath(path string, searchPaths []string) string {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	for _, root := range searchPaths {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absRoot, absPath)
+		if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if !strings.HasSuffix(rel, ".basl") {
+			continue
+		}
+		base := strings.TrimSuffix(rel, ".basl")
+		if !strings.Contains(base, "/") {
+			if base == "main" {
+				return ""
+			}
+			return base
+		}
+		parts := strings.Split(base, "/")
+		if len(parts) == 3 && parts[1] == "lib" && parts[0] == parts[2] {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
+func defaultImportAlias(modulePath string) string {
+	modulePath = strings.TrimSpace(modulePath)
+	if modulePath == "" {
+		return ""
+	}
+	parts := strings.Split(modulePath, "/")
+	return parts[len(parts)-1]
+}
+
+func wantsCodeActionKind(kind string, only []string) bool {
+	if len(only) == 0 {
+		return true
+	}
+	for _, item := range only {
+		if item == kind || strings.HasPrefix(kind, item+".") || strings.HasPrefix(item, kind+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupeCodeActions(items []CodeAction) []CodeAction {
+	seen := make(map[string]bool)
+	var out []CodeAction
+	for _, item := range items {
+		key := item.Kind + ":" + item.Title
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }

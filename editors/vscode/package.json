@@ -104,6 +104,11 @@
         }
       }
     },
+    "configurationDefaults": {
+      "[basl]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
     "menus": {
       "editor/title": [{
         "command": "basl.runEntryPoint",
