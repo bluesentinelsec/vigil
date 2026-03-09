@@ -143,6 +143,29 @@ func TestCompletionsIncludeImportedModuleAndTypedInstanceMembers(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSymbolsSpanFilesAndMembers(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	items, err := WorkspaceSymbols(mainPath, "greet", nil)
+	if err != nil {
+		t.Fatalf("WorkspaceSymbols() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("WorkspaceSymbols() returned no symbols")
+	}
+
+	var sawGreeterMethod bool
+	for _, item := range items {
+		if item.Name == "greet" && item.ContainerName == "Greeter" && filepath.Base(item.Location.Path) == "helper.basl" {
+			sawGreeterMethod = true
+			break
+		}
+	}
+	if !sawGreeterMethod {
+		t.Fatalf("workspace symbols = %#v, want Greeter.greet from helper.basl", items)
+	}
+}
+
 func TestBuiltinMetadataFeedsHoverCompletionsAndSignatureHelp(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 

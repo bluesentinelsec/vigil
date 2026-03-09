@@ -152,6 +152,32 @@ fn main() -> void {
 
 	send(t, clientConn, map[string]any{
 		"jsonrpc": "2.0",
+		"id":      41,
+		"method":  "workspace/symbol",
+		"params": map[string]any{
+			"query": "greet",
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "41")
+	var workspaceSymbols []symbolInformation
+	decodeResult(t, msg.Result, &workspaceSymbols)
+	if len(workspaceSymbols) == 0 {
+		t.Fatal("workspace/symbol returned no symbols")
+	}
+	foundWorkspaceMethod := false
+	for _, item := range workspaceSymbols {
+		if item.Name == "greet" && item.ContainerName == "Greeter" && filepath.Base(mustURIPath(t, item.Location.URI)) == "helper.basl" {
+			foundWorkspaceMethod = true
+			break
+		}
+	}
+	if !foundWorkspaceMethod {
+		t.Fatalf("workspace symbols = %#v, want Greeter.greet from helper.basl", workspaceSymbols)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
 		"id":      5,
 		"method":  "textDocument/completion",
 		"params": map[string]any{

@@ -463,6 +463,25 @@ function activate(context) {
       },
     })
   );
+  context.subscriptions.push(
+    vscode.languages.registerWorkspaceSymbolProvider({
+      async provideWorkspaceSymbols(query) {
+        if (!(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("workspace/symbol", { query });
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.SymbolInformation(
+          item.name,
+          symbolKind(item.kind),
+          item.containerName || "",
+          toLocation(item.location)
+        ));
+      },
+    })
+  );
 
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(

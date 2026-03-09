@@ -188,6 +188,13 @@ type documentSymbol struct {
 	Children       []documentSymbol `json:"children,omitempty"`
 }
 
+type symbolInformation struct {
+	Name          string      `json:"name"`
+	Kind          int         `json:"kind"`
+	Location      lspLocation `json:"location"`
+	ContainerName string      `json:"containerName,omitempty"`
+}
+
 func NewServer(sender func(message) error) *Server {
 	return &Server{
 		sender:    sender,
@@ -258,6 +265,8 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleSignatureHelp(msg)
 	case "textDocument/documentSymbol":
 		return s.handleDocumentSymbol(msg)
+	case "workspace/symbol":
+		return s.handleWorkspaceSymbol(msg)
 	case "textDocument/formatting":
 		return s.handleFormatting(msg)
 	default:
@@ -295,6 +304,7 @@ func (s *Server) handleInitialize(msg message) error {
 			"referencesProvider":         true,
 			"renameProvider":             map[string]any{"prepareProvider": true},
 			"documentSymbolProvider":     true,
+			"workspaceSymbolProvider":    true,
 			"documentFormattingProvider": true,
 			"completionProvider": map[string]any{
 				"triggerCharacters": []string{"."},
@@ -605,6 +615,33 @@ func (s *Server) handleFormatting(msg message) error {
 	}})
 }
 
+func (s *Server) handleWorkspaceSymbol(msg message) error {
+	var params struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	entryPath := s.workspaceEntryPath()
+	if entryPath == "" {
+		return s.reply(msg.ID, []symbolInformation{})
+	}
+	items, err := basleditor.WorkspaceSymbolsWithOptions(entryPath, params.Query, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]symbolInformation, 0, len(items))
+	for _, item := range items {
+		out = append(out, symbolInformation{
+			Name:          item.Name,
+			Kind:          symbolKind(item.Kind),
+			Location:      toLSPLocation(item.Location),
+			ContainerName: item.ContainerName,
+		})
+	}
+	return s.reply(msg.ID, out)
+}
+
 func (s *Server) editorOptions() basleditor.Options {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -616,6 +653,29 @@ func (s *Server) editorOptions() basleditor.Options {
 		SearchPaths: append([]string(nil), s.workspaceRoots...),
 		Overlays:    overlays,
 	}
+}
+
+func (s *Server) workspaceEntryPath() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, root := range s.workspaceRoots {
+		mainPath := filepath.Join(root, "main.basl")
+		if info, err := os.Stat(mainPath); err == nil && !info.IsDir() {
+			return mainPath
+		}
+	}
+	for _, root := range s.workspaceRoots {
+		matches, err := filepath.Glob(filepath.Join(root, "*.basl"))
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			if info, err := os.Stat(match); err == nil && !info.IsDir() {
+				return match
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Server) documentTextForURI(uri string) (string, error) {

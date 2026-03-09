@@ -49,11 +49,12 @@ type RenameEdit struct {
 }
 
 type SymbolItem struct {
-	Name     string       `json:"name"`
-	Detail   string       `json:"detail,omitempty"`
-	Kind     string       `json:"kind"`
-	Location Location     `json:"location"`
-	Children []SymbolItem `json:"children,omitempty"`
+	Name          string       `json:"name"`
+	Detail        string       `json:"detail,omitempty"`
+	Kind          string       `json:"kind"`
+	Location      Location     `json:"location"`
+	ContainerName string       `json:"container_name,omitempty"`
+	Children      []SymbolItem `json:"children,omitempty"`
 }
 
 type Options struct {
@@ -354,6 +355,41 @@ func DocumentSymbolsWithOptions(path string, opts Options) ([]SymbolItem, error)
 	if err != nil {
 		return nil, err
 	}
+	return documentSymbolsForFile(file), nil
+}
+
+func WorkspaceSymbols(path string, query string, extraSearchPaths []string) ([]SymbolItem, error) {
+	return WorkspaceSymbolsWithOptions(path, query, Options{SearchPaths: extraSearchPaths})
+}
+
+func WorkspaceSymbolsWithOptions(path string, query string, opts Options) ([]SymbolItem, error) {
+	a, _, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	var out []SymbolItem
+	for _, file := range a.files {
+		items := documentSymbolsForFile(file)
+		for _, item := range items {
+			appendWorkspaceSymbolItems(&out, item, query)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		if out[i].Location.Path != out[j].Location.Path {
+			return out[i].Location.Path < out[j].Location.Path
+		}
+		if out[i].Location.Line != out[j].Location.Line {
+			return out[i].Location.Line < out[j].Location.Line
+		}
+		return out[i].Location.Col < out[j].Location.Col
+	})
+	return dedupeSymbolItems(out), nil
+}
+
+func documentSymbolsForFile(file *fileModel) []SymbolItem {
 	var out []SymbolItem
 	for _, decl := range file.prog.Decls {
 		switch d := decl.(type) {
@@ -416,27 +452,65 @@ func DocumentSymbolsWithOptions(path string, opts Options) ([]SymbolItem, error)
 			for _, field := range d.Fields {
 				if sym := class.fields[field.Name]; sym != nil && sym.location != nil {
 					item.Children = append(item.Children, SymbolItem{
-						Name:     field.Name,
-						Detail:   sym.detail,
-						Kind:     string(sym.kind),
-						Location: *sym.location,
+						Name:          field.Name,
+						Detail:        sym.detail,
+						Kind:          string(sym.kind),
+						Location:      *sym.location,
+						ContainerName: d.Name,
 					})
 				}
 			}
 			for _, method := range d.Methods {
 				if sym := class.methods[method.Name]; sym != nil && sym.location != nil {
 					item.Children = append(item.Children, SymbolItem{
-						Name:     method.Name,
-						Detail:   sym.detail,
-						Kind:     string(sym.kind),
-						Location: *sym.location,
+						Name:          method.Name,
+						Detail:        sym.detail,
+						Kind:          string(sym.kind),
+						Location:      *sym.location,
+						ContainerName: d.Name,
 					})
 				}
 			}
 			out = append(out, item)
 		}
 	}
-	return out, nil
+	return out
+}
+
+func appendWorkspaceSymbolItems(out *[]SymbolItem, item SymbolItem, query string) {
+	if matchesWorkspaceSymbolQuery(item, query) {
+		copy := item
+		copy.Children = nil
+		*out = append(*out, copy)
+	}
+	for _, child := range item.Children {
+		appendWorkspaceSymbolItems(out, child, query)
+	}
+}
+
+func matchesWorkspaceSymbolQuery(item SymbolItem, query string) bool {
+	if strings.TrimSpace(query) == "" {
+		return true
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	return strings.Contains(strings.ToLower(item.Name), q) ||
+		strings.Contains(strings.ToLower(item.Detail), q) ||
+		strings.Contains(strings.ToLower(item.ContainerName), q) ||
+		strings.Contains(strings.ToLower(filepath.Base(item.Location.Path)), q)
+}
+
+func dedupeSymbolItems(items []SymbolItem) []SymbolItem {
+	seen := make(map[string]bool)
+	var out []SymbolItem
+	for _, item := range items {
+		key := fmt.Sprintf("%s:%s:%d:%d", item.Kind, item.Location.Path, item.Location.Line, item.Location.Col)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func newAnalyzer(path string, extraSearchPaths []string) (*Analyzer, *fileModel, error) {
