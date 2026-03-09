@@ -247,6 +247,18 @@ fn main() -> void {
 	}
 }
 
+func TestFileURIPathRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "main.basl")
+	uri := pathToURI(path)
+	got, ok := uriToPath(uri)
+	if !ok {
+		t.Fatalf("uriToPath(%q) failed", uri)
+	}
+	if filepath.Clean(got) != filepath.Clean(path) {
+		t.Fatalf("roundtrip path = %q, want %q (uri=%q)", got, path, uri)
+	}
+}
+
 func send(t *testing.T, w io.Writer, msg map[string]any) {
 	t.Helper()
 	if err := writeMessage(w, mustMessage(t, msg)); err != nil {

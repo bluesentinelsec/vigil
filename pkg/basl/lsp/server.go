@@ -760,6 +760,15 @@ func uriToPath(uri string) (string, bool) {
 		return "", false
 	}
 	path := u.Path
+	if runtimeGOOSWindows() && u.Host != "" {
+		switch {
+		case len(u.Host) == 2 && u.Host[1] == ':':
+			path = u.Host + path
+		case strings.EqualFold(u.Host, "localhost"):
+		default:
+			return filepath.Clean(`\\` + u.Host + filepath.FromSlash(path)), true
+		}
+	}
 	if path == "" {
 		return "", false
 	}
@@ -777,7 +786,19 @@ func pathToURI(path string) string {
 	if err != nil {
 		absPath = path
 	}
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}
+	if runtimeGOOSWindows() && strings.HasPrefix(absPath, `\\`) {
+		trimmed := strings.TrimPrefix(absPath, `\\`)
+		parts := strings.SplitN(filepath.ToSlash(trimmed), "/", 2)
+		if len(parts) == 2 {
+			u := url.URL{Scheme: "file", Host: parts[0], Path: "/" + parts[1]}
+			return u.String()
+		}
+	}
+	slashPath := filepath.ToSlash(absPath)
+	if runtimeGOOSWindows() && len(slashPath) >= 2 && slashPath[1] == ':' {
+		slashPath = "/" + slashPath
+	}
+	u := url.URL{Scheme: "file", Path: slashPath}
 	return u.String()
 }
 
