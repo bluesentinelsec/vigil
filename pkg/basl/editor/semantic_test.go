@@ -110,6 +110,31 @@ func TestReferencesAndRenameSpanWorkspaceForExportedSymbol(t *testing.T) {
 	}
 }
 
+func TestDocumentHighlightsIncludeDeclarationAndUse(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	items, err := DocumentHighlights(mainPath, mustFindPosition(t, mainPath, "value = helper"), nil)
+	if err != nil {
+		t.Fatalf("DocumentHighlights() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("DocumentHighlights() len = %d, want 2", len(items))
+	}
+	var sawWrite bool
+	var textCount int
+	for _, item := range items {
+		switch item.Kind {
+		case "write":
+			sawWrite = true
+		case "text":
+			textCount++
+		}
+	}
+	if !sawWrite || textCount != 1 {
+		t.Fatalf("document highlights = %#v, want declaration write + 1 usage text highlight", items)
+	}
+}
+
 func TestCompletionsIncludeImportedModuleAndTypedInstanceMembers(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 	a, file, err := newAnalyzer(mainPath, nil)

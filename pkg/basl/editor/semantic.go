@@ -33,6 +33,11 @@ type Hover struct {
 	Location *Location `json:"location,omitempty"`
 }
 
+type DocumentHighlight struct {
+	Location Location `json:"location"`
+	Kind     string   `json:"kind,omitempty"`
+}
+
 type CompletionItem struct {
 	Label         string `json:"label"`
 	Kind          string `json:"kind"`
@@ -268,6 +273,36 @@ func ReferencesWithOptions(path string, pos Position, opts Options) ([]Location,
 		}
 	}
 	return dedupeLocations(out), nil
+}
+
+func DocumentHighlights(path string, pos Position, extraSearchPaths []string) ([]DocumentHighlight, error) {
+	return DocumentHighlightsWithOptions(path, pos, Options{SearchPaths: extraSearchPaths})
+}
+
+func DocumentHighlightsWithOptions(path string, pos Position, opts Options) ([]DocumentHighlight, error) {
+	_, file, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	occ := file.occurrenceAt(pos)
+	if occ == nil || occ.symbol == nil {
+		return nil, nil
+	}
+	var out []DocumentHighlight
+	for _, item := range file.occurrences {
+		if item.symbol == nil || item.symbol.id != occ.symbol.id {
+			continue
+		}
+		kind := "text"
+		if item.isDecl {
+			kind = "write"
+		}
+		out = append(out, DocumentHighlight{
+			Location: item.location,
+			Kind:     kind,
+		})
+	}
+	return dedupeHighlights(out), nil
 }
 
 func Rename(path string, pos Position, newName string, extraSearchPaths []string) ([]RenameEdit, error) {
@@ -1794,6 +1829,29 @@ func dedupeEdits(items []RenameEdit) []RenameEdit {
 			return out[i].Line < out[j].Line
 		}
 		return out[i].Col < out[j].Col
+	})
+	return out
+}
+
+func dedupeHighlights(items []DocumentHighlight) []DocumentHighlight {
+	seen := make(map[string]bool)
+	var out []DocumentHighlight
+	for _, item := range items {
+		key := fmt.Sprintf("%s:%d:%d:%d:%s", item.Location.Path, item.Location.Line, item.Location.Col, item.Location.EndCol, item.Kind)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Location.Path != out[j].Location.Path {
+			return out[i].Location.Path < out[j].Location.Path
+		}
+		if out[i].Location.Line != out[j].Location.Line {
+			return out[i].Location.Line < out[j].Location.Line
+		}
+		return out[i].Location.Col < out[j].Location.Col
 	})
 	return out
 }

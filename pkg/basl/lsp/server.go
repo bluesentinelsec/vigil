@@ -131,6 +131,11 @@ type lspRange struct {
 	End   position `json:"end"`
 }
 
+type documentHighlight struct {
+	Range lspRange `json:"range"`
+	Kind  int      `json:"kind,omitempty"`
+}
+
 type markupContent struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
@@ -255,6 +260,8 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleHover(msg)
 	case "textDocument/references":
 		return s.handleReferences(msg)
+	case "textDocument/documentHighlight":
+		return s.handleDocumentHighlight(msg)
 	case "textDocument/rename":
 		return s.handleRename(msg)
 	case "textDocument/prepareRename":
@@ -302,6 +309,7 @@ func (s *Server) handleInitialize(msg message) error {
 			"definitionProvider":         true,
 			"hoverProvider":              true,
 			"referencesProvider":         true,
+			"documentHighlightProvider":  true,
 			"renameProvider":             map[string]any{"prepareProvider": true},
 			"documentSymbolProvider":     true,
 			"workspaceSymbolProvider":    true,
@@ -449,6 +457,29 @@ func (s *Server) handleReferences(msg message) error {
 	out := make([]lspLocation, 0, len(refs))
 	for _, item := range refs {
 		out = append(out, toLSPLocation(item))
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleDocumentHighlight(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []documentHighlight{})
+	}
+	items, err := basleditor.DocumentHighlightsWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]documentHighlight, 0, len(items))
+	for _, item := range items {
+		out = append(out, documentHighlight{
+			Range: toLSPRange(item.Location),
+			Kind:  documentHighlightKind(item.Kind),
+		})
 	}
 	return s.reply(msg.ID, out)
 }
@@ -938,6 +969,17 @@ func symbolKind(kind string) int {
 		return 10
 	default:
 		return 12
+	}
+}
+
+func documentHighlightKind(kind string) int {
+	switch kind {
+	case "write":
+		return 3
+	case "read":
+		return 2
+	default:
+		return 1
 	}
 }
 

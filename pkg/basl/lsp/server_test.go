@@ -136,6 +136,23 @@ fn main() -> void {
 
 	send(t, clientConn, map[string]any{
 		"jsonrpc": "2.0",
+		"id":      31,
+		"method":  "textDocument/documentHighlight",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "value = helper", false),
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "31")
+	var highlights []documentHighlight
+	decodeResult(t, msg.Result, &highlights)
+	if len(highlights) != 3 {
+		t.Fatalf("documentHighlight len = %d, want 3", len(highlights))
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
 		"id":      4,
 		"method":  "textDocument/documentSymbol",
 		"params": map[string]any{

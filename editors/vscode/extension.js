@@ -378,6 +378,23 @@ function activate(context) {
       },
     })
   );
+  context.subscriptions.push(
+    vscode.languages.registerDocumentHighlightProvider("basl", {
+      async provideDocumentHighlights(document, position) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/documentHighlight", textDocumentPositionParams(document, position));
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.DocumentHighlight(
+          toRange(item.range),
+          documentHighlightKind(item.kind)
+        ));
+      },
+    })
+  );
 
   context.subscriptions.push(
     vscode.languages.registerRenameProvider("basl", {
@@ -876,6 +893,17 @@ function symbolKind(kind) {
       return vscode.SymbolKind.Enum;
     default:
       return vscode.SymbolKind.Function;
+  }
+}
+
+function documentHighlightKind(kind) {
+  switch (kind) {
+    case 2:
+      return vscode.DocumentHighlightKind.Read;
+    case 3:
+      return vscode.DocumentHighlightKind.Write;
+    default:
+      return vscode.DocumentHighlightKind.Text;
   }
 }
 
