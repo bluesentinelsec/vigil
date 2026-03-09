@@ -493,6 +493,8 @@ func (p *Parser) parseFString() (ast.Expr, error) {
 	tok := p.advance() // consume FSTRING token
 	raw := tok.Literal
 	var parts []ast.FStringPart
+	line := tok.Line
+	col := tok.Col + 2 // after f"
 	i := 0
 	for i < len(raw) {
 		if raw[i] == 0x00 {
@@ -519,7 +521,35 @@ func (p *Parser) parseFString() (ast.Expr, error) {
 			if err != nil {
 				return nil, fmt.Errorf("line %d: f-string expression error: %s", tok.Line, err)
 			}
-			parts = append(parts, ast.FStringPart{IsExpr: true, Expr: expr, Format: fmtSpec})
+			parts = append(parts, ast.FStringPart{
+				IsExpr:     true,
+				Expr:       expr,
+				ExprSource: exprSrc,
+				ExprLine:   line,
+				ExprCol:    col + 1, // after '{'
+				Format:     fmtSpec,
+			})
+			col++ // {
+			for _, r := range exprSrc {
+				if r == '\n' {
+					line++
+					col = 1
+				} else {
+					col++
+				}
+			}
+			if fmtSpec != "" {
+				col++ // :
+				for _, r := range fmtSpec {
+					if r == '\n' {
+						line++
+						col = 1
+					} else {
+						col++
+					}
+				}
+			}
+			col++     // }
 			i = j + 1 // skip past \x01
 		} else {
 			// Text part: collect until next \x00 or end
@@ -528,6 +558,14 @@ func (p *Parser) parseFString() (ast.Expr, error) {
 				j++
 			}
 			parts = append(parts, ast.FStringPart{Text: raw[i:j]})
+			for _, r := range raw[i:j] {
+				if r == '\n' {
+					line++
+					col = 1
+				} else {
+					col++
+				}
+			}
 			i = j
 		}
 	}

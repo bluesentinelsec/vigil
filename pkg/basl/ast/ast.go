@@ -351,10 +351,13 @@ type FStringExpr struct {
 }
 
 type FStringPart struct {
-	IsExpr bool
-	Text   string // for literal parts
-	Expr   Expr   // for expression parts
-	Format string // optional format spec, e.g. ".2f"
+	IsExpr     bool
+	Text       string // for literal parts
+	Expr       Expr   // for expression parts
+	ExprSource string // original expression source inside {...}
+	ExprLine   int    // 1-based source line for ExprSource
+	ExprCol    int    // 1-based source column for ExprSource
+	Format     string // optional format spec, e.g. ".2f"
 }
 
 func (*IntLit) exprNode()       {}

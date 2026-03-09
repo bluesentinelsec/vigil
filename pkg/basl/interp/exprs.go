@@ -705,7 +705,7 @@ func (interp *Interpreter) callFuncMulti(callee value.Value, args []value.Value)
 		if len(body.Stmts) > 0 {
 			line = stmtLine(body.Stmts[0])
 		}
-		interp.debugger.PushFrame(fn.Name, line)
+		interp.debugger.PushFrame(fn.Name, line, fnEnv)
 	}
 	err := interp.execBlock(body, fnEnv)
 	if interp.debugger != nil {

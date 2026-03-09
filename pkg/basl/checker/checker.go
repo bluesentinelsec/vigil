@@ -180,9 +180,14 @@ type Checker struct {
 	builtin     map[string]*moduleInfo
 	modules     map[string]*moduleInfo
 	diagnostics []Diagnostic
+	overlays    map[string]string
 }
 
 func CheckFile(path string, searchPaths []string) ([]Diagnostic, error) {
+	return CheckFileWithOverlays(path, searchPaths, nil)
+}
+
+func CheckFileWithOverlays(path string, searchPaths []string, overlays map[string]string) ([]Diagnostic, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -192,6 +197,7 @@ func CheckFile(path string, searchPaths []string) ([]Diagnostic, error) {
 		searchPaths: append([]string(nil), searchPaths...),
 		builtin:     make(map[string]*moduleInfo),
 		modules:     make(map[string]*moduleInfo),
+		overlays:    normalizeOverlays(overlays),
 	}
 	for _, name := range interp.BuiltinModuleNames() {
 		c.builtin[name] = newBuiltinModule(name)
@@ -247,7 +253,7 @@ func (c *Checker) checkModule(absPath string, stack []string) *moduleInfo {
 		}
 	}
 
-	src, err := os.ReadFile(absPath)
+	src, err := c.readFile(absPath)
 	if err != nil {
 		c.addDiag(absPath, 0, 0, "%s", err)
 		return nil
@@ -1461,21 +1467,47 @@ func (c *Checker) resolveImport(name string) (string, error) {
 	for _, dir := range c.searchPaths {
 		fullPath := filepath.Join(dir, fileName)
 		absPath, err := filepath.Abs(fullPath)
-		if err == nil {
-			if info, statErr := os.Stat(absPath); statErr == nil && !info.IsDir() {
-				return absPath, nil
-			}
+		if err == nil && c.fileExists(absPath) {
+			return absPath, nil
 		}
 
 		pkgPath := filepath.Join(dir, name, "lib", fileName)
 		absPkg, err := filepath.Abs(pkgPath)
-		if err == nil {
-			if info, statErr := os.Stat(absPkg); statErr == nil && !info.IsDir() {
-				return absPkg, nil
-			}
+		if err == nil && c.fileExists(absPkg) {
+			return absPkg, nil
 		}
 	}
 	return "", fmt.Errorf("module %q not found", name)
+}
+
+func (c *Checker) readFile(path string) ([]byte, error) {
+	if src, ok := c.overlays[path]; ok {
+		return []byte(src), nil
+	}
+	return os.ReadFile(path)
+}
+
+func (c *Checker) fileExists(path string) bool {
+	if _, ok := c.overlays[path]; ok {
+		return true
+	}
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func normalizeOverlays(overlays map[string]string) map[string]string {
+	if len(overlays) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(overlays))
+	for path, src := range overlays {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		out[absPath] = src
+	}
+	return out
 }
 
 func (c *Checker) hasNameConflict(mod *moduleInfo, name string) bool {

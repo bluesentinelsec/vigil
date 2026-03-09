@@ -45,6 +45,12 @@ type Env struct {
 	defers     *[]deferredCall // shared within a function call
 }
 
+type DebuggerHooks interface {
+	Hook(ast.Stmt, *Env) error
+	PushFrame(name string, line int, env *Env)
+	PopFrame()
+}
+
 func NewEnv(parent *Env) *Env {
 	e := &Env{vars: make(map[string]value.Value), parent: parent}
 	if parent != nil {
@@ -130,6 +136,18 @@ func (e *Env) CurrentReturnType() *ast.ReturnType {
 	return nil
 }
 
+func (e *Env) SnapshotVars() map[string]value.Value {
+	out := make(map[string]value.Value, len(e.vars))
+	for name, v := range e.vars {
+		out[name] = v
+	}
+	return out
+}
+
+func (e *Env) Parent() *Env {
+	return e.parent
+}
+
 type Interpreter struct {
 	globals        *Env
 	modules        map[string]*Env
@@ -141,9 +159,9 @@ type Interpreter struct {
 	LogFn          func(level, msg string) // host-side log handler; nil = default stderr
 	scriptArgs     []string
 	ffiPolicy      *ffi.Policy
-	baslLogHandler *value.Value // BASL-side log.set_handler(fn)
-	gil            sync.Mutex   // Global Interpreter Lock — serializes all BASL execution
-	debugger       *Debugger    // nil unless running under basl debug
+	baslLogHandler *value.Value  // BASL-side log.set_handler(fn)
+	gil            sync.Mutex    // Global Interpreter Lock — serializes all BASL execution
+	debugger       DebuggerHooks // nil unless running under a debugger
 }
 
 func New() *Interpreter {
@@ -245,8 +263,12 @@ func (interp *Interpreter) SetFFIPolicy(p *ffi.Policy) {
 }
 
 // SetDebugger attaches a debugger to the interpreter.
-func (interp *Interpreter) SetDebugger(d *Debugger) {
+func (interp *Interpreter) SetDebugger(d DebuggerHooks) {
 	interp.debugger = d
+}
+
+func (interp *Interpreter) GlobalsEnv() *Env {
+	return interp.globals
 }
 
 // Exec runs a program. Returns the exit code from main().

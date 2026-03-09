@@ -14,7 +14,10 @@ basl test [path]                # Run tests
 basl package [options]          # Package executable or library
 basl embed <files...>           # Embed assets
 basl doc <module>               # Show documentation
-basl editor <vim|vscode>        # Install editor support
+basl editor list                # List bundled editor targets
+basl editor install <targets>   # Install editor support
+basl editor semantic ...        # JSON semantic editor queries
+basl lsp                        # Run the BASL language server over stdio
 basl help [topic]               # Show help
 basl --version                  # Show version
 ```
@@ -261,12 +264,15 @@ basl help imports           # Help for specific topic
 ### Install editor plugins
 
 ```bash
-basl editor vim             # Install Vim syntax highlighting
-basl editor vscode          # Install VS Code extension
+basl editor list
+basl editor install vim             # Install Vim syntax highlighting
+basl editor install vscode          # Install VS Code extension
+basl editor semantic diagnostics --file main.basl
+basl lsp
 ```
 
 Vim: Copies syntax files to `~/.vim/`
-VS Code: Copies extension to `~/.vscode/extensions/`
+VS Code: Copies extension to `~/.vscode/extensions/` and launches `basl lsp` for diagnostics, go-to-definition, hover, rename, references, document symbols, and completions.
 
 See [editor_cli.md](editor_cli.md) for manual installation.
 

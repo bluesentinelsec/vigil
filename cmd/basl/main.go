@@ -66,6 +66,14 @@ func main() {
 		os.Exit(runEditor(args[1:]))
 		return
 	}
+	if args[0] == "lsp" {
+		os.Exit(runLSP(args[1:]))
+		return
+	}
+	if args[0] == "dap" {
+		os.Exit(runDAP(args[1:]))
+		return
+	}
 	if args[0] == "doc" {
 		os.Exit(runDoc(args[1:]))
 		return

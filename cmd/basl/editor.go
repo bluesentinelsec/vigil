@@ -80,7 +80,7 @@ func runEditor(args []string) int {
 		return 0
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: basl editor <list|install|uninstall> [options]")
+		fmt.Fprintln(os.Stderr, "usage: basl editor <list|install|uninstall|semantic> [options]")
 		return 2
 	}
 
@@ -114,9 +114,11 @@ func runEditor(args []string) int {
 			return 1
 		}
 		return 0
+	case "semantic":
+		return runEditorSemantic(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown editor subcommand %q\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: basl editor <list|install|uninstall> [options]")
+		fmt.Fprintln(os.Stderr, "usage: basl editor <list|install|uninstall|semantic> [options]")
 		return 2
 	}
 }
