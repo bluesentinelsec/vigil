@@ -27,6 +27,136 @@ func TestDefinitionResolvesImportedModuleMember(t *testing.T) {
 	}
 }
 
+func TestDeclarationResolvesImportedModuleMember(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	pos := mustFindPosition(t, mainPath, "message();")
+	got, err := Declaration(mainPath, pos, nil)
+	if err != nil {
+		t.Fatalf("Declaration() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Declaration() returned nil location")
+	}
+	if filepath.Base(got.Path) != "helper.basl" {
+		t.Fatalf("declaration path = %s, want helper.basl", got.Path)
+	}
+	if got.Line != 13 {
+		t.Fatalf("declaration line = %d, want 13", got.Line)
+	}
+}
+
+func TestImplementationsResolveInterfaceTargets(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `interface Greeter {
+    fn greet(string name) -> string;
+}
+
+class Person implements Greeter {
+    pub fn greet(string name) -> string {
+        return "hello " + name;
+    }
+}
+
+class Robot implements Greeter {
+    pub fn greet(string name) -> string {
+        return "beep " + name;
+    }
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := Implementations(mainPath, mustFindPosition(t, mainPath, "Greeter {"), nil)
+	if err != nil {
+		t.Fatalf("Implementations(interface) error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("Implementations(interface) len = %d, want 2", len(items))
+	}
+
+	methodItems, err := Implementations(mainPath, mustFindPosition(t, mainPath, "greet(string name) -> string;"), nil)
+	if err != nil {
+		t.Fatalf("Implementations(method) error = %v", err)
+	}
+	if len(methodItems) != 2 {
+		t.Fatalf("Implementations(method) len = %d, want 2", len(methodItems))
+	}
+}
+
+func TestDocCommentsFeedHoverCompletionsAndSignatureHelp(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "fmt";
+
+// Greets the user by name.
+// Returns a friendly message.
+fn greet(string name) -> string {
+    return "hello " + name;
+}
+
+/*
+Greeter utility.
+Used to test block comment docs.
+*/
+class Person {
+    // Sends a greeting to stdout.
+    pub fn speak(string name) -> void {
+        fmt.println(greet(name));
+    }
+}
+
+fn main() -> void {
+    Person person = Person();
+    greet("codex");
+    person.speak("basl");
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	hover, err := HoverAt(mainPath, mustFindPosition(t, mainPath, "greet(\"codex\""), nil)
+	if err != nil {
+		t.Fatalf("HoverAt() error = %v", err)
+	}
+	if hover == nil || !strings.Contains(hover.Contents, "Greets the user by name.") || !strings.Contains(hover.Contents, "Returns a friendly message.") {
+		t.Fatalf("hover = %#v, want doc comments in hover", hover)
+	}
+	classHover, err := HoverAt(mainPath, mustFindPosition(t, mainPath, "Person();"), nil)
+	if err != nil {
+		t.Fatalf("HoverAt(class) error = %v", err)
+	}
+	if classHover == nil || !strings.Contains(classHover.Contents, "Greeter utility.") {
+		t.Fatalf("class hover = %#v, want block comment docs", classHover)
+	}
+
+	items, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "person."), nil)
+	if err != nil {
+		t.Fatalf("Completions() error = %v", err)
+	}
+	var speak *CompletionItem
+	for i := range items {
+		if items[i].Label == "speak" {
+			speak = &items[i]
+			break
+		}
+	}
+	if speak == nil || !strings.Contains(speak.Documentation, "Sends a greeting to stdout.") {
+		t.Fatalf("completion = %#v, want method docs", speak)
+	}
+
+	help, err := SignatureHelpAt(mainPath, mustFindPositionAfter(t, mainPath, "greet("), nil)
+	if err != nil {
+		t.Fatalf("SignatureHelpAt() error = %v", err)
+	}
+	if help == nil || len(help.Signatures) == 0 || !strings.Contains(help.Signatures[0].Documentation, "Greets the user by name.") {
+		t.Fatalf("signature help = %#v, want doc comments", help)
+	}
+}
+
 func TestHoverReferencesAndRenameForLocalVariable(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 
@@ -110,6 +240,31 @@ func TestReferencesAndRenameSpanWorkspaceForExportedSymbol(t *testing.T) {
 	}
 }
 
+func TestDocumentHighlightsIncludeDeclarationAndUse(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	items, err := DocumentHighlights(mainPath, mustFindPosition(t, mainPath, "value = helper"), nil)
+	if err != nil {
+		t.Fatalf("DocumentHighlights() error = %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("DocumentHighlights() len = %d, want 2", len(items))
+	}
+	var sawWrite bool
+	var textCount int
+	for _, item := range items {
+		switch item.Kind {
+		case "write":
+			sawWrite = true
+		case "text":
+			textCount++
+		}
+	}
+	if !sawWrite || textCount != 1 {
+		t.Fatalf("document highlights = %#v, want declaration write + 1 usage text highlight", items)
+	}
+}
+
 func TestCompletionsIncludeImportedModuleAndTypedInstanceMembers(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 	a, file, err := newAnalyzer(mainPath, nil)
@@ -140,6 +295,29 @@ func TestCompletionsIncludeImportedModuleAndTypedInstanceMembers(t *testing.T) {
 	}
 	if !hasCompletion(items, "greet") || !hasCompletion(items, "prefix") {
 		t.Fatalf("instance completions missing class members: %#v", items)
+	}
+}
+
+func TestWorkspaceSymbolsSpanFilesAndMembers(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	items, err := WorkspaceSymbols(mainPath, "greet", nil)
+	if err != nil {
+		t.Fatalf("WorkspaceSymbols() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("WorkspaceSymbols() returned no symbols")
+	}
+
+	var sawGreeterMethod bool
+	for _, item := range items {
+		if item.Name == "greet" && item.ContainerName == "Greeter" && filepath.Base(item.Location.Path) == "helper.basl" {
+			sawGreeterMethod = true
+			break
+		}
+	}
+	if !sawGreeterMethod {
+		t.Fatalf("workspace symbols = %#v, want Greeter.greet from helper.basl", items)
 	}
 }
 
@@ -177,6 +355,296 @@ func TestBuiltinMetadataFeedsHoverCompletionsAndSignatureHelp(t *testing.T) {
 	if help == nil || len(help.Signatures) == 0 || help.Signatures[0].Label != "fmt.println(val) -> err" {
 		t.Fatalf("signature help = %#v, want fmt.println signature", help)
 	}
+}
+
+func TestSemanticTokensCoverKeywordsSymbolsAndBuiltins(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "fmt";
+// announce birthday flow
+const i32 answer = 42;
+
+class Person {
+    pub string name;
+
+    pub fn greet(string msg) -> void {
+        fmt.println(msg);
+    }
+}
+
+fn main() -> void {
+    Person alice = Person();
+    alice.greet("hi");
+    fmt.println(answer);
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := SemanticTokens(mainPath, nil)
+	if err != nil {
+		t.Fatalf("SemanticTokens() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("SemanticTokens() returned no tokens")
+	}
+
+	assertSemanticToken(t, src, items, "import", "keyword")
+	assertSemanticToken(t, src, items, "// announce birthday flow", "comment")
+	assertSemanticToken(t, src, items, "i32", "type")
+	assertSemanticToken(t, src, items, "42", "number")
+	assertSemanticToken(t, src, items, "Person", "class", "declaration")
+	assertSemanticToken(t, src, items, "name", "property", "declaration")
+	assertSemanticToken(t, src, items, "greet", "method", "declaration")
+	assertSemanticToken(t, src, items, "msg", "parameter", "declaration")
+	assertSemanticToken(t, src, items, "alice", "variable", "declaration")
+	assertSemanticToken(t, src, items, "fmt", "namespace", "defaultLibrary")
+	assertSemanticToken(t, src, items, "println", "function", "defaultLibrary")
+	assertSemanticToken(t, src, items, "answer", "variable", "readonly")
+}
+
+func TestCodeActionsProvideMissingImportQuickFixAndOrganizeImports(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "basl.toml"), []byte("name = \"demo\"\nversion = \"0.1.0\"\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile(basl.toml) error = %v", err)
+	}
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "helper";
+import "fmt";
+
+fn main() -> void {
+    fmt.println("hi");
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	actions, err := CodeActions(mainPath, nil, []string{"source.organizeImports"}, nil)
+	if err != nil {
+		t.Fatalf("CodeActions(organize) error = %v", err)
+	}
+	if len(actions) != 1 || actions[0].Kind != "source.organizeImports" {
+		t.Fatalf("organize imports actions = %#v, want organizeImports action", actions)
+	}
+	if len(actions[0].Edits) != 1 || !strings.Contains(actions[0].Edits[0].NewText, "import \"fmt\";\nimport \"helper\";\n") {
+		t.Fatalf("organize imports edit = %#v, want sorted imports", actions[0].Edits)
+	}
+
+	missingPath := filepath.Join(root, "missing.basl")
+	missingSrc := `fn main() -> void {
+    fmt.println("hi");
+}
+`
+	if err := os.WriteFile(missingPath, []byte(missingSrc), 0644); err != nil {
+		t.Fatalf("os.WriteFile(missing) error = %v", err)
+	}
+	diags, err := Diagnostics(missingPath, nil)
+	if err != nil {
+		t.Fatalf("Diagnostics(missing) error = %v", err)
+	}
+	var messages []string
+	for _, diag := range diags {
+		messages = append(messages, diag.Message)
+	}
+	actions, err = CodeActions(missingPath, messages, []string{"quickfix"}, nil)
+	if err != nil {
+		t.Fatalf("CodeActions(quickfix) error = %v", err)
+	}
+	if len(actions) == 0 {
+		t.Fatal("CodeActions(quickfix) returned no actions")
+	}
+	found := false
+	for _, action := range actions {
+		if action.Title == `Add import "fmt"` && len(action.Edits) == 1 && strings.Contains(action.Edits[0].NewText, "import \"fmt\";") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("quickfix actions = %#v, want Add import \"fmt\"", actions)
+	}
+}
+
+func TestImportAwareQuickFixesAndCompletions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "basl.toml"), []byte("name = \"demo\"\nversion = \"0.1.0\"\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile(basl.toml) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "lib"), 0755); err != nil {
+		t.Fatalf("os.MkdirAll(lib) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lib", "helper.basl"), []byte(`pub fn message() -> string {
+    return "hi";
+}
+
+pub class Greeter {
+    pub fn greet() -> void {}
+}
+`), 0644); err != nil {
+		t.Fatalf("os.WriteFile(helper) error = %v", err)
+	}
+
+	mainPath := filepath.Join(root, "main.basl")
+	src := `fn main() -> void {
+    helper.
+    message();
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	moduleItems, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "helper."), nil)
+	if err != nil {
+		t.Fatalf("Completions(module auto-import) error = %v", err)
+	}
+	var messageMember *CompletionItem
+	for i := range moduleItems {
+		if moduleItems[i].Label == "message" {
+			messageMember = &moduleItems[i]
+			break
+		}
+	}
+	if messageMember == nil || len(messageMember.AdditionalEdits) != 1 || !strings.Contains(messageMember.AdditionalEdits[0].NewText, `import "helper";`) {
+		t.Fatalf("module completion = %#v, want auto-import edit", messageMember)
+	}
+
+	topLevelItems, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "message"), nil)
+	if err != nil {
+		t.Fatalf("Completions(symbol auto-import) error = %v", err)
+	}
+	var autoImported *CompletionItem
+	for i := range topLevelItems {
+		if topLevelItems[i].Label == "message" && strings.HasPrefix(topLevelItems[i].InsertText, "helper.message(") {
+			autoImported = &topLevelItems[i]
+			break
+		}
+	}
+	if autoImported == nil || len(autoImported.AdditionalEdits) != 1 {
+		t.Fatalf("top-level completion = %#v, want helper.message auto-import completion", autoImported)
+	}
+
+	actions, err := CodeActionsWithDiagnostics(mainPath, []DiagnosticHint{{
+		Message: `unknown identifier "message"`,
+		Range:   &Location{Path: mainPath, Line: 3, Col: 5, EndCol: 11},
+	}}, []string{"quickfix"}, &Location{Path: mainPath, Line: 3, Col: 5, EndCol: 11}, nil)
+	if err != nil {
+		t.Fatalf("CodeActionsWithDiagnostics() error = %v", err)
+	}
+	foundFix := false
+	for _, action := range actions {
+		if action.Title != `Import "helper" and use helper.message` {
+			continue
+		}
+		if len(action.Edits) != 2 {
+			t.Fatalf("action edits = %#v, want import + replacement", action.Edits)
+		}
+		foundFix = true
+		break
+	}
+	if !foundFix {
+		t.Fatalf("quickfix actions = %#v, want import-and-qualify action", actions)
+	}
+}
+
+func TestCompletionSnippetsAndMemberPrefixFiltering(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `class Person {
+    fn init(string name, i32 age) -> void {}
+
+    pub fn birthday() -> void {}
+}
+
+fn greet(string name) -> void {}
+
+fn main() -> void {
+    Person alice = Person("Alice", 30);
+    gre;
+    alice.bi;
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "gre"), nil)
+	if err != nil {
+		t.Fatalf("Completions(gre) error = %v", err)
+	}
+	var greetItem *CompletionItem
+	var personItem *CompletionItem
+	for i := range items {
+		switch items[i].Label {
+		case "greet":
+			greetItem = &items[i]
+		case "Person":
+			personItem = &items[i]
+		}
+	}
+	if greetItem == nil {
+		t.Fatalf("completions = %#v, want greet item", items)
+	}
+	if greetItem.InsertFormat != "snippet" || greetItem.InsertText != "greet(${1:name})$0" {
+		t.Fatalf("greet completion = %#v, want callable snippet", greetItem)
+	}
+	if !greetItem.Preselect {
+		t.Fatalf("greet completion = %#v, want preselected exact-prefix match", greetItem)
+	}
+	if personItem == nil || personItem.InsertFormat != "snippet" || personItem.InsertText != "Person(${1:name}, ${2:age})$0" {
+		t.Fatalf("Person completion = %#v, want constructor snippet", personItem)
+	}
+
+	memberItems, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "alice.bi"), nil)
+	if err != nil {
+		t.Fatalf("Completions(alice.bi) error = %v", err)
+	}
+	if len(memberItems) != 1 || memberItems[0].Label != "birthday" {
+		t.Fatalf("member completions = %#v, want only birthday", memberItems)
+	}
+	if memberItems[0].InsertFormat != "snippet" || memberItems[0].InsertText != "birthday()$0" {
+		t.Fatalf("member completion = %#v, want zero-arg snippet", memberItems[0])
+	}
+}
+
+func TestFoldingRangesCoverImportsCommentsAndBlocks(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "helper";
+import "fmt";
+
+// line comment one
+// line comment two
+
+class Person {
+    pub fn greet() -> void {
+        fmt.println("hi");
+    }
+}
+
+/*
+block comment
+continued
+*/
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := FoldingRanges(mainPath, nil)
+	if err != nil {
+		t.Fatalf("FoldingRanges() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("FoldingRanges() returned no ranges")
+	}
+	assertHasFoldingRange(t, items, 1, 2, "imports")
+	assertHasFoldingRange(t, items, 4, 5, "comment")
+	assertHasFoldingRange(t, items, 7, 10, "")
+	assertHasFoldingRange(t, items, 8, 9, "")
+	assertHasFoldingRange(t, items, 13, 16, "comment")
 }
 
 func TestPrepareRenameAndFormatDocument(t *testing.T) {
@@ -442,4 +910,62 @@ func hasCompletion(items []CompletionItem, want string) bool {
 		}
 	}
 	return false
+}
+
+func assertSemanticToken(t *testing.T, src string, items []SemanticToken, text string, wantType string, modifiers ...string) {
+	t.Helper()
+	for _, item := range items {
+		if semanticTokenText(t, src, item.Location) != text {
+			continue
+		}
+		if item.Type != wantType {
+			continue
+		}
+		if !semanticModifiersInclude(item.Modifiers, modifiers...) {
+			continue
+		}
+		return
+	}
+	t.Fatalf("semantic token %q of type %q with modifiers %v not found in %#v", text, wantType, modifiers, items)
+}
+
+func semanticTokenText(t *testing.T, src string, loc Location) string {
+	t.Helper()
+	lines := strings.Split(src, "\n")
+	if loc.Line <= 0 || loc.Line > len(lines) {
+		t.Fatalf("semantic token line %d out of range", loc.Line)
+	}
+	line := lines[loc.Line-1]
+	start := loc.Col - 1
+	end := loc.EndCol
+	if start < 0 || end < start || end > len(line) {
+		t.Fatalf("semantic token columns %d:%d out of range for line %q", loc.Col, loc.EndCol, line)
+	}
+	return line[start:end]
+}
+
+func semanticModifiersInclude(got []string, want ...string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	set := make(map[string]bool, len(got))
+	for _, item := range got {
+		set[item] = true
+	}
+	for _, item := range want {
+		if !set[item] {
+			return false
+		}
+	}
+	return true
+}
+
+func assertHasFoldingRange(t *testing.T, items []FoldingRange, startLine int, endLine int, kind string) {
+	t.Helper()
+	for _, item := range items {
+		if item.StartLine == startLine && item.EndLine == endLine && item.Kind == kind {
+			return
+		}
+	}
+	t.Fatalf("folding range %d-%d kind=%q not found in %#v", startLine, endLine, kind, items)
 }

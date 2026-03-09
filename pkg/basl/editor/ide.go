@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
@@ -37,6 +38,26 @@ type PrepareRename struct {
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var unknownIdentifierDiagnosticPattern = regexp.MustCompile(`unknown identifier "([^"]+)"`)
+
+type DiagnosticHint struct {
+	Message string    `json:"message"`
+	Range   *Location `json:"range,omitempty"`
+}
+
+type CodeAction struct {
+	Title       string       `json:"title"`
+	Kind        string       `json:"kind,omitempty"`
+	IsPreferred bool         `json:"is_preferred,omitempty"`
+	Diagnostics []string     `json:"diagnostics,omitempty"`
+	Edits       []RenameEdit `json:"edits,omitempty"`
+}
+
+type FoldingRange struct {
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Kind      string `json:"kind,omitempty"`
+}
 
 func validIdentifier(name string) bool {
 	return identifierPattern.MatchString(name)
@@ -273,6 +294,77 @@ func positionFromIndex(src string, idx int) Position {
 	return Position{Line: line, Col: col}
 }
 
+func CodeActions(path string, diagnostics []string, only []string, extraSearchPaths []string) ([]CodeAction, error) {
+	hints := make([]DiagnosticHint, 0, len(diagnostics))
+	for _, item := range diagnostics {
+		hints = append(hints, DiagnosticHint{Message: item})
+	}
+	return codeActionsWithDiagnostics(path, hints, only, nil, Options{SearchPaths: extraSearchPaths})
+}
+
+func CodeActionsWithOptions(path string, diagnostics []string, only []string, opts Options) ([]CodeAction, error) {
+	hints := make([]DiagnosticHint, 0, len(diagnostics))
+	for _, item := range diagnostics {
+		hints = append(hints, DiagnosticHint{Message: item})
+	}
+	return codeActionsWithDiagnostics(path, hints, only, nil, opts)
+}
+
+func CodeActionsWithDiagnostics(path string, diagnostics []DiagnosticHint, only []string, targetRange *Location, extraSearchPaths []string) ([]CodeAction, error) {
+	return codeActionsWithDiagnostics(path, diagnostics, only, targetRange, Options{SearchPaths: extraSearchPaths})
+}
+
+func CodeActionsWithDiagnosticsAndOptions(path string, diagnostics []DiagnosticHint, only []string, targetRange *Location, opts Options) ([]CodeAction, error) {
+	return codeActionsWithDiagnostics(path, diagnostics, only, targetRange, opts)
+}
+
+func codeActionsWithDiagnostics(path string, diagnostics []DiagnosticHint, only []string, targetRange *Location, opts Options) ([]CodeAction, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	src, err := readDocumentSource(absPath, opts)
+	if err != nil {
+		return nil, err
+	}
+	a, file, err := newAnalyzerWithOptions(absPath, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var actions []CodeAction
+	if action, err := organizeImportsAction(absPath, src, only); err != nil {
+		return nil, err
+	} else if action != nil {
+		actions = append(actions, *action)
+	}
+
+	if wantsCodeActionKind("quickfix", only) {
+		actions = append(actions, missingImportActions(a, file, diagnostics, targetRange, src)...)
+	}
+	return dedupeCodeActions(actions), nil
+}
+
+func FoldingRanges(path string, extraSearchPaths []string) ([]FoldingRange, error) {
+	return FoldingRangesWithOptions(path, Options{SearchPaths: extraSearchPaths})
+}
+
+func FoldingRangesWithOptions(path string, opts Options) ([]FoldingRange, error) {
+	src, err := readDocumentSource(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	tokens, err := lexer.New(src).TokenizeWithComments()
+	if err != nil {
+		return nil, err
+	}
+	var out []FoldingRange
+	out = append(out, importFoldingRanges(src)...)
+	out = append(out, commentFoldingRanges(tokens)...)
+	out = append(out, braceFoldingRanges(tokens)...)
+	return dedupeFoldingRanges(out), nil
+}
+
 func FormatDocument(path string, extraSearchPaths []string) (string, error) {
 	return FormatDocumentWithOptions(path, Options{SearchPaths: extraSearchPaths})
 }
@@ -323,4 +415,561 @@ func formatSource(src string) ([]byte, error) {
 		return []byte(src), nil
 	}
 	return out, nil
+}
+
+func organizeImportsAction(path string, src string, only []string) (*CodeAction, error) {
+	if !wantsCodeActionKind("source.organizeImports", only) {
+		return nil, nil
+	}
+	if !strings.Contains(src, "import ") {
+		return nil, nil
+	}
+	formatted, err := formatSource(src)
+	if err != nil {
+		return nil, err
+	}
+	if string(formatted) == src {
+		return nil, nil
+	}
+	return &CodeAction{
+		Title: "Organize Imports",
+		Kind:  "source.organizeImports",
+		Edits: []RenameEdit{{
+			Path:    path,
+			Line:    1,
+			Col:     1,
+			EndCol:  1,
+			NewText: string(formatted),
+		}},
+	}, nil
+}
+
+func missingImportActions(a *Analyzer, file *fileModel, diagnostics []DiagnosticHint, targetRange *Location, src string) []CodeAction {
+	modules := a.importableModules(file)
+	if len(modules) == 0 {
+		return nil
+	}
+	var actions []CodeAction
+	seen := make(map[string]bool)
+	for _, diag := range diagnostics {
+		match := unknownIdentifierDiagnosticPattern.FindStringSubmatch(diag.Message)
+		if len(match) != 2 {
+			continue
+		}
+		name := match[1]
+		for _, module := range modules {
+			importEdit, err := insertImportEdit(file.path, src, module.Path)
+			if err != nil {
+				continue
+			}
+			if module.Alias == name {
+				key := "import:" + name + ":" + module.Path
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				actions = append(actions, CodeAction{
+					Title:       fmt.Sprintf("Add import %q", module.Path),
+					Kind:        "quickfix",
+					IsPreferred: true,
+					Diagnostics: []string{diag.Message},
+					Edits:       []RenameEdit{importEdit},
+				})
+				continue
+			}
+			member, ok := module.memberByName(name)
+			if !ok {
+				continue
+			}
+			replacementRange := findUnknownIdentifierRange(src, diag, targetRange, name)
+			if replacementRange == nil {
+				continue
+			}
+			key := "qualify:" + name + ":" + module.Path
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			actions = append(actions, CodeAction{
+				Title:       fmt.Sprintf("Import %q and use %s.%s", module.Path, module.Alias, name),
+				Kind:        "quickfix",
+				IsPreferred: true,
+				Diagnostics: []string{diag.Message},
+				Edits: []RenameEdit{
+					importEdit,
+					{
+						Path:    replacementRange.Path,
+						Line:    replacementRange.Line,
+						Col:     replacementRange.Col,
+						EndCol:  replacementRange.EndCol,
+						NewText: module.Alias + "." + member.Label,
+					},
+				},
+			})
+		}
+	}
+	return actions
+}
+
+type importableModule struct {
+	Path          string
+	Alias         string
+	Documentation string
+	members       []CompletionItem
+}
+
+func (a *Analyzer) importableModules(file *fileModel) []importableModule {
+	var out []importableModule
+	seen := make(map[string]bool)
+	for name := range a.builtinCompletions {
+		if _, imported := file.imports[name]; imported {
+			continue
+		}
+		module := importableModule{Path: name, Alias: name}
+		if mod, ok := a.builtinModule(name); ok {
+			module.Documentation = mod.Summary
+			for _, memberName := range a.builtinCompletions[name] {
+				if builtinSym, ok := a.builtinMember(name, memberName); ok {
+					module.members = append(module.members, completionItemForBuiltin(name, builtinSym, 10))
+					continue
+				}
+				item := CompletionItem{
+					Label:    memberName,
+					Kind:     string(kindFunction),
+					Detail:   fmt.Sprintf("%s.%s", name, memberName),
+					SortText: completionSortText(10, memberName),
+				}
+				module.members = append(module.members, item)
+			}
+		}
+		out = append(out, module)
+		seen[module.Alias] = true
+	}
+	for _, candidate := range workspaceFileCandidates(file.path, a.searchPaths) {
+		if sameDocumentPath(candidate, file.path) {
+			continue
+		}
+		modulePath := moduleImportPath(candidate, a.searchPaths)
+		if modulePath == "" {
+			continue
+		}
+		alias := defaultImportAlias(modulePath)
+		if alias == "" || seen[alias] {
+			continue
+		}
+		if _, imported := file.imports[alias]; imported {
+			continue
+		}
+		target, err := a.loadFile(candidate)
+		if err != nil {
+			continue
+		}
+		module := importableModule{
+			Path:  modulePath,
+			Alias: alias,
+		}
+		for _, sym := range target.topLevel {
+			module.members = append(module.members, completionItemForSymbol(sym, 10))
+		}
+		sort.Slice(module.members, func(i, j int) bool { return module.members[i].Label < module.members[j].Label })
+		out = append(out, module)
+		seen[alias] = true
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Alias != out[j].Alias {
+			return out[i].Alias < out[j].Alias
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out
+}
+
+func sameDocumentPath(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return filepath.Clean(aa) == filepath.Clean(bb)
+}
+
+func existingImportPaths(prog *ast.Program) map[string]bool {
+	out := make(map[string]bool)
+	if prog == nil {
+		return out
+	}
+	for _, decl := range prog.Decls {
+		imp, ok := decl.(*ast.ImportDecl)
+		if !ok {
+			continue
+		}
+		out[imp.Path] = true
+	}
+	return out
+}
+
+func sourceWithAddedImport(src string, modulePath string) (string, error) {
+	tokensWithComments, err := lexer.New(src).TokenizeWithComments()
+	if err != nil {
+		return "", err
+	}
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return "", err
+	}
+	prog, err := parser.New(tokens).Parse()
+	if err != nil {
+		return "", err
+	}
+	for _, decl := range prog.Decls {
+		if imp, ok := decl.(*ast.ImportDecl); ok && imp.Path == modulePath {
+			return src, nil
+		}
+	}
+	line := 1
+	for _, decl := range prog.Decls {
+		if imp, ok := decl.(*ast.ImportDecl); ok && imp.Line > 0 {
+			line = imp.Line
+			break
+		}
+	}
+	prog.Decls = append(prog.Decls, &ast.ImportDecl{Path: modulePath, Line: line})
+	return string(formatter.Format(prog, tokensWithComments)), nil
+}
+
+func insertImportEdit(path string, src string, modulePath string) (RenameEdit, error) {
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return RenameEdit{}, err
+	}
+	prog, err := parser.New(tokens).Parse()
+	if err != nil {
+		return RenameEdit{}, err
+	}
+	for _, decl := range prog.Decls {
+		if imp, ok := decl.(*ast.ImportDecl); ok && imp.Path == modulePath {
+			return RenameEdit{}, fmt.Errorf("import already exists")
+		}
+	}
+	lines := strings.Split(src, "\n")
+	lastImportLine := 0
+	for _, decl := range prog.Decls {
+		imp, ok := decl.(*ast.ImportDecl)
+		if !ok {
+			continue
+		}
+		if imp.Line > lastImportLine {
+			lastImportLine = imp.Line
+		}
+	}
+	if lastImportLine > 0 {
+		lineText := ""
+		if lastImportLine-1 < len(lines) {
+			lineText = lines[lastImportLine-1]
+		}
+		col := len(lineText) + 1
+		return RenameEdit{
+			Path:    path,
+			Line:    lastImportLine,
+			Col:     col,
+			EndCol:  col - 1,
+			NewText: "\nimport \"" + modulePath + "\";",
+		}, nil
+	}
+	return RenameEdit{
+		Path:    path,
+		Line:    1,
+		Col:     1,
+		EndCol:  0,
+		NewText: "import \"" + modulePath + "\";\n\n",
+	}, nil
+}
+
+func moduleImportPath(path string, searchPaths []string) string {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	for _, root := range searchPaths {
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absRoot, absPath)
+		if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		if !strings.HasSuffix(rel, ".basl") {
+			continue
+		}
+		base := strings.TrimSuffix(rel, ".basl")
+		if !strings.Contains(base, "/") {
+			if base == "main" {
+				return ""
+			}
+			return base
+		}
+		parts := strings.Split(base, "/")
+		if len(parts) == 3 && parts[1] == "lib" && parts[0] == parts[2] {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
+func defaultImportAlias(modulePath string) string {
+	modulePath = strings.TrimSpace(modulePath)
+	if modulePath == "" {
+		return ""
+	}
+	parts := strings.Split(modulePath, "/")
+	return parts[len(parts)-1]
+}
+
+func (m importableModule) memberCompletions() []CompletionItem {
+	out := make([]CompletionItem, len(m.members))
+	copy(out, m.members)
+	return out
+}
+
+func (m importableModule) memberCompletionsMatching(prefix string) []CompletionItem {
+	var out []CompletionItem
+	for _, item := range m.members {
+		if completionMatchesPrefix(item.Label, prefix) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (m importableModule) memberByName(name string) (CompletionItem, bool) {
+	for _, item := range m.members {
+		if item.Label == name {
+			return item, true
+		}
+	}
+	return CompletionItem{}, false
+}
+
+func findUnknownIdentifierRange(src string, diag DiagnosticHint, targetRange *Location, name string) *Location {
+	if targetRange != nil && targetRange.Line > 0 {
+		if loc := identifierRangeOnLine(src, targetRange.Line, name, targetRange.Col); loc != nil {
+			return loc
+		}
+	}
+	if diag.Range != nil && diag.Range.Line > 0 {
+		if loc := identifierRangeOnLine(src, diag.Range.Line, name, diag.Range.Col); loc != nil {
+			return loc
+		}
+	}
+	return nil
+}
+
+func identifierRangeOnLine(src string, line int, name string, nearCol int) *Location {
+	lines := strings.Split(src, "\n")
+	if line <= 0 || line > len(lines) {
+		return nil
+	}
+	text := lines[line-1]
+	bestIdx := -1
+	for idx := 0; idx <= len(text)-len(name); idx++ {
+		if text[idx:idx+len(name)] != name {
+			continue
+		}
+		if idx > 0 {
+			prev := text[idx-1]
+			if isIdentifierByte(prev) {
+				continue
+			}
+		}
+		if idx+len(name) < len(text) {
+			next := text[idx+len(name)]
+			if isIdentifierByte(next) {
+				continue
+			}
+		}
+		if bestIdx < 0 {
+			bestIdx = idx
+		}
+		if nearCol > 0 && idx+1 >= nearCol {
+			bestIdx = idx
+			break
+		}
+	}
+	if bestIdx < 0 {
+		return nil
+	}
+	return &Location{
+		Line:   line,
+		Col:    bestIdx + 1,
+		EndCol: bestIdx + len(name),
+	}
+}
+
+func isIdentifierByte(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
+}
+
+func wantsCodeActionKind(kind string, only []string) bool {
+	if len(only) == 0 {
+		return true
+	}
+	for _, item := range only {
+		if item == kind || strings.HasPrefix(kind, item+".") || strings.HasPrefix(item, kind+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupeCodeActions(items []CodeAction) []CodeAction {
+	seen := make(map[string]bool)
+	var out []CodeAction
+	for _, item := range items {
+		key := item.Kind + ":" + item.Title
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func importFoldingRanges(src string) []FoldingRange {
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return nil
+	}
+	prog, err := parser.New(tokens).Parse()
+	if err != nil || prog == nil {
+		return nil
+	}
+	var importLines []int
+	for _, decl := range prog.Decls {
+		imp, ok := decl.(*ast.ImportDecl)
+		if !ok {
+			continue
+		}
+		if imp.Line > 0 {
+			importLines = append(importLines, imp.Line)
+		}
+	}
+	if len(importLines) < 2 {
+		return nil
+	}
+	sort.Ints(importLines)
+	var out []FoldingRange
+	start := importLines[0]
+	prev := importLines[0]
+	for _, line := range importLines[1:] {
+		if line == prev+1 {
+			prev = line
+			continue
+		}
+		if prev > start {
+			out = append(out, FoldingRange{StartLine: start, EndLine: prev, Kind: "imports"})
+		}
+		start = line
+		prev = line
+	}
+	if prev > start {
+		out = append(out, FoldingRange{StartLine: start, EndLine: prev, Kind: "imports"})
+	}
+	return out
+}
+
+func commentFoldingRanges(tokens []lexer.Token) []FoldingRange {
+	var out []FoldingRange
+	lineCommentStart := 0
+	lineCommentEnd := 0
+	flushLineComments := func() {
+		if lineCommentStart > 0 && lineCommentEnd > lineCommentStart {
+			out = append(out, FoldingRange{StartLine: lineCommentStart, EndLine: lineCommentEnd, Kind: "comment"})
+		}
+		lineCommentStart = 0
+		lineCommentEnd = 0
+	}
+	for _, tok := range tokens {
+		switch tok.Type {
+		case lexer.TOKEN_LINE_COMMENT:
+			if lineCommentStart == 0 {
+				lineCommentStart = tok.Line
+				lineCommentEnd = tok.Line
+				continue
+			}
+			if tok.Line == lineCommentEnd+1 {
+				lineCommentEnd = tok.Line
+				continue
+			}
+			flushLineComments()
+			lineCommentStart = tok.Line
+			lineCommentEnd = tok.Line
+		case lexer.TOKEN_BLOCK_COMMENT:
+			flushLineComments()
+			endLine := tok.Line + strings.Count(tok.Literal, "\n")
+			if endLine > tok.Line {
+				out = append(out, FoldingRange{StartLine: tok.Line, EndLine: endLine, Kind: "comment"})
+			}
+		default:
+			flushLineComments()
+		}
+	}
+	flushLineComments()
+	return out
+}
+
+func braceFoldingRanges(tokens []lexer.Token) []FoldingRange {
+	type openToken struct {
+		kind string
+		line int
+	}
+	var stack []openToken
+	var out []FoldingRange
+	for _, tok := range tokens {
+		switch tok.Type {
+		case lexer.TOKEN_LBRACE:
+			stack = append(stack, openToken{kind: "region", line: tok.Line})
+		case lexer.TOKEN_LBRACKET:
+			stack = append(stack, openToken{kind: "region", line: tok.Line})
+		case lexer.TOKEN_RBRACE, lexer.TOKEN_RBRACKET:
+			if len(stack) == 0 {
+				continue
+			}
+			open := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			endLine := tok.Line - 1
+			if endLine > open.line {
+				out = append(out, FoldingRange{StartLine: open.line, EndLine: endLine})
+			}
+		}
+	}
+	return out
+}
+
+func dedupeFoldingRanges(items []FoldingRange) []FoldingRange {
+	seen := make(map[string]bool)
+	var out []FoldingRange
+	for _, item := range items {
+		if item.StartLine <= 0 || item.EndLine <= item.StartLine {
+			continue
+		}
+		key := fmt.Sprintf("%d:%d:%s", item.StartLine, item.EndLine, item.Kind)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].StartLine != out[j].StartLine {
+			return out[i].StartLine < out[j].StartLine
+		}
+		if out[i].EndLine != out[j].EndLine {
+			return out[i].EndLine < out[j].EndLine
+		}
+		return out[i].Kind < out[j].Kind
+	})
+	return out
 }

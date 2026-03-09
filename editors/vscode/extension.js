@@ -4,6 +4,26 @@ const fs = require("fs");
 const cp = require("child_process");
 
 const ARG_STATE_PREFIX = "basl.entryArgs";
+const SEMANTIC_TOKEN_TYPES = [
+  "namespace",
+  "class",
+  "enum",
+  "interface",
+  "function",
+  "method",
+  "property",
+  "parameter",
+  "variable",
+  "type",
+  "keyword",
+  "comment",
+  "number",
+];
+const SEMANTIC_TOKEN_MODIFIERS = [
+  "declaration",
+  "readonly",
+  "defaultLibrary",
+];
 
 function activate(context) {
   const fallbackCompletions = JSON.parse(
@@ -11,6 +31,10 @@ function activate(context) {
   );
   const diagnostics = vscode.languages.createDiagnosticCollection("basl");
   const client = new BaslLSPClient(diagnostics);
+  const semanticLegend = new vscode.SemanticTokensLegend(
+    SEMANTIC_TOKEN_TYPES,
+    SEMANTIC_TOKEN_MODIFIERS
+  );
   const baslCommand = () => vscode.workspace.getConfiguration("basl").get("path") || "basl";
 
   function isBaslDocument(document) {
@@ -162,6 +186,12 @@ function activate(context) {
     };
   }
 
+  function hasDocumentBreakpoints(document) {
+    return vscode.debug.breakpoints.some(
+      (item) => item instanceof vscode.SourceBreakpoint && item.location.uri.toString() === document.uri.toString()
+    );
+  }
+
   async function promptForArgs(document) {
     const currentArgs = runtimeOptionsForDocument(document).args;
     const input = await vscode.window.showInputBox({
@@ -207,6 +237,7 @@ function activate(context) {
     if (args === undefined) {
       return;
     }
+    const stopOnEntry = options.stopOnEntry || !hasDocumentBreakpoints(document);
     await vscode.debug.startDebugging(options.folder, {
       type: "basl",
       request: "launch",
@@ -215,7 +246,8 @@ function activate(context) {
       cwd: options.cwd,
       args,
       path: options.searchPaths,
-      stopOnEntry: options.stopOnEntry,
+      stopOnEntry,
+      console: "internalConsole",
     });
   }
 
@@ -340,6 +372,51 @@ function activate(context) {
       },
     })
   );
+  context.subscriptions.push(
+    vscode.languages.registerDeclarationProvider("basl", {
+      async provideDeclaration(document, position) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/declaration", textDocumentPositionParams(document, position));
+        return result ? toLocation(result) : undefined;
+      },
+    })
+  );
+  context.subscriptions.push(
+    vscode.languages.registerImplementationProvider("basl", {
+      async provideImplementation(document, position) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/implementation", textDocumentPositionParams(document, position));
+        if (!Array.isArray(result)) {
+          return result ? toLocation(result) : undefined;
+        }
+        return result.map(toLocation);
+      },
+    })
+  );
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider("basl", {
+      async provideFoldingRanges(document) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/foldingRange", {
+          textDocument: { uri: document.uri.toString() },
+        });
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.FoldingRange(
+          item.startLine,
+          item.endLine,
+          foldingRangeKind(item.kind)
+        ));
+      },
+    })
+  );
 
   context.subscriptions.push(
     vscode.languages.registerHoverProvider("basl", {
@@ -369,6 +446,77 @@ function activate(context) {
         return result.map(toLocation);
       },
     })
+  );
+  context.subscriptions.push(
+    vscode.languages.registerDocumentHighlightProvider("basl", {
+      async provideDocumentHighlights(document, position) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/documentHighlight", textDocumentPositionParams(document, position));
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.DocumentHighlight(
+          toRange(item.range),
+          documentHighlightKind(item.kind)
+        ));
+      },
+    })
+  );
+  context.subscriptions.push(
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      "basl",
+      {
+        async provideDocumentSemanticTokens(document) {
+          if (!isBaslDocument(document) || !(await ensureClient())) {
+            return undefined;
+          }
+          const result = await client.request("textDocument/semanticTokens/full", {
+            textDocument: { uri: document.uri.toString() },
+          });
+          if (!result || !Array.isArray(result.data)) {
+            return undefined;
+          }
+          return new vscode.SemanticTokens(Uint32Array.from(result.data));
+        },
+      },
+      semanticLegend
+    )
+  );
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(
+      "basl",
+      {
+        async provideCodeActions(document, range, context) {
+          if (!isBaslDocument(document) || !(await ensureClient())) {
+            return undefined;
+          }
+          const result = await client.request("textDocument/codeAction", {
+            textDocument: { uri: document.uri.toString() },
+            range: toLSPRange(range),
+            context: {
+              only: Array.isArray(context.only) ? context.only.map((item) => item.value) : undefined,
+              diagnostics: (context.diagnostics || []).map((item) => ({
+                range: toLSPRange(item.range),
+                message: item.message,
+                source: item.source || "basl",
+              })),
+            },
+          });
+          if (!Array.isArray(result)) {
+            return undefined;
+          }
+          return result.map(toCodeAction);
+        },
+      },
+      {
+        providedCodeActionKinds: [
+          vscode.CodeActionKind.QuickFix,
+          vscode.CodeActionKind.SourceOrganizeImports,
+        ],
+      }
+    )
   );
 
   context.subscriptions.push(
@@ -455,6 +603,25 @@ function activate(context) {
       },
     })
   );
+  context.subscriptions.push(
+    vscode.languages.registerWorkspaceSymbolProvider({
+      async provideWorkspaceSymbols(query) {
+        if (!(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("workspace/symbol", { query });
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.SymbolInformation(
+          item.name,
+          symbolKind(item.kind),
+          item.containerName || "",
+          toLocation(item.location)
+        ));
+      },
+    })
+  );
 
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
@@ -468,6 +635,22 @@ function activate(context) {
                 const out = new vscode.CompletionItem(item.label, completionKind(item.kind));
                 out.detail = item.detail;
                 out.documentation = markdownFromDocs(item.documentation);
+                if (typeof item.insertText === "string" && item.insertText.length > 0) {
+                  out.insertText = item.insertTextFormat === 2
+                    ? new vscode.SnippetString(item.insertText)
+                    : item.insertText;
+                }
+                if (typeof item.sortText === "string" && item.sortText.length > 0) {
+                  out.sortText = item.sortText;
+                }
+                if (item.preselect === true) {
+                  out.preselect = true;
+                }
+                if (Array.isArray(item.additionalTextEdits) && item.additionalTextEdits.length > 0) {
+                  out.additionalTextEdits = item.additionalTextEdits.map(
+                    (edit) => new vscode.TextEdit(toRange(edit.range), edit.newText)
+                  );
+                }
                 return out;
               });
             }
@@ -783,6 +966,13 @@ function toRange(range) {
   );
 }
 
+function toLSPRange(range) {
+  return {
+    start: toLSPPosition(range.start),
+    end: toLSPPosition(range.end),
+  };
+}
+
 function toLocation(item) {
   return new vscode.Location(vscode.Uri.parse(item.uri), toRange(item.range));
 }
@@ -799,6 +989,24 @@ function toDocumentSymbol(item) {
     symbol.children = item.children.map(toDocumentSymbol);
   }
   return symbol;
+}
+
+function toCodeAction(item) {
+  const action = new vscode.CodeAction(
+    item.title,
+    item.kind ? new vscode.CodeActionKind(item.kind) : undefined
+  );
+  action.isPreferred = item.isPreferred === true;
+  if (item.edit && item.edit.changes) {
+    const edit = new vscode.WorkspaceEdit();
+    for (const [uri, edits] of Object.entries(item.edit.changes)) {
+      for (const change of edits) {
+        edit.replace(vscode.Uri.parse(uri), toRange(change.range), change.newText);
+      }
+    }
+    action.edit = edit;
+  }
+  return action;
 }
 
 function markdownFromDocs(text) {
@@ -849,6 +1057,28 @@ function symbolKind(kind) {
       return vscode.SymbolKind.Enum;
     default:
       return vscode.SymbolKind.Function;
+  }
+}
+
+function documentHighlightKind(kind) {
+  switch (kind) {
+    case 2:
+      return vscode.DocumentHighlightKind.Read;
+    case 3:
+      return vscode.DocumentHighlightKind.Write;
+    default:
+      return vscode.DocumentHighlightKind.Text;
+  }
+}
+
+function foldingRangeKind(kind) {
+  switch (kind) {
+    case "comment":
+      return vscode.FoldingRangeKind.Comment;
+    case "imports":
+      return vscode.FoldingRangeKind.Imports;
+    default:
+      return undefined;
   }
 }
 

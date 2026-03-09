@@ -33,11 +33,27 @@ type Hover struct {
 	Location *Location `json:"location,omitempty"`
 }
 
+type DocumentHighlight struct {
+	Location Location `json:"location"`
+	Kind     string   `json:"kind,omitempty"`
+}
+
+type SemanticToken struct {
+	Location  Location `json:"location"`
+	Type      string   `json:"type"`
+	Modifiers []string `json:"modifiers,omitempty"`
+}
+
 type CompletionItem struct {
-	Label         string `json:"label"`
-	Kind          string `json:"kind"`
-	Detail        string `json:"detail,omitempty"`
-	Documentation string `json:"documentation,omitempty"`
+	Label           string       `json:"label"`
+	Kind            string       `json:"kind"`
+	Detail          string       `json:"detail,omitempty"`
+	Documentation   string       `json:"documentation,omitempty"`
+	InsertText      string       `json:"insert_text,omitempty"`
+	InsertFormat    string       `json:"insert_format,omitempty"`
+	SortText        string       `json:"sort_text,omitempty"`
+	Preselect       bool         `json:"preselect,omitempty"`
+	AdditionalEdits []RenameEdit `json:"additional_edits,omitempty"`
 }
 
 type RenameEdit struct {
@@ -49,11 +65,12 @@ type RenameEdit struct {
 }
 
 type SymbolItem struct {
-	Name     string       `json:"name"`
-	Detail   string       `json:"detail,omitempty"`
-	Kind     string       `json:"kind"`
-	Location Location     `json:"location"`
-	Children []SymbolItem `json:"children,omitempty"`
+	Name          string       `json:"name"`
+	Detail        string       `json:"detail,omitempty"`
+	Kind          string       `json:"kind"`
+	Location      Location     `json:"location"`
+	ContainerName string       `json:"container_name,omitempty"`
+	Children      []SymbolItem `json:"children,omitempty"`
 }
 
 type Options struct {
@@ -120,11 +137,19 @@ type symbolDef struct {
 	renameable bool
 	ownerFile  *fileModel
 	explicit   bool
+	container  symbolKind
+	parentName string
 }
 
 type classInfo struct {
+	symbol     *symbolDef
+	fields     map[string]*symbolDef
+	methods    map[string]*symbolDef
+	implements []string
+}
+
+type ifaceInfo struct {
 	symbol  *symbolDef
-	fields  map[string]*symbolDef
 	methods map[string]*symbolDef
 }
 
@@ -173,7 +198,9 @@ type fileModel struct {
 	imports       map[string]*symbolDef
 	importTargets map[string]*fileModel
 	classes       map[string]*classInfo
+	ifaces        map[string]*ifaceInfo
 	topLevel      map[string]*symbolDef
+	commentDocs   map[int]string
 	occurrences   []occurrence
 	tokenPos      int
 	analyzed      bool
@@ -220,6 +247,37 @@ func DefinitionWithOptions(path string, pos Position, opts Options) (*Location, 
 		return nil, nil
 	}
 	return occ.symbol.location, nil
+}
+
+func Declaration(path string, pos Position, extraSearchPaths []string) (*Location, error) {
+	return DeclarationWithOptions(path, pos, Options{SearchPaths: extraSearchPaths})
+}
+
+func DeclarationWithOptions(path string, pos Position, opts Options) (*Location, error) {
+	return DefinitionWithOptions(path, pos, opts)
+}
+
+func Implementations(path string, pos Position, extraSearchPaths []string) ([]Location, error) {
+	return ImplementationsWithOptions(path, pos, Options{SearchPaths: extraSearchPaths})
+}
+
+func ImplementationsWithOptions(path string, pos Position, opts Options) ([]Location, error) {
+	a, file, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	occ := file.occurrenceAt(pos)
+	if occ == nil || occ.symbol == nil {
+		return nil, nil
+	}
+	switch {
+	case occ.symbol.kind == kindIface:
+		return dedupeLocations(interfaceImplementationLocations(a, occ.symbol.name)), nil
+	case occ.symbol.kind == kindMethod && occ.symbol.container == kindIface:
+		return dedupeLocations(interfaceMethodImplementationLocations(a, occ.symbol.parentName, occ.symbol.name)), nil
+	default:
+		return nil, nil
+	}
 }
 
 func HoverAt(path string, pos Position, extraSearchPaths []string) (*Hover, error) {
@@ -269,6 +327,36 @@ func ReferencesWithOptions(path string, pos Position, opts Options) ([]Location,
 	return dedupeLocations(out), nil
 }
 
+func DocumentHighlights(path string, pos Position, extraSearchPaths []string) ([]DocumentHighlight, error) {
+	return DocumentHighlightsWithOptions(path, pos, Options{SearchPaths: extraSearchPaths})
+}
+
+func DocumentHighlightsWithOptions(path string, pos Position, opts Options) ([]DocumentHighlight, error) {
+	_, file, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	occ := file.occurrenceAt(pos)
+	if occ == nil || occ.symbol == nil {
+		return nil, nil
+	}
+	var out []DocumentHighlight
+	for _, item := range file.occurrences {
+		if item.symbol == nil || item.symbol.id != occ.symbol.id {
+			continue
+		}
+		kind := "text"
+		if item.isDecl {
+			kind = "write"
+		}
+		out = append(out, DocumentHighlight{
+			Location: item.location,
+			Kind:     kind,
+		})
+	}
+	return dedupeHighlights(out), nil
+}
+
 func Rename(path string, pos Position, newName string, extraSearchPaths []string) ([]RenameEdit, error) {
 	return RenameWithOptions(path, pos, newName, Options{SearchPaths: extraSearchPaths})
 }
@@ -315,17 +403,18 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 		return nil, err
 	}
 	linePrefix := prefixAt(file.src, pos)
-	memberMatch := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.\s*$`).FindStringSubmatch(linePrefix)
-	if len(memberMatch) == 2 {
-		return file.memberCompletions(memberMatch[1])
+	identifierPrefix := identifierPrefixAt(linePrefix)
+	memberMatch := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.\s*([A-Za-z_][A-Za-z0-9_]*)?$`).FindStringSubmatch(linePrefix)
+	if len(memberMatch) == 3 {
+		return file.memberCompletions(memberMatch[1], memberMatch[2], a.importableModules(file))
 	}
 
 	items := make(map[string]CompletionItem)
 	for name, sym := range file.topLevel {
-		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail, Documentation: sym.doc}
+		items[name] = completionItemForSymbol(sym, 10)
 	}
 	for name, sym := range file.imports {
-		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail, Documentation: sym.doc}
+		items[name] = completionItemForSymbol(sym, 20)
 	}
 	for name := range a.builtinCompletions {
 		if _, ok := items[name]; !ok {
@@ -333,7 +422,50 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 			if mod, ok := a.builtinModule(name); ok {
 				doc = mod.Summary
 			}
-			items[name] = CompletionItem{Label: name, Kind: string(kindModule), Detail: "builtin module", Documentation: doc}
+			items[name] = CompletionItem{
+				Label:         name,
+				Kind:          string(kindModule),
+				Detail:        "builtin module",
+				Documentation: doc,
+				SortText:      completionSortText(30, name),
+			}
+		}
+	}
+	for _, module := range a.importableModules(file) {
+		if _, ok := items[module.Alias]; !ok {
+			edit, err := insertImportEdit(file.path, file.src, module.Path)
+			if err != nil {
+				continue
+			}
+			items[module.Alias] = CompletionItem{
+				Label:           module.Alias,
+				Kind:            string(kindModule),
+				Detail:          fmt.Sprintf("Auto import module %s", module.Path),
+				Documentation:   module.Documentation,
+				SortText:        completionSortText(40, module.Alias),
+				AdditionalEdits: []RenameEdit{edit},
+			}
+		}
+	}
+	if identifierPrefix != "" {
+		for _, module := range a.importableModules(file) {
+			edit, err := insertImportEdit(file.path, file.src, module.Path)
+			if err != nil {
+				continue
+			}
+			for _, item := range module.memberCompletions() {
+				if !strings.HasPrefix(strings.ToLower(item.Label), strings.ToLower(identifierPrefix)) {
+					continue
+				}
+				if _, exists := items[item.Label]; exists {
+					continue
+				}
+				item = retargetCompletionInsert(item, module.Alias+"."+item.Label)
+				item.Detail = fmt.Sprintf("%s (auto import %s)", item.Detail, module.Path)
+				item.SortText = completionSortText(50, item.Label)
+				item.AdditionalEdits = []RenameEdit{edit}
+				items[item.Label] = item
+			}
 		}
 	}
 
@@ -341,7 +473,13 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 	for _, item := range items {
 		out = append(out, item)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortText != out[j].SortText {
+			return out[i].SortText < out[j].SortText
+		}
+		return out[i].Label < out[j].Label
+	})
+	preselectBestCompletion(out, identifierPrefix)
 	return out, nil
 }
 
@@ -354,6 +492,64 @@ func DocumentSymbolsWithOptions(path string, opts Options) ([]SymbolItem, error)
 	if err != nil {
 		return nil, err
 	}
+	return documentSymbolsForFile(file), nil
+}
+
+func WorkspaceSymbols(path string, query string, extraSearchPaths []string) ([]SymbolItem, error) {
+	return WorkspaceSymbolsWithOptions(path, query, Options{SearchPaths: extraSearchPaths})
+}
+
+func WorkspaceSymbolsWithOptions(path string, query string, opts Options) ([]SymbolItem, error) {
+	a, _, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	var out []SymbolItem
+	for _, file := range a.files {
+		items := documentSymbolsForFile(file)
+		for _, item := range items {
+			appendWorkspaceSymbolItems(&out, item, query)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		if out[i].Location.Path != out[j].Location.Path {
+			return out[i].Location.Path < out[j].Location.Path
+		}
+		if out[i].Location.Line != out[j].Location.Line {
+			return out[i].Location.Line < out[j].Location.Line
+		}
+		return out[i].Location.Col < out[j].Location.Col
+	})
+	return dedupeSymbolItems(out), nil
+}
+
+func SemanticTokens(path string, extraSearchPaths []string) ([]SemanticToken, error) {
+	return SemanticTokensWithOptions(path, Options{SearchPaths: extraSearchPaths})
+}
+
+func SemanticTokensWithOptions(path string, opts Options) ([]SemanticToken, error) {
+	_, file, err := newAnalyzerWithOptions(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	lexed, err := lexer.New(file.src).TokenizeWithComments()
+	if err != nil {
+		return nil, err
+	}
+	collector := newSemanticTokenCollector()
+	for _, tok := range lexed {
+		collector.addLexerToken(file.path, tok)
+	}
+	for _, occ := range file.occurrences {
+		collector.addOccurrence(occ)
+	}
+	return collector.tokens(), nil
+}
+
+func documentSymbolsForFile(file *fileModel) []SymbolItem {
 	var out []SymbolItem
 	for _, decl := range file.prog.Decls {
 		switch d := decl.(type) {
@@ -394,14 +590,28 @@ func DocumentSymbolsWithOptions(path string, opts Options) ([]SymbolItem, error)
 				})
 			}
 		case *ast.InterfaceDecl:
-			if sym := file.topLevel[d.Name]; sym != nil && sym.location != nil {
-				out = append(out, SymbolItem{
-					Name:     d.Name,
-					Detail:   sym.detail,
-					Kind:     string(sym.kind),
-					Location: *sym.location,
-				})
+			iface := file.ifaces[d.Name]
+			if iface == nil || iface.symbol == nil || iface.symbol.location == nil {
+				continue
 			}
+			item := SymbolItem{
+				Name:     d.Name,
+				Detail:   iface.symbol.detail,
+				Kind:     string(iface.symbol.kind),
+				Location: *iface.symbol.location,
+			}
+			for _, method := range d.Methods {
+				if sym := iface.methods[method.Name]; sym != nil && sym.location != nil {
+					item.Children = append(item.Children, SymbolItem{
+						Name:          method.Name,
+						Detail:        sym.detail,
+						Kind:          string(sym.kind),
+						Location:      *sym.location,
+						ContainerName: d.Name,
+					})
+				}
+			}
+			out = append(out, item)
 		case *ast.ClassDecl:
 			class := file.classes[d.Name]
 			if class == nil || class.symbol == nil || class.symbol.location == nil {
@@ -416,27 +626,119 @@ func DocumentSymbolsWithOptions(path string, opts Options) ([]SymbolItem, error)
 			for _, field := range d.Fields {
 				if sym := class.fields[field.Name]; sym != nil && sym.location != nil {
 					item.Children = append(item.Children, SymbolItem{
-						Name:     field.Name,
-						Detail:   sym.detail,
-						Kind:     string(sym.kind),
-						Location: *sym.location,
+						Name:          field.Name,
+						Detail:        sym.detail,
+						Kind:          string(sym.kind),
+						Location:      *sym.location,
+						ContainerName: d.Name,
 					})
 				}
 			}
 			for _, method := range d.Methods {
 				if sym := class.methods[method.Name]; sym != nil && sym.location != nil {
 					item.Children = append(item.Children, SymbolItem{
-						Name:     method.Name,
-						Detail:   sym.detail,
-						Kind:     string(sym.kind),
-						Location: *sym.location,
+						Name:          method.Name,
+						Detail:        sym.detail,
+						Kind:          string(sym.kind),
+						Location:      *sym.location,
+						ContainerName: d.Name,
 					})
 				}
 			}
 			out = append(out, item)
 		}
 	}
-	return out, nil
+	return out
+}
+
+func appendWorkspaceSymbolItems(out *[]SymbolItem, item SymbolItem, query string) {
+	if matchesWorkspaceSymbolQuery(item, query) {
+		copy := item
+		copy.Children = nil
+		*out = append(*out, copy)
+	}
+	for _, child := range item.Children {
+		appendWorkspaceSymbolItems(out, child, query)
+	}
+}
+
+func interfaceImplementationLocations(a *Analyzer, ifaceName string) []Location {
+	var out []Location
+	for _, file := range a.files {
+		for _, class := range file.classes {
+			if class.symbol == nil || class.symbol.location == nil {
+				continue
+			}
+			for _, implemented := range class.implements {
+				if interfaceNameMatches(implemented, ifaceName) {
+					out = append(out, *class.symbol.location)
+					break
+				}
+			}
+		}
+	}
+	return out
+}
+
+func interfaceMethodImplementationLocations(a *Analyzer, ifaceName string, methodName string) []Location {
+	var out []Location
+	for _, file := range a.files {
+		for _, class := range file.classes {
+			if !classImplementsInterface(class, ifaceName) {
+				continue
+			}
+			method := class.methods[methodName]
+			if method == nil || method.location == nil {
+				continue
+			}
+			out = append(out, *method.location)
+		}
+	}
+	return out
+}
+
+func classImplementsInterface(class *classInfo, ifaceName string) bool {
+	if class == nil {
+		return false
+	}
+	for _, item := range class.implements {
+		if interfaceNameMatches(item, ifaceName) {
+			return true
+		}
+	}
+	return false
+}
+
+func interfaceNameMatches(candidate string, ifaceName string) bool {
+	if candidate == ifaceName {
+		return true
+	}
+	return strings.HasSuffix(candidate, "."+ifaceName)
+}
+
+func matchesWorkspaceSymbolQuery(item SymbolItem, query string) bool {
+	if strings.TrimSpace(query) == "" {
+		return true
+	}
+	q := strings.ToLower(strings.TrimSpace(query))
+	return strings.Contains(strings.ToLower(item.Name), q) ||
+		strings.Contains(strings.ToLower(item.Detail), q) ||
+		strings.Contains(strings.ToLower(item.ContainerName), q) ||
+		strings.Contains(strings.ToLower(filepath.Base(item.Location.Path)), q)
+}
+
+func dedupeSymbolItems(items []SymbolItem) []SymbolItem {
+	seen := make(map[string]bool)
+	var out []SymbolItem
+	for _, item := range items {
+		key := fmt.Sprintf("%s:%s:%d:%d", item.Kind, item.Location.Path, item.Location.Line, item.Location.Col)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func newAnalyzer(path string, extraSearchPaths []string) (*Analyzer, *fileModel, error) {
@@ -507,7 +809,9 @@ func (a *Analyzer) loadFile(path string) (*fileModel, error) {
 		imports:       make(map[string]*symbolDef),
 		importTargets: make(map[string]*fileModel),
 		classes:       make(map[string]*classInfo),
+		ifaces:        make(map[string]*ifaceInfo),
 		topLevel:      make(map[string]*symbolDef),
+		commentDocs:   extractDocComments(src),
 	}
 	a.files[absPath] = file
 	file.collectImports()
@@ -590,13 +894,17 @@ func (f *fileModel) collectTopLevel() {
 	for _, decl := range f.prog.Decls {
 		switch d := decl.(type) {
 		case *ast.FnDecl:
+			doc := f.docComment(d.Line)
+			if doc == "" {
+				doc = fmt.Sprintf("defined in %s", filepath.Base(f.path))
+			}
 			sym := &symbolDef{
 				id:         f.symbolID(d.Name, d.Line),
 				kind:       kindFunction,
 				name:       d.Name,
 				detail:     fnDetail("fn", d.Name, d.Params, d.Return),
-				doc:        fmt.Sprintf("defined in %s", filepath.Base(f.path)),
-				signature:  signatureFromDecl("fn", d.Name, d.Params, d.Return, fmt.Sprintf("defined in %s", filepath.Base(f.path))),
+				doc:        doc,
+				signature:  signatureFromDecl("fn", d.Name, d.Params, d.Return, doc),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        callableTypeFromDecl(d),
 				renameable: true,
@@ -609,6 +917,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindVariable,
 				name:       d.Name,
 				detail:     fmt.Sprintf("%s %s", typeExprString(d.Type), d.Name),
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        f.resolveType(d.Type),
 				renameable: true,
@@ -621,6 +930,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindConstant,
 				name:       d.Name,
 				detail:     fmt.Sprintf("const %s %s", typeExprString(d.Type), d.Name),
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        f.resolveType(d.Type),
 				renameable: true,
@@ -633,6 +943,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindEnum,
 				name:       d.Name,
 				detail:     "enum " + d.Name,
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				renameable: true,
 				ownerFile:  f,
@@ -644,10 +955,32 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindIface,
 				name:       d.Name,
 				detail:     "interface " + d.Name,
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				renameable: true,
 				ownerFile:  f,
 			}
+			iface := &ifaceInfo{
+				symbol:  sym,
+				methods: make(map[string]*symbolDef),
+			}
+			for _, method := range d.Methods {
+				methodSym := &symbolDef{
+					id:         fmt.Sprintf("%s:iface_method:%d:%s", f.path, method.Line, method.Name),
+					kind:       kindMethod,
+					name:       method.Name,
+					detail:     fnDetail(d.Name, method.Name, method.Params, method.Return),
+					doc:        f.docComment(method.Line),
+					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, f.docComment(method.Line)),
+					location:   f.nextIdentLocation(method.Name, method.Line),
+					renameable: true,
+					ownerFile:  f,
+					container:  kindIface,
+					parentName: d.Name,
+				}
+				iface.methods[method.Name] = methodSym
+			}
+			f.ifaces[d.Name] = iface
 			f.topLevel[d.Name] = sym
 		case *ast.ClassDecl:
 			classSym := &symbolDef{
@@ -655,14 +988,16 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindClass,
 				name:       d.Name,
 				detail:     "class " + d.Name,
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				renameable: true,
 				ownerFile:  f,
 			}
 			class := &classInfo{
-				symbol:  classSym,
-				fields:  make(map[string]*symbolDef),
-				methods: make(map[string]*symbolDef),
+				symbol:     classSym,
+				fields:     make(map[string]*symbolDef),
+				methods:    make(map[string]*symbolDef),
+				implements: append([]string(nil), d.Implements...),
 			}
 			classSym.typ = typeInfo{kind: typeClassCtor, name: d.Name, class: class}
 			for _, field := range d.Fields {
@@ -671,10 +1006,13 @@ func (f *fileModel) collectTopLevel() {
 					kind:       kindField,
 					name:       field.Name,
 					detail:     fmt.Sprintf("%s.%s: %s", d.Name, field.Name, typeExprString(field.Type)),
+					doc:        f.docComment(field.Line),
 					location:   f.nextIdentLocation(field.Name, field.Line),
 					typ:        f.resolveType(field.Type),
 					renameable: true,
 					ownerFile:  f,
+					container:  kindClass,
+					parentName: d.Name,
 				}
 				class.fields[field.Name] = fieldSym
 			}
@@ -684,11 +1022,14 @@ func (f *fileModel) collectTopLevel() {
 					kind:       kindMethod,
 					name:       method.Name,
 					detail:     fnDetail(d.Name, method.Name, method.Params, method.Return),
-					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, ""),
+					doc:        f.docComment(method.Line),
+					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, f.docComment(method.Line)),
 					location:   f.nextIdentLocation(method.Name, method.Line),
 					typ:        callableTypeFromDecl(method),
 					renameable: method.Name != "init",
 					ownerFile:  f,
+					container:  kindClass,
+					parentName: d.Name,
 				}
 				class.methods[method.Name] = methodSym
 			}
@@ -696,6 +1037,13 @@ func (f *fileModel) collectTopLevel() {
 			f.topLevel[d.Name] = classSym
 		}
 	}
+}
+
+func (f *fileModel) docComment(line int) string {
+	if f == nil || line <= 0 {
+		return ""
+	}
+	return f.commentDocs[line]
 }
 
 func (f *fileModel) analyze() {
@@ -723,6 +1071,13 @@ func (f *fileModel) analyze() {
 			}
 		}
 		for _, method := range class.methods {
+			if method.location != nil {
+				f.addOccurrence(method, *method.location, true)
+			}
+		}
+	}
+	for _, iface := range f.ifaces {
+		for _, method := range iface.methods {
 			if method.location != nil {
 				f.addOccurrence(method, *method.location, true)
 			}
@@ -1337,40 +1692,55 @@ func (f *fileModel) occurrenceAt(pos Position) *occurrence {
 	return adjacent
 }
 
-func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
+func (f *fileModel) memberCompletions(name string, memberPrefix string, importable []importableModule) ([]CompletionItem, error) {
 	if sym, ok := f.imports[name]; ok {
 		if sym.typ.module != nil {
 			var items []CompletionItem
 			for memberName, member := range sym.typ.module.topLevel {
-				items = append(items, CompletionItem{
-					Label:         memberName,
-					Kind:          string(member.kind),
-					Detail:        member.detail,
-					Documentation: member.doc,
-				})
+				if !completionMatchesPrefix(memberName, memberPrefix) {
+					continue
+				}
+				items = append(items, completionItemForSymbol(member, 10))
 			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+			sortCompletionItems(items, memberPrefix)
 			return items, nil
 		}
 		if sym.typ.builtin != "" {
 			var items []CompletionItem
 			for _, member := range f.analyzer.builtinCompletions[sym.typ.builtin] {
-				detail := fmt.Sprintf("%s.%s", sym.typ.builtin, member)
-				doc := ""
+				if !completionMatchesPrefix(member, memberPrefix) {
+					continue
+				}
 				if builtinSym, ok := f.analyzer.builtinMember(sym.typ.builtin, member); ok {
-					detail = builtinSym.Detail
-					doc = builtinSym.Documentation
+					items = append(items, completionItemForBuiltin(sym.typ.builtin, builtinSym, 10))
+					continue
 				}
 				items = append(items, CompletionItem{
-					Label:         member,
-					Kind:          string(kindFunction),
-					Detail:        detail,
-					Documentation: doc,
+					Label:    member,
+					Kind:     string(kindFunction),
+					Detail:   fmt.Sprintf("%s.%s", sym.typ.builtin, member),
+					SortText: completionSortText(10, member),
 				})
 			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+			sortCompletionItems(items, memberPrefix)
 			return items, nil
 		}
+	}
+	for _, module := range importable {
+		if module.Alias != name {
+			continue
+		}
+		edit, err := insertImportEdit(f.path, f.src, module.Path)
+		if err != nil {
+			return nil, err
+		}
+		items := module.memberCompletionsMatching(memberPrefix)
+		for i := range items {
+			items[i].SortText = completionSortText(20, items[i].Label)
+			items[i].AdditionalEdits = []RenameEdit{edit}
+		}
+		sortCompletionItems(items, memberPrefix)
+		return items, nil
 	}
 
 	for _, occ := range f.occurrences {
@@ -1380,16 +1750,176 @@ func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
 		if occ.symbol.typ.class != nil {
 			var items []CompletionItem
 			for memberName, member := range occ.symbol.typ.class.fields {
-				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail, Documentation: member.doc})
+				if !completionMatchesPrefix(memberName, memberPrefix) {
+					continue
+				}
+				items = append(items, completionItemForSymbol(member, 10))
 			}
 			for memberName, member := range occ.symbol.typ.class.methods {
-				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail, Documentation: member.doc})
+				if !completionMatchesPrefix(memberName, memberPrefix) {
+					continue
+				}
+				items = append(items, completionItemForSymbol(member, 10))
 			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+			sortCompletionItems(items, memberPrefix)
 			return items, nil
 		}
 	}
 	return nil, nil
+}
+
+func completionItemForSymbol(sym *symbolDef, rank int) CompletionItem {
+	item := CompletionItem{
+		Label:         sym.name,
+		Kind:          string(sym.kind),
+		Detail:        sym.detail,
+		Documentation: sym.doc,
+		SortText:      completionSortText(rank, sym.name),
+	}
+	if sym.signature != nil {
+		item.InsertText = callSnippet(sym.name, signatureParamLabels(sym.signature))
+		item.InsertFormat = "snippet"
+		return item
+	}
+	if sym.kind == kindClass && sym.typ.class != nil {
+		item.InsertText = callSnippet(sym.name, classConstructorParams(sym.typ.class))
+		item.InsertFormat = "snippet"
+	}
+	return item
+}
+
+func completionItemForBuiltin(moduleName string, builtinSym builtinSymbol, rank int) CompletionItem {
+	label := builtinSym.Name
+	if label == "" {
+		label = strings.TrimPrefix(builtinSym.FullName, moduleName+".")
+	}
+	item := CompletionItem{
+		Label:         label,
+		Kind:          string(kindFunction),
+		Detail:        builtinSym.Detail,
+		Documentation: builtinSym.Documentation,
+		SortText:      completionSortText(rank, label),
+	}
+	item.InsertText = callSnippet(label, builtinParamLabels(builtinSym.Params))
+	item.InsertFormat = "snippet"
+	return item
+}
+
+func classConstructorParams(class *classInfo) []string {
+	if class == nil {
+		return nil
+	}
+	initMethod, ok := class.methods["init"]
+	if !ok || initMethod == nil || initMethod.signature == nil {
+		return nil
+	}
+	return signatureParamLabels(initMethod.signature)
+}
+
+func signatureParamLabels(sig *signatureInfo) []string {
+	if sig == nil {
+		return nil
+	}
+	return builtinParamLabels(sig.params)
+}
+
+func builtinParamLabels(params []builtinParam) []string {
+	out := make([]string, 0, len(params))
+	for _, param := range params {
+		out = append(out, param.Label)
+	}
+	return out
+}
+
+func callSnippet(name string, params []string) string {
+	var b strings.Builder
+	b.WriteString(name)
+	b.WriteString("(")
+	for i, param := range params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "${%d:%s}", i+1, snippetPlaceholder(param, i+1))
+	}
+	b.WriteString(")$0")
+	return b.String()
+}
+
+func snippetPlaceholder(label string, idx int) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return fmt.Sprintf("arg%d", idx)
+	}
+	fields := strings.Fields(label)
+	if len(fields) > 0 {
+		label = fields[len(fields)-1]
+	}
+	label = strings.Trim(label, " ,()")
+	label = strings.TrimPrefix(label, "...")
+	if !validIdentifier(label) {
+		return fmt.Sprintf("arg%d", idx)
+	}
+	return label
+}
+
+func completionSortText(rank int, label string) string {
+	return fmt.Sprintf("%02d:%s", rank, strings.ToLower(label))
+}
+
+func completionMatchesPrefix(label, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(label), strings.ToLower(prefix))
+}
+
+func sortCompletionItems(items []CompletionItem, prefix string) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].SortText != items[j].SortText {
+			return items[i].SortText < items[j].SortText
+		}
+		return items[i].Label < items[j].Label
+	})
+	preselectBestCompletion(items, prefix)
+}
+
+func preselectBestCompletion(items []CompletionItem, prefix string) {
+	if len(items) == 0 {
+		return
+	}
+	for i := range items {
+		items[i].Preselect = false
+	}
+	if prefix == "" {
+		items[0].Preselect = true
+		return
+	}
+	lowerPrefix := strings.ToLower(prefix)
+	for i := range items {
+		if strings.EqualFold(items[i].Label, prefix) {
+			items[i].Preselect = true
+			return
+		}
+	}
+	for i := range items {
+		if strings.HasPrefix(strings.ToLower(items[i].Label), lowerPrefix) {
+			items[i].Preselect = true
+			return
+		}
+	}
+	items[0].Preselect = true
+}
+
+func retargetCompletionInsert(item CompletionItem, target string) CompletionItem {
+	switch {
+	case item.InsertText == "":
+		item.InsertText = target
+	case strings.HasPrefix(item.InsertText, item.Label):
+		item.InsertText = target + strings.TrimPrefix(item.InsertText, item.Label)
+	default:
+		item.InsertText = target
+	}
+	return item
 }
 
 func callableTypeFromDecl(decl *ast.FnDecl) typeInfo {
@@ -1487,6 +2017,253 @@ func tokenLocation(path string, tok lexer.Token) *Location {
 		Col:    tok.Col,
 		EndCol: tok.Col + len(tok.Literal) - 1,
 	}
+}
+
+func extractDocComments(src string) map[int]string {
+	tokens, err := lexer.New(src).TokenizeWithComments()
+	if err != nil {
+		return nil
+	}
+	out := make(map[int]string)
+	var pending []lexer.Token
+	flush := func(nextLine int) {
+		if len(pending) == 0 || nextLine <= 0 {
+			pending = nil
+			return
+		}
+		endLine := commentEndLine(pending[len(pending)-1])
+		if endLine != nextLine-1 {
+			pending = nil
+			return
+		}
+		parts := make([]string, 0, len(pending))
+		for _, tok := range pending {
+			text := normalizeDocComment(tok)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		if len(parts) > 0 {
+			out[nextLine] = strings.TrimSpace(strings.Join(parts, "\n"))
+		}
+		pending = nil
+	}
+	for _, tok := range tokens {
+		switch tok.Type {
+		case lexer.TOKEN_LINE_COMMENT, lexer.TOKEN_BLOCK_COMMENT:
+			if len(pending) > 0 && tok.Line > commentEndLine(pending[len(pending)-1])+1 {
+				pending = nil
+			}
+			pending = append(pending, tok)
+		default:
+			flush(tok.Line)
+		}
+	}
+	return out
+}
+
+func commentEndLine(tok lexer.Token) int {
+	return tok.Line + strings.Count(tok.Literal, "\n")
+}
+
+func normalizeDocComment(tok lexer.Token) string {
+	switch tok.Type {
+	case lexer.TOKEN_LINE_COMMENT:
+		text := strings.TrimPrefix(tok.Literal, "//")
+		return strings.TrimSpace(text)
+	case lexer.TOKEN_BLOCK_COMMENT:
+		text := strings.TrimPrefix(tok.Literal, "/*")
+		text = strings.TrimSuffix(text, "*/")
+		lines := strings.Split(text, "\n")
+		for i, line := range lines {
+			line = strings.TrimSpace(line)
+			line = strings.TrimPrefix(line, "*")
+			lines[i] = strings.TrimSpace(line)
+		}
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	default:
+		return ""
+	}
+}
+
+type semanticTokenCollector struct {
+	items map[string]semanticTokenEntry
+}
+
+type semanticTokenEntry struct {
+	token    SemanticToken
+	priority int
+}
+
+func newSemanticTokenCollector() *semanticTokenCollector {
+	return &semanticTokenCollector{items: make(map[string]semanticTokenEntry)}
+}
+
+func (c *semanticTokenCollector) addLexerToken(path string, tok lexer.Token) {
+	tokenType := semanticTokenTypeForLexer(tok.Type)
+	if tokenType == "" || tok.Type == lexer.TOKEN_EOF {
+		return
+	}
+	loc := tokenLocation(path, tok)
+	if loc == nil {
+		return
+	}
+	c.add(SemanticToken{Location: *loc, Type: tokenType}, 1)
+}
+
+func (c *semanticTokenCollector) addOccurrence(occ occurrence) {
+	if occ.symbol == nil {
+		return
+	}
+	tokenType := semanticTokenTypeForSymbol(occ.symbol.kind)
+	if tokenType == "" {
+		return
+	}
+	var modifiers []string
+	if occ.isDecl {
+		modifiers = append(modifiers, "declaration")
+	}
+	if occ.symbol.kind == kindConstant {
+		modifiers = append(modifiers, "readonly")
+	}
+	if strings.HasPrefix(occ.symbol.id, "builtin:") || (occ.symbol.kind == kindImport && occ.symbol.typ.builtin != "") {
+		modifiers = append(modifiers, "defaultLibrary")
+	}
+	c.add(SemanticToken{
+		Location:  occ.location,
+		Type:      tokenType,
+		Modifiers: dedupeSemanticModifiers(modifiers),
+	}, 2)
+}
+
+func (c *semanticTokenCollector) add(token SemanticToken, priority int) {
+	if token.Location.Line <= 0 || token.Location.Col <= 0 || token.Location.EndCol < token.Location.Col {
+		return
+	}
+	key := fmt.Sprintf("%d:%d:%d", token.Location.Line, token.Location.Col, token.Location.EndCol)
+	existing, ok := c.items[key]
+	if ok {
+		if existing.priority > priority {
+			return
+		}
+		if existing.priority == priority && len(existing.token.Modifiers) >= len(token.Modifiers) {
+			return
+		}
+	}
+	c.items[key] = semanticTokenEntry{token: token, priority: priority}
+}
+
+func (c *semanticTokenCollector) tokens() []SemanticToken {
+	out := make([]SemanticToken, 0, len(c.items))
+	for _, item := range c.items {
+		out = append(out, item.token)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Location.Line != out[j].Location.Line {
+			return out[i].Location.Line < out[j].Location.Line
+		}
+		if out[i].Location.Col != out[j].Location.Col {
+			return out[i].Location.Col < out[j].Location.Col
+		}
+		if out[i].Location.EndCol != out[j].Location.EndCol {
+			return out[i].Location.EndCol < out[j].Location.EndCol
+		}
+		return out[i].Type < out[j].Type
+	})
+	return out
+}
+
+func semanticTokenTypeForLexer(tt lexer.TokenType) string {
+	switch tt {
+	case lexer.TOKEN_FN,
+		lexer.TOKEN_RETURN,
+		lexer.TOKEN_IF,
+		lexer.TOKEN_ELSE,
+		lexer.TOKEN_WHILE,
+		lexer.TOKEN_FOR,
+		lexer.TOKEN_BREAK,
+		lexer.TOKEN_CONTINUE,
+		lexer.TOKEN_CLASS,
+		lexer.TOKEN_PUB,
+		lexer.TOKEN_SELF,
+		lexer.TOKEN_IMPORT,
+		lexer.TOKEN_AS,
+		lexer.TOKEN_TRUE,
+		lexer.TOKEN_FALSE,
+		lexer.TOKEN_OK,
+		lexer.TOKEN_DEFER,
+		lexer.TOKEN_GUARD,
+		lexer.TOKEN_IN,
+		lexer.TOKEN_CONST,
+		lexer.TOKEN_ENUM,
+		lexer.TOKEN_SWITCH,
+		lexer.TOKEN_CASE,
+		lexer.TOKEN_DEFAULT,
+		lexer.TOKEN_INTERFACE,
+		lexer.TOKEN_IMPLEMENTS:
+		return "keyword"
+	case lexer.TOKEN_BOOL_TYPE,
+		lexer.TOKEN_I32,
+		lexer.TOKEN_I64,
+		lexer.TOKEN_F64,
+		lexer.TOKEN_U8,
+		lexer.TOKEN_U32,
+		lexer.TOKEN_U64,
+		lexer.TOKEN_STRING_TYPE,
+		lexer.TOKEN_VOID,
+		lexer.TOKEN_ERR,
+		lexer.TOKEN_ARRAY,
+		lexer.TOKEN_MAP:
+		return "type"
+	case lexer.TOKEN_INT, lexer.TOKEN_FLOAT:
+		return "number"
+	case lexer.TOKEN_LINE_COMMENT, lexer.TOKEN_BLOCK_COMMENT:
+		return "comment"
+	default:
+		return ""
+	}
+}
+
+func semanticTokenTypeForSymbol(kind symbolKind) string {
+	switch kind {
+	case kindImport, kindModule:
+		return "namespace"
+	case kindClass:
+		return "class"
+	case kindEnum:
+		return "enum"
+	case kindIface:
+		return "interface"
+	case kindField:
+		return "property"
+	case kindMethod:
+		return "method"
+	case kindFunction:
+		return "function"
+	case kindParameter:
+		return "parameter"
+	case kindVariable, kindConstant:
+		return "variable"
+	default:
+		return ""
+	}
+}
+
+func dedupeSemanticModifiers(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func isIdentifierish(tt lexer.TokenType) bool {
@@ -1666,6 +2443,19 @@ func prefixAt(src string, pos Position) string {
 	return line[:col]
 }
 
+func identifierPrefixAt(prefix string) string {
+	idx := len(prefix)
+	for idx > 0 {
+		ch := prefix[idx-1]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' {
+			idx--
+			continue
+		}
+		break
+	}
+	return prefix[idx:]
+}
+
 func loadBuiltinCompletions() (map[string][]string, error) {
 	data, err := editorassets.Assets.ReadFile("vscode/completions.json")
 	if err != nil {
@@ -1720,6 +2510,29 @@ func dedupeEdits(items []RenameEdit) []RenameEdit {
 			return out[i].Line < out[j].Line
 		}
 		return out[i].Col < out[j].Col
+	})
+	return out
+}
+
+func dedupeHighlights(items []DocumentHighlight) []DocumentHighlight {
+	seen := make(map[string]bool)
+	var out []DocumentHighlight
+	for _, item := range items {
+		key := fmt.Sprintf("%s:%d:%d:%d:%s", item.Location.Path, item.Location.Line, item.Location.Col, item.Location.EndCol, item.Kind)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Location.Path != out[j].Location.Path {
+			return out[i].Location.Path < out[j].Location.Path
+		}
+		if out[i].Location.Line != out[j].Location.Line {
+			return out[i].Location.Line < out[j].Location.Line
+		}
+		return out[i].Location.Col < out[j].Location.Col
 	})
 	return out
 }

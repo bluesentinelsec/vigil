@@ -36,6 +36,9 @@
       "language": "basl",
       "path": "./snippets/basl.json"
     }],
+    "breakpoints": [{
+      "language": "basl"
+    }],
     "debuggers": [{
       "type": "basl",
       "label": "BASL",
@@ -99,6 +102,11 @@
           "default": true,
           "description": "Show Run and Debug CodeLens actions above `fn main(...)` entry points."
         }
+      }
+    },
+    "configurationDefaults": {
+      "[basl]": {
+        "editor.semanticHighlighting.enabled": true
       }
     },
     "menus": {

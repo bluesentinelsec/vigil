@@ -131,6 +131,11 @@ type lspRange struct {
 	End   position `json:"end"`
 }
 
+type documentHighlight struct {
+	Range lspRange `json:"range"`
+	Kind  int      `json:"kind,omitempty"`
+}
+
 type markupContent struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
@@ -142,10 +147,15 @@ type hoverResult struct {
 }
 
 type completionItem struct {
-	Label         string `json:"label"`
-	Kind          int    `json:"kind,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-	Documentation string `json:"documentation,omitempty"`
+	Label               string     `json:"label"`
+	Kind                int        `json:"kind,omitempty"`
+	Detail              string     `json:"detail,omitempty"`
+	Documentation       string     `json:"documentation,omitempty"`
+	InsertText          string     `json:"insertText,omitempty"`
+	InsertTextFormat    int        `json:"insertTextFormat,omitempty"`
+	SortText            string     `json:"sortText,omitempty"`
+	Preselect           bool       `json:"preselect,omitempty"`
+	AdditionalTextEdits []textEdit `json:"additionalTextEdits,omitempty"`
 }
 
 type parameterInformation struct {
@@ -174,6 +184,33 @@ type workspaceEdit struct {
 	Changes map[string][]textEdit `json:"changes"`
 }
 
+type codeActionContext struct {
+	Diagnostics []diagnosticItem `json:"diagnostics,omitempty"`
+	Only        []string         `json:"only,omitempty"`
+}
+
+type codeActionParams struct {
+	TextDocument textDocumentIdentifier `json:"textDocument"`
+	Range        lspRange               `json:"range"`
+	Context      codeActionContext      `json:"context"`
+}
+
+type codeAction struct {
+	Title       string           `json:"title"`
+	Kind        string           `json:"kind,omitempty"`
+	IsPreferred bool             `json:"isPreferred,omitempty"`
+	Diagnostics []diagnosticItem `json:"diagnostics,omitempty"`
+	Edit        *workspaceEdit   `json:"edit,omitempty"`
+}
+
+type foldingRange struct {
+	StartLine      int    `json:"startLine"`
+	EndLine        int    `json:"endLine"`
+	StartCharacter *int   `json:"startCharacter,omitempty"`
+	EndCharacter   *int   `json:"endCharacter,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+}
+
 type prepareRenameResult struct {
 	Range       lspRange `json:"range"`
 	Placeholder string   `json:"placeholder,omitempty"`
@@ -186,6 +223,39 @@ type documentSymbol struct {
 	Range          lspRange         `json:"range"`
 	SelectionRange lspRange         `json:"selectionRange"`
 	Children       []documentSymbol `json:"children,omitempty"`
+}
+
+type symbolInformation struct {
+	Name          string      `json:"name"`
+	Kind          int         `json:"kind"`
+	Location      lspLocation `json:"location"`
+	ContainerName string      `json:"containerName,omitempty"`
+}
+
+type semanticTokensResult struct {
+	Data []uint32 `json:"data"`
+}
+
+var semanticTokenTypesLegend = []string{
+	"namespace",
+	"class",
+	"enum",
+	"interface",
+	"function",
+	"method",
+	"property",
+	"parameter",
+	"variable",
+	"type",
+	"keyword",
+	"comment",
+	"number",
+}
+
+var semanticTokenModifiersLegend = []string{
+	"declaration",
+	"readonly",
+	"defaultLibrary",
 }
 
 func NewServer(sender func(message) error) *Server {
@@ -244,10 +314,18 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleDidClose(msg.Params)
 	case "textDocument/definition":
 		return s.handleDefinition(msg)
+	case "textDocument/declaration":
+		return s.handleDeclaration(msg)
+	case "textDocument/implementation":
+		return s.handleImplementation(msg)
+	case "textDocument/foldingRange":
+		return s.handleFoldingRange(msg)
 	case "textDocument/hover":
 		return s.handleHover(msg)
 	case "textDocument/references":
 		return s.handleReferences(msg)
+	case "textDocument/documentHighlight":
+		return s.handleDocumentHighlight(msg)
 	case "textDocument/rename":
 		return s.handleRename(msg)
 	case "textDocument/prepareRename":
@@ -258,6 +336,12 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleSignatureHelp(msg)
 	case "textDocument/documentSymbol":
 		return s.handleDocumentSymbol(msg)
+	case "workspace/symbol":
+		return s.handleWorkspaceSymbol(msg)
+	case "textDocument/semanticTokens/full":
+		return s.handleSemanticTokens(msg)
+	case "textDocument/codeAction":
+		return s.handleCodeAction(msg)
 	case "textDocument/formatting":
 		return s.handleFormatting(msg)
 	default:
@@ -291,11 +375,26 @@ func (s *Server) handleInitialize(msg message) error {
 		"capabilities": map[string]any{
 			"textDocumentSync":           1,
 			"definitionProvider":         true,
+			"declarationProvider":        true,
+			"implementationProvider":     true,
+			"foldingRangeProvider":       true,
 			"hoverProvider":              true,
 			"referencesProvider":         true,
+			"documentHighlightProvider":  true,
 			"renameProvider":             map[string]any{"prepareProvider": true},
 			"documentSymbolProvider":     true,
+			"workspaceSymbolProvider":    true,
 			"documentFormattingProvider": true,
+			"codeActionProvider": map[string]any{
+				"codeActionKinds": []string{"quickfix", "source.organizeImports"},
+			},
+			"semanticTokensProvider": map[string]any{
+				"legend": map[string]any{
+					"tokenTypes":     semanticTokenTypesLegend,
+					"tokenModifiers": semanticTokenModifiersLegend,
+				},
+				"full": true,
+			},
 			"completionProvider": map[string]any{
 				"triggerCharacters": []string{"."},
 			},
@@ -394,6 +493,71 @@ func (s *Server) handleDefinition(msg message) error {
 	return s.reply(msg.ID, toLSPLocation(*loc))
 }
 
+func (s *Server) handleDeclaration(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, nil)
+	}
+	loc, err := basleditor.DeclarationWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	if loc == nil {
+		return s.reply(msg.ID, nil)
+	}
+	return s.reply(msg.ID, toLSPLocation(*loc))
+}
+
+func (s *Server) handleImplementation(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []lspLocation{})
+	}
+	locations, err := basleditor.ImplementationsWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]lspLocation, 0, len(locations))
+	for _, item := range locations {
+		out = append(out, toLSPLocation(item))
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleFoldingRange(msg message) error {
+	var params struct {
+		TextDocument textDocumentIdentifier `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []foldingRange{})
+	}
+	items, err := basleditor.FoldingRangesWithOptions(path, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]foldingRange, 0, len(items))
+	for _, item := range items {
+		out = append(out, foldingRange{
+			StartLine: max(item.StartLine-1, 0),
+			EndLine:   max(item.EndLine-1, 0),
+			Kind:      item.Kind,
+		})
+	}
+	return s.reply(msg.ID, out)
+}
+
 func (s *Server) handleHover(msg message) error {
 	var params textDocumentPositionParams
 	if err := json.Unmarshal(msg.Params, &params); err != nil {
@@ -413,7 +577,7 @@ func (s *Server) handleHover(msg message) error {
 	out := hoverResult{
 		Contents: markupContent{
 			Kind:  "markdown",
-			Value: "```basl\n" + hover.Contents + "\n```",
+			Value: hoverMarkdown(hover.Contents),
 		},
 	}
 	if hover.Location != nil {
@@ -439,6 +603,29 @@ func (s *Server) handleReferences(msg message) error {
 	out := make([]lspLocation, 0, len(refs))
 	for _, item := range refs {
 		out = append(out, toLSPLocation(item))
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleDocumentHighlight(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []documentHighlight{})
+	}
+	items, err := basleditor.DocumentHighlightsWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]documentHighlight, 0, len(items))
+	for _, item := range items {
+		out = append(out, documentHighlight{
+			Range: toLSPRange(item.Location),
+			Kind:  documentHighlightKind(item.Kind),
+		})
 	}
 	return s.reply(msg.ID, out)
 }
@@ -507,14 +694,35 @@ func (s *Server) handleCompletion(msg message) error {
 	}
 	out := make([]completionItem, 0, len(items))
 	for _, item := range items {
+		additional := make([]textEdit, 0, len(item.AdditionalEdits))
+		for _, edit := range item.AdditionalEdits {
+			additional = append(additional, textEdit{
+				Range:   toLSPRange(basleditor.Location{Path: edit.Path, Line: edit.Line, Col: edit.Col, EndCol: edit.EndCol}),
+				NewText: edit.NewText,
+			})
+		}
 		out = append(out, completionItem{
-			Label:         item.Label,
-			Kind:          completionKind(item.Kind),
-			Detail:        item.Detail,
-			Documentation: item.Documentation,
+			Label:               item.Label,
+			Kind:                completionKind(item.Kind),
+			Detail:              item.Detail,
+			Documentation:       item.Documentation,
+			InsertText:          item.InsertText,
+			InsertTextFormat:    completionInsertTextFormat(item.InsertFormat),
+			SortText:            item.SortText,
+			Preselect:           item.Preselect,
+			AdditionalTextEdits: additional,
 		})
 	}
 	return s.reply(msg.ID, out)
+}
+
+func completionInsertTextFormat(format string) int {
+	switch format {
+	case "snippet":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func (s *Server) handleSignatureHelp(msg message) error {
@@ -605,6 +813,117 @@ func (s *Server) handleFormatting(msg message) error {
 	}})
 }
 
+func (s *Server) handleWorkspaceSymbol(msg message) error {
+	var params struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	entryPath := s.workspaceEntryPath()
+	if entryPath == "" {
+		return s.reply(msg.ID, []symbolInformation{})
+	}
+	items, err := basleditor.WorkspaceSymbolsWithOptions(entryPath, params.Query, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]symbolInformation, 0, len(items))
+	for _, item := range items {
+		out = append(out, symbolInformation{
+			Name:          item.Name,
+			Kind:          symbolKind(item.Kind),
+			Location:      toLSPLocation(item.Location),
+			ContainerName: item.ContainerName,
+		})
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleSemanticTokens(msg message) error {
+	var params struct {
+		TextDocument textDocumentIdentifier `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, semanticTokensResult{Data: []uint32{}})
+	}
+	items, err := basleditor.SemanticTokensWithOptions(path, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	return s.reply(msg.ID, semanticTokensResult{Data: encodeSemanticTokens(items)})
+}
+
+func (s *Server) handleCodeAction(msg message) error {
+	var params codeActionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []codeAction{})
+	}
+	diagHints := make([]basleditor.DiagnosticHint, 0, len(params.Context.Diagnostics))
+	for _, item := range params.Context.Diagnostics {
+		rng := toEditorRange(item.Range)
+		diagHints = append(diagHints, basleditor.DiagnosticHint{
+			Message: item.Message,
+			Range:   &rng,
+		})
+	}
+	targetRange := toEditorRange(params.Range)
+	options := s.editorOptions()
+	actions, err := basleditor.CodeActionsWithDiagnosticsAndOptions(path, diagHints, params.Context.Only, &targetRange, options)
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]codeAction, 0, len(actions))
+	for _, item := range actions {
+		action := codeAction{
+			Title:       item.Title,
+			Kind:        item.Kind,
+			IsPreferred: item.IsPreferred,
+		}
+		if len(item.Diagnostics) > 0 {
+			for _, message := range item.Diagnostics {
+				for _, diag := range params.Context.Diagnostics {
+					if diag.Message == message {
+						action.Diagnostics = append(action.Diagnostics, diag)
+					}
+				}
+			}
+		}
+		if len(item.Edits) > 0 {
+			edit := &workspaceEdit{Changes: make(map[string][]textEdit)}
+			for _, change := range item.Edits {
+				uri := pathToURI(change.Path)
+				rng := toLSPRange(basleditor.Location{
+					Path:   change.Path,
+					Line:   change.Line,
+					Col:    change.Col,
+					EndCol: change.EndCol,
+				})
+				if change.Line == 1 && change.Col == 1 && change.EndCol == 1 && strings.Contains(change.NewText, "\n") {
+					if original, err := s.documentTextForURI(uri); err == nil {
+						rng = fullDocumentRange(original)
+					}
+				}
+				edit.Changes[uri] = append(edit.Changes[uri], textEdit{
+					Range:   rng,
+					NewText: change.NewText,
+				})
+			}
+			action.Edit = edit
+		}
+		out = append(out, action)
+	}
+	return s.reply(msg.ID, out)
+}
+
 func (s *Server) editorOptions() basleditor.Options {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -616,6 +935,29 @@ func (s *Server) editorOptions() basleditor.Options {
 		SearchPaths: append([]string(nil), s.workspaceRoots...),
 		Overlays:    overlays,
 	}
+}
+
+func (s *Server) workspaceEntryPath() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, root := range s.workspaceRoots {
+		mainPath := filepath.Join(root, "main.basl")
+		if info, err := os.Stat(mainPath); err == nil && !info.IsDir() {
+			return mainPath
+		}
+	}
+	for _, root := range s.workspaceRoots {
+		matches, err := filepath.Glob(filepath.Join(root, "*.basl"))
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			if info, err := os.Stat(match); err == nil && !info.IsDir() {
+				return match
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Server) documentTextForURI(uri string) (string, error) {
@@ -806,6 +1148,14 @@ func toEditorPosition(pos position) basleditor.Position {
 	return basleditor.Position{Line: pos.Line + 1, Col: pos.Character + 1}
 }
 
+func toEditorRange(r lspRange) basleditor.Location {
+	return basleditor.Location{
+		Line:   r.Start.Line + 1,
+		Col:    r.Start.Character + 1,
+		EndCol: r.End.Character,
+	}
+}
+
 func toLSPLocation(loc basleditor.Location) lspLocation {
 	return lspLocation{
 		URI:   pathToURI(loc.Path),
@@ -814,13 +1164,14 @@ func toLSPLocation(loc basleditor.Location) lspLocation {
 }
 
 func toLSPRange(loc basleditor.Location) lspRange {
-	endCharacter := loc.EndCol
-	if endCharacter < loc.Col {
-		endCharacter = loc.Col
+	startCharacter := max(loc.Col-1, 0)
+	endCharacter := startCharacter
+	if loc.EndCol >= loc.Col {
+		endCharacter = max(loc.EndCol, 1)
 	}
 	return lspRange{
-		Start: position{Line: max(loc.Line-1, 0), Character: max(loc.Col-1, 0)},
-		End:   position{Line: max(loc.Line-1, 0), Character: max(endCharacter, 1)},
+		Start: position{Line: max(loc.Line-1, 0), Character: startCharacter},
+		End:   position{Line: max(loc.Line-1, 0), Character: endCharacter},
 	}
 }
 
@@ -879,6 +1230,88 @@ func symbolKind(kind string) int {
 	default:
 		return 12
 	}
+}
+
+func documentHighlightKind(kind string) int {
+	switch kind {
+	case "write":
+		return 3
+	case "read":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func encodeSemanticTokens(items []basleditor.SemanticToken) []uint32 {
+	out := make([]uint32, 0, len(items)*5)
+	prevLine := 0
+	prevStart := 0
+	first := true
+	for _, item := range items {
+		tokenType := semanticTokenTypeIndex(item.Type)
+		if tokenType < 0 {
+			continue
+		}
+		line := max(item.Location.Line-1, 0)
+		start := max(item.Location.Col-1, 0)
+		length := item.Location.EndCol - item.Location.Col + 1
+		if length <= 0 {
+			continue
+		}
+		deltaLine := line
+		deltaStart := start
+		if !first {
+			deltaLine = line - prevLine
+			if deltaLine == 0 {
+				deltaStart = start - prevStart
+			}
+		}
+		out = append(out,
+			uint32(deltaLine),
+			uint32(deltaStart),
+			uint32(length),
+			uint32(tokenType),
+			uint32(semanticTokenModifiersBitset(item.Modifiers)),
+		)
+		prevLine = line
+		prevStart = start
+		first = false
+	}
+	return out
+}
+
+func semanticTokenTypeIndex(name string) int {
+	for i, item := range semanticTokenTypesLegend {
+		if item == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func semanticTokenModifiersBitset(items []string) int {
+	bits := 0
+	for _, item := range items {
+		for i, modifier := range semanticTokenModifiersLegend {
+			if modifier == item {
+				bits |= 1 << i
+				break
+			}
+		}
+	}
+	return bits
+}
+
+func hoverMarkdown(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	parts := strings.SplitN(text, "\n\n", 2)
+	if len(parts) == 1 {
+		return "```basl\n" + parts[0] + "\n```"
+	}
+	return "```basl\n" + parts[0] + "\n```\n\n" + parts[1]
 }
 
 func samePath(a, b string) bool {

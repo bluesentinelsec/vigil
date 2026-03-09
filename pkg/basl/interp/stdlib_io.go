@@ -40,7 +40,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 		if len(args) != 1 || args[0].T != value.TypeString {
 			return value.Void, fmt.Errorf("io.input: expected (string prompt)")
 		}
-		fmt.Fprint(os.Stdout, args[0].AsString())
+		interp.PrintFn(args[0].AsString())
 		var line []byte
 		buf := make([]byte, 1)
 		for {
@@ -67,7 +67,7 @@ func (interp *Interpreter) makeIoModule() *Env {
 
 	// helper: prompt + read line
 	readLine := func(prompt string) (string, error) {
-		fmt.Fprint(os.Stdout, prompt)
+		interp.PrintFn(prompt)
 		var line []byte
 		buf := make([]byte, 1)
 		for {
