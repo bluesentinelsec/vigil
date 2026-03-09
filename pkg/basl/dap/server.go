@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -81,7 +83,10 @@ type source struct {
 }
 
 type sourceBreakpoint struct {
-	Line int `json:"line"`
+	Line         int    `json:"line"`
+	Condition    string `json:"condition,omitempty"`
+	HitCondition string `json:"hitCondition,omitempty"`
+	LogMessage   string `json:"logMessage,omitempty"`
 }
 
 type setBreakpointsArgs struct {
@@ -119,7 +124,7 @@ type runtimeFrame struct {
 type runtimeDebugger struct {
 	mu          sync.Mutex
 	cond        *sync.Cond
-	breakpoints map[int]bool
+	breakpoints map[int]*runtimeBreakpoint
 	callStack   []runtimeFrame
 	currentLine int
 	currentEnv  *interp.Env
@@ -129,13 +134,25 @@ type runtimeDebugger struct {
 	file        string
 	terminated  bool
 	onStop      func(reason string)
+	onOutput    func(text string)
 }
 
-func newRuntimeDebugger(file string, stopOnEntry bool, onStop func(reason string)) *runtimeDebugger {
+type runtimeBreakpoint struct {
+	line         int
+	condition    string
+	hitCondition string
+	logMessage   string
+	hits         int
+}
+
+var logpointPattern = regexp.MustCompile(`\{([^{}]+)\}`)
+
+func newRuntimeDebugger(file string, stopOnEntry bool, onStop func(reason string), onOutput func(text string)) *runtimeDebugger {
 	d := &runtimeDebugger{
-		breakpoints: make(map[int]bool),
+		breakpoints: make(map[int]*runtimeBreakpoint),
 		file:        file,
 		onStop:      onStop,
+		onOutput:    onOutput,
 	}
 	if stopOnEntry {
 		d.stepMode = "entry"
@@ -144,13 +161,13 @@ func newRuntimeDebugger(file string, stopOnEntry bool, onStop func(reason string
 	return d
 }
 
-func (d *runtimeDebugger) SetBreakpoints(lines []int) {
+func (d *runtimeDebugger) SetBreakpoints(items []*runtimeBreakpoint) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.breakpoints = make(map[int]bool, len(lines))
-	for _, line := range lines {
-		if line > 0 {
-			d.breakpoints[line] = true
+	d.breakpoints = make(map[int]*runtimeBreakpoint, len(items))
+	for _, item := range items {
+		if item != nil && item.line > 0 {
+			d.breakpoints[item.line] = item
 		}
 	}
 }
@@ -208,9 +225,8 @@ func (d *runtimeDebugger) Hook(stmt ast.Stmt, env *interp.Env) error {
 		d.callStack[len(d.callStack)-1].Env = env
 	}
 	reason := ""
+	logOutput := ""
 	switch {
-	case d.breakpoints[line]:
-		reason = "breakpoint"
 	case d.stepMode == "entry":
 		reason = "entry"
 	case d.stepMode == "in":
@@ -221,11 +237,27 @@ func (d *runtimeDebugger) Hook(stmt ast.Stmt, env *interp.Env) error {
 		reason = "step"
 	}
 	if reason == "" {
+		if bp, ok := d.breakpoints[line]; ok && bp != nil {
+			bp.hits++
+			if breakpointActive(bp, env) {
+				if bp.logMessage != "" {
+					logOutput = renderLogMessage(bp.logMessage, env)
+				} else {
+					reason = "breakpoint"
+				}
+			}
+		}
+	}
+	if reason == "" {
+		outputFn := d.onOutput
 		if d.terminated {
 			d.mu.Unlock()
 			return errDebuggerDisconnected
 		}
 		d.mu.Unlock()
+		if logOutput != "" && outputFn != nil {
+			outputFn(logOutput)
+		}
 		return nil
 	}
 	d.currentLine = line
@@ -233,7 +265,11 @@ func (d *runtimeDebugger) Hook(stmt ast.Stmt, env *interp.Env) error {
 	d.stepMode = ""
 	d.resuming = false
 	onStop := d.onStop
+	outputFn := d.onOutput
 	d.mu.Unlock()
+	if logOutput != "" && outputFn != nil {
+		outputFn(logOutput)
+	}
 	if onStop != nil {
 		onStop(reason)
 	}
@@ -326,10 +362,13 @@ func (s *Server) handleRequest(req message) error {
 	switch req.Command {
 	case "initialize":
 		return s.respond(req, true, map[string]any{
-			"supportsConfigurationDoneRequest": true,
-			"supportsEvaluateForHovers":        true,
-			"supportsSetVariable":              false,
-			"supportsRestartRequest":           false,
+			"supportsConfigurationDoneRequest":  true,
+			"supportsConditionalBreakpoints":    true,
+			"supportsEvaluateForHovers":         true,
+			"supportsHitConditionalBreakpoints": true,
+			"supportsLogPoints":                 true,
+			"supportsSetVariable":               false,
+			"supportsRestartRequest":            false,
 		}, "")
 	case "launch":
 		return s.handleLaunch(req)
@@ -398,6 +437,11 @@ func (s *Server) handleLaunch(req message) error {
 			"threadId":          1,
 			"allThreadsStopped": true,
 		})
+	}, func(text string) {
+		_ = s.event("output", map[string]any{
+			"category": "console",
+			"output":   text,
+		})
 	})
 	s.mu.Lock()
 	s.session = sess
@@ -417,14 +461,23 @@ func (s *Server) handleSetBreakpoints(req message) error {
 	if err := json.Unmarshal(req.Arguments, &args); err != nil {
 		return s.respond(req, false, nil, err.Error())
 	}
-	lines := make([]int, 0, len(args.Breakpoints))
+	breakpoints := make([]*runtimeBreakpoint, 0, len(args.Breakpoints))
 	out := make([]map[string]any, 0, len(args.Breakpoints))
 	for _, bp := range args.Breakpoints {
-		lines = append(lines, bp.Line)
+		runtimeBP, err := compileBreakpoint(bp)
+		if err != nil {
+			out = append(out, map[string]any{
+				"verified": false,
+				"line":     bp.Line,
+				"message":  err.Error(),
+			})
+			continue
+		}
+		breakpoints = append(breakpoints, runtimeBP)
 		out = append(out, map[string]any{"verified": true, "line": bp.Line})
 	}
 	if samePath(args.Source.Path, sess.program) || args.Source.Path == "" {
-		sess.debugger.SetBreakpoints(lines)
+		sess.debugger.SetBreakpoints(breakpoints)
 	}
 	return s.respond(req, true, map[string]any{"breakpoints": out}, "")
 }
@@ -838,6 +891,121 @@ func evalExpression(env *interp.Env, expr string) (value.Value, error) {
 		cur = field
 	}
 	return cur, nil
+}
+
+func compileBreakpoint(bp sourceBreakpoint) (*runtimeBreakpoint, error) {
+	if bp.Line <= 0 {
+		return nil, fmt.Errorf("breakpoint line must be positive")
+	}
+	if bp.HitCondition != "" {
+		if _, _, err := parseHitCondition(bp.HitCondition); err != nil {
+			return nil, err
+		}
+	}
+	return &runtimeBreakpoint{
+		line:         bp.Line,
+		condition:    strings.TrimSpace(bp.Condition),
+		hitCondition: strings.TrimSpace(bp.HitCondition),
+		logMessage:   bp.LogMessage,
+	}, nil
+}
+
+func breakpointActive(bp *runtimeBreakpoint, env *interp.Env) bool {
+	if bp == nil {
+		return false
+	}
+	if ok, err := hitConditionSatisfied(bp.hitCondition, bp.hits); err != nil || !ok {
+		return false
+	}
+	if strings.TrimSpace(bp.condition) == "" {
+		return true
+	}
+	v, err := evalExpression(env, bp.condition)
+	if err != nil {
+		return false
+	}
+	return truthyValue(v)
+}
+
+func hitConditionSatisfied(expr string, hits int) (bool, error) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return true, nil
+	}
+	n, mode, err := parseHitCondition(expr)
+	if err != nil {
+		return false, err
+	}
+	switch mode {
+	case "ge":
+		return hits >= n, nil
+	default:
+		return hits == n, nil
+	}
+}
+
+func parseHitCondition(expr string) (int, string, error) {
+	expr = strings.TrimSpace(expr)
+	mode := "eq"
+	if strings.HasPrefix(expr, ">=") {
+		mode = "ge"
+		expr = strings.TrimSpace(strings.TrimPrefix(expr, ">="))
+	}
+	n, err := strconv.Atoi(expr)
+	if err != nil || n <= 0 {
+		return 0, "", fmt.Errorf("unsupported hitCondition %q", expr)
+	}
+	return n, mode, nil
+}
+
+func truthyValue(v value.Value) bool {
+	switch v.T {
+	case value.TypeBool:
+		return v.AsBool()
+	case value.TypeI32:
+		return v.AsI32() != 0
+	case value.TypeI64:
+		return v.AsI64() != 0
+	case value.TypeU8:
+		return v.AsU8() != 0
+	case value.TypeU32:
+		return v.AsU32() != 0
+	case value.TypeU64:
+		return v.AsU64() != 0
+	case value.TypeF64:
+		return v.AsF64() != 0
+	case value.TypeString:
+		return v.AsString() != ""
+	case value.TypeVoid:
+		return false
+	default:
+		return true
+	}
+}
+
+func renderLogMessage(template string, env *interp.Env) string {
+	if env == nil {
+		return ensureTrailingNewline(template)
+	}
+	out := logpointPattern.ReplaceAllStringFunc(template, func(match string) string {
+		parts := logpointPattern.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		v, err := evalExpression(env, strings.TrimSpace(parts[1]))
+		if err != nil {
+			return match
+		}
+		return v.String()
+	})
+	return ensureTrailingNewline(out)
+}
+
+func ensureTrailingNewline(text string) string {
+	if strings.HasSuffix(text, "\n") {
+		return text
+	}
+	return text + "\n"
 }
 
 func resolveSearchPaths(program string, extra []string) []string {
