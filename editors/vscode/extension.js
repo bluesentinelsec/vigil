@@ -162,6 +162,12 @@ function activate(context) {
     };
   }
 
+  function hasDocumentBreakpoints(document) {
+    return vscode.debug.breakpoints.some(
+      (item) => item instanceof vscode.SourceBreakpoint && item.location.uri.toString() === document.uri.toString()
+    );
+  }
+
   async function promptForArgs(document) {
     const currentArgs = runtimeOptionsForDocument(document).args;
     const input = await vscode.window.showInputBox({
@@ -207,6 +213,7 @@ function activate(context) {
     if (args === undefined) {
       return;
     }
+    const stopOnEntry = options.stopOnEntry || !hasDocumentBreakpoints(document);
     await vscode.debug.startDebugging(options.folder, {
       type: "basl",
       request: "launch",
@@ -215,7 +222,8 @@ function activate(context) {
       cwd: options.cwd,
       args,
       path: options.searchPaths,
-      stopOnEntry: options.stopOnEntry,
+      stopOnEntry,
+      console: "internalConsole",
     });
   }
 

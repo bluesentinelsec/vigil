@@ -125,6 +125,7 @@ type runtimeDebugger struct {
 	currentEnv  *interp.Env
 	stepMode    string
 	stepDepth   int
+	resuming    bool
 	file        string
 	terminated  bool
 	onStop      func(reason string)
@@ -190,6 +191,7 @@ func (d *runtimeDebugger) resume(mode string, depth int) {
 	d.mu.Lock()
 	d.stepMode = mode
 	d.stepDepth = depth
+	d.resuming = true
 	d.cond.Broadcast()
 	d.mu.Unlock()
 }
@@ -229,6 +231,7 @@ func (d *runtimeDebugger) Hook(stmt ast.Stmt, env *interp.Env) error {
 	d.currentLine = line
 	d.currentEnv = env
 	d.stepMode = ""
+	d.resuming = false
 	onStop := d.onStop
 	d.mu.Unlock()
 	if onStop != nil {
@@ -236,10 +239,11 @@ func (d *runtimeDebugger) Hook(stmt ast.Stmt, env *interp.Env) error {
 	}
 
 	d.mu.Lock()
-	for !d.terminated && d.stepMode == "" {
+	for !d.terminated && !d.resuming {
 		d.cond.Wait()
 	}
 	terminated := d.terminated
+	d.resuming = false
 	d.mu.Unlock()
 	if terminated {
 		return errDebuggerDisconnected
@@ -608,6 +612,18 @@ func (s *session) start() error {
 	vm.RegisterScriptArgs(s.args)
 	for _, sp := range resolveSearchPaths(s.program, s.paths) {
 		vm.AddSearchPath(sp)
+	}
+	vm.PrintFn = func(text string) {
+		_ = s.server.event("output", map[string]any{
+			"category": "stdout",
+			"output":   text,
+		})
+	}
+	vm.ErrFn = func(text string) {
+		_ = s.server.event("output", map[string]any{
+			"category": "stderr",
+			"output":   text,
+		})
 	}
 	vm.SetDebugger(s.debugger)
 	s.mu.Lock()
