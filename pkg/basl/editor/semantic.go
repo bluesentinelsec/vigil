@@ -45,10 +45,12 @@ type SemanticToken struct {
 }
 
 type CompletionItem struct {
-	Label         string `json:"label"`
-	Kind          string `json:"kind"`
-	Detail        string `json:"detail,omitempty"`
-	Documentation string `json:"documentation,omitempty"`
+	Label           string       `json:"label"`
+	Kind            string       `json:"kind"`
+	Detail          string       `json:"detail,omitempty"`
+	Documentation   string       `json:"documentation,omitempty"`
+	InsertText      string       `json:"insert_text,omitempty"`
+	AdditionalEdits []RenameEdit `json:"additional_edits,omitempty"`
 }
 
 type RenameEdit struct {
@@ -398,9 +400,10 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 		return nil, err
 	}
 	linePrefix := prefixAt(file.src, pos)
+	identifierPrefix := identifierPrefixAt(linePrefix)
 	memberMatch := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.\s*$`).FindStringSubmatch(linePrefix)
 	if len(memberMatch) == 2 {
-		return file.memberCompletions(memberMatch[1])
+		return file.memberCompletions(memberMatch[1], a.importableModules(file))
 	}
 
 	items := make(map[string]CompletionItem)
@@ -417,6 +420,41 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 				doc = mod.Summary
 			}
 			items[name] = CompletionItem{Label: name, Kind: string(kindModule), Detail: "builtin module", Documentation: doc}
+		}
+	}
+	for _, module := range a.importableModules(file) {
+		if _, ok := items[module.Alias]; !ok {
+			edit, err := insertImportEdit(file.path, file.src, module.Path)
+			if err != nil {
+				continue
+			}
+			items[module.Alias] = CompletionItem{
+				Label:           module.Alias,
+				Kind:            string(kindModule),
+				Detail:          fmt.Sprintf("Auto import module %s", module.Path),
+				Documentation:   module.Documentation,
+				AdditionalEdits: []RenameEdit{edit},
+			}
+		}
+	}
+	if identifierPrefix != "" {
+		for _, module := range a.importableModules(file) {
+			edit, err := insertImportEdit(file.path, file.src, module.Path)
+			if err != nil {
+				continue
+			}
+			for _, item := range module.memberCompletions() {
+				if !strings.HasPrefix(strings.ToLower(item.Label), strings.ToLower(identifierPrefix)) {
+					continue
+				}
+				if _, exists := items[item.Label]; exists {
+					continue
+				}
+				item.InsertText = module.Alias + "." + item.Label
+				item.Detail = fmt.Sprintf("%s (auto import %s)", item.Detail, module.Path)
+				item.AdditionalEdits = []RenameEdit{edit}
+				items[item.Label] = item
+			}
 		}
 	}
 
@@ -1637,7 +1675,7 @@ func (f *fileModel) occurrenceAt(pos Position) *occurrence {
 	return adjacent
 }
 
-func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
+func (f *fileModel) memberCompletions(name string, importable []importableModule) ([]CompletionItem, error) {
 	if sym, ok := f.imports[name]; ok {
 		if sym.typ.module != nil {
 			var items []CompletionItem
@@ -1671,6 +1709,21 @@ func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
 			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
 			return items, nil
 		}
+	}
+	for _, module := range importable {
+		if module.Alias != name {
+			continue
+		}
+		edit, err := insertImportEdit(f.path, f.src, module.Path)
+		if err != nil {
+			return nil, err
+		}
+		items := module.memberCompletions()
+		for i := range items {
+			items[i].AdditionalEdits = []RenameEdit{edit}
+		}
+		sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+		return items, nil
 	}
 
 	for _, occ := range f.occurrences {
@@ -2211,6 +2264,19 @@ func prefixAt(src string, pos Position) string {
 		col = len(line)
 	}
 	return line[:col]
+}
+
+func identifierPrefixAt(prefix string) string {
+	idx := len(prefix)
+	for idx > 0 {
+		ch := prefix[idx-1]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' {
+			idx--
+			continue
+		}
+		break
+	}
+	return prefix[idx:]
 }
 
 func loadBuiltinCompletions() (map[string][]string, error) {

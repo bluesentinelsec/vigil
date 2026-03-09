@@ -467,6 +467,88 @@ fn main() -> void {
 	}
 }
 
+func TestImportAwareQuickFixesAndCompletions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "basl.toml"), []byte("name = \"demo\"\nversion = \"0.1.0\"\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile(basl.toml) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "lib"), 0755); err != nil {
+		t.Fatalf("os.MkdirAll(lib) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "lib", "helper.basl"), []byte(`pub fn message() -> string {
+    return "hi";
+}
+
+pub class Greeter {
+    pub fn greet() -> void {}
+}
+`), 0644); err != nil {
+		t.Fatalf("os.WriteFile(helper) error = %v", err)
+	}
+
+	mainPath := filepath.Join(root, "main.basl")
+	src := `fn main() -> void {
+    helper.
+    message();
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	moduleItems, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "helper."), nil)
+	if err != nil {
+		t.Fatalf("Completions(module auto-import) error = %v", err)
+	}
+	var messageMember *CompletionItem
+	for i := range moduleItems {
+		if moduleItems[i].Label == "message" {
+			messageMember = &moduleItems[i]
+			break
+		}
+	}
+	if messageMember == nil || len(messageMember.AdditionalEdits) != 1 || !strings.Contains(messageMember.AdditionalEdits[0].NewText, `import "helper";`) {
+		t.Fatalf("module completion = %#v, want auto-import edit", messageMember)
+	}
+
+	topLevelItems, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "message"), nil)
+	if err != nil {
+		t.Fatalf("Completions(symbol auto-import) error = %v", err)
+	}
+	var autoImported *CompletionItem
+	for i := range topLevelItems {
+		if topLevelItems[i].Label == "message" && topLevelItems[i].InsertText == "helper.message" {
+			autoImported = &topLevelItems[i]
+			break
+		}
+	}
+	if autoImported == nil || len(autoImported.AdditionalEdits) != 1 {
+		t.Fatalf("top-level completion = %#v, want helper.message auto-import completion", autoImported)
+	}
+
+	actions, err := CodeActionsWithDiagnostics(mainPath, []DiagnosticHint{{
+		Message: `unknown identifier "message"`,
+		Range:   &Location{Path: mainPath, Line: 3, Col: 5, EndCol: 11},
+	}}, []string{"quickfix"}, &Location{Path: mainPath, Line: 3, Col: 5, EndCol: 11}, nil)
+	if err != nil {
+		t.Fatalf("CodeActionsWithDiagnostics() error = %v", err)
+	}
+	foundFix := false
+	for _, action := range actions {
+		if action.Title != `Import "helper" and use helper.message` {
+			continue
+		}
+		if len(action.Edits) != 2 {
+			t.Fatalf("action edits = %#v, want import + replacement", action.Edits)
+		}
+		foundFix = true
+		break
+	}
+	if !foundFix {
+		t.Fatalf("quickfix actions = %#v, want import-and-qualify action", actions)
+	}
+}
+
 func TestFoldingRangesCoverImportsCommentsAndBlocks(t *testing.T) {
 	root := t.TempDir()
 	mainPath := filepath.Join(root, "main.basl")

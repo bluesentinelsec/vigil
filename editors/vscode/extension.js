@@ -635,6 +635,14 @@ function activate(context) {
                 const out = new vscode.CompletionItem(item.label, completionKind(item.kind));
                 out.detail = item.detail;
                 out.documentation = markdownFromDocs(item.documentation);
+                if (typeof item.insertText === "string" && item.insertText.length > 0) {
+                  out.insertText = item.insertText;
+                }
+                if (Array.isArray(item.additionalTextEdits) && item.additionalTextEdits.length > 0) {
+                  out.additionalTextEdits = item.additionalTextEdits.map(
+                    (edit) => new vscode.TextEdit(toRange(edit.range), edit.newText)
+                  );
+                }
                 return out;
               });
             }

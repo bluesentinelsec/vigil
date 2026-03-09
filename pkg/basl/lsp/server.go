@@ -147,10 +147,12 @@ type hoverResult struct {
 }
 
 type completionItem struct {
-	Label         string `json:"label"`
-	Kind          int    `json:"kind,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-	Documentation string `json:"documentation,omitempty"`
+	Label               string     `json:"label"`
+	Kind                int        `json:"kind,omitempty"`
+	Detail              string     `json:"detail,omitempty"`
+	Documentation       string     `json:"documentation,omitempty"`
+	InsertText          string     `json:"insertText,omitempty"`
+	AdditionalTextEdits []textEdit `json:"additionalTextEdits,omitempty"`
 }
 
 type parameterInformation struct {
@@ -689,11 +691,20 @@ func (s *Server) handleCompletion(msg message) error {
 	}
 	out := make([]completionItem, 0, len(items))
 	for _, item := range items {
+		additional := make([]textEdit, 0, len(item.AdditionalEdits))
+		for _, edit := range item.AdditionalEdits {
+			additional = append(additional, textEdit{
+				Range:   toLSPRange(basleditor.Location{Path: edit.Path, Line: edit.Line, Col: edit.Col, EndCol: edit.EndCol}),
+				NewText: edit.NewText,
+			})
+		}
 		out = append(out, completionItem{
-			Label:         item.Label,
-			Kind:          completionKind(item.Kind),
-			Detail:        item.Detail,
-			Documentation: item.Documentation,
+			Label:               item.Label,
+			Kind:                completionKind(item.Kind),
+			Detail:              item.Detail,
+			Documentation:       item.Documentation,
+			InsertText:          item.InsertText,
+			AdditionalTextEdits: additional,
 		})
 	}
 	return s.reply(msg.ID, out)
@@ -841,11 +852,17 @@ func (s *Server) handleCodeAction(msg message) error {
 	if !ok {
 		return s.reply(msg.ID, []codeAction{})
 	}
-	diagMessages := make([]string, 0, len(params.Context.Diagnostics))
+	diagHints := make([]basleditor.DiagnosticHint, 0, len(params.Context.Diagnostics))
 	for _, item := range params.Context.Diagnostics {
-		diagMessages = append(diagMessages, item.Message)
+		rng := toEditorRange(item.Range)
+		diagHints = append(diagHints, basleditor.DiagnosticHint{
+			Message: item.Message,
+			Range:   &rng,
+		})
 	}
-	actions, err := basleditor.CodeActionsWithOptions(path, diagMessages, params.Context.Only, s.editorOptions())
+	targetRange := toEditorRange(params.Range)
+	options := s.editorOptions()
+	actions, err := basleditor.CodeActionsWithDiagnosticsAndOptions(path, diagHints, params.Context.Only, &targetRange, options)
 	if err != nil {
 		return s.replyError(msg.ID, -32603, err.Error())
 	}
@@ -1116,6 +1133,14 @@ func toEditorPosition(pos position) basleditor.Position {
 	return basleditor.Position{Line: pos.Line + 1, Col: pos.Character + 1}
 }
 
+func toEditorRange(r lspRange) basleditor.Location {
+	return basleditor.Location{
+		Line:   r.Start.Line + 1,
+		Col:    r.Start.Character + 1,
+		EndCol: r.End.Character,
+	}
+}
+
 func toLSPLocation(loc basleditor.Location) lspLocation {
 	return lspLocation{
 		URI:   pathToURI(loc.Path),
@@ -1124,13 +1149,14 @@ func toLSPLocation(loc basleditor.Location) lspLocation {
 }
 
 func toLSPRange(loc basleditor.Location) lspRange {
-	endCharacter := loc.EndCol
-	if endCharacter < loc.Col {
-		endCharacter = loc.Col
+	startCharacter := max(loc.Col-1, 0)
+	endCharacter := startCharacter
+	if loc.EndCol >= loc.Col {
+		endCharacter = max(loc.EndCol, 1)
 	}
 	return lspRange{
-		Start: position{Line: max(loc.Line-1, 0), Character: max(loc.Col-1, 0)},
-		End:   position{Line: max(loc.Line-1, 0), Character: max(endCharacter, 1)},
+		Start: position{Line: max(loc.Line-1, 0), Character: startCharacter},
+		End:   position{Line: max(loc.Line-1, 0), Character: endCharacter},
 	}
 }
 

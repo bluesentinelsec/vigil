@@ -453,6 +453,126 @@ fn main() -> void {
 	}
 }
 
+func TestImportAwareCompletionAndQuickFixRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "basl.toml", "name = \"demo\"\nversion = \"0.1.0\"\n")
+	writeTestFile(t, filepath.Join(root, "lib"), "helper.basl", `
+pub fn message() -> string {
+    return "hi";
+}
+`)
+	mainPath := writeTestFile(t, root, "main.basl", `
+fn main() -> void {
+    helper.
+    message();
+}
+`)
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), serverConn, serverConn)
+	}()
+
+	reader := bufio.NewReader(clientConn)
+	rootURI := pathToURI(root)
+	mainURI := pathToURI(mainPath)
+	mainText, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(main) error = %v", err)
+	}
+	mainSrc := string(mainText)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"rootUri":          rootURI,
+			"workspaceFolders": []map[string]any{{"uri": rootURI, "name": "demo"}},
+		},
+	})
+	assertID(t, readOne(t, reader), "1")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "initialized", "params": map[string]any{}})
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didOpen",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI, "version": 1, "text": string(mainText)},
+		},
+	})
+	_ = readOne(t, reader)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "helper.", true),
+		},
+	})
+	msg := readOne(t, reader)
+	assertID(t, msg, "2")
+	var completions []completionItem
+	decodeResult(t, msg.Result, &completions)
+	foundCompletion := false
+	for _, item := range completions {
+		if item.Label == "message" && len(item.AdditionalTextEdits) == 1 {
+			foundCompletion = true
+			break
+		}
+	}
+	if !foundCompletion {
+		t.Fatalf("completions = %#v, want import-aware member completion", completions)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "textDocument/codeAction",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"range":        map[string]any{"start": map[string]any{"line": 2, "character": 4}, "end": map[string]any{"line": 2, "character": 11}},
+			"context": map[string]any{
+				"only": []string{"quickfix"},
+				"diagnostics": []map[string]any{{
+					"range":   map[string]any{"start": map[string]any{"line": 2, "character": 4}, "end": map[string]any{"line": 2, "character": 11}},
+					"message": `unknown identifier "message"`,
+					"source":  "basl",
+				}},
+			},
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "3")
+	var actions []codeAction
+	decodeResult(t, msg.Result, &actions)
+	foundAction := false
+	for _, item := range actions {
+		if item.Title == `Import "helper" and use helper.message` && item.Edit != nil {
+			foundAction = true
+			break
+		}
+	}
+	if !foundAction {
+		t.Fatalf("code actions = %#v, want import-and-qualify quick fix", actions)
+	}
+
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "shutdown"})
+	assertID(t, readOne(t, reader), "4")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	select {
+	case err := <-done:
+		if err != nil && err != io.EOF && err != context.Canceled {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not exit")
+	}
+}
+
 func TestCodeActionOrganizeImportsSortsImportBlock(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeTestFile(t, root, "main.basl", `

@@ -40,6 +40,11 @@ type PrepareRename struct {
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var unknownIdentifierDiagnosticPattern = regexp.MustCompile(`unknown identifier "([^"]+)"`)
 
+type DiagnosticHint struct {
+	Message string    `json:"message"`
+	Range   *Location `json:"range,omitempty"`
+}
+
 type CodeAction struct {
 	Title       string       `json:"title"`
 	Kind        string       `json:"kind,omitempty"`
@@ -290,10 +295,30 @@ func positionFromIndex(src string, idx int) Position {
 }
 
 func CodeActions(path string, diagnostics []string, only []string, extraSearchPaths []string) ([]CodeAction, error) {
-	return CodeActionsWithOptions(path, diagnostics, only, Options{SearchPaths: extraSearchPaths})
+	hints := make([]DiagnosticHint, 0, len(diagnostics))
+	for _, item := range diagnostics {
+		hints = append(hints, DiagnosticHint{Message: item})
+	}
+	return codeActionsWithDiagnostics(path, hints, only, nil, Options{SearchPaths: extraSearchPaths})
 }
 
 func CodeActionsWithOptions(path string, diagnostics []string, only []string, opts Options) ([]CodeAction, error) {
+	hints := make([]DiagnosticHint, 0, len(diagnostics))
+	for _, item := range diagnostics {
+		hints = append(hints, DiagnosticHint{Message: item})
+	}
+	return codeActionsWithDiagnostics(path, hints, only, nil, opts)
+}
+
+func CodeActionsWithDiagnostics(path string, diagnostics []DiagnosticHint, only []string, targetRange *Location, extraSearchPaths []string) ([]CodeAction, error) {
+	return codeActionsWithDiagnostics(path, diagnostics, only, targetRange, Options{SearchPaths: extraSearchPaths})
+}
+
+func CodeActionsWithDiagnosticsAndOptions(path string, diagnostics []DiagnosticHint, only []string, targetRange *Location, opts Options) ([]CodeAction, error) {
+	return codeActionsWithDiagnostics(path, diagnostics, only, targetRange, opts)
+}
+
+func codeActionsWithDiagnostics(path string, diagnostics []DiagnosticHint, only []string, targetRange *Location, opts Options) ([]CodeAction, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -315,7 +340,7 @@ func CodeActionsWithOptions(path string, diagnostics []string, only []string, op
 	}
 
 	if wantsCodeActionKind("quickfix", only) {
-		actions = append(actions, missingImportActions(a, file, diagnostics, src)...)
+		actions = append(actions, missingImportActions(a, file, diagnostics, targetRange, src)...)
 	}
 	return dedupeCodeActions(actions), nil
 }
@@ -419,56 +444,105 @@ func organizeImportsAction(path string, src string, only []string) (*CodeAction,
 	}, nil
 }
 
-func missingImportActions(a *Analyzer, file *fileModel, diagnostics []string, src string) []CodeAction {
-	candidates := missingImportCandidates(a, file)
-	if len(candidates) == 0 {
+func missingImportActions(a *Analyzer, file *fileModel, diagnostics []DiagnosticHint, targetRange *Location, src string) []CodeAction {
+	modules := a.importableModules(file)
+	if len(modules) == 0 {
 		return nil
 	}
-	imported := existingImportPaths(file.prog)
 	var actions []CodeAction
 	seen := make(map[string]bool)
 	for _, diag := range diagnostics {
-		match := unknownIdentifierDiagnosticPattern.FindStringSubmatch(diag)
+		match := unknownIdentifierDiagnosticPattern.FindStringSubmatch(diag.Message)
 		if len(match) != 2 {
 			continue
 		}
 		name := match[1]
-		modulePath, ok := candidates[name]
-		if !ok || imported[modulePath] {
-			continue
+		for _, module := range modules {
+			importEdit, err := insertImportEdit(file.path, src, module.Path)
+			if err != nil {
+				continue
+			}
+			if module.Alias == name {
+				key := "import:" + name + ":" + module.Path
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				actions = append(actions, CodeAction{
+					Title:       fmt.Sprintf("Add import %q", module.Path),
+					Kind:        "quickfix",
+					IsPreferred: true,
+					Diagnostics: []string{diag.Message},
+					Edits:       []RenameEdit{importEdit},
+				})
+				continue
+			}
+			member, ok := module.memberByName(name)
+			if !ok {
+				continue
+			}
+			replacementRange := findUnknownIdentifierRange(src, diag, targetRange, name)
+			if replacementRange == nil {
+				continue
+			}
+			key := "qualify:" + name + ":" + module.Path
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			actions = append(actions, CodeAction{
+				Title:       fmt.Sprintf("Import %q and use %s.%s", module.Path, module.Alias, name),
+				Kind:        "quickfix",
+				IsPreferred: true,
+				Diagnostics: []string{diag.Message},
+				Edits: []RenameEdit{
+					importEdit,
+					{
+						Path:    replacementRange.Path,
+						Line:    replacementRange.Line,
+						Col:     replacementRange.Col,
+						EndCol:  replacementRange.EndCol,
+						NewText: module.Alias + "." + member.Label,
+					},
+				},
+			})
 		}
-		key := name + ":" + modulePath
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		newSrc, err := sourceWithAddedImport(src, modulePath)
-		if err != nil || newSrc == src {
-			continue
-		}
-		actions = append(actions, CodeAction{
-			Title:       fmt.Sprintf("Add import %q", modulePath),
-			Kind:        "quickfix",
-			IsPreferred: true,
-			Diagnostics: []string{diag},
-			Edits: []RenameEdit{{
-				Path:    file.path,
-				Line:    1,
-				Col:     1,
-				EndCol:  1,
-				NewText: newSrc,
-			}},
-		})
 	}
 	return actions
 }
 
-func missingImportCandidates(a *Analyzer, file *fileModel) map[string]string {
-	out := make(map[string]string)
+type importableModule struct {
+	Path          string
+	Alias         string
+	Documentation string
+	members       []CompletionItem
+}
+
+func (a *Analyzer) importableModules(file *fileModel) []importableModule {
+	var out []importableModule
+	seen := make(map[string]bool)
 	for name := range a.builtinCompletions {
-		if _, imported := file.imports[name]; !imported {
-			out[name] = name
+		if _, imported := file.imports[name]; imported {
+			continue
 		}
+		module := importableModule{Path: name, Alias: name}
+		if mod, ok := a.builtinModule(name); ok {
+			module.Documentation = mod.Summary
+			for _, memberName := range a.builtinCompletions[name] {
+				item := CompletionItem{
+					Label:  memberName,
+					Kind:   string(kindFunction),
+					Detail: fmt.Sprintf("%s.%s", name, memberName),
+				}
+				if builtinSym, ok := a.builtinMember(name, memberName); ok {
+					item.Detail = builtinSym.Detail
+					item.Documentation = builtinSym.Documentation
+				}
+				module.members = append(module.members, item)
+			}
+		}
+		out = append(out, module)
+		seen[module.Alias] = true
 	}
 	for _, candidate := range workspaceFileCandidates(file.path, a.searchPaths) {
 		if sameDocumentPath(candidate, file.path) {
@@ -479,16 +553,38 @@ func missingImportCandidates(a *Analyzer, file *fileModel) map[string]string {
 			continue
 		}
 		alias := defaultImportAlias(modulePath)
-		if alias == "" {
+		if alias == "" || seen[alias] {
 			continue
 		}
 		if _, imported := file.imports[alias]; imported {
 			continue
 		}
-		if _, exists := out[alias]; !exists {
-			out[alias] = modulePath
+		target, err := a.loadFile(candidate)
+		if err != nil {
+			continue
 		}
+		module := importableModule{
+			Path:  modulePath,
+			Alias: alias,
+		}
+		for name, sym := range target.topLevel {
+			module.members = append(module.members, CompletionItem{
+				Label:         name,
+				Kind:          string(sym.kind),
+				Detail:        sym.detail,
+				Documentation: sym.doc,
+			})
+		}
+		sort.Slice(module.members, func(i, j int) bool { return module.members[i].Label < module.members[j].Label })
+		out = append(out, module)
+		seen[alias] = true
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Alias != out[j].Alias {
+			return out[i].Alias < out[j].Alias
+		}
+		return out[i].Path < out[j].Path
+	})
 	return out
 }
 
@@ -545,6 +641,54 @@ func sourceWithAddedImport(src string, modulePath string) (string, error) {
 	return string(formatter.Format(prog, tokensWithComments)), nil
 }
 
+func insertImportEdit(path string, src string, modulePath string) (RenameEdit, error) {
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return RenameEdit{}, err
+	}
+	prog, err := parser.New(tokens).Parse()
+	if err != nil {
+		return RenameEdit{}, err
+	}
+	for _, decl := range prog.Decls {
+		if imp, ok := decl.(*ast.ImportDecl); ok && imp.Path == modulePath {
+			return RenameEdit{}, fmt.Errorf("import already exists")
+		}
+	}
+	lines := strings.Split(src, "\n")
+	lastImportLine := 0
+	for _, decl := range prog.Decls {
+		imp, ok := decl.(*ast.ImportDecl)
+		if !ok {
+			continue
+		}
+		if imp.Line > lastImportLine {
+			lastImportLine = imp.Line
+		}
+	}
+	if lastImportLine > 0 {
+		lineText := ""
+		if lastImportLine-1 < len(lines) {
+			lineText = lines[lastImportLine-1]
+		}
+		col := len(lineText) + 1
+		return RenameEdit{
+			Path:    path,
+			Line:    lastImportLine,
+			Col:     col,
+			EndCol:  col - 1,
+			NewText: "\nimport \"" + modulePath + "\";",
+		}, nil
+	}
+	return RenameEdit{
+		Path:    path,
+		Line:    1,
+		Col:     1,
+		EndCol:  0,
+		NewText: "import \"" + modulePath + "\";\n\n",
+	}, nil
+}
+
 func moduleImportPath(path string, searchPaths []string) string {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -585,6 +729,80 @@ func defaultImportAlias(modulePath string) string {
 	}
 	parts := strings.Split(modulePath, "/")
 	return parts[len(parts)-1]
+}
+
+func (m importableModule) memberCompletions() []CompletionItem {
+	out := make([]CompletionItem, len(m.members))
+	copy(out, m.members)
+	return out
+}
+
+func (m importableModule) memberByName(name string) (CompletionItem, bool) {
+	for _, item := range m.members {
+		if item.Label == name {
+			return item, true
+		}
+	}
+	return CompletionItem{}, false
+}
+
+func findUnknownIdentifierRange(src string, diag DiagnosticHint, targetRange *Location, name string) *Location {
+	if targetRange != nil && targetRange.Line > 0 {
+		if loc := identifierRangeOnLine(src, targetRange.Line, name, targetRange.Col); loc != nil {
+			return loc
+		}
+	}
+	if diag.Range != nil && diag.Range.Line > 0 {
+		if loc := identifierRangeOnLine(src, diag.Range.Line, name, diag.Range.Col); loc != nil {
+			return loc
+		}
+	}
+	return nil
+}
+
+func identifierRangeOnLine(src string, line int, name string, nearCol int) *Location {
+	lines := strings.Split(src, "\n")
+	if line <= 0 || line > len(lines) {
+		return nil
+	}
+	text := lines[line-1]
+	bestIdx := -1
+	for idx := 0; idx <= len(text)-len(name); idx++ {
+		if text[idx:idx+len(name)] != name {
+			continue
+		}
+		if idx > 0 {
+			prev := text[idx-1]
+			if isIdentifierByte(prev) {
+				continue
+			}
+		}
+		if idx+len(name) < len(text) {
+			next := text[idx+len(name)]
+			if isIdentifierByte(next) {
+				continue
+			}
+		}
+		if bestIdx < 0 {
+			bestIdx = idx
+		}
+		if nearCol > 0 && idx+1 >= nearCol {
+			bestIdx = idx
+			break
+		}
+	}
+	if bestIdx < 0 {
+		return nil
+	}
+	return &Location{
+		Line:   line,
+		Col:    bestIdx + 1,
+		EndCol: bestIdx + len(name),
+	}
+}
+
+func isIdentifierByte(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'
 }
 
 func wantsCodeActionKind(kind string, only []string) bool {
