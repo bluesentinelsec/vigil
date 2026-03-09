@@ -397,6 +397,26 @@ function activate(context) {
       },
     })
   );
+  context.subscriptions.push(
+    vscode.languages.registerFoldingRangeProvider("basl", {
+      async provideFoldingRanges(document) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/foldingRange", {
+          textDocument: { uri: document.uri.toString() },
+        });
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.FoldingRange(
+          item.startLine,
+          item.endLine,
+          foldingRangeKind(item.kind)
+        ));
+      },
+    })
+  );
 
   context.subscriptions.push(
     vscode.languages.registerHoverProvider("basl", {
@@ -1032,6 +1052,17 @@ function documentHighlightKind(kind) {
       return vscode.DocumentHighlightKind.Write;
     default:
       return vscode.DocumentHighlightKind.Text;
+  }
+}
+
+function foldingRangeKind(kind) {
+  switch (kind) {
+    case "comment":
+      return vscode.FoldingRangeKind.Comment;
+    case "imports":
+      return vscode.FoldingRangeKind.Imports;
+    default:
+      return undefined;
   }
 }
 

@@ -198,6 +198,14 @@ type codeAction struct {
 	Edit        *workspaceEdit   `json:"edit,omitempty"`
 }
 
+type foldingRange struct {
+	StartLine      int    `json:"startLine"`
+	EndLine        int    `json:"endLine"`
+	StartCharacter *int   `json:"startCharacter,omitempty"`
+	EndCharacter   *int   `json:"endCharacter,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+}
+
 type prepareRenameResult struct {
 	Range       lspRange `json:"range"`
 	Placeholder string   `json:"placeholder,omitempty"`
@@ -305,6 +313,8 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleDeclaration(msg)
 	case "textDocument/implementation":
 		return s.handleImplementation(msg)
+	case "textDocument/foldingRange":
+		return s.handleFoldingRange(msg)
 	case "textDocument/hover":
 		return s.handleHover(msg)
 	case "textDocument/references":
@@ -362,6 +372,7 @@ func (s *Server) handleInitialize(msg message) error {
 			"definitionProvider":         true,
 			"declarationProvider":        true,
 			"implementationProvider":     true,
+			"foldingRangeProvider":       true,
 			"hoverProvider":              true,
 			"referencesProvider":         true,
 			"documentHighlightProvider":  true,
@@ -512,6 +523,32 @@ func (s *Server) handleImplementation(msg message) error {
 	out := make([]lspLocation, 0, len(locations))
 	for _, item := range locations {
 		out = append(out, toLSPLocation(item))
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleFoldingRange(msg message) error {
+	var params struct {
+		TextDocument textDocumentIdentifier `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []foldingRange{})
+	}
+	items, err := basleditor.FoldingRangesWithOptions(path, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	out := make([]foldingRange, 0, len(items))
+	for _, item := range items {
+		out = append(out, foldingRange{
+			StartLine: max(item.StartLine-1, 0),
+			EndLine:   max(item.EndLine-1, 0),
+			Kind:      item.Kind,
+		})
 	}
 	return s.reply(msg.ID, out)
 }

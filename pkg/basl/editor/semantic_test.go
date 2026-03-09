@@ -396,6 +396,44 @@ fn main() -> void {
 	}
 }
 
+func TestFoldingRangesCoverImportsCommentsAndBlocks(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "helper";
+import "fmt";
+
+// line comment one
+// line comment two
+
+class Person {
+    pub fn greet() -> void {
+        fmt.println("hi");
+    }
+}
+
+/*
+block comment
+continued
+*/
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := FoldingRanges(mainPath, nil)
+	if err != nil {
+		t.Fatalf("FoldingRanges() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("FoldingRanges() returned no ranges")
+	}
+	assertHasFoldingRange(t, items, 1, 2, "imports")
+	assertHasFoldingRange(t, items, 4, 5, "comment")
+	assertHasFoldingRange(t, items, 7, 10, "")
+	assertHasFoldingRange(t, items, 8, 9, "")
+	assertHasFoldingRange(t, items, 13, 16, "comment")
+}
+
 func TestPrepareRenameAndFormatDocument(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 
@@ -707,4 +745,14 @@ func semanticModifiersInclude(got []string, want ...string) bool {
 		}
 	}
 	return true
+}
+
+func assertHasFoldingRange(t *testing.T, items []FoldingRange, startLine int, endLine int, kind string) {
+	t.Helper()
+	for _, item := range items {
+		if item.StartLine == startLine && item.EndLine == endLine && item.Kind == kind {
+			return
+		}
+	}
+	t.Fatalf("folding range %d-%d kind=%q not found in %#v", startLine, endLine, kind, items)
 }

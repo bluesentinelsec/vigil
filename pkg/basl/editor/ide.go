@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/bluesentinelsec/basl/pkg/basl/ast"
@@ -45,6 +46,12 @@ type CodeAction struct {
 	IsPreferred bool         `json:"is_preferred,omitempty"`
 	Diagnostics []string     `json:"diagnostics,omitempty"`
 	Edits       []RenameEdit `json:"edits,omitempty"`
+}
+
+type FoldingRange struct {
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	Kind      string `json:"kind,omitempty"`
 }
 
 func validIdentifier(name string) bool {
@@ -311,6 +318,26 @@ func CodeActionsWithOptions(path string, diagnostics []string, only []string, op
 		actions = append(actions, missingImportActions(a, file, diagnostics, src)...)
 	}
 	return dedupeCodeActions(actions), nil
+}
+
+func FoldingRanges(path string, extraSearchPaths []string) ([]FoldingRange, error) {
+	return FoldingRangesWithOptions(path, Options{SearchPaths: extraSearchPaths})
+}
+
+func FoldingRangesWithOptions(path string, opts Options) ([]FoldingRange, error) {
+	src, err := readDocumentSource(path, opts)
+	if err != nil {
+		return nil, err
+	}
+	tokens, err := lexer.New(src).TokenizeWithComments()
+	if err != nil {
+		return nil, err
+	}
+	var out []FoldingRange
+	out = append(out, importFoldingRanges(src)...)
+	out = append(out, commentFoldingRanges(tokens)...)
+	out = append(out, braceFoldingRanges(tokens)...)
+	return dedupeFoldingRanges(out), nil
 }
 
 func FormatDocument(path string, extraSearchPaths []string) (string, error) {
@@ -583,5 +610,142 @@ func dedupeCodeActions(items []CodeAction) []CodeAction {
 		seen[key] = true
 		out = append(out, item)
 	}
+	return out
+}
+
+func importFoldingRanges(src string) []FoldingRange {
+	tokens, err := lexer.New(src).Tokenize()
+	if err != nil {
+		return nil
+	}
+	prog, err := parser.New(tokens).Parse()
+	if err != nil || prog == nil {
+		return nil
+	}
+	var importLines []int
+	for _, decl := range prog.Decls {
+		imp, ok := decl.(*ast.ImportDecl)
+		if !ok {
+			continue
+		}
+		if imp.Line > 0 {
+			importLines = append(importLines, imp.Line)
+		}
+	}
+	if len(importLines) < 2 {
+		return nil
+	}
+	sort.Ints(importLines)
+	var out []FoldingRange
+	start := importLines[0]
+	prev := importLines[0]
+	for _, line := range importLines[1:] {
+		if line == prev+1 {
+			prev = line
+			continue
+		}
+		if prev > start {
+			out = append(out, FoldingRange{StartLine: start, EndLine: prev, Kind: "imports"})
+		}
+		start = line
+		prev = line
+	}
+	if prev > start {
+		out = append(out, FoldingRange{StartLine: start, EndLine: prev, Kind: "imports"})
+	}
+	return out
+}
+
+func commentFoldingRanges(tokens []lexer.Token) []FoldingRange {
+	var out []FoldingRange
+	lineCommentStart := 0
+	lineCommentEnd := 0
+	flushLineComments := func() {
+		if lineCommentStart > 0 && lineCommentEnd > lineCommentStart {
+			out = append(out, FoldingRange{StartLine: lineCommentStart, EndLine: lineCommentEnd, Kind: "comment"})
+		}
+		lineCommentStart = 0
+		lineCommentEnd = 0
+	}
+	for _, tok := range tokens {
+		switch tok.Type {
+		case lexer.TOKEN_LINE_COMMENT:
+			if lineCommentStart == 0 {
+				lineCommentStart = tok.Line
+				lineCommentEnd = tok.Line
+				continue
+			}
+			if tok.Line == lineCommentEnd+1 {
+				lineCommentEnd = tok.Line
+				continue
+			}
+			flushLineComments()
+			lineCommentStart = tok.Line
+			lineCommentEnd = tok.Line
+		case lexer.TOKEN_BLOCK_COMMENT:
+			flushLineComments()
+			endLine := tok.Line + strings.Count(tok.Literal, "\n")
+			if endLine > tok.Line {
+				out = append(out, FoldingRange{StartLine: tok.Line, EndLine: endLine, Kind: "comment"})
+			}
+		default:
+			flushLineComments()
+		}
+	}
+	flushLineComments()
+	return out
+}
+
+func braceFoldingRanges(tokens []lexer.Token) []FoldingRange {
+	type openToken struct {
+		kind string
+		line int
+	}
+	var stack []openToken
+	var out []FoldingRange
+	for _, tok := range tokens {
+		switch tok.Type {
+		case lexer.TOKEN_LBRACE:
+			stack = append(stack, openToken{kind: "region", line: tok.Line})
+		case lexer.TOKEN_LBRACKET:
+			stack = append(stack, openToken{kind: "region", line: tok.Line})
+		case lexer.TOKEN_RBRACE, lexer.TOKEN_RBRACKET:
+			if len(stack) == 0 {
+				continue
+			}
+			open := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			endLine := tok.Line - 1
+			if endLine > open.line {
+				out = append(out, FoldingRange{StartLine: open.line, EndLine: endLine})
+			}
+		}
+	}
+	return out
+}
+
+func dedupeFoldingRanges(items []FoldingRange) []FoldingRange {
+	seen := make(map[string]bool)
+	var out []FoldingRange
+	for _, item := range items {
+		if item.StartLine <= 0 || item.EndLine <= item.StartLine {
+			continue
+		}
+		key := fmt.Sprintf("%d:%d:%s", item.StartLine, item.EndLine, item.Kind)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].StartLine != out[j].StartLine {
+			return out[i].StartLine < out[j].StartLine
+		}
+		if out[i].EndLine != out[j].EndLine {
+			return out[i].EndLine < out[j].EndLine
+		}
+		return out[i].Kind < out[j].Kind
+	})
 	return out
 }
