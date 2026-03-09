@@ -70,6 +70,10 @@ func main() {
 		os.Exit(runLSP(args[1:]))
 		return
 	}
+	if args[0] == "dap" {
+		os.Exit(runDAP(args[1:]))
+		return
+	}
 	if args[0] == "doc" {
 		os.Exit(runDoc(args[1:]))
 		return

@@ -34,9 +34,10 @@ type Hover struct {
 }
 
 type CompletionItem struct {
-	Label  string `json:"label"`
-	Kind   string `json:"kind"`
-	Detail string `json:"detail,omitempty"`
+	Label         string `json:"label"`
+	Kind          string `json:"kind"`
+	Detail        string `json:"detail,omitempty"`
+	Documentation string `json:"documentation,omitempty"`
 }
 
 type RenameEdit struct {
@@ -101,12 +102,19 @@ type callableInfo struct {
 	ret    []typeInfo
 }
 
+type signatureInfo struct {
+	label         string
+	documentation string
+	params        []builtinParam
+}
+
 type symbolDef struct {
 	id         string
 	kind       symbolKind
 	name       string
 	detail     string
 	doc        string
+	signature  *signatureInfo
 	location   *Location
 	typ        typeInfo
 	renameable bool
@@ -171,11 +179,18 @@ type fileModel struct {
 	analyzed      bool
 }
 
+type exprTokenCursor struct {
+	path   string
+	tokens []lexer.Token
+	pos    int
+}
+
 type Analyzer struct {
 	entry              string
 	searchPaths        []string
 	files              map[string]*fileModel
 	builtinCompletions map[string][]string
+	builtinDocs        *builtinMetadata
 	overlays           map[string]string
 }
 
@@ -270,6 +285,9 @@ func RenameWithOptions(path string, pos Position, newName string, opts Options) 
 	if !occ.symbol.renameable {
 		return nil, fmt.Errorf("symbol %q cannot be renamed", occ.symbol.name)
 	}
+	if !validIdentifier(newName) {
+		return nil, fmt.Errorf("%q is not a valid identifier", newName)
+	}
 	var edits []RenameEdit
 	for _, indexed := range a.files {
 		for _, item := range indexed.occurrences {
@@ -304,14 +322,18 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 
 	items := make(map[string]CompletionItem)
 	for name, sym := range file.topLevel {
-		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail}
+		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail, Documentation: sym.doc}
 	}
 	for name, sym := range file.imports {
-		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail}
+		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail, Documentation: sym.doc}
 	}
 	for name := range a.builtinCompletions {
 		if _, ok := items[name]; !ok {
-			items[name] = CompletionItem{Label: name, Kind: string(kindModule), Detail: "builtin module"}
+			doc := ""
+			if mod, ok := a.builtinModule(name); ok {
+				doc = mod.Summary
+			}
+			items[name] = CompletionItem{Label: name, Kind: string(kindModule), Detail: "builtin module", Documentation: doc}
 		}
 	}
 
@@ -434,11 +456,16 @@ func newAnalyzerWithOptions(path string, opts Options) (*Analyzer, *fileModel, e
 	if err != nil {
 		return nil, nil, err
 	}
+	builtinDocs, err := loadBuiltinMetadata()
+	if err != nil {
+		return nil, nil, err
+	}
 	a := &Analyzer{
 		entry:              absPath,
 		searchPaths:        searchPaths,
 		files:              make(map[string]*fileModel),
 		builtinCompletions: builtin,
+		builtinDocs:        builtinDocs,
 		overlays:           normalizeOverlays(opts.Overlays),
 	}
 	file, err := a.loadFile(absPath)
@@ -533,6 +560,9 @@ func (f *fileModel) collectImports() {
 		if target, ok := f.analyzer.builtinCompletions[imp.Path]; ok {
 			_ = target
 			sym.typ = typeInfo{kind: typeModule, builtin: imp.Path}
+			if mod, ok := f.analyzer.builtinModule(imp.Path); ok {
+				sym.doc = mod.Summary
+			}
 			f.imports[alias] = sym
 			continue
 		}
@@ -566,6 +596,7 @@ func (f *fileModel) collectTopLevel() {
 				name:       d.Name,
 				detail:     fnDetail("fn", d.Name, d.Params, d.Return),
 				doc:        fmt.Sprintf("defined in %s", filepath.Base(f.path)),
+				signature:  signatureFromDecl("fn", d.Name, d.Params, d.Return, fmt.Sprintf("defined in %s", filepath.Base(f.path))),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        callableTypeFromDecl(d),
 				renameable: true,
@@ -653,6 +684,7 @@ func (f *fileModel) collectTopLevel() {
 					kind:       kindMethod,
 					name:       method.Name,
 					detail:     fnDetail(d.Name, method.Name, method.Params, method.Return),
+					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, ""),
 					location:   f.nextIdentLocation(method.Name, method.Line),
 					typ:        callableTypeFromDecl(method),
 					renameable: method.Name != "init",
@@ -682,6 +714,18 @@ func (f *fileModel) analyze() {
 		root.define(name, scopeBinding{symbol: sym, typ: sym.typ})
 		if sym.location != nil {
 			f.addOccurrence(sym, *sym.location, true)
+		}
+	}
+	for _, class := range f.classes {
+		for _, field := range class.fields {
+			if field.location != nil {
+				f.addOccurrence(field, *field.location, true)
+			}
+		}
+		for _, method := range class.methods {
+			if method.location != nil {
+				f.addOccurrence(method, *method.location, true)
+			}
 		}
 	}
 	for _, decl := range f.prog.Decls {
@@ -745,6 +789,7 @@ func (f *fileModel) walkStmt(scope *scope, class *classInfo, stmt ast.Stmt) {
 				kind:       kindVariable,
 				name:       s.Name,
 				detail:     fnDetail("fn", s.Name, fnLit.Decl.Params, fnLit.Decl.Return),
+				signature:  signatureFromDecl("fn", s.Name, fnLit.Decl.Params, fnLit.Decl.Return, ""),
 				location:   f.nextIdentLocation(s.Name, s.Line),
 				typ:        callableTypeFromDecl(fnLit.Decl),
 				renameable: true,
@@ -923,7 +968,7 @@ func (f *fileModel) walkExpr(scope *scope, class *classInfo, expr ast.Expr) type
 		return typeInfo{kind: typeUnknown}
 	case *ast.MemberExpr:
 		objType := f.walkExpr(scope, class, e.Object)
-		return f.resolveMember(objType, e)
+		return f.resolveMemberAt(objType, e, nil)
 	case *ast.CallExpr:
 		calleeType := f.walkExpr(scope, class, e.Callee)
 		for _, arg := range e.Args {
@@ -984,7 +1029,9 @@ func (f *fileModel) walkExpr(scope *scope, class *classInfo, expr ast.Expr) type
 	case *ast.FStringExpr:
 		for _, part := range e.Parts {
 			if part.IsExpr {
-				f.walkExpr(scope, class, part.Expr)
+				if !f.walkFStringPart(scope, class, part) {
+					f.walkExpr(scope, class, part.Expr)
+				}
 			}
 		}
 		return typeInfo{kind: typePrimitive, name: "string"}
@@ -1002,7 +1049,13 @@ func (f *fileModel) walkExpr(scope *scope, class *classInfo, expr ast.Expr) type
 }
 
 func (f *fileModel) resolveMember(objType typeInfo, expr *ast.MemberExpr) typeInfo {
-	loc := f.nextIdentLocation(expr.Field, expr.Line)
+	return f.resolveMemberAt(objType, expr, nil)
+}
+
+func (f *fileModel) resolveMemberAt(objType typeInfo, expr *ast.MemberExpr, loc *Location) typeInfo {
+	if loc == nil {
+		loc = f.nextIdentLocation(expr.Field, expr.Line)
+	}
 	switch {
 	case objType.kind == typeModule && objType.module != nil:
 		if sym, ok := objType.module.topLevel[expr.Field]; ok {
@@ -1019,6 +1072,12 @@ func (f *fileModel) resolveMember(objType typeInfo, expr *ast.MemberExpr) typeIn
 				name:     expr.Field,
 				detail:   fmt.Sprintf("%s.%s", objType.builtin, expr.Field),
 				location: nil,
+			}
+			if builtinSym, ok := f.analyzer.builtinMember(objType.builtin, expr.Field); ok {
+				sym.detail = builtinSym.Detail
+				sym.doc = builtinSym.Documentation
+				sym.signature = builtinSignatureInfo(builtinSym)
+				sym.typ = builtinTypeFromMetadata(builtinSym)
 			}
 			f.addOccurrence(sym, *loc, false)
 		}
@@ -1038,6 +1097,155 @@ func (f *fileModel) resolveMember(objType typeInfo, expr *ast.MemberExpr) typeIn
 		}
 	}
 	return typeInfo{kind: typeUnknown}
+}
+
+func (f *fileModel) walkFStringPart(scope *scope, class *classInfo, part ast.FStringPart) bool {
+	if part.ExprSource == "" || part.ExprLine <= 0 || part.ExprCol <= 0 {
+		return false
+	}
+	tokens, err := lexer.New(part.ExprSource).Tokenize()
+	if err != nil {
+		return false
+	}
+	cursor := exprTokenCursor{path: f.path, tokens: adjustExprTokens(tokens, part.ExprLine, part.ExprCol)}
+	f.walkExprWithCursor(scope, class, part.Expr, &cursor)
+	return true
+}
+
+func adjustExprTokens(tokens []lexer.Token, line, col int) []lexer.Token {
+	out := make([]lexer.Token, len(tokens))
+	copy(out, tokens)
+	for i := range out {
+		if out[i].Type == lexer.TOKEN_EOF {
+			continue
+		}
+		if out[i].Line == 1 {
+			out[i].Line = line
+			out[i].Col = col + out[i].Col - 1
+			continue
+		}
+		out[i].Line = line + out[i].Line - 1
+	}
+	return out
+}
+
+func (c *exprTokenCursor) nextIdentLocation(name string) *Location {
+	for i := c.pos; i < len(c.tokens); i++ {
+		tok := c.tokens[i]
+		if tok.Type == lexer.TOKEN_EOF {
+			break
+		}
+		if tok.Literal == name && isIdentifierish(tok.Type) {
+			c.pos = i + 1
+			return tokenLocation(c.path, tok)
+		}
+	}
+	for _, tok := range c.tokens {
+		if tok.Literal == name && isIdentifierish(tok.Type) {
+			return tokenLocation(c.path, tok)
+		}
+	}
+	return nil
+}
+
+func (f *fileModel) walkExprWithCursor(scope *scope, class *classInfo, expr ast.Expr, cursor *exprTokenCursor) typeInfo {
+	switch e := expr.(type) {
+	case nil:
+		return typeInfo{kind: typeUnknown}
+	case *ast.Ident:
+		if binding, ok := scope.lookup(e.Name); ok {
+			if loc := cursor.nextIdentLocation(e.Name); loc != nil {
+				f.addOccurrence(binding.symbol, *loc, false)
+			}
+			return binding.typ
+		}
+		if e.Name == "err" {
+			return typeInfo{kind: typePrimitive, name: "err"}
+		}
+		return typeInfo{kind: typeUnknown}
+	case *ast.SelfExpr:
+		if class != nil {
+			return typeInfo{kind: typeClassInst, name: class.symbol.name, class: class}
+		}
+		return typeInfo{kind: typeUnknown}
+	case *ast.MemberExpr:
+		objType := f.walkExprWithCursor(scope, class, e.Object, cursor)
+		return f.resolveMemberAt(objType, e, cursor.nextIdentLocation(e.Field))
+	case *ast.CallExpr:
+		calleeType := f.walkExprWithCursor(scope, class, e.Callee, cursor)
+		for _, arg := range e.Args {
+			f.walkExprWithCursor(scope, class, arg, cursor)
+		}
+		if calleeType.kind == typeClassCtor && calleeType.class != nil {
+			return typeInfo{kind: typeClassInst, name: calleeType.class.symbol.name, class: calleeType.class}
+		}
+		if calleeType.callable != nil && len(calleeType.callable.ret) > 0 {
+			return calleeType.callable.ret[0]
+		}
+		return typeInfo{kind: typeUnknown}
+	case *ast.UnaryExpr:
+		return f.walkExprWithCursor(scope, class, e.Operand, cursor)
+	case *ast.BinaryExpr:
+		f.walkExprWithCursor(scope, class, e.Left, cursor)
+		f.walkExprWithCursor(scope, class, e.Right, cursor)
+		return typeInfo{kind: typeUnknown}
+	case *ast.TernaryExpr:
+		f.walkExprWithCursor(scope, class, e.Condition, cursor)
+		left := f.walkExprWithCursor(scope, class, e.TrueExpr, cursor)
+		right := f.walkExprWithCursor(scope, class, e.FalseExpr, cursor)
+		if left.kind != typeUnknown {
+			return left
+		}
+		return right
+	case *ast.IndexExpr:
+		f.walkExprWithCursor(scope, class, e.Object, cursor)
+		f.walkExprWithCursor(scope, class, e.Index, cursor)
+		return typeInfo{kind: typeUnknown}
+	case *ast.ArrayLit:
+		for _, elem := range e.Elems {
+			f.walkExprWithCursor(scope, class, elem, cursor)
+		}
+		return typeInfo{kind: typePrimitive, name: "array"}
+	case *ast.MapLit:
+		for _, key := range e.Keys {
+			f.walkExprWithCursor(scope, class, key, cursor)
+		}
+		for _, val := range e.Values {
+			f.walkExprWithCursor(scope, class, val, cursor)
+		}
+		return typeInfo{kind: typePrimitive, name: "map"}
+	case *ast.TupleExpr:
+		for _, elem := range e.Elems {
+			f.walkExprWithCursor(scope, class, elem, cursor)
+		}
+		return typeInfo{kind: typeUnknown}
+	case *ast.TypeConvExpr:
+		f.walkExprWithCursor(scope, class, e.Arg, cursor)
+		return f.resolveType(e.Target)
+	case *ast.ErrExpr:
+		f.walkExprWithCursor(scope, class, e.Msg, cursor)
+		f.walkExprWithCursor(scope, class, e.Kind, cursor)
+		return typeInfo{kind: typePrimitive, name: "err"}
+	case *ast.FnLitExpr:
+		return callableTypeFromDecl(e.Decl)
+	case *ast.FStringExpr:
+		for _, nested := range e.Parts {
+			if nested.IsExpr {
+				f.walkExprWithCursor(scope, class, nested.Expr, cursor)
+			}
+		}
+		return typeInfo{kind: typePrimitive, name: "string"}
+	case *ast.IntLit:
+		return typeInfo{kind: typePrimitive, name: "i64"}
+	case *ast.FloatLit:
+		return typeInfo{kind: typePrimitive, name: "f64"}
+	case *ast.StringLit:
+		return typeInfo{kind: typePrimitive, name: "string"}
+	case *ast.BoolLit:
+		return typeInfo{kind: typePrimitive, name: "bool"}
+	default:
+		return typeInfo{kind: typeUnknown}
+	}
 }
 
 func (f *fileModel) resolveType(typ *ast.TypeExpr) typeInfo {
@@ -1113,6 +1321,7 @@ func (f *fileModel) nextIdentLocation(name string, line int) *Location {
 }
 
 func (f *fileModel) occurrenceAt(pos Position) *occurrence {
+	var adjacent *occurrence
 	for i := range f.occurrences {
 		item := &f.occurrences[i]
 		if item.location.Line != pos.Line {
@@ -1121,8 +1330,11 @@ func (f *fileModel) occurrenceAt(pos Position) *occurrence {
 		if pos.Col >= item.location.Col && pos.Col <= item.location.EndCol {
 			return item
 		}
+		if pos.Col == item.location.EndCol+1 || pos.Col+1 == item.location.Col {
+			adjacent = item
+		}
 	}
-	return nil
+	return adjacent
 }
 
 func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
@@ -1131,9 +1343,10 @@ func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
 			var items []CompletionItem
 			for memberName, member := range sym.typ.module.topLevel {
 				items = append(items, CompletionItem{
-					Label:  memberName,
-					Kind:   string(member.kind),
-					Detail: member.detail,
+					Label:         memberName,
+					Kind:          string(member.kind),
+					Detail:        member.detail,
+					Documentation: member.doc,
 				})
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
@@ -1142,10 +1355,17 @@ func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
 		if sym.typ.builtin != "" {
 			var items []CompletionItem
 			for _, member := range f.analyzer.builtinCompletions[sym.typ.builtin] {
+				detail := fmt.Sprintf("%s.%s", sym.typ.builtin, member)
+				doc := ""
+				if builtinSym, ok := f.analyzer.builtinMember(sym.typ.builtin, member); ok {
+					detail = builtinSym.Detail
+					doc = builtinSym.Documentation
+				}
 				items = append(items, CompletionItem{
-					Label:  member,
-					Kind:   string(kindFunction),
-					Detail: fmt.Sprintf("%s.%s", sym.typ.builtin, member),
+					Label:         member,
+					Kind:          string(kindFunction),
+					Detail:        detail,
+					Documentation: doc,
 				})
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
@@ -1160,10 +1380,10 @@ func (f *fileModel) memberCompletions(name string) ([]CompletionItem, error) {
 		if occ.symbol.typ.class != nil {
 			var items []CompletionItem
 			for memberName, member := range occ.symbol.typ.class.fields {
-				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail})
+				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail, Documentation: member.doc})
 			}
 			for memberName, member := range occ.symbol.typ.class.methods {
-				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail})
+				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail, Documentation: member.doc})
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
 			return items, nil

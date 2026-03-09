@@ -142,9 +142,27 @@ type hoverResult struct {
 }
 
 type completionItem struct {
-	Label  string `json:"label"`
-	Kind   int    `json:"kind,omitempty"`
-	Detail string `json:"detail,omitempty"`
+	Label         string `json:"label"`
+	Kind          int    `json:"kind,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+	Documentation string `json:"documentation,omitempty"`
+}
+
+type parameterInformation struct {
+	Label         string `json:"label"`
+	Documentation string `json:"documentation,omitempty"`
+}
+
+type signatureInformation struct {
+	Label         string                 `json:"label"`
+	Documentation string                 `json:"documentation,omitempty"`
+	Parameters    []parameterInformation `json:"parameters,omitempty"`
+}
+
+type signatureHelpResult struct {
+	Signatures      []signatureInformation `json:"signatures"`
+	ActiveSignature int                    `json:"activeSignature"`
+	ActiveParameter int                    `json:"activeParameter"`
 }
 
 type textEdit struct {
@@ -154,6 +172,11 @@ type textEdit struct {
 
 type workspaceEdit struct {
 	Changes map[string][]textEdit `json:"changes"`
+}
+
+type prepareRenameResult struct {
+	Range       lspRange `json:"range"`
+	Placeholder string   `json:"placeholder,omitempty"`
 }
 
 type documentSymbol struct {
@@ -227,10 +250,16 @@ func (s *Server) handleMessage(msg message) error {
 		return s.handleReferences(msg)
 	case "textDocument/rename":
 		return s.handleRename(msg)
+	case "textDocument/prepareRename":
+		return s.handlePrepareRename(msg)
 	case "textDocument/completion":
 		return s.handleCompletion(msg)
+	case "textDocument/signatureHelp":
+		return s.handleSignatureHelp(msg)
 	case "textDocument/documentSymbol":
 		return s.handleDocumentSymbol(msg)
+	case "textDocument/formatting":
+		return s.handleFormatting(msg)
 	default:
 		if len(msg.ID) > 0 {
 			return s.replyError(msg.ID, -32601, "method not found")
@@ -260,14 +289,18 @@ func (s *Server) handleInitialize(msg message) error {
 
 	result := map[string]any{
 		"capabilities": map[string]any{
-			"textDocumentSync":       1,
-			"definitionProvider":     true,
-			"hoverProvider":          true,
-			"referencesProvider":     true,
-			"renameProvider":         true,
-			"documentSymbolProvider": true,
+			"textDocumentSync":           1,
+			"definitionProvider":         true,
+			"hoverProvider":              true,
+			"referencesProvider":         true,
+			"renameProvider":             map[string]any{"prepareProvider": true},
+			"documentSymbolProvider":     true,
+			"documentFormattingProvider": true,
 			"completionProvider": map[string]any{
 				"triggerCharacters": []string{"."},
+			},
+			"signatureHelpProvider": map[string]any{
+				"triggerCharacters": []string{"(", ","},
 			},
 		},
 		"serverInfo": map[string]any{
@@ -437,6 +470,28 @@ func (s *Server) handleRename(msg message) error {
 	return s.reply(msg.ID, out)
 }
 
+func (s *Server) handlePrepareRename(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, nil)
+	}
+	item, err := basleditor.PrepareRenameAtWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	if item == nil {
+		return s.reply(msg.ID, nil)
+	}
+	return s.reply(msg.ID, prepareRenameResult{
+		Range:       toLSPRange(item.Range),
+		Placeholder: item.Placeholder,
+	})
+}
+
 func (s *Server) handleCompletion(msg message) error {
 	var params textDocumentPositionParams
 	if err := json.Unmarshal(msg.Params, &params); err != nil {
@@ -453,10 +508,49 @@ func (s *Server) handleCompletion(msg message) error {
 	out := make([]completionItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, completionItem{
-			Label:  item.Label,
-			Kind:   completionKind(item.Kind),
-			Detail: item.Detail,
+			Label:         item.Label,
+			Kind:          completionKind(item.Kind),
+			Detail:        item.Detail,
+			Documentation: item.Documentation,
 		})
+	}
+	return s.reply(msg.ID, out)
+}
+
+func (s *Server) handleSignatureHelp(msg message) error {
+	var params textDocumentPositionParams
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, nil)
+	}
+	help, err := basleditor.SignatureHelpAtWithOptions(path, toEditorPosition(params.Position), s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	if help == nil {
+		return s.reply(msg.ID, nil)
+	}
+	out := signatureHelpResult{
+		Signatures:      make([]signatureInformation, 0, len(help.Signatures)),
+		ActiveSignature: help.ActiveSignature,
+		ActiveParameter: help.ActiveParameter,
+	}
+	for _, sig := range help.Signatures {
+		item := signatureInformation{
+			Label:         sig.Label,
+			Documentation: sig.Documentation,
+			Parameters:    make([]parameterInformation, 0, len(sig.Parameters)),
+		}
+		for _, param := range sig.Parameters {
+			item.Parameters = append(item.Parameters, parameterInformation{
+				Label:         param.Label,
+				Documentation: param.Documentation,
+			})
+		}
+		out.Signatures = append(out.Signatures, item)
 	}
 	return s.reply(msg.ID, out)
 }
@@ -483,6 +577,34 @@ func (s *Server) handleDocumentSymbol(msg message) error {
 	return s.reply(msg.ID, out)
 }
 
+func (s *Server) handleFormatting(msg message) error {
+	var params struct {
+		TextDocument textDocumentIdentifier `json:"textDocument"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err != nil {
+		return s.replyError(msg.ID, -32602, err.Error())
+	}
+	path, ok := uriToPath(params.TextDocument.URI)
+	if !ok {
+		return s.reply(msg.ID, []textEdit{})
+	}
+	formatted, err := basleditor.FormatDocumentWithOptions(path, s.editorOptions())
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	original, err := s.documentTextForURI(params.TextDocument.URI)
+	if err != nil {
+		return s.replyError(msg.ID, -32603, err.Error())
+	}
+	if original == formatted {
+		return s.reply(msg.ID, []textEdit{})
+	}
+	return s.reply(msg.ID, []textEdit{{
+		Range:   fullDocumentRange(original),
+		NewText: formatted,
+	}})
+}
+
 func (s *Server) editorOptions() basleditor.Options {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -494,6 +616,25 @@ func (s *Server) editorOptions() basleditor.Options {
 		SearchPaths: append([]string(nil), s.workspaceRoots...),
 		Overlays:    overlays,
 	}
+}
+
+func (s *Server) documentTextForURI(uri string) (string, error) {
+	path, ok := uriToPath(uri)
+	if !ok {
+		return "", fmt.Errorf("invalid document URI")
+	}
+	s.mu.Lock()
+	if doc := s.documents[uri]; doc != nil {
+		text := doc.Text
+		s.mu.Unlock()
+		return text, nil
+	}
+	s.mu.Unlock()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func (s *Server) publishDiagnosticsForURI(uri string) error {
@@ -733,6 +874,20 @@ func max(v, min int) int {
 		return min
 	}
 	return v
+}
+
+func fullDocumentRange(text string) lspRange {
+	lines := strings.Split(text, "\n")
+	lastLine := 0
+	lastChar := 0
+	if len(lines) > 0 {
+		lastLine = len(lines) - 1
+		lastChar = len(lines[len(lines)-1])
+	}
+	return lspRange{
+		Start: position{Line: 0, Character: 0},
+		End:   position{Line: lastLine, Character: lastChar},
+	}
 }
 
 func runtimeGOOSWindows() bool {

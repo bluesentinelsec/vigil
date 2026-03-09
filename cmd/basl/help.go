@@ -15,7 +15,7 @@ type helpEntry struct {
 	Examples    []string
 }
 
-var commandHelpOrder = []string{"new", "fmt", "check", "doc", "test", "debug", "get", "remove", "upgrade", "deps", "package", "editor", "lsp", "embed", "help"}
+var commandHelpOrder = []string{"new", "fmt", "check", "doc", "test", "debug", "get", "remove", "upgrade", "deps", "package", "editor", "lsp", "dap", "embed", "help"}
 var topicHelpOrder = []string{"run", "imports", "packaging"}
 
 var commandHelp = map[string]helpEntry{
@@ -236,6 +236,20 @@ var commandHelp = map[string]helpEntry{
 		},
 		Examples: []string{
 			"basl lsp",
+		},
+	},
+	"dap": {
+		Name:    "dap",
+		Summary: "Run the BASL debug adapter over stdio",
+		Usage: []string{
+			"basl dap",
+		},
+		Description: []string{
+			"Starts the BASL Debug Adapter Protocol (DAP) server over stdin/stdout.",
+			"Intended for editor integrations such as VS Code debugging.",
+		},
+		Examples: []string{
+			"basl dap",
 		},
 	},
 	"embed": {

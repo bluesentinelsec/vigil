@@ -143,6 +143,177 @@ func TestCompletionsIncludeImportedModuleAndTypedInstanceMembers(t *testing.T) {
 	}
 }
 
+func TestBuiltinMetadataFeedsHoverCompletionsAndSignatureHelp(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	hoverPos := mustFindPosition(t, mainPath, "println(value")
+	hover, err := HoverAt(mainPath, hoverPos, nil)
+	if err != nil {
+		t.Fatalf("HoverAt() error = %v", err)
+	}
+	if hover == nil || !strings.Contains(hover.Contents, "fmt.println(val) -> err") {
+		t.Fatalf("hover = %#v, want stdlib signature", hover)
+	}
+
+	items, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "fmt."), nil)
+	if err != nil {
+		t.Fatalf("Completions() error = %v", err)
+	}
+	var printlnItem *CompletionItem
+	for i := range items {
+		if items[i].Label == "println" {
+			printlnItem = &items[i]
+			break
+		}
+	}
+	if printlnItem == nil || printlnItem.Documentation == "" {
+		t.Fatalf("builtin completion = %#v, want documentation", printlnItem)
+	}
+
+	help, err := SignatureHelpAt(mainPath, mustFindPositionAfter(t, mainPath, "fmt.println("), nil)
+	if err != nil {
+		t.Fatalf("SignatureHelpAt() error = %v", err)
+	}
+	if help == nil || len(help.Signatures) == 0 || help.Signatures[0].Label != "fmt.println(val) -> err" {
+		t.Fatalf("signature help = %#v, want fmt.println signature", help)
+	}
+}
+
+func TestPrepareRenameAndFormatDocument(t *testing.T) {
+	_, mainPath := writeSemanticFixture(t)
+
+	item, err := PrepareRenameAt(mainPath, mustFindPosition(t, mainPath, "value = helper"), nil)
+	if err != nil {
+		t.Fatalf("PrepareRenameAt() error = %v", err)
+	}
+	if item == nil || item.Placeholder != "value" {
+		t.Fatalf("prepare rename = %#v, want placeholder value", item)
+	}
+	endPos := mustFindPositionAfter(t, mainPath, "value")
+	item, err = PrepareRenameAt(mainPath, endPos, nil)
+	if err != nil {
+		t.Fatalf("PrepareRenameAt(end) error = %v", err)
+	}
+	if item == nil || item.Placeholder != "value" {
+		t.Fatalf("prepare rename at end = %#v, want placeholder value", item)
+	}
+	if _, err := Rename(mainPath, mustFindPosition(t, mainPath, "value = helper"), "not valid", nil); err == nil {
+		t.Fatal("Rename() with invalid identifier succeeded, want error")
+	}
+
+	root := t.TempDir()
+	path := filepath.Join(root, "main.basl")
+	if err := os.WriteFile(path, []byte("fn main() -> void {fmt.println(\"hi\");}\n"), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+	formatted, err := FormatDocument(path, nil)
+	if err != nil {
+		t.Fatalf("FormatDocument() error = %v", err)
+	}
+	if !strings.Contains(formatted, "fn main() -> void {\n") || !strings.Contains(formatted, "    fmt.println(\"hi\");\n") {
+		t.Fatalf("formatted output = %q, want normalized layout", formatted)
+	}
+}
+
+func TestRenameIncludesFStringInterpolations(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "fmt";
+
+fn main() -> i32 {
+    i32 foo = 1;
+    fmt.println("Hello, World!");
+    fmt.println(f"Test: {foo}");
+    foo = 2;
+    return 0;
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	pos := mustFindPosition(t, mainPath, "foo = 1")
+	refs, err := References(mainPath, pos, nil)
+	if err != nil {
+		t.Fatalf("References() error = %v", err)
+	}
+	if len(refs) != 3 {
+		t.Fatalf("References() len = %d, want 3 including f-string use", len(refs))
+	}
+
+	edits, err := Rename(mainPath, pos, "bar", nil)
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if len(edits) != 3 {
+		t.Fatalf("Rename() len = %d, want 3 including f-string use", len(edits))
+	}
+}
+
+func TestRenameIncludesMethodDeclarations(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "fmt";
+
+class Person {
+    pub string name;
+
+    fn init(string name) -> void {
+        self.name = name;
+    }
+
+    pub fn birthday() -> void {
+        fmt.println(f"Happy birthday, {self.name}");
+    }
+}
+
+fn main() -> i32 {
+    Person alice = Person("Alice");
+    alice.birthday();
+    return 0;
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	callPos := mustFindPosition(t, mainPath, "birthday();")
+	edits, err := Rename(mainPath, callPos, "get_birthday", nil)
+	if err != nil {
+		t.Fatalf("Rename(call) error = %v", err)
+	}
+	if len(edits) != 2 {
+		t.Fatalf("Rename(call) len = %d, want 2 including declaration", len(edits))
+	}
+
+	var sawDecl bool
+	var sawCall bool
+	for _, edit := range edits {
+		if edit.NewText != "get_birthday" {
+			t.Fatalf("rename new text = %q, want get_birthday", edit.NewText)
+		}
+		lineText := lineAt(t, mainPath, edit.Line)
+		if strings.Contains(lineText, "pub fn birthday()") {
+			sawDecl = true
+		}
+		if strings.Contains(lineText, "alice.birthday();") {
+			sawCall = true
+		}
+	}
+	if !sawDecl || !sawCall {
+		t.Fatalf("rename edits missing declaration or call site: %#v", edits)
+	}
+
+	declPos := mustFindPosition(t, mainPath, "birthday() -> void")
+	item, err := PrepareRenameAt(mainPath, declPos, nil)
+	if err != nil {
+		t.Fatalf("PrepareRenameAt(decl) error = %v", err)
+	}
+	if item == nil || item.Placeholder != "birthday" {
+		t.Fatalf("prepare rename from declaration = %#v, want placeholder birthday", item)
+	}
+}
+
 func TestDiagnosticsUseChecker(t *testing.T) {
 	root := t.TempDir()
 	mainPath := filepath.Join(root, "main.basl")
@@ -232,6 +403,19 @@ func mustFindPositionAfter(t *testing.T, path string, needle string) Position {
 		t.Fatalf("needle %q not found in %s", needle, path)
 	}
 	return indexToPosition(src, idx+len(needle))
+}
+
+func lineAt(t *testing.T, path string, line int) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%s) error = %v", path, err)
+	}
+	lines := strings.Split(string(data), "\n")
+	if line <= 0 || line > len(lines) {
+		t.Fatalf("lineAt(%s, %d) out of range", path, line)
+	}
+	return lines[line-1]
 }
 
 func indexToPosition(src string, idx int) Position {

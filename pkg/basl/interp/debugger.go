@@ -126,7 +126,8 @@ func (d *Debugger) Hook(s ast.Stmt, env *Env) error {
 }
 
 // PushFrame records entering a function.
-func (d *Debugger) PushFrame(name string, line int) {
+func (d *Debugger) PushFrame(name string, line int, env *Env) {
+	_ = env
 	d.callStack = append(d.callStack, DebugFrame{Func: name, Line: line})
 }
 

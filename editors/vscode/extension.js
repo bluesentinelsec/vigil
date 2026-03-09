@@ -3,12 +3,15 @@ const path = require("path");
 const fs = require("fs");
 const cp = require("child_process");
 
+const ARG_STATE_PREFIX = "basl.entryArgs";
+
 function activate(context) {
   const fallbackCompletions = JSON.parse(
     fs.readFileSync(path.join(__dirname, "completions.json"), "utf8")
   );
   const diagnostics = vscode.languages.createDiagnosticCollection("basl");
   const client = new BaslLSPClient(diagnostics);
+  const baslCommand = () => vscode.workspace.getConfiguration("basl").get("path") || "basl";
 
   function isBaslDocument(document) {
     return document && document.languageId === "basl" && document.uri.scheme === "file";
@@ -23,8 +26,286 @@ function activate(context) {
     }
   }
 
+  function activeBaslDocument() {
+    const document = vscode.window.activeTextEditor?.document;
+    return isBaslDocument(document) ? document : undefined;
+  }
+
+  function documentFromURI(uri) {
+    if (uri) {
+      return vscode.workspace.textDocuments.find((item) => item.uri.toString() === uri.toString());
+    }
+    return activeBaslDocument();
+  }
+
+  async function entryPointForDocument(document) {
+    if (!isBaslDocument(document)) {
+      return null;
+    }
+    if (await ensureClient()) {
+      try {
+        const symbols = await client.request("textDocument/documentSymbol", {
+          textDocument: { uri: document.uri.toString() },
+        });
+        const entry = findMainSymbol(symbols);
+        if (entry?.selectionRange) {
+          return { range: toRange(entry.selectionRange) };
+        }
+        if (entry?.range) {
+          return { range: toRange(entry.range) };
+        }
+      } catch {}
+    }
+    const fallbackRange = detectMainRange(document);
+    return fallbackRange ? { range: fallbackRange } : null;
+  }
+
+  async function requireEntryPointDocument(uri) {
+    const document = documentFromURI(uri);
+    if (!isBaslDocument(document)) {
+      vscode.window.showErrorMessage("Open a BASL file with `fn main(...)` to run or debug it.");
+      return null;
+    }
+    if (document.isDirty && !(await document.save())) {
+      return null;
+    }
+    const entry = await entryPointForDocument(document);
+    if (!entry) {
+      vscode.window.showErrorMessage(`No BASL entry point found in ${path.basename(document.uri.fsPath)}.`);
+      return null;
+    }
+    return { document, entry };
+  }
+
+  function argsStateKey(document) {
+    return `${ARG_STATE_PREFIX}:${document.uri.fsPath}`;
+  }
+
+  function workspaceFolderForDocument(document) {
+    return vscode.workspace.getWorkspaceFolder(document.uri);
+  }
+
+  function configForDocument(scope, document) {
+    return vscode.workspace.getConfiguration(scope, document.uri);
+  }
+
+  function defaultArgsForDocument(document) {
+    const args = configForDocument("basl", document).get("args");
+    return Array.isArray(args) ? args.filter((item) => typeof item === "string") : [];
+  }
+
+  function rememberedArgsForDocument(document) {
+    const args = context.workspaceState.get(argsStateKey(document));
+    return Array.isArray(args) ? args.filter((item) => typeof item === "string") : null;
+  }
+
+  function launchConfigsForDocument(document) {
+    const folder = workspaceFolderForDocument(document);
+    const configs = vscode.workspace.getConfiguration("launch", folder?.uri).get("configurations");
+    return Array.isArray(configs) ? configs : [];
+  }
+
+  function replaceVar(value, key, replacement) {
+    return value.split(key).join(replacement);
+  }
+
+  function resolveLaunchValue(value, document, folder) {
+    if (typeof value === "string") {
+      let out = value;
+      const workspacePath = folder?.uri.fsPath || "";
+      out = replaceVar(out, "${file}", document.uri.fsPath);
+      out = replaceVar(out, "${workspaceFolder}", workspacePath);
+      out = replaceVar(out, "${workspaceFolderBasename}", folder?.name || "");
+      return out;
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => resolveLaunchValue(item, document, folder))
+        .filter((item) => typeof item === "string");
+    }
+    return value;
+  }
+
+  function matchingLaunchConfig(document) {
+    const folder = workspaceFolderForDocument(document);
+    for (const config of launchConfigsForDocument(document)) {
+      if (!config || config.type !== "basl" || (config.request && config.request !== "launch")) {
+        continue;
+      }
+      const resolvedProgram = typeof config.program === "string"
+        ? resolveLaunchValue(config.program, document, folder)
+        : null;
+      if (resolvedProgram === document.uri.fsPath || config.program === "${file}") {
+        return {
+          args: Array.isArray(config.args) ? resolveLaunchValue(config.args, document, folder) : undefined,
+          cwd: typeof config.cwd === "string" ? resolveLaunchValue(config.cwd, document, folder) : undefined,
+          path: Array.isArray(config.path) ? resolveLaunchValue(config.path, document, folder) : undefined,
+          name: typeof config.name === "string" ? config.name : undefined,
+          stopOnEntry: config.stopOnEntry === true,
+        };
+      }
+    }
+    return null;
+  }
+
+  function runtimeOptionsForDocument(document) {
+    const folder = workspaceFolderForDocument(document);
+    const launch = matchingLaunchConfig(document);
+    const rememberedArgs = rememberedArgsForDocument(document);
+    return {
+      folder,
+      args: rememberedArgs ?? launch?.args ?? defaultArgsForDocument(document),
+      cwd: launch?.cwd || folder?.uri.fsPath || path.dirname(document.uri.fsPath),
+      searchPaths: Array.isArray(launch?.path) ? launch.path : [],
+      stopOnEntry: launch?.stopOnEntry === true,
+      name: launch?.name,
+    };
+  }
+
+  async function promptForArgs(document) {
+    const currentArgs = runtimeOptionsForDocument(document).args;
+    const input = await vscode.window.showInputBox({
+      title: "BASL Program Arguments",
+      prompt: "Arguments passed to the BASL program.",
+      value: formatArgsForInput(currentArgs),
+    });
+    if (input === undefined) {
+      return undefined;
+    }
+    const parsed = parseCommandLine(input);
+    await context.workspaceState.update(argsStateKey(document), parsed);
+    return parsed;
+  }
+
+  async function runDocument(uri, promptForCustomArgs = false) {
+    const target = await requireEntryPointDocument(uri);
+    if (!target) {
+      return;
+    }
+    const { document } = target;
+    const options = runtimeOptionsForDocument(document);
+    const args = promptForCustomArgs ? await promptForArgs(document) : options.args;
+    if (args === undefined) {
+      return;
+    }
+    const terminal = vscode.window.createTerminal({
+      name: `BASL: ${path.basename(document.uri.fsPath)}`,
+      cwd: options.cwd,
+    });
+    terminal.show(true);
+    terminal.sendText(buildRunCommand(baslCommand(), document.uri.fsPath, options.searchPaths, args));
+  }
+
+  async function debugDocument(uri, promptForCustomArgs = false) {
+    const target = await requireEntryPointDocument(uri);
+    if (!target) {
+      return;
+    }
+    const { document } = target;
+    const options = runtimeOptionsForDocument(document);
+    const args = promptForCustomArgs ? await promptForArgs(document) : options.args;
+    if (args === undefined) {
+      return;
+    }
+    await vscode.debug.startDebugging(options.folder, {
+      type: "basl",
+      request: "launch",
+      name: options.name || `Debug ${path.basename(document.uri.fsPath)}`,
+      program: document.uri.fsPath,
+      cwd: options.cwd,
+      args,
+      path: options.searchPaths,
+      stopOnEntry: options.stopOnEntry,
+    });
+  }
+
   context.subscriptions.push(diagnostics);
   context.subscriptions.push({ dispose: () => client.stop() });
+  context.subscriptions.push(
+    vscode.debug.registerDebugAdapterDescriptorFactory("basl", {
+      createDebugAdapterDescriptor() {
+        return new vscode.DebugAdapterExecutable(baslCommand(), ["dap"]);
+      },
+    }),
+    vscode.debug.registerDebugConfigurationProvider("basl", {
+      async resolveDebugConfiguration(folder, config) {
+        if (!config.type) {
+          config.type = "basl";
+        }
+        if (!config.request) {
+          config.request = "launch";
+        }
+        if (!config.name) {
+          config.name = "Debug BASL";
+        }
+        if (!config.program) {
+          const active = activeBaslDocument();
+          if (active && (await entryPointForDocument(active))) {
+            config.program = active.uri.fsPath;
+          }
+        }
+        if (!config.cwd) {
+          config.cwd = folder?.uri.fsPath || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        }
+        if (!Array.isArray(config.args)) {
+          const active = activeBaslDocument();
+          if (active && config.program === active.uri.fsPath) {
+            config.args = runtimeOptionsForDocument(active).args;
+          }
+        }
+        if (!Array.isArray(config.path)) {
+          const active = activeBaslDocument();
+          if (active && config.program === active.uri.fsPath) {
+            config.path = runtimeOptionsForDocument(active).searchPaths;
+          }
+        }
+        if (!config.program) {
+          vscode.window.showErrorMessage("BASL debugging requires a `program` path.");
+          return undefined;
+        }
+        return config;
+      },
+    })
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand("basl.runEntryPoint", (uri) => runDocument(uri, false)),
+    vscode.commands.registerCommand("basl.runEntryPointWithArgs", (uri) => runDocument(uri, true)),
+    vscode.commands.registerCommand("basl.debugEntryPoint", (uri) => debugDocument(uri, false)),
+    vscode.commands.registerCommand("basl.debugEntryPointWithArgs", (uri) => debugDocument(uri, true))
+  );
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider("basl", {
+      async provideCodeLenses(document) {
+        if (!isBaslDocument(document)) {
+          return [];
+        }
+        if (configForDocument("basl", document).get("codeLens.entryPoint") === false) {
+          return [];
+        }
+        const entry = await entryPointForDocument(document);
+        if (!entry) {
+          return [];
+        }
+        return [
+          new vscode.CodeLens(entry.range, {
+            title: "$(play) Run",
+            command: "basl.runEntryPoint",
+            arguments: [document.uri],
+          }),
+          new vscode.CodeLens(entry.range, {
+            title: "$(debug-alt-small) Debug",
+            command: "basl.debugEntryPoint",
+            arguments: [document.uri],
+          }),
+          new vscode.CodeLens(entry.range, {
+            title: "Args...",
+            command: "basl.runEntryPointWithArgs",
+            arguments: [document.uri],
+          }),
+        ];
+      },
+    })
+  );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (isBaslDocument(document)) {
@@ -92,6 +373,19 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.languages.registerRenameProvider("basl", {
+      async prepareRename(document, position) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/prepareRename", textDocumentPositionParams(document, position));
+        if (!result || !result.range) {
+          return undefined;
+        }
+        return {
+          range: toRange(result.range),
+          placeholder: result.placeholder,
+        };
+      },
       async provideRenameEdits(document, position, newName) {
         if (!isBaslDocument(document) || !(await ensureClient())) {
           return undefined;
@@ -113,6 +407,36 @@ function activate(context) {
         return edit;
       },
     })
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerSignatureHelpProvider(
+      "basl",
+      {
+        async provideSignatureHelp(document, position) {
+          if (!isBaslDocument(document) || !(await ensureClient())) {
+            return undefined;
+          }
+          const result = await client.request("textDocument/signatureHelp", textDocumentPositionParams(document, position));
+          if (!result || !Array.isArray(result.signatures) || result.signatures.length === 0) {
+            return undefined;
+          }
+          const help = new vscode.SignatureHelp();
+          help.activeSignature = result.activeSignature || 0;
+          help.activeParameter = result.activeParameter || 0;
+          help.signatures = result.signatures.map((item) => {
+            const sig = new vscode.SignatureInformation(item.label, markdownFromDocs(item.documentation));
+            sig.parameters = Array.isArray(item.parameters)
+              ? item.parameters.map((param) => new vscode.ParameterInformation(param.label, markdownFromDocs(param.documentation)))
+              : [];
+            return sig;
+          });
+          return help;
+        },
+      },
+      "(",
+      ","
+    )
   );
 
   context.subscriptions.push(
@@ -143,6 +467,7 @@ function activate(context) {
               return result.map((item) => {
                 const out = new vscode.CompletionItem(item.label, completionKind(item.kind));
                 out.detail = item.detail;
+                out.documentation = markdownFromDocs(item.documentation);
                 return out;
               });
             }
@@ -166,6 +491,27 @@ function activate(context) {
       },
       "."
     )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerDocumentFormattingEditProvider("basl", {
+      async provideDocumentFormattingEdits(document) {
+        if (!isBaslDocument(document) || !(await ensureClient())) {
+          return undefined;
+        }
+        const result = await client.request("textDocument/formatting", {
+          textDocument: { uri: document.uri.toString() },
+          options: {
+            insertSpaces: true,
+            tabSize: 4,
+          },
+        });
+        if (!Array.isArray(result)) {
+          return undefined;
+        }
+        return result.map((item) => new vscode.TextEdit(toRange(item.range), item.newText));
+      },
+    })
   );
 }
 
@@ -455,6 +801,15 @@ function toDocumentSymbol(item) {
   return symbol;
 }
 
+function markdownFromDocs(text) {
+  if (!text) {
+    return undefined;
+  }
+  const markdown = new vscode.MarkdownString(text);
+  markdown.isTrusted = false;
+  return markdown;
+}
+
 function completionKind(kind) {
   switch (kind) {
     case 7:
@@ -495,6 +850,101 @@ function symbolKind(kind) {
     default:
       return vscode.SymbolKind.Function;
   }
+}
+
+function findMainSymbol(items) {
+  if (!Array.isArray(items)) {
+    return null;
+  }
+  for (const item of items) {
+    if (item && item.name === "main") {
+      return item;
+    }
+  }
+  return null;
+}
+
+function detectMainRange(document) {
+  const lines = document.getText().split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    if (/^fn\s+main\s*\(/.test(lines[i].trimStart())) {
+      const start = lines[i].indexOf("main");
+      if (start >= 0) {
+        return new vscode.Range(i, start, i, start + "main".length);
+      }
+    }
+  }
+  return null;
+}
+
+function parseCommandLine(input) {
+  const args = [];
+  let current = "";
+  let quote = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (ch === "\\" && i + 1 < input.length && (input[i + 1] === quote || input[i + 1] === "\\")) {
+        current += input[i + 1];
+        i++;
+        continue;
+      }
+      if (ch === quote) {
+        quote = null;
+        continue;
+      }
+      current += ch;
+      continue;
+    }
+    if (ch === "'" || ch === "\"") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+    if (ch === "\\" && i + 1 < input.length) {
+      current += input[i + 1];
+      i++;
+      continue;
+    }
+    current += ch;
+  }
+  if (current || quote !== null) {
+    args.push(current);
+  }
+  return args;
+}
+
+function formatArgsForInput(args) {
+  return (Array.isArray(args) ? args : []).map(shellQuote).join(" ");
+}
+
+function buildRunCommand(command, program, searchPaths, args) {
+  const parts = [command];
+  for (const searchPath of searchPaths || []) {
+    parts.push("--path", searchPath);
+  }
+  parts.push(program, ...(args || []));
+  return parts.map(shellQuote).join(" ");
+}
+
+function shellQuote(value) {
+  const text = String(value ?? "");
+  if (process.platform === "win32") {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  if (text === "") {
+    return "''";
+  }
+  if (/^[A-Za-z0-9_./:=+-]+$/.test(text)) {
+    return text;
+  }
+  return `'${text.replace(/'/g, `'\"'\"'`)}'`;
 }
 
 function deactivate() {}

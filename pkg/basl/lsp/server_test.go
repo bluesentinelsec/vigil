@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,11 +35,13 @@ pub fn message() -> string {
 }
 `)
 	mainPath := writeTestFile(t, root, "main.basl", `
+import "fmt";
 import "helper";
 
 fn main() -> void {
     helper.Greeter g = helper.Greeter();
     string value = helper.message();
+    fmt.println(value);
     g.greet(value);
 }
 `)
@@ -57,6 +60,7 @@ fn main() -> void {
 	if err != nil {
 		t.Fatalf("os.ReadFile(main) error = %v", err)
 	}
+	mainSrc := string(mainText)
 
 	send(t, clientConn, map[string]any{
 		"jsonrpc": "2.0",
@@ -99,7 +103,7 @@ fn main() -> void {
 		"method":  "textDocument/definition",
 		"params": map[string]any{
 			"textDocument": map[string]any{"uri": mainURI},
-			"position":     map[string]any{"line": 4, "character": 27},
+			"position":     mustLSPPosition(t, mainSrc, "message();", false),
 		},
 	})
 	msg = readOne(t, reader)
@@ -119,7 +123,7 @@ fn main() -> void {
 		"method":  "textDocument/hover",
 		"params": map[string]any{
 			"textDocument": map[string]any{"uri": mainURI},
-			"position":     map[string]any{"line": 4, "character": 12},
+			"position":     mustLSPPosition(t, mainSrc, "g = helper", false),
 		},
 	})
 	msg = readOne(t, reader)
@@ -149,10 +153,85 @@ fn main() -> void {
 	send(t, clientConn, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      5,
-		"method":  "shutdown",
+		"method":  "textDocument/completion",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "fmt.", true),
+		},
 	})
 	msg = readOne(t, reader)
 	assertID(t, msg, "5")
+	var completions []completionItem
+	decodeResult(t, msg.Result, &completions)
+	foundBuiltin := false
+	for _, item := range completions {
+		if item.Label == "println" && item.Documentation != "" {
+			foundBuiltin = true
+			break
+		}
+	}
+	if !foundBuiltin {
+		t.Fatalf("completion docs = %#v, want builtin documentation", completions)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      6,
+		"method":  "textDocument/signatureHelp",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "fmt.println(", true),
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "6")
+	var signatureHelp signatureHelpResult
+	decodeResult(t, msg.Result, &signatureHelp)
+	if len(signatureHelp.Signatures) == 0 || signatureHelp.Signatures[0].Label == "" {
+		t.Fatalf("signatureHelp = %#v, want signature", signatureHelp)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      7,
+		"method":  "textDocument/prepareRename",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "value = helper", false),
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "7")
+	var prepare prepareRenameResult
+	decodeResult(t, msg.Result, &prepare)
+	if prepare.Placeholder != "value" {
+		t.Fatalf("prepareRename = %#v, want placeholder value", prepare)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      8,
+		"method":  "textDocument/formatting",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"options":      map[string]any{"insertSpaces": true, "tabSize": 4},
+		},
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "8")
+	var edits []textEdit
+	decodeResult(t, msg.Result, &edits)
+	if edits != nil && len(edits) != 0 {
+		t.Fatalf("formatting edits = %#v, want no-op on formatted file", edits)
+	}
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      9,
+		"method":  "shutdown",
+	})
+	msg = readOne(t, reader)
+	assertID(t, msg, "9")
 	send(t, clientConn, map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "exit",
@@ -217,6 +296,31 @@ func decodeResult(t *testing.T, result any, out any) {
 	if err := json.Unmarshal(data, out); err != nil {
 		t.Fatalf("json.Unmarshal(result) error = %v", err)
 	}
+}
+
+func mustLSPPosition(t *testing.T, src string, needle string, after bool) map[string]any {
+	t.Helper()
+	idx := strings.Index(src, needle)
+	if idx < 0 {
+		t.Fatalf("needle %q not found", needle)
+	}
+	if after {
+		idx += len(needle)
+	}
+	line := 0
+	character := 0
+	for i, r := range src {
+		if i >= idx {
+			break
+		}
+		if r == '\n' {
+			line++
+			character = 0
+		} else {
+			character++
+		}
+	}
+	return map[string]any{"line": line, "character": character}
 }
 
 func mustURIPath(t *testing.T, uri string) string {
