@@ -152,6 +152,9 @@ type completionItem struct {
 	Detail              string     `json:"detail,omitempty"`
 	Documentation       string     `json:"documentation,omitempty"`
 	InsertText          string     `json:"insertText,omitempty"`
+	InsertTextFormat    int        `json:"insertTextFormat,omitempty"`
+	SortText            string     `json:"sortText,omitempty"`
+	Preselect           bool       `json:"preselect,omitempty"`
 	AdditionalTextEdits []textEdit `json:"additionalTextEdits,omitempty"`
 }
 
@@ -704,10 +707,22 @@ func (s *Server) handleCompletion(msg message) error {
 			Detail:              item.Detail,
 			Documentation:       item.Documentation,
 			InsertText:          item.InsertText,
+			InsertTextFormat:    completionInsertTextFormat(item.InsertFormat),
+			SortText:            item.SortText,
+			Preselect:           item.Preselect,
 			AdditionalTextEdits: additional,
 		})
 	}
 	return s.reply(msg.ID, out)
+}
+
+func completionInsertTextFormat(format string) int {
+	switch format {
+	case "snippet":
+		return 2
+	default:
+		return 1
+	}
 }
 
 func (s *Server) handleSignatureHelp(msg message) error {

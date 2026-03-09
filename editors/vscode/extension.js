@@ -636,7 +636,15 @@ function activate(context) {
                 out.detail = item.detail;
                 out.documentation = markdownFromDocs(item.documentation);
                 if (typeof item.insertText === "string" && item.insertText.length > 0) {
-                  out.insertText = item.insertText;
+                  out.insertText = item.insertTextFormat === 2
+                    ? new vscode.SnippetString(item.insertText)
+                    : item.insertText;
+                }
+                if (typeof item.sortText === "string" && item.sortText.length > 0) {
+                  out.sortText = item.sortText;
+                }
+                if (item.preselect === true) {
+                  out.preselect = true;
                 }
                 if (Array.isArray(item.additionalTextEdits) && item.additionalTextEdits.length > 0) {
                   out.additionalTextEdits = item.additionalTextEdits.map(

@@ -529,14 +529,15 @@ func (a *Analyzer) importableModules(file *fileModel) []importableModule {
 		if mod, ok := a.builtinModule(name); ok {
 			module.Documentation = mod.Summary
 			for _, memberName := range a.builtinCompletions[name] {
-				item := CompletionItem{
-					Label:  memberName,
-					Kind:   string(kindFunction),
-					Detail: fmt.Sprintf("%s.%s", name, memberName),
-				}
 				if builtinSym, ok := a.builtinMember(name, memberName); ok {
-					item.Detail = builtinSym.Detail
-					item.Documentation = builtinSym.Documentation
+					module.members = append(module.members, completionItemForBuiltin(name, builtinSym, 10))
+					continue
+				}
+				item := CompletionItem{
+					Label:    memberName,
+					Kind:     string(kindFunction),
+					Detail:   fmt.Sprintf("%s.%s", name, memberName),
+					SortText: completionSortText(10, memberName),
 				}
 				module.members = append(module.members, item)
 			}
@@ -567,13 +568,8 @@ func (a *Analyzer) importableModules(file *fileModel) []importableModule {
 			Path:  modulePath,
 			Alias: alias,
 		}
-		for name, sym := range target.topLevel {
-			module.members = append(module.members, CompletionItem{
-				Label:         name,
-				Kind:          string(sym.kind),
-				Detail:        sym.detail,
-				Documentation: sym.doc,
-			})
+		for _, sym := range target.topLevel {
+			module.members = append(module.members, completionItemForSymbol(sym, 10))
 		}
 		sort.Slice(module.members, func(i, j int) bool { return module.members[i].Label < module.members[j].Label })
 		out = append(out, module)
@@ -734,6 +730,16 @@ func defaultImportAlias(modulePath string) string {
 func (m importableModule) memberCompletions() []CompletionItem {
 	out := make([]CompletionItem, len(m.members))
 	copy(out, m.members)
+	return out
+}
+
+func (m importableModule) memberCompletionsMatching(prefix string) []CompletionItem {
+	var out []CompletionItem
+	for _, item := range m.members {
+		if completionMatchesPrefix(item.Label, prefix) {
+			out = append(out, item)
+		}
+	}
 	return out
 }
 

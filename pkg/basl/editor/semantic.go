@@ -50,6 +50,9 @@ type CompletionItem struct {
 	Detail          string       `json:"detail,omitempty"`
 	Documentation   string       `json:"documentation,omitempty"`
 	InsertText      string       `json:"insert_text,omitempty"`
+	InsertFormat    string       `json:"insert_format,omitempty"`
+	SortText        string       `json:"sort_text,omitempty"`
+	Preselect       bool         `json:"preselect,omitempty"`
 	AdditionalEdits []RenameEdit `json:"additional_edits,omitempty"`
 }
 
@@ -401,17 +404,17 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 	}
 	linePrefix := prefixAt(file.src, pos)
 	identifierPrefix := identifierPrefixAt(linePrefix)
-	memberMatch := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.\s*$`).FindStringSubmatch(linePrefix)
-	if len(memberMatch) == 2 {
-		return file.memberCompletions(memberMatch[1], a.importableModules(file))
+	memberMatch := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.\s*([A-Za-z_][A-Za-z0-9_]*)?$`).FindStringSubmatch(linePrefix)
+	if len(memberMatch) == 3 {
+		return file.memberCompletions(memberMatch[1], memberMatch[2], a.importableModules(file))
 	}
 
 	items := make(map[string]CompletionItem)
 	for name, sym := range file.topLevel {
-		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail, Documentation: sym.doc}
+		items[name] = completionItemForSymbol(sym, 10)
 	}
 	for name, sym := range file.imports {
-		items[name] = CompletionItem{Label: name, Kind: string(sym.kind), Detail: sym.detail, Documentation: sym.doc}
+		items[name] = completionItemForSymbol(sym, 20)
 	}
 	for name := range a.builtinCompletions {
 		if _, ok := items[name]; !ok {
@@ -419,7 +422,13 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 			if mod, ok := a.builtinModule(name); ok {
 				doc = mod.Summary
 			}
-			items[name] = CompletionItem{Label: name, Kind: string(kindModule), Detail: "builtin module", Documentation: doc}
+			items[name] = CompletionItem{
+				Label:         name,
+				Kind:          string(kindModule),
+				Detail:        "builtin module",
+				Documentation: doc,
+				SortText:      completionSortText(30, name),
+			}
 		}
 	}
 	for _, module := range a.importableModules(file) {
@@ -433,6 +442,7 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 				Kind:            string(kindModule),
 				Detail:          fmt.Sprintf("Auto import module %s", module.Path),
 				Documentation:   module.Documentation,
+				SortText:        completionSortText(40, module.Alias),
 				AdditionalEdits: []RenameEdit{edit},
 			}
 		}
@@ -450,8 +460,9 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 				if _, exists := items[item.Label]; exists {
 					continue
 				}
-				item.InsertText = module.Alias + "." + item.Label
+				item = retargetCompletionInsert(item, module.Alias+"."+item.Label)
 				item.Detail = fmt.Sprintf("%s (auto import %s)", item.Detail, module.Path)
+				item.SortText = completionSortText(50, item.Label)
 				item.AdditionalEdits = []RenameEdit{edit}
 				items[item.Label] = item
 			}
@@ -462,7 +473,13 @@ func CompletionsWithOptions(path string, pos Position, opts Options) ([]Completi
 	for _, item := range items {
 		out = append(out, item)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortText != out[j].SortText {
+			return out[i].SortText < out[j].SortText
+		}
+		return out[i].Label < out[j].Label
+	})
+	preselectBestCompletion(out, identifierPrefix)
 	return out, nil
 }
 
@@ -1675,38 +1692,37 @@ func (f *fileModel) occurrenceAt(pos Position) *occurrence {
 	return adjacent
 }
 
-func (f *fileModel) memberCompletions(name string, importable []importableModule) ([]CompletionItem, error) {
+func (f *fileModel) memberCompletions(name string, memberPrefix string, importable []importableModule) ([]CompletionItem, error) {
 	if sym, ok := f.imports[name]; ok {
 		if sym.typ.module != nil {
 			var items []CompletionItem
 			for memberName, member := range sym.typ.module.topLevel {
-				items = append(items, CompletionItem{
-					Label:         memberName,
-					Kind:          string(member.kind),
-					Detail:        member.detail,
-					Documentation: member.doc,
-				})
+				if !completionMatchesPrefix(memberName, memberPrefix) {
+					continue
+				}
+				items = append(items, completionItemForSymbol(member, 10))
 			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+			sortCompletionItems(items, memberPrefix)
 			return items, nil
 		}
 		if sym.typ.builtin != "" {
 			var items []CompletionItem
 			for _, member := range f.analyzer.builtinCompletions[sym.typ.builtin] {
-				detail := fmt.Sprintf("%s.%s", sym.typ.builtin, member)
-				doc := ""
+				if !completionMatchesPrefix(member, memberPrefix) {
+					continue
+				}
 				if builtinSym, ok := f.analyzer.builtinMember(sym.typ.builtin, member); ok {
-					detail = builtinSym.Detail
-					doc = builtinSym.Documentation
+					items = append(items, completionItemForBuiltin(sym.typ.builtin, builtinSym, 10))
+					continue
 				}
 				items = append(items, CompletionItem{
-					Label:         member,
-					Kind:          string(kindFunction),
-					Detail:        detail,
-					Documentation: doc,
+					Label:    member,
+					Kind:     string(kindFunction),
+					Detail:   fmt.Sprintf("%s.%s", sym.typ.builtin, member),
+					SortText: completionSortText(10, member),
 				})
 			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+			sortCompletionItems(items, memberPrefix)
 			return items, nil
 		}
 	}
@@ -1718,11 +1734,12 @@ func (f *fileModel) memberCompletions(name string, importable []importableModule
 		if err != nil {
 			return nil, err
 		}
-		items := module.memberCompletions()
+		items := module.memberCompletionsMatching(memberPrefix)
 		for i := range items {
+			items[i].SortText = completionSortText(20, items[i].Label)
 			items[i].AdditionalEdits = []RenameEdit{edit}
 		}
-		sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+		sortCompletionItems(items, memberPrefix)
 		return items, nil
 	}
 
@@ -1733,16 +1750,176 @@ func (f *fileModel) memberCompletions(name string, importable []importableModule
 		if occ.symbol.typ.class != nil {
 			var items []CompletionItem
 			for memberName, member := range occ.symbol.typ.class.fields {
-				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail, Documentation: member.doc})
+				if !completionMatchesPrefix(memberName, memberPrefix) {
+					continue
+				}
+				items = append(items, completionItemForSymbol(member, 10))
 			}
 			for memberName, member := range occ.symbol.typ.class.methods {
-				items = append(items, CompletionItem{Label: memberName, Kind: string(member.kind), Detail: member.detail, Documentation: member.doc})
+				if !completionMatchesPrefix(memberName, memberPrefix) {
+					continue
+				}
+				items = append(items, completionItemForSymbol(member, 10))
 			}
-			sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+			sortCompletionItems(items, memberPrefix)
 			return items, nil
 		}
 	}
 	return nil, nil
+}
+
+func completionItemForSymbol(sym *symbolDef, rank int) CompletionItem {
+	item := CompletionItem{
+		Label:         sym.name,
+		Kind:          string(sym.kind),
+		Detail:        sym.detail,
+		Documentation: sym.doc,
+		SortText:      completionSortText(rank, sym.name),
+	}
+	if sym.signature != nil {
+		item.InsertText = callSnippet(sym.name, signatureParamLabels(sym.signature))
+		item.InsertFormat = "snippet"
+		return item
+	}
+	if sym.kind == kindClass && sym.typ.class != nil {
+		item.InsertText = callSnippet(sym.name, classConstructorParams(sym.typ.class))
+		item.InsertFormat = "snippet"
+	}
+	return item
+}
+
+func completionItemForBuiltin(moduleName string, builtinSym builtinSymbol, rank int) CompletionItem {
+	label := builtinSym.Name
+	if label == "" {
+		label = strings.TrimPrefix(builtinSym.FullName, moduleName+".")
+	}
+	item := CompletionItem{
+		Label:         label,
+		Kind:          string(kindFunction),
+		Detail:        builtinSym.Detail,
+		Documentation: builtinSym.Documentation,
+		SortText:      completionSortText(rank, label),
+	}
+	item.InsertText = callSnippet(label, builtinParamLabels(builtinSym.Params))
+	item.InsertFormat = "snippet"
+	return item
+}
+
+func classConstructorParams(class *classInfo) []string {
+	if class == nil {
+		return nil
+	}
+	initMethod, ok := class.methods["init"]
+	if !ok || initMethod == nil || initMethod.signature == nil {
+		return nil
+	}
+	return signatureParamLabels(initMethod.signature)
+}
+
+func signatureParamLabels(sig *signatureInfo) []string {
+	if sig == nil {
+		return nil
+	}
+	return builtinParamLabels(sig.params)
+}
+
+func builtinParamLabels(params []builtinParam) []string {
+	out := make([]string, 0, len(params))
+	for _, param := range params {
+		out = append(out, param.Label)
+	}
+	return out
+}
+
+func callSnippet(name string, params []string) string {
+	var b strings.Builder
+	b.WriteString(name)
+	b.WriteString("(")
+	for i, param := range params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "${%d:%s}", i+1, snippetPlaceholder(param, i+1))
+	}
+	b.WriteString(")$0")
+	return b.String()
+}
+
+func snippetPlaceholder(label string, idx int) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return fmt.Sprintf("arg%d", idx)
+	}
+	fields := strings.Fields(label)
+	if len(fields) > 0 {
+		label = fields[len(fields)-1]
+	}
+	label = strings.Trim(label, " ,()")
+	label = strings.TrimPrefix(label, "...")
+	if !validIdentifier(label) {
+		return fmt.Sprintf("arg%d", idx)
+	}
+	return label
+}
+
+func completionSortText(rank int, label string) string {
+	return fmt.Sprintf("%02d:%s", rank, strings.ToLower(label))
+}
+
+func completionMatchesPrefix(label, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(label), strings.ToLower(prefix))
+}
+
+func sortCompletionItems(items []CompletionItem, prefix string) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].SortText != items[j].SortText {
+			return items[i].SortText < items[j].SortText
+		}
+		return items[i].Label < items[j].Label
+	})
+	preselectBestCompletion(items, prefix)
+}
+
+func preselectBestCompletion(items []CompletionItem, prefix string) {
+	if len(items) == 0 {
+		return
+	}
+	for i := range items {
+		items[i].Preselect = false
+	}
+	if prefix == "" {
+		items[0].Preselect = true
+		return
+	}
+	lowerPrefix := strings.ToLower(prefix)
+	for i := range items {
+		if strings.EqualFold(items[i].Label, prefix) {
+			items[i].Preselect = true
+			return
+		}
+	}
+	for i := range items {
+		if strings.HasPrefix(strings.ToLower(items[i].Label), lowerPrefix) {
+			items[i].Preselect = true
+			return
+		}
+	}
+	items[0].Preselect = true
+}
+
+func retargetCompletionInsert(item CompletionItem, target string) CompletionItem {
+	switch {
+	case item.InsertText == "":
+		item.InsertText = target
+	case strings.HasPrefix(item.InsertText, item.Label):
+		item.InsertText = target + strings.TrimPrefix(item.InsertText, item.Label)
+	default:
+		item.InsertText = target
+	}
+	return item
 }
 
 func callableTypeFromDecl(decl *ast.FnDecl) typeInfo {

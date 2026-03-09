@@ -517,7 +517,7 @@ pub class Greeter {
 	}
 	var autoImported *CompletionItem
 	for i := range topLevelItems {
-		if topLevelItems[i].Label == "message" && topLevelItems[i].InsertText == "helper.message" {
+		if topLevelItems[i].Label == "message" && strings.HasPrefix(topLevelItems[i].InsertText, "helper.message(") {
 			autoImported = &topLevelItems[i]
 			break
 		}
@@ -546,6 +546,66 @@ pub class Greeter {
 	}
 	if !foundFix {
 		t.Fatalf("quickfix actions = %#v, want import-and-qualify action", actions)
+	}
+}
+
+func TestCompletionSnippetsAndMemberPrefixFiltering(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `class Person {
+    fn init(string name, i32 age) -> void {}
+
+    pub fn birthday() -> void {}
+}
+
+fn greet(string name) -> void {}
+
+fn main() -> void {
+    Person alice = Person("Alice", 30);
+    gre;
+    alice.bi;
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	items, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "gre"), nil)
+	if err != nil {
+		t.Fatalf("Completions(gre) error = %v", err)
+	}
+	var greetItem *CompletionItem
+	var personItem *CompletionItem
+	for i := range items {
+		switch items[i].Label {
+		case "greet":
+			greetItem = &items[i]
+		case "Person":
+			personItem = &items[i]
+		}
+	}
+	if greetItem == nil {
+		t.Fatalf("completions = %#v, want greet item", items)
+	}
+	if greetItem.InsertFormat != "snippet" || greetItem.InsertText != "greet(${1:name})$0" {
+		t.Fatalf("greet completion = %#v, want callable snippet", greetItem)
+	}
+	if !greetItem.Preselect {
+		t.Fatalf("greet completion = %#v, want preselected exact-prefix match", greetItem)
+	}
+	if personItem == nil || personItem.InsertFormat != "snippet" || personItem.InsertText != "Person(${1:name}, ${2:age})$0" {
+		t.Fatalf("Person completion = %#v, want constructor snippet", personItem)
+	}
+
+	memberItems, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "alice.bi"), nil)
+	if err != nil {
+		t.Fatalf("Completions(alice.bi) error = %v", err)
+	}
+	if len(memberItems) != 1 || memberItems[0].Label != "birthday" {
+		t.Fatalf("member completions = %#v, want only birthday", memberItems)
+	}
+	if memberItems[0].InsertFormat != "snippet" || memberItems[0].InsertText != "birthday()$0" {
+		t.Fatalf("member completion = %#v, want zero-arg snippet", memberItems[0])
 	}
 }
 
