@@ -650,6 +650,85 @@ class Robot implements Greeter {
 	}
 }
 
+func TestHoverFormatsSignatureAndDocCommentMarkdown(t *testing.T) {
+	root := t.TempDir()
+	mainPath := writeTestFile(t, root, "main.basl", `
+// Greets the user.
+fn greet(string name) -> string {
+    return "hello " + name;
+}
+
+fn main() -> void {
+    greet("basl");
+}
+`)
+
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	done := make(chan error, 1)
+	go func() {
+		done <- Serve(context.Background(), serverConn, serverConn)
+	}()
+
+	reader := bufio.NewReader(clientConn)
+	rootURI := pathToURI(root)
+	mainURI := pathToURI(mainPath)
+	mainText, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(main) error = %v", err)
+	}
+	mainSrc := string(mainText)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"rootUri":          rootURI,
+			"workspaceFolders": []map[string]any{{"uri": rootURI, "name": "demo"}},
+		},
+	})
+	assertID(t, readOne(t, reader), "1")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "initialized", "params": map[string]any{}})
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "textDocument/didOpen",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI, "version": 1, "text": string(mainText)},
+		},
+	})
+	_ = readOne(t, reader)
+
+	send(t, clientConn, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "textDocument/hover",
+		"params": map[string]any{
+			"textDocument": map[string]any{"uri": mainURI},
+			"position":     mustLSPPosition(t, mainSrc, "greet(\"basl\")", false),
+		},
+	})
+	msg := readOne(t, reader)
+	assertID(t, msg, "2")
+	var hover hoverResult
+	decodeResult(t, msg.Result, &hover)
+	if !strings.Contains(hover.Contents.Value, "```basl\nfn greet(string name) -> string\n```") || !strings.Contains(hover.Contents.Value, "Greets the user.") {
+		t.Fatalf("hover contents = %q, want fenced signature plus markdown doc text", hover.Contents.Value)
+	}
+
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "shutdown"})
+	assertID(t, readOne(t, reader), "3")
+	send(t, clientConn, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	select {
+	case err := <-done:
+		if err != nil && err != io.EOF && err != context.Canceled {
+			t.Fatalf("Serve() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not exit")
+	}
+}
+
 func TestFoldingRangeReturnsStructuredRegions(t *testing.T) {
 	root := t.TempDir()
 	mainPath := writeTestFile(t, root, "main.basl", `

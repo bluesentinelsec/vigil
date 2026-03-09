@@ -195,6 +195,7 @@ type fileModel struct {
 	classes       map[string]*classInfo
 	ifaces        map[string]*ifaceInfo
 	topLevel      map[string]*symbolDef
+	commentDocs   map[int]string
 	occurrences   []occurrence
 	tokenPos      int
 	analyzed      bool
@@ -755,6 +756,7 @@ func (a *Analyzer) loadFile(path string) (*fileModel, error) {
 		classes:       make(map[string]*classInfo),
 		ifaces:        make(map[string]*ifaceInfo),
 		topLevel:      make(map[string]*symbolDef),
+		commentDocs:   extractDocComments(src),
 	}
 	a.files[absPath] = file
 	file.collectImports()
@@ -837,13 +839,17 @@ func (f *fileModel) collectTopLevel() {
 	for _, decl := range f.prog.Decls {
 		switch d := decl.(type) {
 		case *ast.FnDecl:
+			doc := f.docComment(d.Line)
+			if doc == "" {
+				doc = fmt.Sprintf("defined in %s", filepath.Base(f.path))
+			}
 			sym := &symbolDef{
 				id:         f.symbolID(d.Name, d.Line),
 				kind:       kindFunction,
 				name:       d.Name,
 				detail:     fnDetail("fn", d.Name, d.Params, d.Return),
-				doc:        fmt.Sprintf("defined in %s", filepath.Base(f.path)),
-				signature:  signatureFromDecl("fn", d.Name, d.Params, d.Return, fmt.Sprintf("defined in %s", filepath.Base(f.path))),
+				doc:        doc,
+				signature:  signatureFromDecl("fn", d.Name, d.Params, d.Return, doc),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        callableTypeFromDecl(d),
 				renameable: true,
@@ -856,6 +862,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindVariable,
 				name:       d.Name,
 				detail:     fmt.Sprintf("%s %s", typeExprString(d.Type), d.Name),
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        f.resolveType(d.Type),
 				renameable: true,
@@ -868,6 +875,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindConstant,
 				name:       d.Name,
 				detail:     fmt.Sprintf("const %s %s", typeExprString(d.Type), d.Name),
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				typ:        f.resolveType(d.Type),
 				renameable: true,
@@ -880,6 +888,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindEnum,
 				name:       d.Name,
 				detail:     "enum " + d.Name,
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				renameable: true,
 				ownerFile:  f,
@@ -891,6 +900,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindIface,
 				name:       d.Name,
 				detail:     "interface " + d.Name,
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				renameable: true,
 				ownerFile:  f,
@@ -905,7 +915,8 @@ func (f *fileModel) collectTopLevel() {
 					kind:       kindMethod,
 					name:       method.Name,
 					detail:     fnDetail(d.Name, method.Name, method.Params, method.Return),
-					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, ""),
+					doc:        f.docComment(method.Line),
+					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, f.docComment(method.Line)),
 					location:   f.nextIdentLocation(method.Name, method.Line),
 					renameable: true,
 					ownerFile:  f,
@@ -922,6 +933,7 @@ func (f *fileModel) collectTopLevel() {
 				kind:       kindClass,
 				name:       d.Name,
 				detail:     "class " + d.Name,
+				doc:        f.docComment(d.Line),
 				location:   f.nextIdentLocation(d.Name, d.Line),
 				renameable: true,
 				ownerFile:  f,
@@ -939,6 +951,7 @@ func (f *fileModel) collectTopLevel() {
 					kind:       kindField,
 					name:       field.Name,
 					detail:     fmt.Sprintf("%s.%s: %s", d.Name, field.Name, typeExprString(field.Type)),
+					doc:        f.docComment(field.Line),
 					location:   f.nextIdentLocation(field.Name, field.Line),
 					typ:        f.resolveType(field.Type),
 					renameable: true,
@@ -954,7 +967,8 @@ func (f *fileModel) collectTopLevel() {
 					kind:       kindMethod,
 					name:       method.Name,
 					detail:     fnDetail(d.Name, method.Name, method.Params, method.Return),
-					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, ""),
+					doc:        f.docComment(method.Line),
+					signature:  signatureFromDecl(d.Name, method.Name, method.Params, method.Return, f.docComment(method.Line)),
 					location:   f.nextIdentLocation(method.Name, method.Line),
 					typ:        callableTypeFromDecl(method),
 					renameable: method.Name != "init",
@@ -968,6 +982,13 @@ func (f *fileModel) collectTopLevel() {
 			f.topLevel[d.Name] = classSym
 		}
 	}
+}
+
+func (f *fileModel) docComment(line int) string {
+	if f == nil || line <= 0 {
+		return ""
+	}
+	return f.commentDocs[line]
 }
 
 func (f *fileModel) analyze() {
@@ -1765,6 +1786,73 @@ func tokenLocation(path string, tok lexer.Token) *Location {
 		Line:   tok.Line,
 		Col:    tok.Col,
 		EndCol: tok.Col + len(tok.Literal) - 1,
+	}
+}
+
+func extractDocComments(src string) map[int]string {
+	tokens, err := lexer.New(src).TokenizeWithComments()
+	if err != nil {
+		return nil
+	}
+	out := make(map[int]string)
+	var pending []lexer.Token
+	flush := func(nextLine int) {
+		if len(pending) == 0 || nextLine <= 0 {
+			pending = nil
+			return
+		}
+		endLine := commentEndLine(pending[len(pending)-1])
+		if endLine != nextLine-1 {
+			pending = nil
+			return
+		}
+		parts := make([]string, 0, len(pending))
+		for _, tok := range pending {
+			text := normalizeDocComment(tok)
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		if len(parts) > 0 {
+			out[nextLine] = strings.TrimSpace(strings.Join(parts, "\n"))
+		}
+		pending = nil
+	}
+	for _, tok := range tokens {
+		switch tok.Type {
+		case lexer.TOKEN_LINE_COMMENT, lexer.TOKEN_BLOCK_COMMENT:
+			if len(pending) > 0 && tok.Line > commentEndLine(pending[len(pending)-1])+1 {
+				pending = nil
+			}
+			pending = append(pending, tok)
+		default:
+			flush(tok.Line)
+		}
+	}
+	return out
+}
+
+func commentEndLine(tok lexer.Token) int {
+	return tok.Line + strings.Count(tok.Literal, "\n")
+}
+
+func normalizeDocComment(tok lexer.Token) string {
+	switch tok.Type {
+	case lexer.TOKEN_LINE_COMMENT:
+		text := strings.TrimPrefix(tok.Literal, "//")
+		return strings.TrimSpace(text)
+	case lexer.TOKEN_BLOCK_COMMENT:
+		text := strings.TrimPrefix(tok.Literal, "/*")
+		text = strings.TrimSuffix(text, "*/")
+		lines := strings.Split(text, "\n")
+		for i, line := range lines {
+			line = strings.TrimSpace(line)
+			line = strings.TrimPrefix(line, "*")
+			lines[i] = strings.TrimSpace(line)
+		}
+		return strings.TrimSpace(strings.Join(lines, "\n"))
+	default:
+		return ""
 	}
 }
 

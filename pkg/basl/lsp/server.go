@@ -572,7 +572,7 @@ func (s *Server) handleHover(msg message) error {
 	out := hoverResult{
 		Contents: markupContent{
 			Kind:  "markdown",
-			Value: "```basl\n" + hover.Contents + "\n```",
+			Value: hoverMarkdown(hover.Contents),
 		},
 	}
 	if hover.Location != nil {
@@ -1260,6 +1260,17 @@ func semanticTokenModifiersBitset(items []string) int {
 		}
 	}
 	return bits
+}
+
+func hoverMarkdown(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	parts := strings.SplitN(text, "\n\n", 2)
+	if len(parts) == 1 {
+		return "```basl\n" + parts[0] + "\n```"
+	}
+	return "```basl\n" + parts[0] + "\n```\n\n" + parts[1]
 }
 
 func samePath(a, b string) bool {

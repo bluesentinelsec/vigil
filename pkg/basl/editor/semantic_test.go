@@ -86,6 +86,77 @@ class Robot implements Greeter {
 	}
 }
 
+func TestDocCommentsFeedHoverCompletionsAndSignatureHelp(t *testing.T) {
+	root := t.TempDir()
+	mainPath := filepath.Join(root, "main.basl")
+	src := `import "fmt";
+
+// Greets the user by name.
+// Returns a friendly message.
+fn greet(string name) -> string {
+    return "hello " + name;
+}
+
+/*
+Greeter utility.
+Used to test block comment docs.
+*/
+class Person {
+    // Sends a greeting to stdout.
+    pub fn speak(string name) -> void {
+        fmt.println(greet(name));
+    }
+}
+
+fn main() -> void {
+    Person person = Person();
+    greet("codex");
+    person.speak("basl");
+}
+`
+	if err := os.WriteFile(mainPath, []byte(src), 0644); err != nil {
+		t.Fatalf("os.WriteFile(main) error = %v", err)
+	}
+
+	hover, err := HoverAt(mainPath, mustFindPosition(t, mainPath, "greet(\"codex\""), nil)
+	if err != nil {
+		t.Fatalf("HoverAt() error = %v", err)
+	}
+	if hover == nil || !strings.Contains(hover.Contents, "Greets the user by name.") || !strings.Contains(hover.Contents, "Returns a friendly message.") {
+		t.Fatalf("hover = %#v, want doc comments in hover", hover)
+	}
+	classHover, err := HoverAt(mainPath, mustFindPosition(t, mainPath, "Person();"), nil)
+	if err != nil {
+		t.Fatalf("HoverAt(class) error = %v", err)
+	}
+	if classHover == nil || !strings.Contains(classHover.Contents, "Greeter utility.") {
+		t.Fatalf("class hover = %#v, want block comment docs", classHover)
+	}
+
+	items, err := Completions(mainPath, mustFindPositionAfter(t, mainPath, "person."), nil)
+	if err != nil {
+		t.Fatalf("Completions() error = %v", err)
+	}
+	var speak *CompletionItem
+	for i := range items {
+		if items[i].Label == "speak" {
+			speak = &items[i]
+			break
+		}
+	}
+	if speak == nil || !strings.Contains(speak.Documentation, "Sends a greeting to stdout.") {
+		t.Fatalf("completion = %#v, want method docs", speak)
+	}
+
+	help, err := SignatureHelpAt(mainPath, mustFindPositionAfter(t, mainPath, "greet("), nil)
+	if err != nil {
+		t.Fatalf("SignatureHelpAt() error = %v", err)
+	}
+	if help == nil || len(help.Signatures) == 0 || !strings.Contains(help.Signatures[0].Documentation, "Greets the user by name.") {
+		t.Fatalf("signature help = %#v, want doc comments", help)
+	}
+}
+
 func TestHoverReferencesAndRenameForLocalVariable(t *testing.T) {
 	_, mainPath := writeSemanticFixture(t)
 
