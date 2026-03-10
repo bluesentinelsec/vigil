@@ -224,7 +224,7 @@ TEST(BaslStringTest, RejectsMissingRuntimeForMutation) {
     EXPECT_EQ(std::strcmp(error.value, "string runtime must not be null"), 0);
 }
 
-TEST(BaslStringTest, NullValueWithZeroLengthIsAllowed) {
+TEST(BaslStringTest, RejectsNullValueEvenForEmptyOperations) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     basl_string_t string;
@@ -232,13 +232,53 @@ TEST(BaslStringTest, NullValueWithZeroLengthIsAllowed) {
     ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
 
-    ASSERT_EQ(basl_string_assign(&string, nullptr, 0U, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_string_length(&string), 0U);
-    EXPECT_STREQ(basl_string_c_str(&string), "");
+    EXPECT_EQ(
+        basl_string_assign(&string, nullptr, 0U, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(std::strcmp(error.value, "string value must not be null"), 0);
 
-    ASSERT_EQ(basl_string_append(&string, nullptr, 0U, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_string_length(&string), 0U);
-    EXPECT_STREQ(basl_string_c_str(&string), "");
+    EXPECT_EQ(
+        basl_string_append(&string, nullptr, 0U, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(std::strcmp(error.value, "string value must not be null"), 0);
+
+    EXPECT_EQ(
+        basl_string_assign_cstr(&string, nullptr, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(
+        basl_string_append_cstr(&string, nullptr, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+
+    basl_string_free(&string);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslStringTest, SelfAppendIsSafe) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_string_t string;
+    const char *value;
+    size_t length;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_string_init(&string, runtime);
+    ASSERT_EQ(basl_string_assign_cstr(&string, "echo", &error), BASL_STATUS_OK);
+
+    value = basl_string_c_str(&string);
+    length = basl_string_length(&string);
+    ASSERT_EQ(
+        basl_string_append(&string, value, length, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_STREQ(basl_string_c_str(&string), "echoecho");
 
     basl_string_free(&string);
     basl_runtime_close(&runtime);

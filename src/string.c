@@ -39,7 +39,57 @@ static basl_status_t basl_string_validate_mutable(
     return BASL_STATUS_OK;
 }
 
-static basl_status_t basl_string_set_length(
+static int basl_string_overlaps_storage(
+    const basl_string_t *string,
+    const char *value,
+    size_t length
+) {
+    const uint8_t *start;
+    const uint8_t *end;
+    const uint8_t *value_start;
+    const uint8_t *value_end;
+
+    if (string == NULL || value == NULL || length == 0U || string->bytes.data == NULL) {
+        return 0;
+    }
+
+    start = string->bytes.data;
+    end = start + basl_string_length(string);
+    value_start = (const uint8_t *)value;
+    value_end = value_start + length;
+
+    return value_start < end && value_end > start;
+}
+
+static basl_status_t basl_string_copy_input(
+    basl_string_t *string,
+    const char *value,
+    size_t length,
+    const char **out_value,
+    void **out_temp,
+    basl_error_t *error
+) {
+    basl_status_t status;
+
+    *out_value = value;
+    *out_temp = NULL;
+
+    if (!basl_string_overlaps_storage(string, value, length)) {
+        basl_error_clear(error);
+        return BASL_STATUS_OK;
+    }
+
+    status = basl_runtime_alloc(string->bytes.runtime, length, out_temp, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    memcpy(*out_temp, value, length);
+    *out_value = (const char *)*out_temp;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_string_prepare_storage(
     basl_string_t *string,
     size_t length,
     basl_error_t *error
@@ -55,11 +105,12 @@ static basl_status_t basl_string_set_length(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    status = basl_byte_buffer_resize(&string->bytes, length + 1U, error);
+    status = basl_byte_buffer_reserve(&string->bytes, length + 1U, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
 
+    string->bytes.length = length + 1U;
     string->bytes.data[length] = '\0';
     return BASL_STATUS_OK;
 }
@@ -156,31 +207,40 @@ basl_status_t basl_string_assign(
     basl_error_t *error
 ) {
     basl_status_t status;
+    const char *copied_value;
+    void *temp;
 
     status = basl_string_validate_mutable(string, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
 
-    if (value == NULL && length != 0U) {
+    if (value == NULL) {
         basl_error_set_literal(
             error,
             BASL_STATUS_INVALID_ARGUMENT,
-            "string value must not be null when length is non-zero"
+            "string value must not be null"
         );
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    status = basl_string_set_length(string, length, error);
+    status = basl_string_copy_input(string, value, length, &copied_value, &temp, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
 
+    status = basl_string_prepare_storage(string, length, error);
+    if (status != BASL_STATUS_OK) {
+        basl_runtime_free(string->bytes.runtime, &temp);
+        return status;
+    }
+
     if (length != 0U) {
-        memcpy(string->bytes.data, value, length);
+        memcpy(string->bytes.data, copied_value, length);
         string->bytes.data[length] = '\0';
     }
 
+    basl_runtime_free(string->bytes.runtime, &temp);
     return BASL_STATUS_OK;
 }
 
@@ -191,7 +251,16 @@ basl_status_t basl_string_assign_cstr(
 ) {
     size_t length;
 
-    length = value == NULL ? 0U : strlen(value);
+    if (value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "string value must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    length = strlen(value);
     return basl_string_assign(string, value, length, error);
 }
 
@@ -203,17 +272,19 @@ basl_status_t basl_string_append(
 ) {
     basl_status_t status;
     size_t old_length;
+    const char *copied_value;
+    void *temp;
 
     status = basl_string_validate_mutable(string, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
 
-    if (value == NULL && length != 0U) {
+    if (value == NULL) {
         basl_error_set_literal(
             error,
             BASL_STATUS_INVALID_ARGUMENT,
-            "string value must not be null when length is non-zero"
+            "string value must not be null"
         );
         return BASL_STATUS_INVALID_ARGUMENT;
     }
@@ -228,16 +299,23 @@ basl_status_t basl_string_append(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    status = basl_string_set_length(string, old_length + length, error);
+    status = basl_string_copy_input(string, value, length, &copied_value, &temp, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
 
+    status = basl_string_prepare_storage(string, old_length + length, error);
+    if (status != BASL_STATUS_OK) {
+        basl_runtime_free(string->bytes.runtime, &temp);
+        return status;
+    }
+
     if (length != 0U) {
-        memcpy(string->bytes.data + old_length, value, length);
+        memcpy(string->bytes.data + old_length, copied_value, length);
         string->bytes.data[old_length + length] = '\0';
     }
 
+    basl_runtime_free(string->bytes.runtime, &temp);
     return BASL_STATUS_OK;
 }
 
@@ -248,7 +326,16 @@ basl_status_t basl_string_append_cstr(
 ) {
     size_t length;
 
-    length = value == NULL ? 0U : strlen(value);
+    if (value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "string value must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    length = strlen(value);
     return basl_string_append(string, value, length, error);
 }
 
