@@ -26,6 +26,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/source.c
     src/string.c
     src/status.c
+    src/value.c
 )
 
 target_include_directories(basl
@@ -72,6 +73,7 @@ if(BASL_BUILD_TESTS)
         tests/source_test.cpp
         tests/string_test.cpp
         tests/status_test.cpp
+        tests/value_test.cpp
     )
 
     target_link_libraries(basl_tests PRIVATE basl GTest::gtest_main)
