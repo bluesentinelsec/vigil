@@ -19,7 +19,9 @@ else()
 endif()
 
 add_library(basl ${BASL_LIBRARY_TYPE}
-    src/basl.c
+    src/allocator.c
+    src/runtime.c
+    src/status.c
 )
 
 target_include_directories(basl
@@ -60,7 +62,8 @@ if(BASL_BUILD_TESTS)
     endif()
 
     add_executable(basl_tests
-        tests/test_sum.cpp
+        tests/runtime_test.cpp
+        tests/status_test.cpp
     )
 
     target_link_libraries(basl_tests PRIVATE basl GTest::gtest_main)
