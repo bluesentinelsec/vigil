@@ -22,6 +22,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/allocator.c
     src/array.c
     src/runtime.c
+    src/string.c
     src/status.c
 )
 
@@ -65,6 +66,7 @@ if(BASL_BUILD_TESTS)
     add_executable(basl_tests
         tests/array_test.cpp
         tests/runtime_test.cpp
+        tests/string_test.cpp
         tests/status_test.cpp
     )
 
