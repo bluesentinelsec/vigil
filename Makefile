@@ -1,44 +1,29 @@
-BINARY  := basl
-CMD     := ./cmd/basl
-PYTHON  ?= python3
+BUILD_DIR ?= build
 
-.PHONY: all build fmt vet test regression thread-race cover prof-cpu prof-mem clean
+.PHONY: all build test clean format configure-dev configure-release build-dev build-release
 
 all: build
 
-build: fmt vet
-	go build -o $(BINARY) $(CMD)
+configure-dev:
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug -DBASL_BUILD_TESTS=ON
 
-fmt:
-	gofmt -w .
+configure-release:
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DBASL_BUILD_TESTS=ON
 
-vet:
-	go vet ./...
+build: configure-dev
+	cmake --build $(BUILD_DIR)
+
+build-dev: configure-dev
+	cmake --build $(BUILD_DIR)
+
+build-release: configure-release
+	cmake --build $(BUILD_DIR)
 
 test: build
-	go test ./... -count=1
-	go test -race ./pkg/basl/interp -run 'TestThread|TestMutex' -count=1
-	$(PYTHON) integration_tests/test_syntax_integration.py
-	$(PYTHON) integration_tests/test_debugger.py
+	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
-regression: build
-	$(PYTHON) integration_tests/test_syntax_integration.py
-
-thread-race: build
-	go test -race ./pkg/basl/interp -run 'TestThread|TestMutex' -count=1
-
-cover: fmt vet
-	go test ./... -coverprofile=coverage.out
-	go tool cover -func=coverage.out
-	@rm -f coverage.out
-
-prof-cpu:
-	go test ./pkg/basl/interp/ -bench=. -cpuprofile=cpu.prof -benchmem
-	go tool pprof -top cpu.prof
-
-prof-mem:
-	go test ./pkg/basl/interp/ -bench=. -memprofile=mem.prof -benchmem
-	go tool pprof -top -alloc_space mem.prof
+format:
+	@echo "Formatting is not configured yet for the C rewrite scaffold."
 
 clean:
-	rm -f $(BINARY) cpu.prof mem.prof interp.test
+	cmake -E rm -rf $(BUILD_DIR)

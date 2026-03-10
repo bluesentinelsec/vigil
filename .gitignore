@@ -1,16 +1,18 @@
 # Binary
 /basl
+/basl.exe
+/build/
+/build-emscripten/
+/compile_commands.json
 
-# Go
-*.test
-coverage.out
-cpu.prof
-mem.prof
-
-# C / CGO
+# C / CMake
 *.dylib
 *.so
 *.dll
+*.wasm
+*.js
+*.data
+*.html
 
 # Editors
 *.swp
