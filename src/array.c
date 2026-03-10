@@ -119,12 +119,16 @@ void basl_byte_buffer_clear(basl_byte_buffer_t *buffer) {
 }
 
 void basl_byte_buffer_free(basl_byte_buffer_t *buffer) {
+    void *memory;
+
     if (buffer == NULL) {
         return;
     }
 
     if (buffer->runtime != NULL) {
-        basl_runtime_free(buffer->runtime, (void **)&buffer->data);
+        memory = buffer->data;
+        basl_runtime_free(buffer->runtime, &memory);
+        buffer->data = NULL;
     } else {
         buffer->data = NULL;
     }
@@ -213,7 +217,7 @@ basl_status_t basl_byte_buffer_append(
     }
 
     old_length = buffer->length;
-    status = basl_byte_buffer_resize(buffer, old_length + length, error);
+    status = basl_byte_buffer_grow(buffer, old_length + length, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -222,6 +226,7 @@ basl_status_t basl_byte_buffer_append(
         memcpy(buffer->data + old_length, data, length);
     }
 
+    buffer->length = old_length + length;
     return BASL_STATUS_OK;
 }
 
