@@ -13,6 +13,7 @@ BASL is a statically-typed, C-syntax scripting language that prioritizes readabi
 - **Comprehensive tooling**:
   - `basl new` - Create projects with standard layout
   - `basl fmt` - Format code automatically
+  - `basl check` - Statically validate code without executing it
   - `basl test` - Run tests with built-in framework
   - `basl debug` - Interactive debugger with breakpoints
   - `basl package` - Build standalone executables or library bundles
@@ -174,9 +175,9 @@ BASL includes a comprehensive standard library:
 - **Database**: `sqlite`
 - **Cryptography**: `crypto`, `hash`, `rand`
 - **Compression**: `compress`, `archive`
-- **Utilities**: `regex`, `args`, `test`
+- **Utilities**: `parse`, `regex`, `args`, `test`
 - **Advanced**: `thread`, `mutex`, `unsafe`, `ffi`
-- **Graphics**: `rl` (Raylib bindings)
+- **GUI & Graphics**: `gui` (native widgets), `rl` (Raylib bindings)
 
 See [docs/stdlib/](docs/stdlib/) for complete reference.
 
@@ -198,6 +199,15 @@ basl fmt script.basl          # Format one file
 basl fmt ./src/...            # Format all .basl files recursively
 basl fmt --check script.basl  # Check formatting (CI mode)
 ```
+
+### Static Check
+
+```bash
+basl check main.basl          # Validate one file without running it
+basl check ./lib/...          # Validate a directory tree
+```
+
+See [Check Guide](docs/check.md) for detailed behavior, diagnostics, and limitations.
 
 ### Debug
 
@@ -284,6 +294,7 @@ See the [examples/](examples/) directory for practical examples:
 ## Documentation
 
 - [CLI Reference](docs/cli.md) - Complete command-line tool reference
+- [Check Guide](docs/check.md) - Detailed guide to `basl check`
 - [Language Syntax](docs/syntax.md) - Complete language reference
 - [Standard Library](docs/stdlib/) - All stdlib modules
 - [Performance](docs/performance.md) - Performance characteristics and benchmarks

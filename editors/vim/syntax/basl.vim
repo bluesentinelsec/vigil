@@ -9,7 +9,7 @@ endif
 
 " Keywords
 syn keyword baslKeyword     fn return if else while for break continue
-syn keyword baslKeyword     class pub self import as defer in const enum
+syn keyword baslKeyword     class pub self import as defer guard in const enum
 syn keyword baslKeyword     switch case default interface implements
 
 " Types

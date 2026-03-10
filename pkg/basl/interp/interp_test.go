@@ -11,6 +11,10 @@ import (
 )
 
 func evalBASL(src string) (int, []string, error) {
+	return evalBASLWithSearchPaths(src)
+}
+
+func evalBASLWithSearchPaths(src string, searchPaths ...string) (int, []string, error) {
 	lex := lexer.New(src)
 	tokens, err := lex.Tokenize()
 	if err != nil {
@@ -22,6 +26,9 @@ func evalBASL(src string) (int, []string, error) {
 		return 0, nil, err
 	}
 	interp := New()
+	for _, dir := range searchPaths {
+		interp.AddSearchPath(dir)
+	}
 	var lines []string
 	interp.PrintFn = func(s string) { lines = append(lines, strings.TrimRight(s, "\n")) }
 	code, err := interp.Exec(prog)
@@ -136,6 +143,82 @@ fn main() -> i32 { i32 n, err e = parse("x"); fmt.print(e.message()); return 0; 
 				t.Fatalf("error: %v", err)
 			}
 			checkOutput(t, lines, tt.wantOutput)
+		})
+	}
+}
+
+func TestExec_Guard(t *testing.T) {
+	tests := []struct {
+		name       string
+		src        string
+		wantOutput []string
+	}{
+		{"success", `import "fmt";
+fn read(bool should_succeed) -> (string, err) {
+    if (should_succeed) { return ("data", ok); }
+    return ("", err("missing", err.not_found));
+}
+fn main() -> i32 {
+    guard string data, err e = read(true) {
+        fmt.print("bad");
+        return 1;
+    }
+    fmt.print(data + ":" + e.message());
+    return 0;
+}`, []string{"data:"}},
+		{"error_block", `import "fmt";
+fn read(bool should_succeed) -> (string, err) {
+    if (should_succeed) { return ("data", ok); }
+    return ("", err("missing", err.not_found));
+}
+fn main() -> i32 {
+    guard string data, err e = read(false) {
+        fmt.print(e.message());
+    }
+    fmt.print(":" + data);
+    return 0;
+}`, []string{"missing", ":"}},
+		{"single_err", `import "fmt";
+fn check(bool should_succeed) -> err {
+    if (should_succeed) { return ok; }
+    return err("bad", err.state);
+}
+fn main() -> i32 {
+    guard err e = check(false) {
+        fmt.print(e.message());
+    }
+    return 0;
+}`, []string{"bad"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, lines, err := evalBASL(tt.src)
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
+			checkOutput(t, lines, tt.wantOutput)
+		})
+	}
+}
+
+func TestExec_GuardErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		src        string
+		wantErrSub string
+	}{
+		{"missing_err_binding", `fn value() -> i32 { return 1; } fn main() -> i32 { guard i32 n = value() { return 1; } return n; }`, "guard requires the final binding to be err"},
+		{"discard_err_binding", `fn check() -> err { return ok; } fn main() -> i32 { guard err _ = check() { return 1; } return 0; }`, "guard requires a named err binding"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := evalBASL(tt.src)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErrSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tt.wantErrSub)
+			}
 		})
 	}
 }
@@ -1925,26 +2008,32 @@ func TestExec_TypeConversions_Extended(t *testing.T) {
 		src        string
 		wantOutput []string
 	}{
-		// string -> numeric (fallible)
-		{"string_to_i32", `import "fmt"; fn main() -> i32 { i32 n, err e = i32("42"); fmt.print(string(n)); return 0; }`, []string{"42"}},
-		{"string_to_i32_err", `import "fmt"; fn main() -> i32 { i32 n, err e = i32("abc"); fmt.print(e.message()); return 0; }`, []string{"invalid i32: abc"}},
-		{"string_to_i64", `import "fmt"; fn main() -> i32 { i64 n, err e = i64("999999999999"); fmt.print(string(n)); return 0; }`, []string{"999999999999"}},
-		{"string_to_i64_err", `import "fmt"; fn main() -> i32 { i64 n, err e = i64("nope"); fmt.print(e.message()); return 0; }`, []string{"invalid i64: nope"}},
-		{"string_to_f64", `import "fmt"; fn main() -> i32 { f64 n, err e = f64("3.14"); fmt.print(string(n)); return 0; }`, []string{"3.14"}},
-		{"string_to_f64_err", `import "fmt"; fn main() -> i32 { f64 n, err e = f64("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid f64: bad"}},
+		// explicit parsing from strings
+		{"string_to_i32", `import "fmt"; import "parse"; fn main() -> i32 { i32 n, err e = parse.i32("42"); fmt.print(string(n)); return 0; }`, []string{"42"}},
+		{"string_to_i32_err", `import "fmt"; import "parse"; fn main() -> i32 { i32 n, err e = parse.i32("abc"); fmt.print(e.message()); return 0; }`, []string{"invalid i32: abc"}},
+		{"string_to_i64", `import "fmt"; import "parse"; fn main() -> i32 { i64 n, err e = parse.i64("999999999999"); fmt.print(string(n)); return 0; }`, []string{"999999999999"}},
+		{"string_to_i64_err", `import "fmt"; import "parse"; fn main() -> i32 { i64 n, err e = parse.i64("nope"); fmt.print(e.message()); return 0; }`, []string{"invalid i64: nope"}},
+		{"string_to_f64", `import "fmt"; import "parse"; fn main() -> i32 { f64 n, err e = parse.f64("3.14"); fmt.print(string(n)); return 0; }`, []string{"3.14"}},
+		{"string_to_f64_err", `import "fmt"; import "parse"; fn main() -> i32 { f64 n, err e = parse.f64("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid f64: bad"}},
+		{"string_to_u8", `import "fmt"; import "parse"; fn main() -> i32 { u8 n, err e = parse.u8("255"); fmt.print(string(i32(n))); return 0; }`, []string{"255"}},
+		{"string_to_u8_err", `import "fmt"; import "parse"; fn main() -> i32 { u8 n, err e = parse.u8("999"); fmt.print(e.message()); return 0; }`, []string{"invalid u8: 999"}},
+		{"string_to_u32", `import "fmt"; import "parse"; fn main() -> i32 { u32 n, err e = parse.u32("100"); fmt.print(string(i32(n))); return 0; }`, []string{"100"}},
+		{"string_to_u32_err", `import "fmt"; import "parse"; fn main() -> i32 { u32 n, err e = parse.u32("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid u32: bad"}},
+		{"string_to_u64", `import "fmt"; import "parse"; fn main() -> i32 { u64 n, err e = parse.u64("1000"); fmt.print(string(i32(u32(n)))); return 0; }`, []string{"1000"}},
+		{"string_to_u64_err", `import "fmt"; import "parse"; fn main() -> i32 { u64 n, err e = parse.u64("-1"); fmt.print(e.message()); return 0; }`, []string{"invalid u64: -1"}},
+		{"string_to_bool_true", `import "fmt"; import "parse"; fn main() -> i32 { bool enabled, err e = parse.bool("true"); if (enabled) { fmt.print("yes"); } return 0; }`, []string{"yes"}},
+		{"string_to_bool_false", `import "fmt"; import "parse"; fn main() -> i32 { bool enabled, err e = parse.bool("false"); if (!enabled) { fmt.print("no"); } return 0; }`, []string{"no"}},
+		{"string_to_bool_err", `import "fmt"; import "parse"; fn main() -> i32 { bool enabled, err e = parse.bool("TRUE"); if (enabled) { fmt.print("bad"); } fmt.print(e.message()); return 0; }`, []string{"invalid bool: TRUE"}},
 		// numeric cross-conversions
 		{"i32_to_i64", `import "fmt"; fn main() -> i32 { i64 n = i64(42); fmt.print(string(n)); return 0; }`, []string{"42"}},
-		{"i64_to_i32", `import "fmt"; fn main() -> i32 { i64 big, err _ = i64("100"); i32 n = i32(big); fmt.print(string(n)); return 0; }`, []string{"100"}},
+		{"i64_to_i32", `import "fmt"; import "parse"; fn main() -> i32 { i64 big, err _ = parse.i64("100"); i32 n = i32(big); fmt.print(string(n)); return 0; }`, []string{"100"}},
 		{"i32_to_f64", `import "fmt"; fn main() -> i32 { f64 n = f64(10); fmt.print(string(n)); return 0; }`, []string{"10"}},
 		{"f64_to_i32", `import "fmt"; fn main() -> i32 { f64 pi = 3.14; i32 n = i32(pi); fmt.print(string(n)); return 0; }`, []string{"3"}},
-		{"i64_to_f64", `import "fmt"; fn main() -> i32 { i64 big, err _ = i64("1000"); f64 n = f64(big); fmt.print(string(n)); return 0; }`, []string{"1000"}},
+		{"i64_to_f64", `import "fmt"; import "parse"; fn main() -> i32 { i64 big, err _ = parse.i64("1000"); f64 n = f64(big); fmt.print(string(n)); return 0; }`, []string{"1000"}},
 		// i64 to string
-		{"i64_to_string", `import "fmt"; fn main() -> i32 { i64 n, err _ = i64("9876543210"); fmt.print(string(n)); return 0; }`, []string{"9876543210"}},
+		{"i64_to_string", `import "fmt"; import "parse"; fn main() -> i32 { i64 n, err _ = parse.i64("9876543210"); fmt.print(string(n)); return 0; }`, []string{"9876543210"}},
 		// u8 conversions
 		{"i32_to_u8", `import "fmt"; fn main() -> i32 { i32 x = 65; fmt.print(string(i32(u8(x)))); return 0; }`, []string{"65"}},
-		// string to u32 (fallible)
-		{"string_to_u32", `import "fmt"; fn main() -> i32 { u32 n, err e = u32("100"); fmt.print(string(i32(n))); return 0; }`, []string{"100"}},
-		{"string_to_u32_err", `import "fmt"; fn main() -> i32 { u32 n, err e = u32("bad"); fmt.print(e.message()); return 0; }`, []string{"invalid u32: bad"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1963,13 +2052,13 @@ func TestExec_I64Arithmetic(t *testing.T) {
 		src        string
 		wantOutput []string
 	}{
-		{"add", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("200"); fmt.print(string(a + b)); return 0; }`, []string{"300"}},
-		{"sub", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("500"); i64 b, err _ = i64("200"); fmt.print(string(a - b)); return 0; }`, []string{"300"}},
-		{"mul", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("3"); fmt.print(string(a * b)); return 0; }`, []string{"300"}},
-		{"div", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("3"); fmt.print(string(a / b)); return 0; }`, []string{"33"}},
-		{"mod", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("100"); i64 b, err _ = i64("3"); fmt.print(string(a % b)); return 0; }`, []string{"1"}},
-		{"compare_lt", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("1"); i64 b, err _ = i64("2"); if (a < b) { fmt.print("yes"); } return 0; }`, []string{"yes"}},
-		{"compare_eq", `import "fmt"; fn main() -> i32 { i64 a, err _ = i64("5"); i64 b, err _ = i64("5"); if (a == b) { fmt.print("eq"); } return 0; }`, []string{"eq"}},
+		{"add", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("200"); fmt.print(string(a + b)); return 0; }`, []string{"300"}},
+		{"sub", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("500"); i64 b, err _ = parse.i64("200"); fmt.print(string(a - b)); return 0; }`, []string{"300"}},
+		{"mul", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("3"); fmt.print(string(a * b)); return 0; }`, []string{"300"}},
+		{"div", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("3"); fmt.print(string(a / b)); return 0; }`, []string{"33"}},
+		{"mod", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("100"); i64 b, err _ = parse.i64("3"); fmt.print(string(a % b)); return 0; }`, []string{"1"}},
+		{"compare_lt", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("1"); i64 b, err _ = parse.i64("2"); if (a < b) { fmt.print("yes"); } return 0; }`, []string{"yes"}},
+		{"compare_eq", `import "fmt"; import "parse"; fn main() -> i32 { i64 a, err _ = parse.i64("5"); i64 b, err _ = parse.i64("5"); if (a == b) { fmt.print("eq"); } return 0; }`, []string{"eq"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2127,6 +2216,7 @@ func TestExec_TypeConversionErrors(t *testing.T) {
 		wantErrSub string
 	}{
 		{"bad_conv", `fn main() -> i32 { i32 x = i32(true); return 0; }`, "cannot convert"},
+		{"string_requires_parse", `fn main() -> i32 { i32 x = i32("42"); return 0; }`, "use parse.i32(...)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2202,6 +2292,68 @@ fn main() -> i32 {
 
 	want := []string{"initialized"}
 	checkOutput(t, lines, want)
+}
+
+func TestExec_ImportCycleReportsChain(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.basl"), []byte(`import "b";
+pub fn a_value() -> i32 {
+    return 1;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "b.basl"), []byte(`import "a";
+pub fn b_value() -> i32 {
+    return 2;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := evalBASLWithSearchPaths(`import "a";
+
+fn main() -> i32 {
+    return 0;
+}`, tmpDir)
+	if err == nil {
+		t.Fatal("expected import cycle error")
+	}
+	if !strings.Contains(err.Error(), "import cycle detected: a -> b -> a") {
+		t.Fatalf("error = %q, want cycle chain", err.Error())
+	}
+}
+
+func TestExec_ImportCycleReportsNestedChain(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.basl"), []byte(`import "b";
+pub fn a_value() -> i32 {
+    return 1;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "b.basl"), []byte(`import "c";
+pub fn b_value() -> i32 {
+    return 2;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "c.basl"), []byte(`import "a";
+pub fn c_value() -> i32 {
+    return 3;
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := evalBASLWithSearchPaths(`import "a";
+
+fn main() -> i32 {
+    return 0;
+}`, tmpDir)
+	if err == nil {
+		t.Fatal("expected import cycle error")
+	}
+	if !strings.Contains(err.Error(), "import cycle detected: a -> b -> c -> a") {
+		t.Fatalf("error = %q, want nested cycle chain", err.Error())
+	}
 }
 
 func TestExec_AnonymousFunctions(t *testing.T) {

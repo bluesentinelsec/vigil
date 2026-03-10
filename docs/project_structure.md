@@ -88,10 +88,10 @@ pub fn hello() -> string {
 
 `test/mylib_test.basl`:
 ```c
-import "t";
+import "test";
 import "mylib";
 
-fn test_hello() -> void {
+fn test_hello(test.T t) -> void {
     t.assert(mylib.hello() == "hello from mylib", "hello should match");
 }
 ```

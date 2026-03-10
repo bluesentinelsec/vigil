@@ -11,8 +11,9 @@ Detailed documentation for each module is in `docs/stdlib/`.
 | [fmt](fmt.md) | Formatted output | `fmt.print`, `fmt.println`, `fmt.sprintf`, `fmt.dollar` |
 | [os](os.md) | OS interaction | `os.env`, `os.exec`, `os.cwd`, `os.platform`, `os.exit` |
 | [math](math.md) | Math functions | `sqrt`, `pow`, `sin`, `cos`, `floor`, `ceil`, `pi`, `e` |
-| [file](file.md) | Filesystem | `read_all`, `write_all`, `open`, `stat`, `mkdir`, `list_dir` |
+| [file](file.md) | Filesystem | `read_all`, `write_all`, `open`, `stat`, `walk`, `walk_best_effort` |
 | [strings](strings.md) | String utilities | `join`, `repeat` |
+| [parse](parse.md) | Fallible string parsing | `i32`, `i64`, `f64`, `u8`, `u32`, `u64`, `bool` |
 | [time](time.md) | Time operations | `now`, `sleep`, `since`, `format`, `parse` |
 | [path](path.md) | Path manipulation | `join`, `dir`, `base`, `ext`, `abs` |
 | [log](log.md) | Leveled logging | `debug`, `info`, `warn`, `error`, `fatal`, `set_level` |
@@ -37,6 +38,7 @@ Detailed documentation for each module is in `docs/stdlib/`.
 | [args](args.md) | Argument parsing | `parser`, `flag`, `arg`, `parse` |
 | [thread](thread.md) | OS threads | `spawn`, `join`, `sleep` |
 | [mutex](mutex.md) | Mutual exclusion | `new`, `lock`, `unlock`, `destroy` |
+| [gui](gui.md) | Native GUI widgets | `app`, `vbox`, `hbox`, `button`, `entry` |
 | [test](test.md) | Test framework | `t.assert`, `t.fail`, `basl test` CLI |
 | [unsafe](unsafe.md) | Low-level memory | `alloc`, `Buffer`, `Layout`, `Struct`, `null` |
 | [ffi](ffi.md) | Native FFI | `load`, `bind`, C interop |

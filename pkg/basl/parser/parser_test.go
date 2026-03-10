@@ -318,6 +318,34 @@ func TestParse_TupleBindStmt(t *testing.T) {
 	}
 }
 
+func TestParse_GuardStmt(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+	}{
+		{"multi_value", `fn get() -> (i32, err) { return (1, ok); } fn f() { guard i32 n, err e = get() { return; } }`},
+		{"single_err", `fn check() -> err { return ok; } fn f() { guard err e = check() { return; } }`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := parseSource(tt.src); err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+		})
+	}
+}
+
+func TestParse_GuardStmtRequiresErrBinding(t *testing.T) {
+	src := `fn get() -> i32 { return 1; } fn f() { guard i32 n = get() { return; } }`
+	_, err := parseSource(src)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "guard requires the final binding to be err") {
+		t.Fatalf("error = %q, want err binding message", err.Error())
+	}
+}
+
 func TestParse_CompoundAssign(t *testing.T) {
 	tests := []struct {
 		name string

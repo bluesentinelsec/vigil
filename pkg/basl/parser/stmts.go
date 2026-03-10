@@ -50,6 +50,8 @@ func (p *Parser) parseStmt() (ast.Stmt, error) {
 		return &ast.ContinueStmt{Line: tok.Line}, nil
 	case lexer.TOKEN_DEFER:
 		return p.parseDeferStmt()
+	case lexer.TOKEN_GUARD:
+		return p.parseGuardStmt()
 	case lexer.TOKEN_SWITCH:
 		return p.parseSwitchStmt()
 	case lexer.TOKEN_CONST:
@@ -91,9 +93,24 @@ func (p *Parser) parseStmt() (ast.Stmt, error) {
 }
 
 func (p *Parser) parseVarDeclStmt() (ast.Stmt, error) {
-	typ, err := p.parseType()
+	bindings, init, line, err := p.parseTypedBindingsValue()
 	if err != nil {
 		return nil, err
+	}
+	if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+		return nil, err
+	}
+	if len(bindings) == 1 {
+		b := bindings[0]
+		return &ast.VarStmt{Type: b.Type, Name: b.Name, Init: init, Line: line}, nil
+	}
+	return &ast.TupleBindStmt{Bindings: bindings, Value: init, Line: line}, nil
+}
+
+func (p *Parser) parseTypedBindingsValue() ([]ast.TupleBindItem, ast.Expr, int, error) {
+	typ, err := p.parseType()
+	if err != nil {
+		return nil, nil, 0, err
 	}
 	nameTok := p.peek()
 	var name string
@@ -105,59 +122,41 @@ func (p *Parser) parseVarDeclStmt() (ast.Stmt, error) {
 	} else {
 		nt, err := p.expect(lexer.TOKEN_IDENT)
 		if err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
 		name = nt.Literal
 	}
 
-	// If comma follows, this is a tuple binding: type name, type name = expr;
-	if p.peek().Type == lexer.TOKEN_COMMA {
-		bindings := []ast.TupleBindItem{{Type: typ, Name: name, Discard: discard}}
-		for p.match(lexer.TOKEN_COMMA) {
-			bt, err := p.parseType()
-			if err != nil {
-				return nil, err
-			}
-			bn := p.peek()
-			var bname string
-			var bdisc bool
-			if bn.Literal == "_" && bn.Type == lexer.TOKEN_IDENT {
-				bdisc = true
-				bname = "_"
-				p.advance()
-			} else {
-				bnt, err := p.expect(lexer.TOKEN_IDENT)
-				if err != nil {
-					return nil, err
-				}
-				bname = bnt.Literal
-			}
-			bindings = append(bindings, ast.TupleBindItem{Type: bt, Name: bname, Discard: bdisc})
-		}
-		if _, err := p.expect(lexer.TOKEN_ASSIGN); err != nil {
-			return nil, err
-		}
-		val, err := p.parseExpr()
+	bindings := []ast.TupleBindItem{{Type: typ, Name: name, Discard: discard}}
+	for p.match(lexer.TOKEN_COMMA) {
+		bt, err := p.parseType()
 		if err != nil {
-			return nil, err
+			return nil, nil, 0, err
 		}
-		if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
-			return nil, err
+		bn := p.peek()
+		var bname string
+		var bdisc bool
+		if bn.Literal == "_" && bn.Type == lexer.TOKEN_IDENT {
+			bdisc = true
+			bname = "_"
+			p.advance()
+		} else {
+			bnt, err := p.expect(lexer.TOKEN_IDENT)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			bname = bnt.Literal
 		}
-		return &ast.TupleBindStmt{Bindings: bindings, Value: val, Line: nameTok.Line}, nil
+		bindings = append(bindings, ast.TupleBindItem{Type: bt, Name: bname, Discard: bdisc})
 	}
-
 	if _, err := p.expect(lexer.TOKEN_ASSIGN); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
-	init, err := p.parseExpr()
+	val, err := p.parseExpr()
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
-	if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
-		return nil, err
-	}
-	return &ast.VarStmt{Type: typ, Name: name, Init: init, Line: nameTok.Line}, nil
+	return bindings, val, nameTok.Line, nil
 }
 
 // parseIdentStartStmt handles statements starting with an identifier.
@@ -440,6 +439,26 @@ func (p *Parser) parseDeferStmt() (*ast.DeferStmt, error) {
 		return nil, err
 	}
 	return &ast.DeferStmt{Call: expr, Line: tok.Line}, nil
+}
+
+func (p *Parser) parseGuardStmt() (ast.Stmt, error) {
+	tok := p.advance() // consume guard
+	bindings, val, _, err := p.parseTypedBindingsValue()
+	if err != nil {
+		return nil, err
+	}
+	last := bindings[len(bindings)-1]
+	if last.Type == nil || last.Type.Name != "err" {
+		return nil, p.errAt(tok, "guard requires the final binding to be err")
+	}
+	if last.Discard {
+		return nil, p.errAt(tok, "guard requires a named err binding")
+	}
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &ast.GuardStmt{Bindings: bindings, Value: val, Body: body, Line: tok.Line}, nil
 }
 
 func (p *Parser) parseLocalFnDecl() (ast.Stmt, error) {

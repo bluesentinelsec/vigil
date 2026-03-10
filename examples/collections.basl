@@ -46,7 +46,8 @@ fn main() -> i32 {
     }
     
     // Remove key
-    scores.remove("bob");
+    i32 removed_score, bool removed = scores.remove("bob");
+    fmt.println(f"  Removed bob: {removed}");
     fmt.println(f"  After removing bob: {scores.len()} entries");
     
     // Nested structures

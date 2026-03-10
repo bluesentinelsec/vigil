@@ -20,11 +20,11 @@ fn main() -> i32 {
     fmt.println(f"File contents:\n{data}");
     
     // Check if file exists
-    bool exists, err _ = file.exists("test.txt");
+    bool exists = file.exists("test.txt");
     fmt.println(f"File exists: {exists}");
     
     // Get file info
-    file.Stat info, err e3 = file.stat("test.txt");
+    file.FileStat info, err e3 = file.stat("test.txt");
     if (e3 == ok) {
         fmt.println(f"File size: {info.size} bytes");
         fmt.println(f"Is directory: {info.is_dir}");

@@ -7,13 +7,17 @@ Complete reference for all `basl` command-line tools.
 ```bash
 basl [script.basl]              # Run a script or start REPL
 basl fmt [files...]             # Format code
+basl check [targets...]         # Static validation without execution
 basl debug [script.basl]        # Start debugger
 basl new <name> [--lib]         # Create new project
 basl test [path]                # Run tests
 basl package [options]          # Package executable or library
 basl embed <files...>           # Embed assets
 basl doc <module>               # Show documentation
-basl editor <vim|vscode>        # Install editor support
+basl editor list                # List bundled editor targets
+basl editor install <targets>   # Install editor support
+basl editor semantic ...        # JSON semantic editor queries
+basl lsp                        # Run the BASL language server over stdio
 basl help [topic]               # Show help
 basl --version                  # Show version
 ```
@@ -62,6 +66,24 @@ basl fmt --check script.basl    # Exit 1 if not formatted
 ```
 
 Use in CI pipelines to enforce consistent formatting.
+
+## Static Checking
+
+### Validate code without running it
+
+```bash
+basl check main.basl
+basl check ./lib/...
+basl check --path ./vendor main.basl
+```
+
+`basl check` parses BASL source and reports diagnostics without executing user code.
+
+It validates imports, declarations, calls, return shapes, interface conformance, and a broad set of common semantic mistakes across most non-graphics stdlib modules.
+
+In a BASL project root, `basl check` defaults to checking `main.basl` plus the `lib/` and `test/` directories when no explicit target is given.
+
+See [check.md](check.md) for the full guide, detailed behavior, and the complete list of issues it detects.
 
 ## Debugging
 
@@ -124,14 +146,15 @@ basl test -run sqrt                # Tests matching "sqrt"
 
 Test files must:
 - End with `_test.basl`
-- Import `"t"` module
+- Import `"test"` module
+- Accept a single `test.T` parameter
 - Define functions starting with `test_`
 
 Example test:
 ```c
-import "t";
+import "test";
 
-fn test_addition() -> void {
+fn test_addition(test.T t) -> void {
     t.assert(2 + 2 == 4, "addition works");
 }
 ```
@@ -241,12 +264,15 @@ basl help imports           # Help for specific topic
 ### Install editor plugins
 
 ```bash
-basl editor vim             # Install Vim syntax highlighting
-basl editor vscode          # Install VS Code extension
+basl editor list
+basl editor install vim             # Install Vim syntax highlighting
+basl editor install vscode          # Install VS Code extension
+basl editor semantic diagnostics --file main.basl
+basl lsp
 ```
 
 Vim: Copies syntax files to `~/.vim/`
-VS Code: Copies extension to `~/.vscode/extensions/`
+VS Code: Copies extension to `~/.vscode/extensions/` and launches `basl lsp` for diagnostics, go-to-definition, hover, rename, references, document symbols, and completions.
 
 See [editor_cli.md](editor_cli.md) for manual installation.
 

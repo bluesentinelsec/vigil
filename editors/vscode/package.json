@@ -1,13 +1,26 @@
 {
   "name": "basl",
   "displayName": "BASL",
-  "description": "Syntax highlighting, snippets, and stdlib completions for BASL",
+  "description": "Syntax highlighting plus a local BASL language server client for diagnostics, navigation, rename, symbols, and completions",
   "version": "0.1.0",
   "engines": { "vscode": "^1.75.0" },
   "categories": ["Programming Languages"],
   "main": "./extension.js",
-  "activationEvents": ["onLanguage:basl"],
+  "activationEvents": ["onLanguage:basl", "onDebug:basl"],
   "contributes": {
+    "commands": [{
+      "command": "basl.runEntryPoint",
+      "title": "BASL: Run Entry Point"
+    }, {
+      "command": "basl.runEntryPointWithArgs",
+      "title": "BASL: Run Entry Point With Args"
+    }, {
+      "command": "basl.debugEntryPoint",
+      "title": "BASL: Debug Entry Point"
+    }, {
+      "command": "basl.debugEntryPointWithArgs",
+      "title": "BASL: Debug Entry Point With Args"
+    }],
     "languages": [{
       "id": "basl",
       "aliases": ["BASL"],
@@ -22,6 +35,103 @@
     "snippets": [{
       "language": "basl",
       "path": "./snippets/basl.json"
-    }]
+    }],
+    "breakpoints": [{
+      "language": "basl"
+    }],
+    "debuggers": [{
+      "type": "basl",
+      "label": "BASL",
+      "languages": ["basl"],
+      "configurationAttributes": {
+        "launch": {
+          "required": ["program"],
+          "properties": {
+            "program": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the BASL program to debug."
+            },
+            "args": {
+              "type": "array",
+              "description": "Arguments passed to the BASL program.",
+              "items": { "type": "string" },
+              "default": []
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory for the debug session."
+            },
+            "stopOnEntry": {
+              "type": "boolean",
+              "description": "Break on the first executable BASL statement.",
+              "default": false
+            },
+            "path": {
+              "type": "array",
+              "description": "Additional BASL import search paths.",
+              "items": { "type": "string" },
+              "default": []
+            }
+          }
+        }
+      },
+      "initialConfigurations": [{
+        "type": "basl",
+        "request": "launch",
+        "name": "Debug BASL Program",
+        "program": "${file}",
+        "cwd": "${workspaceFolder}"
+      }]
+    }],
+    "configuration": {
+      "title": "BASL",
+      "properties": {
+        "basl.path": {
+          "type": "string",
+          "default": "basl",
+          "description": "Path to the basl CLI used to launch `basl lsp` for diagnostics, definitions, hover, rename, references, symbols, and completions."
+        },
+        "basl.args": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "Default CLI arguments passed to BASL entry points when using the VS Code Run or Debug actions."
+        },
+        "basl.codeLens.entryPoint": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Run and Debug CodeLens actions above `fn main(...)` entry points."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[basl]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "menus": {
+      "editor/title": [{
+        "command": "basl.runEntryPoint",
+        "when": "resourceLangId == basl",
+        "group": "navigation"
+      }, {
+        "command": "basl.debugEntryPoint",
+        "when": "resourceLangId == basl",
+        "group": "navigation"
+      }],
+      "commandPalette": [{
+        "command": "basl.runEntryPoint",
+        "when": "resourceLangId == basl"
+      }, {
+        "command": "basl.runEntryPointWithArgs",
+        "when": "resourceLangId == basl"
+      }, {
+        "command": "basl.debugEntryPoint",
+        "when": "resourceLangId == basl"
+      }, {
+        "command": "basl.debugEntryPointWithArgs",
+        "when": "resourceLangId == basl"
+      }]
+    }
   }
 }

@@ -220,6 +220,8 @@ func (interp *Interpreter) execStmt(s ast.Stmt, env *Env) error {
 		if env.defers != nil {
 			*env.defers = append(*env.defers, deferredCall{callee: callee, args: args})
 		}
+	case *ast.GuardStmt:
+		return interp.execGuard(s, env)
 	case *ast.Block:
 		return interp.execBlock(s, NewEnv(env))
 	case *ast.SwitchStmt:
@@ -340,23 +342,38 @@ func (interp *Interpreter) execTupleBind(s *ast.TupleBindStmt, env *Env) error {
 	return nil
 }
 
+func (interp *Interpreter) execGuard(s *ast.GuardStmt, env *Env) error {
+	if len(s.Bindings) == 0 {
+		return fmt.Errorf("line %d: guard requires at least one binding", s.Line)
+	}
+	last := s.Bindings[len(s.Bindings)-1]
+	if last.Type == nil || last.Type.Name != "err" {
+		return fmt.Errorf("line %d: guard requires the final binding to be err", s.Line)
+	}
+	if last.Discard {
+		return fmt.Errorf("line %d: guard requires a named err binding", s.Line)
+	}
+
+	tuple := &ast.TupleBindStmt{Bindings: s.Bindings, Value: s.Value, Line: s.Line}
+	if err := interp.execTupleBind(tuple, env); err != nil {
+		return err
+	}
+
+	errVal, ok := env.Get(last.Name)
+	if !ok || errVal.T != value.TypeErr {
+		return fmt.Errorf("line %d: guard requires the final binding to be err", s.Line)
+	}
+	if errVal.IsOk() {
+		return nil
+	}
+	return interp.execBlock(s.Body, NewEnv(env))
+}
+
 // evalCallMulti evaluates a call expression and returns multiple values.
 func (interp *Interpreter) evalCallMulti(expr ast.Expr, env *Env) ([]value.Value, error) {
-	// Handle type conversion expressions (they return multi-values)
 	if tc, ok := expr.(*ast.TypeConvExpr); ok {
-		_, err := interp.evalTypeConv(tc, env)
+		v, err := interp.evalTypeConv(tc, env)
 		if err != nil {
-			if mr, ok := err.(*MultiReturnVal); ok {
-				return mr.Values, nil
-			}
-			return nil, err
-		}
-		// Single value conversion (non-string to non-string)
-		v, err := interp.evalExpr(expr, env)
-		if err != nil {
-			if mr, ok := err.(*MultiReturnVal); ok {
-				return mr.Values, nil
-			}
 			return nil, err
 		}
 		return []value.Value{v}, nil

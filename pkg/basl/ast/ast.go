@@ -190,6 +190,13 @@ type DeferStmt struct {
 	Line int
 }
 
+type GuardStmt struct {
+	Bindings []TupleBindItem
+	Value    Expr
+	Body     *Block
+	Line     int
+}
+
 func (*Block) stmtNode()              {}
 func (*VarStmt) stmtNode()            {}
 func (*AssignStmt) stmtNode()         {}
@@ -203,6 +210,7 @@ func (*ExprStmt) stmtNode()           {}
 func (*BreakStmt) stmtNode()          {}
 func (*ContinueStmt) stmtNode()       {}
 func (*DeferStmt) stmtNode()          {}
+func (*GuardStmt) stmtNode()          {}
 func (*SwitchStmt) stmtNode()         {}
 func (*CompoundAssignStmt) stmtNode() {}
 func (*IncDecStmt) stmtNode()         {}
@@ -317,7 +325,7 @@ type TupleExpr struct {
 	Line  int
 }
 
-// TypeConvExpr represents explicit type conversions like i32("123"), string(42)
+// TypeConvExpr represents explicit type conversions like i32(x), string(42)
 type TypeConvExpr struct {
 	Target *TypeExpr
 	Arg    Expr
@@ -343,10 +351,13 @@ type FStringExpr struct {
 }
 
 type FStringPart struct {
-	IsExpr bool
-	Text   string // for literal parts
-	Expr   Expr   // for expression parts
-	Format string // optional format spec, e.g. ".2f"
+	IsExpr     bool
+	Text       string // for literal parts
+	Expr       Expr   // for expression parts
+	ExprSource string // original expression source inside {...}
+	ExprLine   int    // 1-based source line for ExprSource
+	ExprCol    int    // 1-based source column for ExprSource
+	Format     string // optional format spec, e.g. ".2f"
 }
 
 func (*IntLit) exprNode()       {}

@@ -193,8 +193,10 @@ basl doc lib/api.basl
 Document test behavior:
 
 ```c
+import "test";
+
 // Tests that factorial(0) returns 1
-fn test_factorial_zero() -> void {
+fn test_factorial_zero(test.T t) -> void {
     t.assert(factorial(0) == 1, "factorial(0) should be 1");
 }
 ```

@@ -1,12 +1,18 @@
 # BASL Editor Integration CLI
 
-The `basl editor` command manages the editor integrations bundled into the `basl` binary.
+The `basl editor` command manages the editor integrations bundled into the `basl` binary and exposes the semantic JSON queries used for debugging the language tooling.
 
-This is a local convenience feature:
+Installation is a local convenience feature:
 
 1. it installs editor support from files already embedded in `basl`
 2. it does not download anything
 3. it only writes to the editor-specific paths you explicitly choose
+
+The semantic subcommand is read-only:
+
+1. it parses BASL files and prints JSON to stdout
+2. it does not modify source files
+3. it is useful for debugging editor features without speaking the full LSP protocol
 
 ## Supported Editors
 
@@ -42,6 +48,18 @@ Remove one or more editor targets:
 basl editor uninstall [--home dir] <editor...>
 ```
 
+Run a semantic query:
+
+```sh
+basl editor semantic <diagnostics|definition|hover|references|rename|completions> --file path [options]
+```
+
+Run the real language server:
+
+```sh
+basl lsp
+```
+
 Examples:
 
 ```sh
@@ -51,6 +69,9 @@ basl editor install nvim vscode
 basl editor install --home /tmp/basl-home vim
 basl editor install --force vscode
 basl editor uninstall vim vscode
+basl editor semantic diagnostics --file main.basl
+basl editor semantic definition --file main.basl --line 12 --col 9
+basl editor semantic rename --file main.basl --line 12 --col 9 --to newName
 ```
 
 ## Install Paths
@@ -147,6 +168,49 @@ Behavior by target:
 3. `vscode`: removes the managed extension directory `~/.vscode/extensions/basl/`
 
 The command does not remove unrelated editor configuration.
+
+## Semantic Queries
+
+`basl editor semantic` remains useful for manual debugging and testing of the semantic engine.
+
+Current operations:
+
+1. `diagnostics`: static diagnostics as JSON
+2. `definition`: definition location at `--line/--col`
+3. `hover`: symbol detail at `--line/--col`
+4. `references`: reference locations at `--line/--col`
+5. `rename`: rename edits at `--line/--col --to newName`
+6. `completions`: completion items at `--line/--col`
+
+Positions are 1-based.
+
+Examples:
+
+```sh
+basl editor semantic diagnostics --file main.basl
+basl editor semantic hover --file main.basl --line 8 --col 15
+basl editor semantic completions --file main.basl --line 8 --col 22
+```
+
+## Language Server
+
+The bundled VS Code extension now launches `basl lsp` over stdio for semantic editor features.
+
+Current LSP-backed features:
+
+1. diagnostics
+2. go to definition
+3. hover
+4. find references
+5. rename symbol
+6. document symbols
+7. completions
+
+Important separation:
+
+1. the existing Vim syntax files and VS Code grammar still control tokenization and syntax highlighting
+2. the LSP adds semantic behavior on top of that highlighting layer
+3. testing LSP support should focus on diagnostics, navigation, rename, symbols, and completions, not on colors alone
 
 ## Recommended Workflow
 

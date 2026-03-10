@@ -1,12 +1,13 @@
-# BASL Language Syntax
+# BASL Syntax
 
-BASL (Blazingly Awesome Scripting Language) is a statically-typed, C-syntax scripting language. It prioritizes readability, predictability, and explicitness. Every program looks the same — there is one way to do anything.
+BASL is a statically typed, C-style scripting language with explicit control flow, explicit errors, and a small set of consistent language forms. This document describes the language as implemented today.
 
-## Program Structure
+## Source Files
 
-All source files must use the `.basl` file extension.
-
-Executable BASL programs use a `main` function that returns `i32`:
+- BASL source files use the `.basl` extension.
+- Statements end with `;`.
+- Blocks use `{ ... }`.
+- Programs typically expose a `main` entrypoint:
 
 ```c
 fn main() -> i32 {
@@ -14,184 +15,182 @@ fn main() -> i32 {
 }
 ```
 
-Statements end with semicolons. Blocks use braces.
+`main` is conventional for runnable programs. Library modules export `pub` declarations instead.
+
+## Comments
+
+```c
+// line comment
+
+/*
+block comment
+*/
+```
 
 ## Imports
 
 ```c
 import "fmt";
 import "json";
-import "file" as fs;              // alias
-import "../shared/utils";         // relative path (alias: utils)
+import "file" as fs;
+import "../shared/utils";
 ```
 
-Imports resolve to built-in stdlib modules or `.basl` files.
-For direct script execution, BASL searches the script's directory first.
-When the script is inside a BASL project, BASL also searches the project's `lib/` and `deps/` directories automatically.
-Modules export only `pub` declarations.
+- Imports resolve to stdlib modules or other `.basl` modules.
+- `as` sets the local module name explicitly.
+- Without `as`, the alias is the last path component.
+- Only `pub` declarations are exported from a module.
+
+Typical resolution behavior:
+- Built-in stdlib modules are always available by name.
+- Script execution searches from the current script or project root.
+- BASL projects also search conventional `lib/` and `deps/` locations.
+
+## Top-Level Declarations
+
+Top-level BASL files may contain:
+
+- `import`
+- `fn`
+- `class`
+- `interface`
+- `enum`
+- `const`
+- typed variable declarations
+
+Most top-level declarations can be exported with `pub`:
+
+```c
+pub fn greet() -> void {}
+pub class Person {}
+pub interface Greeter {}
+pub enum Status { Ok, Err }
+pub const string VERSION = "1.0";
+pub i32 answer = 42;
+```
 
 ## Types
 
 ### Primitive Types
 
-| Type     | Description                  | Example          |
-|----------|------------------------------|------------------|
-| `i32`    | 32-bit signed integer        | `42`, `-1`       |
-| `i64`    | 64-bit signed integer        | `i64(100000)`    |
-| `f64`    | 64-bit float                 | `3.14`, `1e6`    |
-| `u8`     | Unsigned byte                | `u8(255)`        |
-| `u32`    | 32-bit unsigned integer      | `u32(42)`        |
-| `u64`    | 64-bit unsigned integer      | `u64(42)`        |
-| `bool`   | Boolean                      | `true`, `false`  |
-| `string` | UTF-8 string                 | `"hello"`        |
-| `err`    | Error value                  | `err("failed", err.io)` |
-| `void`   | No value                     |                  |
+| Type | Notes |
+|---|---|
+| `bool` | `true`, `false` |
+| `i32` | 32-bit signed integer |
+| `i64` | 64-bit signed integer |
+| `f64` | 64-bit float |
+| `u8` | unsigned byte |
+| `u32` | 32-bit unsigned integer |
+| `u64` | 64-bit unsigned integer |
+| `string` | UTF-8 string |
+| `err` | explicit error value |
+| `void` | no value |
+
+There is no `null`.
 
 ### Composite Types
 
 ```c
 array<i32> nums = [1, 2, 3];
-array<string> names = ["alice", "bob"];
 map<string, i32> scores = {"alice": 95, "bob": 87};
+array<array<string>> table = [["a"], ["b"]];
 ```
-
-Nested generics work: `array<array<string>>`.
 
 ### Function Types
 
 ```c
-fn callback = some_function;                  // any callable
-fn(i32, i32) -> i32 op = add;                // typed signature
-fn(string) -> void handler = print_message;   // void return
+fn worker(i32 x) -> void {}
+fn add(i32 a, i32 b) -> i32 { return a + b; }
+fn log_name(string name) -> void {}
+
+fn main() -> i32 {
+    fn any_cb = worker;
+    fn(i32, i32) -> i32 op = add;
+    fn(string) handler = log_name;
+    return 0;
+}
 ```
 
-Function signature types check param count, param types, and return type.
-Bare `fn` accepts any callable without signature checking.
+- Bare `fn` accepts any callable.
+- `fn(...) -> ...` enforces parameter and return shape.
 
-### Type Enforcement
+### Module-Qualified Types
 
-All type annotations are enforced at runtime. Mismatches produce clear errors:
-
-```
-error: line 3: type mismatch — expected i32, received string
-```
-
-Enforcement points:
-- Variable declarations and assignments
-- Function parameters (including function signature types)
-- Return statements
-- Tuple bindings
-- Class field assignments
-- Collection mutations (`push`, `set`, index assignment)
-- Collection literals (`array<i32>` checks each element, `map<K,V>` checks keys and values)
-
-### Numeric Type Comparisons
-
-BASL requires explicit type matching for numeric operations. Different numeric types cannot be compared or combined without explicit casting:
+Classes imported from another module use module-qualified names:
 
 ```c
-i32 a = 10;
-i64 b = i64(20);
+import "models";
 
-// ERROR: cannot compare i32 and i64
-if (a < b) { ... }
-
-// OK: cast to common type
-if (i64(a) < b) { ... }
+models.Point p = models.Point(3, 4);
 ```
 
-When a type mismatch occurs, BASL may provide a helpful hint suggesting the appropriate cast (when a valid conversion exists):
+## Literals
 
-```
-error: line 5: cannot apply "<" to i32 and i64 — operands must be the same type
-  hint: cast left operand: i64(left) < right
-```
-
-Hints are only provided when:
-- The conversion is actually supported by BASL
-- The operator works on the target type
-- The conversion is safe (e.g., no signed/unsigned mixing)
-
-This explicitness prevents subtle bugs from implicit conversions and makes type handling clear.
-
-### Integer Literals
+### Numeric Literals
 
 ```c
 i32 dec = 255;
 i32 hex = 0xFF;
 i32 bin = 0b11111111;
 i32 oct = 0o377;
+f64 pi = 3.14159;
+f64 large = 1e6;
 ```
 
 ### String Literals
 
 ```c
-string s = "hello\nworld";     // escape sequences: \n \t \\ \"
-string raw = `no \n escapes`;  // backtick: raw/multi-line, no escape processing
-string msg = f"hello {name}";  // f-string: expressions in {} are evaluated
+string normal = "hello\nworld";
+string raw = `no escapes here`;
+string name = "Alice";
+string msg = f"hello {name}";
 ```
 
 ### Character Literals
 
-Single-character strings can be written with single quotes for clarity:
+Single-quoted character literals are single-character strings:
 
 ```c
-string ch = 'a';               // equivalent to "a"
-string newline = '\n';         // escape sequences work
-if (ch == 'x') { ... }         // clearer than ch == "x"
-
-// UTF-8 characters work
+string ch = 'a';
+string newline = '\n';
 string euro = '€';
-string emoji = '😀';
 ```
 
-Character literals are syntactic sugar — they create single-character strings, not a separate type. Supported escapes: `\n`, `\t`, `\r`, `\\`, `\'`.
+They are syntax sugar for one-character `string` values, not a separate type.
 
-The formatter preserves character literal syntax for single-character strings, except in map literals where keys are always formatted with double quotes for consistency:
+### F-Strings
 
-```c
-string ch = 'a';               // formatted as 'a'
-map<string, i32> m = {'a': 1}; // formatted as {"a": 1}
-```
-
-### String Interpolation
-
-F-strings evaluate expressions inside `{}` and convert them to strings:
+F-strings support interpolation and optional format specifiers:
 
 ```c
 string name = "Alice";
 i32 age = 30;
+f64 pi = 3.14159;
+
 fmt.println(f"Name: {name}, Age: {age}");
 fmt.println(f"Next year: {age + 1}");
-fmt.println(f"Upper: {name.to_upper()}");
+fmt.println(f"pi={pi:.2f}");
+fmt.println(f"literal braces: {{ok}}");
 ```
 
-Format specifiers follow the expression after `:`, using Go fmt verbs:
+### Array and Map Literals
 
 ```c
-f64 pi = 3.14159;
-fmt.println(f"pi={pi:.2f}");     // pi=3.14
-fmt.println(f"pi={pi:.4f}");     // pi=3.1416
-fmt.println(f"x={42:05d}");      // x=00042
+array<string> names = ["alice", "bob"];
+map<string, i32> counts = {"a": 1, "b": 2};
 ```
 
-Escape sequences (`\n`, `\t`, `\\`, `\"`) work in f-strings. Use `{{` and `}}` for literal braces:
+## Variables and Constants
 
-```c
-fmt.println(f"value\t{x}");       // tab before value
-fmt.println(f"set: {{1, 2, 3}}"); // prints: set: {1, 2, 3}
-```
+### Variable Declarations
 
-## Variables
+All variables are typed and initialized at declaration:
 
 ```c
 i32 x = 10;
 string name = "basl";
-bool flag = true;
-array<i32> nums = [1, 2, 3];
+bool ready = true;
 ```
-
-All variables must be initialized at declaration. There is no `null`.
 
 ### Constants
 
@@ -200,75 +199,116 @@ const i32 MAX = 100;
 const string VERSION = "1.0";
 ```
 
-Constants cannot be reassigned. Works at top-level and inside functions.
+Constants can appear at top level and inside functions.
+
+### Tuple Bindings
+
+Functions may return multiple values, which are bound explicitly:
+
+```c
+i32 result, err e = divide(10, 2);
+i32 value, err _ = divide(10, 2);
+```
+
+`_` discards a value.
 
 ## Assignment
 
 ```c
 x = 42;
-x += 5;       // compound: +=, -=, *=, /=, %=
-x++;           // increment (statement, not expression)
-x--;           // decrement
-arr[0] = 99;   // index assignment
-m["key"] = 1;  // map key assignment
-obj.field = v; // field assignment
+x += 5;
+x -= 1;
+x *= 2;
+x /= 3;
+x %= 2;
+x++;
+x--;
+arr[0] = 99;
+m["key"] = 1;
+obj.field = 7;
 ```
 
-## Operators
+`++` and `--` are statements, not expressions.
+
+## Expressions and Operators
 
 ### Arithmetic
+
 `+`, `-`, `*`, `/`, `%`
 
+### Bitwise
+
+`&`, `|`, `^`, `~`, `<<`, `>>`
+
 ### Comparison
+
 `==`, `!=`, `<`, `>`, `<=`, `>=`
 
-- Numeric types: standard arithmetic comparison
-- Strings: lexicographic (byte-wise) comparison
-  - `"a" < "b"` is `true`
-  - `"apple" < "banana"` is `true`
-  - Useful for character ranges: `ch >= "a" && ch <= "z"`
-  - UTF-8 safe: compares byte values, not locale-aware
-- Booleans: only `==` and `!=` supported
-- `err` type: only `==` and `!=` supported
-
 ### Logical
+
 `&&`, `||`, `!`
 
-Short-circuit evaluation: `&&` stops on false, `||` stops on true.
+Logical operators short-circuit.
 
-### Ternary Operator
-```c
-condition ? trueValue : falseValue
-```
-
-The condition must be a boolean expression. Returns `trueValue` if condition is true, otherwise `falseValue`.
-
-The ternary operator has the lowest precedence of all expression operators (lower than `||`, `&&`, arithmetic, etc.), so it typically requires parentheses when used as a subexpression.
-
-The operator is right-associative, allowing chained ternaries without parentheses.
+### Ternary
 
 ```c
 i32 max = a > b ? a : b;
-string status = age >= 18 ? "adult" : "minor";
-
-// Chained ternary (right-associative, no parentheses needed)
 string size = x < 10 ? "small" : x < 100 ? "medium" : "large";
-
-// Ternary as subexpression requires parentheses
-i32 result = 10 + (flag ? 1 : 2);
-i32 negated = -(flag ? 1 : 2);
+i32 delta = 10 + (flag ? 1 : 2);
 ```
 
-### Bitwise
-`&` (AND), `|` (OR), `^` (XOR), `~` (NOT), `<<` (shift left), `>>` (shift right)
+- The condition must be `bool`.
+- The ternary operator is right-associative.
+- It has the lowest precedence.
 
-### String Concatenation
+### Member, Index, and Call Expressions
+
 ```c
-string s = "hello" + " " + "world";
-s += "!";
+fmt.println("hi");
+person.name;
+arr[0];
+m["answer"];
+worker(42);
+```
+
+### Type Conversions
+
+Conversions are explicit:
+
+```c
+i32 x = 42;
+f64 y = f64(x);
+string s = string(x);
+```
+
+For parsing strings into numeric or boolean values, use the `parse` module:
+
+```c
+import "parse";
+
+fn main() -> i32 {
+    i32 n, err e = parse.i32("42");
+    return 0;
+}
+```
+
+### Type Rules
+
+BASL does not perform implicit numeric coercion. Mixed numeric operations must be cast explicitly:
+
+```c
+i32 a = 10;
+i64 b = i64(20);
+
+if (i64(a) < b) {
+    fmt.println("ok");
+}
 ```
 
 ## Functions
+
+### Function Declarations
 
 ```c
 fn add(i32 a, i32 b) -> i32 {
@@ -280,9 +320,7 @@ fn greet(string name) -> void {
 }
 ```
 
-### Multi-Return
-
-Functions can return multiple values:
+### Multiple Return Values
 
 ```c
 fn divide(i32 a, i32 b) -> (i32, err) {
@@ -293,69 +331,37 @@ fn divide(i32 a, i32 b) -> (i32, err) {
 }
 ```
 
-Callers bind all return values:
-
-```c
-i32 result, err e = divide(10, 3);
-```
-
-Discard with `_`:
-
-```c
-i32 result, err _ = divide(10, 3);
-```
-
-### Functions as Values
-
-Named functions can be passed as arguments and stored in variables:
-
-```c
-fn double(i32 x) -> i32 { return x * 2; }
-
-fn apply(fn f, i32 x) -> i32 {
-    return f(x);
-}
-
-fn main() -> i32 {
-    i32 result = apply(double, 5);  // 10
-    fn op = double;                 // store in variable
-    return 0;
-}
-```
-
-### Anonymous Functions
-
-Anonymous functions are defined inline with `fn(params) -> ret { body }`:
+### Anonymous Functions and Closures
 
 ```c
 fn main() -> i32 {
-    // Inline callback
-    i32 result = apply(fn(i32 x) -> i32 { return x * 3; }, 5);
-
-    // Stored in variable
-    fn doubler = fn(i32 x) -> i32 { return x * 2; };
-
-    // Closure — captures enclosing scope
     i32 factor = 10;
-    fn scale = fn(i32 x) -> i32 { return x * factor; };
-    scale(4);  // 40
+
+    fn scale = fn(i32 x) -> i32 {
+        return x * factor;
+    };
+
+    fn() -> void {
+        fmt.println("iife");
+    }();
 
     return 0;
 }
 ```
 
-Anonymous functions capture the enclosing scope (closures). They can be passed as callbacks, stored in `fn` variables, and returned from functions.
+Anonymous functions capture surrounding variables.
 
 ### Local Functions
 
-Functions can be defined inside other functions:
+Named local functions are also supported:
 
 ```c
 fn main() -> i32 {
     fn helper(i32 x) -> i32 {
         return x * 2;
     }
-    i32 r = helper(5);
+
+    i32 result = helper(5);
     return 0;
 }
 ```
@@ -380,42 +386,31 @@ Parentheses around the condition are required.
 
 ```c
 while (running) {
-    // ...
+    tick();
 }
 ```
 
-### for (C-style)
+### C-Style for
 
 ```c
 for (i32 i = 0; i < 10; i++) {
-    fmt.println(fmt.sprintf("%d", i));
+    fmt.println(string(i));
 }
 ```
-
-Compound assignment and `++`/`--` work in the post expression.
 
 ### for-in
 
 ```c
-// Arrays
 for val in arr {
     fmt.println(val);
 }
 
-// Maps — key and value
 for key, val in m {
-    fmt.println(key);
-}
-
-// Maps — value only
-for val in m {
-    fmt.println(val);
+    fmt.println(key + "=" + string(val));
 }
 ```
 
 ### switch
-
-The tag and case values are arbitrary expressions, not limited to integers or characters. Strings, booleans, enums, and computed expressions all work:
 
 ```c
 switch (x) {
@@ -426,27 +421,13 @@ switch (x) {
     default:
         fmt.println("other");
 }
-
-switch (name) {
-    case "alice", "bob":
-        fmt.println("known");
-    default:
-        fmt.println("unknown");
-}
-
-switch (x + y) {
-    case compute():
-        fmt.println("match");
-}
 ```
 
-No fallthrough — each case is independent (Go-style semantics, C-style syntax). Multiple values per case separated by commas.
+- Cases may contain multiple values.
+- There is no fallthrough.
+- Matching uses explicit value equality, not truthiness.
 
-Matching uses strict type equality — there is no truthiness. A string cannot match an integer, and a non-zero integer does not match `true`. Types must match exactly, then values are compared.
-
-### break / continue
-
-Work in `for`, `while`, and `for-in` loops.
+### break and continue
 
 ```c
 for (i32 i = 0; i < 100; i++) {
@@ -459,13 +440,185 @@ for (i32 i = 0; i < 100; i++) {
 }
 ```
 
+### defer
+
+`defer` schedules a call to run when the enclosing function returns.
+
+```c
+fn cleanup() -> void {}
+
+fn main() -> i32 {
+    defer cleanup();
+    return 0;
+}
+```
+
+- Deferred calls run in LIFO order.
+- Arguments are evaluated eagerly.
+
+### guard
+
+`guard` is shorthand for “bind values, then immediately handle the error case”.
+
+```c
+guard string data, err e = file.read_all("config.txt") {
+    fmt.eprintln(f"read failed: {e.message()}");
+    return 1;
+}
+```
+
+Rules:
+- `guard` must end with an `err` binding.
+- The final `err` binding must be named, not `_`.
+- The body runs only when the error is not `ok`.
+
+Equivalent expanded form:
+
+```c
+string data, err e = file.read_all("config.txt");
+if (e != ok) {
+    fmt.eprintln(f"read failed: {e.message()}");
+    return 1;
+}
+```
+
+## Errors
+
+BASL has no exceptions. Errors are values.
+
+### Success and Failure
+
+```c
+return ok;
+return err("file not found", err.not_found);
+```
+
+Stdlib fallible APIs usually return `err` as the final value in a multi-return result.
+
+### Inspecting Errors
+
+```c
+if (e != ok) {
+    fmt.eprintln(e.message());
+    fmt.eprintln(e.kind());
+}
+```
+
+### Standard Error Kinds
+
+Common built-in error kinds include:
+
+- `err.not_found`
+- `err.permission`
+- `err.exists`
+- `err.eof`
+- `err.io`
+- `err.parse`
+- `err.bounds`
+- `err.type`
+- `err.arg`
+- `err.timeout`
+- `err.closed`
+- `err.state`
+
+### Routing by Kind
+
+```c
+if (e != ok) {
+    switch (e.kind()) {
+        case err.not_found:
+            fmt.println("missing");
+        case err.permission:
+            fmt.println("denied");
+        default:
+            fmt.eprintln(f"error: {e.message()}");
+    }
+}
+```
+
+## Classes
+
+```c
+class Person {
+    pub string name;
+    pub i32 age;
+
+    fn init(string name, i32 age) -> void {
+        self.name = name;
+        self.age = age;
+    }
+
+    pub fn greet() -> void {
+        fmt.println(f"Hello, I'm {self.name}");
+    }
+}
+```
+
+### Construction
+
+Instantiate a class by calling its name:
+
+```c
+Person p = Person("Alice", 30);
+p.greet();
+```
+
+If `init` returns `err`, construction becomes fallible:
+
+```c
+class Connection {
+    fn init(string host) -> err {
+        return ok;
+    }
+}
+
+fn main() -> i32 {
+    Connection c, err e = Connection("localhost");
+    return 0;
+}
+```
+
+### Notes
+
+- `self` refers to the current instance.
+- BASL has no class inheritance.
+- Use interfaces plus composition for polymorphism.
+
+## Interfaces
+
+```c
+interface Drawable {
+    fn draw() -> void;
+    fn name() -> string;
+}
+
+class Circle implements Drawable {
+    pub string label;
+
+    fn init(string label) -> void {
+        self.label = label;
+    }
+
+    fn draw() -> void {
+        fmt.println("drawing");
+    }
+
+    fn name() -> string {
+        return self.label;
+    }
+}
+```
+
+- Classes may implement multiple interfaces.
+- Interface conformance is explicit via `implements`.
+
 ## Enums
 
 ```c
 enum Color {
-    Red,      // 0
-    Green,    // 1
-    Blue      // 2
+    Red,
+    Green,
+    Blue
 }
 
 enum HttpStatus {
@@ -475,291 +628,76 @@ enum HttpStatus {
 }
 ```
 
-Access variants with dot notation: `Color.Red`, `HttpStatus.Ok`.
-
-Enum values are `i32`. Use them in switch statements:
+Use enum members with dot syntax:
 
 ```c
-switch (status) {
-    case HttpStatus.Ok:
-        fmt.println("success");
-    case HttpStatus.NotFound:
-        fmt.println("not found");
-}
+i32 c = Color.Red;
 ```
 
-## Interfaces
+Enum values are `i32`-backed and work naturally in `switch`.
 
-Interfaces define a contract — a set of method signatures that a class must implement.
+## Common Built-In Collection and String Methods
+
+These are heavily used and part of everyday BASL style.
+
+### String
+
+| Method | Returns |
+|---|---|
+| `s.len()` | `i32` |
+| `s.contains(sub)` | `bool` |
+| `s.starts_with(prefix)` | `bool` |
+| `s.ends_with(suffix)` | `bool` |
+| `s.trim()` | `string` |
+| `s.to_upper()` | `string` |
+| `s.to_lower()` | `string` |
+| `s.replace(old, new)` | `string` |
+| `s.split(sep)` | `array<string>` |
+| `s.index_of(sub)` | `(i32, bool)` |
+| `s.substr(start, len)` | `(string, err)` |
+| `s.bytes()` | `array<u8>` |
+| `s.char_at(i)` | `(string, err)` |
+
+### Array
+
+| Method | Returns |
+|---|---|
+| `a.len()` | `i32` |
+| `a.push(val)` | `void` |
+| `a.pop()` | `(T, err)` |
+| `a.get(i)` | `(T, err)` |
+| `a.set(i, val)` | `err` |
+| `a.slice(start, end)` | `array<T>` |
+| `a.contains(val)` | `bool` |
+
+### Map
+
+| Method | Returns |
+|---|---|
+| `m.len()` | `i32` |
+| `m.get(key)` | `(T, bool)` |
+| `m.set(key, val)` | `err` |
+| `m.remove(key)` | `(T, bool)` |
+| `m.has(key)` | `bool` |
+| `m.keys()` | `array<K>` |
+| `m.values()` | `array<V>` |
+
+Index syntax is also supported:
 
 ```c
-interface Drawable {
-    fn draw() -> void;
-    fn get_name() -> string;
-}
+arr[0];
+m["key"];
+arr[0] = 1;
+m["key"] = 2;
 ```
 
-Classes opt in with `implements`:
-
-```c
-class Circle implements Drawable {
-    pub string label;
-
-    fn init(string label) -> void {
-        self.label = label;
-    }
-
-    fn draw() -> void {
-        fmt.println("drawing circle");
-    }
-
-    fn get_name() -> string {
-        return self.label;
-    }
-}
-```
-
-A class can implement multiple interfaces:
-
-```c
-class Sprite implements Drawable, Updatable {
-    // must have all methods from both interfaces
-}
-```
-
-Interface types work in variable declarations, function parameters, and arrays:
-
-```c
-fn render(Drawable d) -> void {
-    d.draw();
-}
-
-array<Drawable> objects = [Circle("c1"), Square("s1")];
-for obj in objects {
-    obj.draw();
-}
-```
-
-Missing a required method is an error at class registration time.
-
-## Classes
-
-```c
-class Point {
-    pub i32 x;
-    pub i32 y;
-
-    fn init(i32 x, i32 y) -> void {
-        self.x = x;
-        self.y = y;
-    }
-
-    fn distance() -> f64 {
-        return math.sqrt(f64(self.x * self.x + self.y * self.y));
-    }
-}
-```
-
-BASL has no class inheritance. Use interfaces for polymorphism and composition for code reuse.
-
-Instantiate by calling the class name:
-
-```c
-Point p = Point(3, 4);
-f64 d = p.distance();
-```
-
-### Module Classes
-
-Classes from modules must use module-qualified type names:
-
-```c
-import "models";
-
-// Correct: module-qualified type
-models.Point p = models.Point(3, 4);
-
-// Error: unqualified type doesn't match module class
-Point p = models.Point(3, 4);  // type mismatch
-```
-
-This ensures type safety and prevents ambiguity when multiple modules define classes with the same name.
-
-### Fallible Construction
-
-If `init` returns `err`, construction uses tuple binding:
-
-```c
-class Connection {
-    fn init(string host) -> err {
-        // ...
-        return ok;
-    }
-}
-
-Connection c, err e = Connection("localhost");
-if (e != ok) {
-    return 1;
-}
-```
-
-## Error Handling
-
-BASL has no exceptions. Errors are values returned explicitly.
-
-```c
-string data, err e = file.read_all("config.txt");
-if (e != ok) {
-    fmt.println("failed to read file");
-    return 1;
-}
-```
-
-The `err` type has two states: `ok` for success, or `err(message, kind)` for failure. `ok` is a reserved keyword. Stdlib functions return `err` as the last value in multi-return.
-
-### Creating Errors
-
-Errors require a message and a kind:
-
-```c
-err("file not found", err.not_found)
-err("bad JSON at line 3", err.parse)
-err("index 5 out of range", err.bounds)
-```
-
-The kind must be one of the standard error kinds. Invalid kinds produce a runtime error.
-
-### Error Methods
-
-| Method          | Returns  | Description                    |
-|-----------------|----------|--------------------------------|
-| `e.message()`   | `string` | Get error message              |
-| `e.kind()`      | `string` | Get error kind                 |
-
-### Error Kinds
-
-Standard error kinds are available as constants on the `err` namespace:
-
-| Constant          | Meaning                                      |
-|-------------------|----------------------------------------------|
-| `err.not_found`   | Resource doesn't exist                       |
-| `err.permission`  | Access denied                                |
-| `err.exists`      | Already exists                               |
-| `err.eof`         | End of input                                 |
-| `err.io`          | General I/O failure                          |
-| `err.parse`       | Malformed input                              |
-| `err.bounds`      | Index out of range                           |
-| `err.type`        | Type conversion failure                      |
-| `err.arg`         | Invalid argument                             |
-| `err.timeout`     | Operation timed out                          |
-| `err.closed`      | Resource already closed                      |
-| `err.state`       | Invalid state                                |
-
-### Routing Errors by Kind
-
-Use `switch` on `e.kind()` to handle errors by type:
-
-```c
-string data, err e = file.read_all("config.txt");
-if (e != ok) {
-    switch (e.kind()) {
-        case err.not_found:
-            fmt.println("file missing, using defaults");
-        case err.permission:
-            fmt.println("access denied");
-        default:
-            fmt.eprintln(f"error: {e.message()}");
-    }
-}
-```
-
-## defer
-
-Defers a function call until the enclosing function returns. LIFO order. Arguments are evaluated eagerly.
-
-```c
-File f, err e = file.open("data.txt", "r");
-defer f.close();
-// f.close() runs when this function returns
-```
-
-## Type Conversions
-
-Explicit only — no implicit conversions:
-
-```c
-i32 x = 42;
-f64 y = f64(x);           // numeric conversion
-string s = string(x);     // to string
-i32 n, err e = i32("42"); // string to number (can fail)
-```
-
-## String Methods
-
-| Method                        | Returns              | Description                    |
-|-------------------------------|----------------------|--------------------------------|
-| `s.len()`                     | `i32`                | Byte length                    |
-| `s.contains(sub)`             | `bool`               | Contains substring             |
-| `s.starts_with(prefix)`       | `bool`               | Starts with prefix             |
-| `s.ends_with(suffix)`         | `bool`               | Ends with suffix               |
-| `s.trim()`                    | `string`             | Trim whitespace                |
-| `s.to_upper()`                | `string`             | Uppercase                      |
-| `s.to_lower()`                | `string`             | Lowercase                      |
-| `s.replace(old, new)`         | `string`             | Replace all occurrences        |
-| `s.split(sep)`                | `array<string>`      | Split by separator             |
-| `s.index_of(sub)`             | `(i32, bool)`        | Find index of substring        |
-| `s.substr(start, len)`        | `(string, err)`      | Extract substring              |
-| `s.bytes()`                   | `array<u8>`          | Convert to byte array          |
-| `s.char_at(i)`                | `(string, err)`      | Single character at index      |
-
-## Array Methods
-
-| Method                        | Returns              | Description                    |
-|-------------------------------|----------------------|--------------------------------|
-| `a.len()`                     | `i32`                | Number of elements             |
-| `a.push(val)`                 | `void`               | Append element                 |
-| `a.pop()`                     | `(T, err)`           | Remove and return last element |
-| `a.get(i)`                    | `(T, err)`           | Get element by index           |
-| `a.set(i, val)`               | `err`                | Set element by index           |
-| `a.slice(start, end)`         | `array<T>`           | Sub-array [start, end)         |
-| `a.contains(val)`             | `bool`               | Check if value exists          |
-
-Index access: `a[i]` for reading, `a[i] = val` for writing.
-
-## Map Methods
-
-| Method                        | Returns              | Description                    |
-|-------------------------------|----------------------|--------------------------------|
-| `m.len()`                     | `i32`                | Number of entries              |
-| `m.get(key)`                  | `(T, bool)`          | Get value by key               |
-| `m.set(key, val)`             | `err`                | Set key-value pair             |
-| `m.remove(key)`               | `(T, bool)`          | Remove and return value        |
-| `m.has(key)`                  | `bool`               | Check if key exists            |
-| `m.keys()`                    | `array<K>`           | All keys                       |
-| `m.values()`                  | `array<V>`           | All values                     |
-
-Index access: `m["key"]` for reading, `m["key"] = val` for writing.
-
-## Unsafe Features
-
-Pointers, null, raw memory, C struct layouts, and FFI callbacks require `import "unsafe"`:
-
-```c
-import "unsafe";
-import "ffi";
-
-ffi.Lib lib = ffi.load("libSDL3.dylib");
-fn sdl_init = ffi.bind(lib, "SDL_Init", "i32", ["i32"]);
-```
-
-See `design.md` for full unsafe/FFI documentation.
-
-## Design Principles
-
-- **One way to do anything.** No operator overloading, no multiple inheritance, no implicit conversions.
-- **No null** in safe code. Missing values use multi-return: `(T, err)` or `(T, bool)`.
-- **No exceptions.** Errors are values.
-- **Functions are values.** Named functions and anonymous closures, passed by reference.
-- **No implicit conversions.** All type conversions are explicit.
-- **No truthiness.** `if` requires `bool`. `if x` where x is `i32` is a compile error.
-- **Unsafe is gated.** Pointers, FFI, and raw memory require `import "unsafe"`.
+## Language Rules and Conventions
+
+- No implicit conversions.
+- No hidden error propagation.
+- No truthiness: conditions must be `bool`.
+- No `null`.
+- Errors are explicit values.
+- Prefer the BASL formatter for canonical layout: `basl fmt`.
+
+For stdlib APIs, see [docs/stdlib/README.md](stdlib/README.md). For CLI behavior, see [docs/cli.md](cli.md).

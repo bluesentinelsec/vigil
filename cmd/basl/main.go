@@ -54,12 +54,24 @@ func main() {
 		os.Exit(runFmt(args[1:]))
 		return
 	}
+	if args[0] == "check" {
+		os.Exit(runCheck(args[1:]))
+		return
+	}
 	if args[0] == "package" {
 		os.Exit(runPackage(args[1:]))
 		return
 	}
 	if args[0] == "editor" {
 		os.Exit(runEditor(args[1:]))
+		return
+	}
+	if args[0] == "lsp" {
+		os.Exit(runLSP(args[1:]))
+		return
+	}
+	if args[0] == "dap" {
+		os.Exit(runDAP(args[1:]))
 		return
 	}
 	if args[0] == "doc" {
