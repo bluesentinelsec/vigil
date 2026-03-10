@@ -60,7 +60,15 @@ BASL_API basl_object_t *basl_value_as_object(const basl_value_t *value);
 
 BASL_API basl_object_type_t basl_object_type(const basl_object_t *object);
 BASL_API size_t basl_object_ref_count(const basl_object_t *object);
+/*
+ * Retains one additional reference. Ref-count overflow is treated as an
+ * internal fatal error.
+ */
 BASL_API void basl_object_retain(basl_object_t *object);
+/*
+ * Consumes the caller's reference and always clears *object. The underlying
+ * object is destroyed only when the released reference was the last one.
+ */
 BASL_API void basl_object_release(basl_object_t **object);
 
 BASL_API basl_status_t basl_string_object_new(

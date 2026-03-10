@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "internal/basl_internal.h"
@@ -16,14 +17,14 @@ typedef struct basl_string_object {
     basl_string_t value;
 } basl_string_object_t;
 
-static basl_string_object_t *basl_string_object_cast(
+static const basl_string_object_t *basl_string_object_cast(
     const basl_object_t *object
 ) {
     if (object == NULL || object->type != BASL_OBJECT_STRING) {
         return NULL;
     }
 
-    return (basl_string_object_t *)object;
+    return (const basl_string_object_t *)object;
 }
 
 static void basl_object_destroy(basl_object_t *object) {
@@ -219,9 +220,11 @@ void basl_object_retain(basl_object_t *object) {
         return;
     }
 
-    if (object->ref_count != SIZE_MAX) {
-        object->ref_count += 1U;
+    if (object->ref_count == SIZE_MAX) {
+        abort();
     }
+
+    object->ref_count += 1U;
 }
 
 void basl_object_release(basl_object_t **object) {
@@ -327,7 +330,7 @@ basl_status_t basl_string_object_new_cstr(
 }
 
 const char *basl_string_object_c_str(const basl_object_t *object) {
-    basl_string_object_t *string_object;
+    const basl_string_object_t *string_object;
 
     string_object = basl_string_object_cast(object);
     if (string_object == NULL) {
@@ -338,7 +341,7 @@ const char *basl_string_object_c_str(const basl_object_t *object) {
 }
 
 size_t basl_string_object_length(const basl_object_t *object) {
-    basl_string_object_t *string_object;
+    const basl_string_object_t *string_object;
 
     string_object = basl_string_object_cast(object);
     if (string_object == NULL) {
