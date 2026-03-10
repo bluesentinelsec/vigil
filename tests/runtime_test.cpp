@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 
@@ -69,15 +68,7 @@ void ExpectClearedLocation(const basl_source_location_t &location) {
 
 }  // namespace
 
-TEST(BaslTest, SumAddsTwoIntegers) {
-    EXPECT_EQ(basl_sum(2, 3), 5);
-}
-
-TEST(BaslTest, SumHandlesNegativeValues) {
-    EXPECT_EQ(basl_sum(-2, 3), 1);
-}
-
-TEST(BaslTest, RuntimeOpensAndClosesWithDefaultAllocator) {
+TEST(BaslRuntimeTest, RuntimeOpensAndClosesWithDefaultAllocator) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
 
@@ -93,7 +84,7 @@ TEST(BaslTest, RuntimeOpensAndClosesWithDefaultAllocator) {
     EXPECT_EQ(runtime, nullptr);
 }
 
-TEST(BaslTest, RuntimeOpenValidatesArguments) {
+TEST(BaslRuntimeTest, RuntimeOpenValidatesArguments) {
     basl_error_t error = {};
 
     EXPECT_EQ(basl_runtime_open(nullptr, nullptr, &error), BASL_STATUS_INVALID_ARGUMENT);
@@ -104,7 +95,7 @@ TEST(BaslTest, RuntimeOpenValidatesArguments) {
     ExpectClearedLocation(error.location);
 }
 
-TEST(BaslTest, RuntimeUsesCustomAllocatorHooks) {
+TEST(BaslRuntimeTest, RuntimeUsesCustomAllocatorHooks) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     AllocatorStats stats = {};
@@ -132,7 +123,7 @@ TEST(BaslTest, RuntimeUsesCustomAllocatorHooks) {
     EXPECT_EQ(stats.deallocate_calls, 1);
 }
 
-TEST(BaslTest, RuntimeOptionsInitClearsFields) {
+TEST(BaslRuntimeTest, RuntimeOptionsInitClearsFields) {
     basl_runtime_options_t options = {};
     basl_allocator_t allocator = {};
 
@@ -142,7 +133,7 @@ TEST(BaslTest, RuntimeOptionsInitClearsFields) {
     EXPECT_EQ(options.allocator, nullptr);
 }
 
-TEST(BaslTest, RuntimeRejectsIncompleteAllocator) {
+TEST(BaslRuntimeTest, RuntimeRejectsIncompleteAllocator) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     basl_allocator_t allocator = {};
@@ -166,57 +157,13 @@ TEST(BaslTest, RuntimeRejectsIncompleteAllocator) {
     EXPECT_EQ(error.length, std::strlen(error.value));
 }
 
-TEST(BaslTest, StatusNamesAreStable) {
-    EXPECT_STREQ(basl_status_name(BASL_STATUS_OK), "ok");
-    EXPECT_STREQ(
-        basl_status_name(BASL_STATUS_INVALID_ARGUMENT),
-        "invalid_argument"
-    );
-    EXPECT_STREQ(basl_status_name(BASL_STATUS_OUT_OF_MEMORY), "out_of_memory");
-    EXPECT_STREQ(basl_status_name(BASL_STATUS_INTERNAL), "internal");
-    EXPECT_STREQ(basl_status_name(BASL_STATUS_UNSUPPORTED), "unsupported");
-}
-
-TEST(BaslTest, ErrorClearResetsSourceLocation) {
-    basl_error_t error = {};
-
-    error.type = BASL_STATUS_INTERNAL;
-    error.value = "bad";
-    error.length = 3U;
-    error.location.source_id = 7U;
-    error.location.line = 11U;
-    error.location.column = 13U;
-
-    basl_error_clear(&error);
-
-    EXPECT_EQ(error.type, BASL_STATUS_OK);
-    EXPECT_EQ(error.value, nullptr);
-    EXPECT_EQ(error.length, 0U);
-    ExpectClearedLocation(error.location);
-}
-
-TEST(BaslTest, SourceLocationClearResetsFields) {
-    basl_source_location_t location = {};
-
-    location.source_id = 3U;
-    location.line = 5U;
-    location.column = 8U;
-
-    basl_source_location_clear(&location);
-
-    ExpectClearedLocation(location);
-}
-
-TEST(BaslTest, RuntimeAllocAndFreeClearPointer) {
+TEST(BaslRuntimeTest, RuntimeAllocAndFreeClearPointer) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     void *memory = nullptr;
 
     ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(
-        basl_runtime_alloc(runtime, 32U, &memory, &error),
-        BASL_STATUS_OK
-    );
+    ASSERT_EQ(basl_runtime_alloc(runtime, 32U, &memory, &error), BASL_STATUS_OK);
     ASSERT_NE(memory, nullptr);
 
     basl_runtime_free(runtime, &memory);
@@ -228,7 +175,7 @@ TEST(BaslTest, RuntimeAllocAndFreeClearPointer) {
     basl_runtime_close(&runtime);
 }
 
-TEST(BaslTest, RuntimeAllocReportsOutOfMemory) {
+TEST(BaslRuntimeTest, RuntimeAllocReportsOutOfMemory) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     FailingAllocatorState state = {};
@@ -257,7 +204,7 @@ TEST(BaslTest, RuntimeAllocReportsOutOfMemory) {
     EXPECT_EQ(state.deallocate_calls, 1);
 }
 
-TEST(BaslTest, RuntimeReallocUsesAllocatorWhenAvailable) {
+TEST(BaslRuntimeTest, RuntimeReallocUsesAllocatorWhenAvailable) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     AllocatorStats stats = {};
@@ -273,14 +220,8 @@ TEST(BaslTest, RuntimeReallocUsesAllocatorWhenAvailable) {
     options.allocator = &allocator;
 
     ASSERT_EQ(basl_runtime_open(&runtime, &options, &error), BASL_STATUS_OK);
-    ASSERT_EQ(
-        basl_runtime_alloc(runtime, 16U, &memory, &error),
-        BASL_STATUS_OK
-    );
-    ASSERT_EQ(
-        basl_runtime_realloc(runtime, &memory, 64U, &error),
-        BASL_STATUS_OK
-    );
+    ASSERT_EQ(basl_runtime_alloc(runtime, 16U, &memory, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_realloc(runtime, &memory, 64U, &error), BASL_STATUS_OK);
     EXPECT_EQ(stats.reallocate_calls, 1);
     ASSERT_NE(memory, nullptr);
 
@@ -288,7 +229,7 @@ TEST(BaslTest, RuntimeReallocUsesAllocatorWhenAvailable) {
     basl_runtime_close(&runtime);
 }
 
-TEST(BaslTest, RuntimeReallocRejectsUnsupportedAllocator) {
+TEST(BaslRuntimeTest, RuntimeReallocRejectsUnsupportedAllocator) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     AllocatorStats stats = {};
@@ -303,10 +244,7 @@ TEST(BaslTest, RuntimeReallocRejectsUnsupportedAllocator) {
     options.allocator = &allocator;
 
     ASSERT_EQ(basl_runtime_open(&runtime, &options, &error), BASL_STATUS_OK);
-    ASSERT_EQ(
-        basl_runtime_alloc(runtime, 16U, &memory, &error),
-        BASL_STATUS_OK
-    );
+    ASSERT_EQ(basl_runtime_alloc(runtime, 16U, &memory, &error), BASL_STATUS_OK);
     EXPECT_EQ(
         basl_runtime_realloc(runtime, &memory, 32U, &error),
         BASL_STATUS_UNSUPPORTED

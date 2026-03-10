@@ -8,7 +8,7 @@ The repository currently contains a minimal scaffold that proves the new toolcha
 
 - a public C library in `include/basl/`
 - a tiny CLI entrypoint in `src/cli/`
-- a stub API, `basl_sum(int a, int b)`
+- a split public C API surface with runtime, allocator, and status headers
 - a GoogleTest-based unit test
 - GitHub Actions builds for Linux, macOS, Windows, and Emscripten
 
@@ -24,8 +24,8 @@ make test
 The CLI currently acts as a tiny smoke test:
 
 ```bash
-./build/basl 2 3
-# prints 5
+./build/basl
+# prints "basl CLI scaffold"
 ```
 
 ## Current Layout
