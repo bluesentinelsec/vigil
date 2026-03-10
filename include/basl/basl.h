@@ -5,6 +5,7 @@
 #include "basl/allocator.h"
 #include "basl/export.h"
 #include "basl/runtime.h"
+#include "basl/string.h"
 #include "basl/status.h"
 
 #endif
