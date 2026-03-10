@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     }
 
     if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
-        fprintf(stderr, "failed to initialize runtime: %s\n", error.value);
+        fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
         return 1;
     }
 

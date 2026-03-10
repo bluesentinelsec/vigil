@@ -165,6 +165,7 @@ TEST(BaslRuntimeTest, RuntimeAllocAndFreeClearPointer) {
     ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
     ASSERT_EQ(basl_runtime_alloc(runtime, 32U, &memory, &error), BASL_STATUS_OK);
     ASSERT_NE(memory, nullptr);
+    EXPECT_EQ(std::memcmp(memory, "\0\0\0\0", 4), 0);
 
     basl_runtime_free(runtime, &memory);
     EXPECT_EQ(memory, nullptr);

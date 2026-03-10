@@ -33,6 +33,7 @@ typedef struct basl_error {
 
 BASL_API void basl_error_clear(basl_error_t *error);
 BASL_API void basl_source_location_clear(basl_source_location_t *location);
+BASL_API const char *basl_error_message(const basl_error_t *error);
 BASL_API const char *basl_status_name(basl_status_t status);
 
 #ifdef __cplusplus

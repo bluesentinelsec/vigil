@@ -63,3 +63,13 @@ TEST(BaslStatusTest, ErrorLengthMatchesMessage) {
 
     EXPECT_EQ(error.length, 7U);
 }
+
+TEST(BaslStatusTest, ErrorMessageFallsBackToKnownString) {
+    basl_error_t error = {};
+
+    EXPECT_STREQ(basl_error_message(nullptr), "unknown error");
+    EXPECT_STREQ(basl_error_message(&error), "unknown error");
+
+    error.value = "specific";
+    EXPECT_STREQ(basl_error_message(&error), "specific");
+}

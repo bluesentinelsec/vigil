@@ -1,10 +1,11 @@
 #include <stdlib.h>
+#include <string.h>
 
 #include "internal/basl_internal.h"
 
 static void *basl_default_allocate(void *user_data, size_t size) {
     (void)user_data;
-    return malloc(size);
+    return calloc(1U, size);
 }
 
 static void *basl_default_reallocate(void *user_data, void *memory, size_t size) {
@@ -58,6 +59,7 @@ basl_status_t basl_runtime_alloc(
         return BASL_STATUS_OUT_OF_MEMORY;
     }
 
+    memset(*out_memory, 0, size);
     return BASL_STATUS_OK;
 }
 

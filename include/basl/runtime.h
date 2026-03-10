@@ -25,12 +25,17 @@ BASL_API basl_status_t basl_runtime_open(
 );
 BASL_API void basl_runtime_close(basl_runtime_t **runtime);
 BASL_API const basl_allocator_t *basl_runtime_allocator(const basl_runtime_t *runtime);
+/* basl_runtime_alloc zero-initializes the returned memory on success. */
 BASL_API basl_status_t basl_runtime_alloc(
     basl_runtime_t *runtime,
     size_t size,
     void **out_memory,
     basl_error_t *error
 );
+/*
+ * On basl_runtime_realloc failure, *memory is left unchanged and still points
+ * to the original allocation.
+ */
 BASL_API basl_status_t basl_runtime_realloc(
     basl_runtime_t *runtime,
     void **memory,

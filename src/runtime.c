@@ -63,12 +63,14 @@ basl_status_t basl_runtime_open(
         return BASL_STATUS_OUT_OF_MEMORY;
     }
 
+    memset(runtime, 0, sizeof(*runtime));
     runtime->allocator = allocator;
     *out_runtime = runtime;
     return BASL_STATUS_OK;
 }
 
 void basl_runtime_close(basl_runtime_t **runtime) {
+    basl_allocator_t allocator;
     basl_runtime_t *resolved_runtime;
 
     if (runtime == NULL || *runtime == NULL) {
@@ -76,10 +78,8 @@ void basl_runtime_close(basl_runtime_t **runtime) {
     }
 
     resolved_runtime = *runtime;
-    resolved_runtime->allocator.deallocate(
-        resolved_runtime->allocator.user_data,
-        resolved_runtime
-    );
+    allocator = resolved_runtime->allocator;
+    allocator.deallocate(allocator.user_data, resolved_runtime);
     *runtime = NULL;
 }
 

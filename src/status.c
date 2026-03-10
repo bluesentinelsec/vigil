@@ -38,6 +38,14 @@ void basl_error_clear(basl_error_t *error) {
     basl_source_location_clear(&error->location);
 }
 
+const char *basl_error_message(const basl_error_t *error) {
+    if (error == NULL || error->value == NULL) {
+        return "unknown error";
+    }
+
+    return error->value;
+}
+
 const char *basl_status_name(basl_status_t status) {
     switch (status) {
         case BASL_STATUS_OK:
