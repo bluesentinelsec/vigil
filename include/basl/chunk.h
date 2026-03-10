@@ -1,0 +1,97 @@
+#ifndef BASL_CHUNK_H
+#define BASL_CHUNK_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "basl/array.h"
+#include "basl/export.h"
+#include "basl/source.h"
+#include "basl/status.h"
+#include "basl/string.h"
+#include "basl/value.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum basl_opcode {
+    BASL_OPCODE_CONSTANT = 0,
+    BASL_OPCODE_NIL = 1,
+    BASL_OPCODE_TRUE = 2,
+    BASL_OPCODE_FALSE = 3,
+    BASL_OPCODE_RETURN = 4
+} basl_opcode_t;
+
+typedef struct basl_chunk {
+    basl_runtime_t *runtime;
+    basl_byte_buffer_t code;
+    basl_source_span_t *spans;
+    size_t span_count;
+    size_t span_capacity;
+    basl_value_t *constants;
+    size_t constant_count;
+    size_t constant_capacity;
+} basl_chunk_t;
+
+BASL_API void basl_chunk_init(basl_chunk_t *chunk, basl_runtime_t *runtime);
+BASL_API void basl_chunk_clear(basl_chunk_t *chunk);
+BASL_API void basl_chunk_free(basl_chunk_t *chunk);
+BASL_API size_t basl_chunk_code_size(const basl_chunk_t *chunk);
+BASL_API const uint8_t *basl_chunk_code(const basl_chunk_t *chunk);
+BASL_API size_t basl_chunk_constant_count(const basl_chunk_t *chunk);
+/*
+ * The returned pointer is invalidated by any subsequent chunk mutation or
+ * lifetime operation that can reallocate or clear the constant pool.
+ */
+BASL_API const basl_value_t *basl_chunk_constant(
+    const basl_chunk_t *chunk,
+    size_t index
+);
+BASL_API basl_source_span_t basl_chunk_span_at(
+    const basl_chunk_t *chunk,
+    size_t offset
+);
+BASL_API const char *basl_opcode_name(basl_opcode_t opcode);
+BASL_API basl_status_t basl_chunk_write_byte(
+    basl_chunk_t *chunk,
+    uint8_t value,
+    basl_source_span_t span,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_chunk_write_opcode(
+    basl_chunk_t *chunk,
+    basl_opcode_t opcode,
+    basl_source_span_t span,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_chunk_write_u32(
+    basl_chunk_t *chunk,
+    uint32_t value,
+    basl_source_span_t span,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_chunk_add_constant(
+    basl_chunk_t *chunk,
+    const basl_value_t *value,
+    size_t *out_index,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_chunk_write_constant(
+    basl_chunk_t *chunk,
+    const basl_value_t *value,
+    basl_source_span_t span,
+    size_t *out_index,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_chunk_disassemble(
+    const basl_chunk_t *chunk,
+    basl_string_t *output,
+    basl_error_t *error
+);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
