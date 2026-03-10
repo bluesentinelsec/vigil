@@ -20,6 +20,7 @@ endif()
 
 add_library(basl ${BASL_LIBRARY_TYPE}
     src/basl.c
+    src/runtime.c
 )
 
 target_include_directories(basl
