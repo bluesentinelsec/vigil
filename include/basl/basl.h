@@ -9,5 +9,6 @@
 #include "basl/source.h"
 #include "basl/string.h"
 #include "basl/status.h"
+#include "basl/value.h"
 
 #endif
