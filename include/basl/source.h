@@ -41,6 +41,10 @@ BASL_API void basl_source_registry_init(
 );
 BASL_API void basl_source_registry_free(basl_source_registry_t *registry);
 BASL_API size_t basl_source_registry_count(const basl_source_registry_t *registry);
+/*
+ * The returned pointer is invalidated by any subsequent registry mutation,
+ * including register calls that may reallocate the backing array.
+ */
 BASL_API const basl_source_file_t *basl_source_registry_get(
     const basl_source_registry_t *registry,
     basl_source_id_t source_id

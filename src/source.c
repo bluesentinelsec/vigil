@@ -223,6 +223,15 @@ basl_status_t basl_source_registry_register(
         return BASL_STATUS_OUT_OF_MEMORY;
     }
 
+    if (registry->count == SIZE_MAX) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "source registry capacity overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
     status = basl_source_registry_grow(registry, registry->count + 1U, error);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -259,7 +268,7 @@ basl_status_t basl_source_registry_register_cstr(
     basl_source_id_t *out_source_id,
     basl_error_t *error
 ) {
-    if (path == NULL || text == NULL) {
+    if (path == NULL || text == NULL || out_source_id == NULL) {
         basl_error_set_literal(
             error,
             BASL_STATUS_INVALID_ARGUMENT,

@@ -39,6 +39,10 @@ BASL_API void basl_diagnostic_list_init(
 BASL_API void basl_diagnostic_list_clear(basl_diagnostic_list_t *list);
 BASL_API void basl_diagnostic_list_free(basl_diagnostic_list_t *list);
 BASL_API size_t basl_diagnostic_list_count(const basl_diagnostic_list_t *list);
+/*
+ * The returned pointer is invalidated by any subsequent list mutation,
+ * including append calls that may reallocate the backing array.
+ */
 BASL_API const basl_diagnostic_t *basl_diagnostic_list_get(
     const basl_diagnostic_list_t *list,
     size_t index

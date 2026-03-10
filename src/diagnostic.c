@@ -212,6 +212,15 @@ basl_status_t basl_diagnostic_list_append(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
+    if (list->count == SIZE_MAX) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "diagnostic list capacity overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
     status = basl_diagnostic_list_grow(list, list->count + 1U, error);
     if (status != BASL_STATUS_OK) {
         return status;
