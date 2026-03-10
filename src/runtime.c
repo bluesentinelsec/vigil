@@ -100,6 +100,8 @@ const char *basl_status_name(basl_status_t status) {
             return "out_of_memory";
         case BASL_STATUS_INTERNAL:
             return "internal";
+        case BASL_STATUS_UNSUPPORTED:
+            return "unsupported";
         default:
             return "unknown";
     }
@@ -160,12 +162,19 @@ basl_status_t basl_runtime_open(
     return BASL_STATUS_OK;
 }
 
-void basl_runtime_close(basl_runtime_t *runtime) {
-    if (runtime == NULL) {
+void basl_runtime_close(basl_runtime_t **runtime) {
+    basl_runtime_t *resolved_runtime;
+
+    if (runtime == NULL || *runtime == NULL) {
         return;
     }
 
-    runtime->allocator.deallocate(runtime->allocator.user_data, runtime);
+    resolved_runtime = *runtime;
+    resolved_runtime->allocator.deallocate(
+        resolved_runtime->allocator.user_data,
+        resolved_runtime
+    );
+    *runtime = NULL;
 }
 
 const basl_allocator_t *basl_runtime_allocator(const basl_runtime_t *runtime) {
@@ -174,4 +183,89 @@ const basl_allocator_t *basl_runtime_allocator(const basl_runtime_t *runtime) {
     }
 
     return &runtime->allocator;
+}
+
+basl_status_t basl_runtime_alloc(
+    basl_runtime_t *runtime,
+    size_t size,
+    void **out_memory,
+    basl_error_t *error
+) {
+    basl_error_clear(error);
+
+    if (runtime == NULL || out_memory == NULL || size == 0U) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "runtime_alloc requires runtime, out_memory, and non-zero size"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_memory = runtime->allocator.allocate(runtime->allocator.user_data, size);
+    if (*out_memory == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "allocation failed"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_runtime_realloc(
+    basl_runtime_t *runtime,
+    void **memory,
+    size_t size,
+    basl_error_t *error
+) {
+    void *reallocated;
+
+    basl_error_clear(error);
+
+    if (runtime == NULL || memory == NULL || *memory == NULL || size == 0U) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "runtime_realloc requires runtime, memory, and non-zero size"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (runtime->allocator.reallocate == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_UNSUPPORTED,
+            "allocator does not support reallocate"
+        );
+        return BASL_STATUS_UNSUPPORTED;
+    }
+
+    reallocated = runtime->allocator.reallocate(
+        runtime->allocator.user_data,
+        *memory,
+        size
+    );
+    if (reallocated == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "reallocation failed"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    *memory = reallocated;
+    return BASL_STATUS_OK;
+}
+
+void basl_runtime_free(basl_runtime_t *runtime, void **memory) {
+    if (runtime == NULL || memory == NULL || *memory == NULL) {
+        return;
+    }
+
+    runtime->allocator.deallocate(runtime->allocator.user_data, *memory);
+    *memory = NULL;
 }

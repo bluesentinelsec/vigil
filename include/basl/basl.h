@@ -26,7 +26,8 @@ typedef enum basl_status {
     BASL_STATUS_OK = 0,
     BASL_STATUS_INVALID_ARGUMENT = 1,
     BASL_STATUS_OUT_OF_MEMORY = 2,
-    BASL_STATUS_INTERNAL = 3
+    BASL_STATUS_INTERNAL = 3,
+    BASL_STATUS_UNSUPPORTED = 4
 } basl_status_t;
 
 typedef struct basl_source_location {
@@ -68,8 +69,21 @@ BASL_API basl_status_t basl_runtime_open(
     const basl_runtime_options_t *options,
     basl_error_t *error
 );
-BASL_API void basl_runtime_close(basl_runtime_t *runtime);
+BASL_API void basl_runtime_close(basl_runtime_t **runtime);
 BASL_API const basl_allocator_t *basl_runtime_allocator(const basl_runtime_t *runtime);
+BASL_API basl_status_t basl_runtime_alloc(
+    basl_runtime_t *runtime,
+    size_t size,
+    void **out_memory,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_runtime_realloc(
+    basl_runtime_t *runtime,
+    void **memory,
+    size_t size,
+    basl_error_t *error
+);
+BASL_API void basl_runtime_free(basl_runtime_t *runtime, void **memory);
 
 BASL_API int basl_sum(int a, int b);
 
