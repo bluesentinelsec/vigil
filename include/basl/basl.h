@@ -3,8 +3,10 @@
 
 #include "basl/array.h"
 #include "basl/allocator.h"
+#include "basl/diagnostic.h"
 #include "basl/export.h"
 #include "basl/runtime.h"
+#include "basl/source.h"
 #include "basl/string.h"
 #include "basl/status.h"
 
