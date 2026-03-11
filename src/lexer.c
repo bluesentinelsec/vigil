@@ -148,6 +148,7 @@ static basl_token_kind_t basl_lexer_keyword_kind(
         case 2U:
             if (memcmp(text, "as", 2U) == 0) return BASL_TOKEN_AS;
             if (memcmp(text, "fn", 2U) == 0) return BASL_TOKEN_FN;
+            if (memcmp(text, "if", 2U) == 0) return BASL_TOKEN_IF;
             break;
         case 3U:
             if (memcmp(text, "for", 3U) == 0) return BASL_TOKEN_FOR;

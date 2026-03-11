@@ -13,7 +13,9 @@ extern "C" {
 
 /*
  * Current implementation compiles a narrow runnable BASL slice:
- * exactly one top-level `fn main() -> type { return <literal>; }`.
+ * exactly one top-level `fn main() -> i32 { ... }` with typed local
+ * declarations, integer/bool expressions, assignment, `if`, `while`, and
+ * explicit `return` statements.
  */
 BASL_API basl_status_t basl_compile_source(
     const basl_source_registry_t *registry,

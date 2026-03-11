@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <cstring>
-
 extern "C" {
 #include "basl/basl.h"
 }
@@ -23,9 +21,7 @@ basl_source_id_t RegisterSource(
     return source_id;
 }
 
-}  // namespace
-
-TEST(BaslCompilerTest, CompilesAndExecutesIntegerMain) {
+int64_t CompileAndRun(const char *source_text) {
     basl_runtime_t *runtime = nullptr;
     basl_vm_t *vm = nullptr;
     basl_error_t error = {};
@@ -34,32 +30,28 @@ TEST(BaslCompilerTest, CompilesAndExecutesIntegerMain) {
     basl_object_t *function = nullptr;
     basl_value_t result;
     basl_source_id_t source_id;
+    int64_t output = 0;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
-    source_id = RegisterSource(
-        &registry,
-        "main.basl",
-        "fn main() -> i32 { return 42; }",
-        &error
-    );
+    source_id = RegisterSource(&registry, "main.basl", source_text, &error);
 
-    ASSERT_EQ(
+    EXPECT_EQ(
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_OK
     );
-    ASSERT_NE(function, nullptr);
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+    EXPECT_NE(function, nullptr);
+    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
 
     basl_value_init_nil(&result);
-    ASSERT_EQ(
+    EXPECT_EQ(
         basl_vm_execute_function(vm, function, &result, &error),
         BASL_STATUS_OK
     );
     EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
-    EXPECT_EQ(basl_value_as_int(&result), 42);
+    output = basl_value_as_int(&result);
 
     basl_value_release(&result);
     basl_object_release(&function);
@@ -67,9 +59,61 @@ TEST(BaslCompilerTest, CompilesAndExecutesIntegerMain) {
     basl_source_registry_free(&registry);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
+    return output;
 }
 
-TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndValues) {
+}  // namespace
+
+TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i32 x = 1 + 2 * 3;"
+            "    x = (x + 4) / 2;"
+            "    return x;"
+            "}"
+        ),
+        5
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i32 sum = 0;"
+            "    i32 i = 0;"
+            "    while (i < 5) {"
+            "        sum = sum + i;"
+            "        i = i + 1;"
+            "    }"
+            "    if (sum > 9) {"
+            "        return sum;"
+            "    } else {"
+            "        return 0;"
+            "    }"
+            "}"
+        ),
+        10
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    bool ready = 1 + 1 == 2;"
+            "    if (ready != false) {"
+            "        return 7;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        7
+    );
+}
+
+TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     basl_source_registry_t registry;
@@ -84,15 +128,14 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndValues) {
 
     source_id = RegisterSource(
         &registry,
-        "string.basl",
-        "fn main() -> string { return \"hello\"; }",
+        "string_type.basl",
+        "fn main() -> string { return 1; }",
         &error
     );
     EXPECT_EQ(
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
-    EXPECT_EQ(function, nullptr);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
     ASSERT_NE(diagnostic, nullptr);
@@ -104,25 +147,24 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndValues) {
     basl_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(
         &registry,
-        "bool.basl",
-        "fn main() -> bool { return true; }",
+        "bool_return.basl",
+        "fn main() -> i32 { return true; }",
         &error
     );
     EXPECT_EQ(
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
-    EXPECT_EQ(function, nullptr);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must declare return type i32"
+        "main entrypoint must return an i32 expression"
     );
 
     basl_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(
         &registry,
-        "nil.basl",
+        "nil_return.basl",
         "fn main() -> i32 { return nil; }",
         &error
     );
@@ -130,17 +172,16 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndValues) {
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
-    EXPECT_EQ(function, nullptr);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an integer literal"
+        "main entrypoint must return an i32 expression"
     );
 
     basl_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(
         &registry,
-        "float.basl",
+        "float_return.basl",
         "fn main() -> i32 { return 3.14; }",
         &error
     );
@@ -148,11 +189,94 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndValues) {
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
-    EXPECT_EQ(function, nullptr);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an integer literal"
+        "float expressions are not yet supported"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "uninit.basl",
+        "fn main() -> i32 { i32 x; return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "variables must be initialized at declaration"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "unknown.basl",
+        "fn main() -> i32 { x = 1; return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "unknown local variable"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "condition.basl",
+        "fn main() -> i32 { if (1) { return 1; } return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "if condition must be bool"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "type.basl",
+        "fn main() -> i32 { bool ready = 1; return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "initializer type does not match local variable type"
     );
 
     basl_diagnostic_list_free(&diagnostics);
@@ -183,8 +307,6 @@ TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
-    EXPECT_EQ(function, nullptr);
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
     ASSERT_NE(diagnostic, nullptr);
     EXPECT_STREQ(
@@ -206,7 +328,7 @@ TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an integer literal"
+        "f-strings are not yet supported"
     );
 
     basl_diagnostic_list_free(&diagnostics);
