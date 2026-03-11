@@ -23,10 +23,12 @@ typedef enum basl_value_kind {
 
 typedef enum basl_object_type {
     BASL_OBJECT_INVALID = 0,
-    BASL_OBJECT_STRING = 1
+    BASL_OBJECT_STRING = 1,
+    BASL_OBJECT_FUNCTION = 2
 } basl_object_type_t;
 
 typedef struct basl_object basl_object_t;
+typedef struct basl_chunk basl_chunk_t;
 
 typedef struct basl_value {
     basl_value_kind_t kind;
@@ -86,6 +88,24 @@ BASL_API basl_status_t basl_string_object_new_cstr(
 );
 BASL_API const char *basl_string_object_c_str(const basl_object_t *object);
 BASL_API size_t basl_string_object_length(const basl_object_t *object);
+
+BASL_API basl_status_t basl_function_object_new(
+    basl_runtime_t *runtime,
+    const char *name,
+    size_t name_length,
+    basl_chunk_t *chunk,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_function_object_new_cstr(
+    basl_runtime_t *runtime,
+    const char *name,
+    basl_chunk_t *chunk,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API const char *basl_function_object_name(const basl_object_t *object);
+BASL_API const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object);
 
 #ifdef __cplusplus
 }

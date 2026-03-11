@@ -211,3 +211,80 @@ TEST(BaslValueTest, StringObjectValidatesArguments) {
 
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_chunk_t chunk;
+    basl_object_t *function = nullptr;
+    basl_value_t value;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_int(&value, 42);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &value, {}, nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_function_object_new_cstr(runtime, "main", &chunk, &function, &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_NE(function, nullptr);
+    EXPECT_EQ(basl_object_type(function), BASL_OBJECT_FUNCTION);
+    EXPECT_EQ(basl_object_ref_count(function), 1U);
+    EXPECT_STREQ(basl_function_object_name(function), "main");
+    ASSERT_NE(basl_function_object_chunk(function), nullptr);
+    EXPECT_EQ(basl_chunk_constant_count(basl_function_object_chunk(function)), 1U);
+
+    EXPECT_EQ(chunk.runtime, nullptr);
+    EXPECT_EQ(basl_chunk_code_size(&chunk), 0U);
+    EXPECT_EQ(basl_chunk_constant_count(&chunk), 0U);
+
+    basl_object_release(&function);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslValueTest, FunctionObjectValidatesArguments) {
+    basl_runtime_t *runtime = nullptr;
+    basl_runtime_t *other_runtime = nullptr;
+    basl_error_t error = {};
+    basl_chunk_t chunk;
+    basl_object_t *function = nullptr;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&other_runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, other_runtime);
+
+    EXPECT_EQ(
+        basl_function_object_new(nullptr, "main", 4U, &chunk, &function, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(
+        basl_function_object_new(runtime, nullptr, 0U, &chunk, &function, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(
+        basl_function_object_new(runtime, "main", 4U, nullptr, &function, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(
+        basl_function_object_new(runtime, "main", 4U, &chunk, nullptr, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(
+        basl_function_object_new(runtime, "main", 4U, &chunk, &function, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(
+        std::strcmp(error.value, "function object chunk runtime must match runtime"),
+        0
+    );
+
+    basl_chunk_free(&chunk);
+    basl_runtime_close(&other_runtime);
+    basl_runtime_close(&runtime);
+}
