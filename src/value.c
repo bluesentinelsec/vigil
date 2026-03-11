@@ -71,7 +71,7 @@ static void basl_object_destroy(basl_object_t *object) {
             basl_chunk_free(&function_object->chunk);
             if (function_object->owns_function_table && function_object->functions != NULL) {
                 size_t i;
-                void *memory;
+                void *table_memory;
 
                 for (i = 0U; i < function_object->function_count; ++i) {
                     if (i == function_object->function_index) {
@@ -81,8 +81,8 @@ static void basl_object_destroy(basl_object_t *object) {
                     basl_object_release(&function_object->functions[i]);
                 }
 
-                memory = function_object->functions;
-                basl_runtime_free(runtime, &memory);
+                table_memory = function_object->functions;
+                basl_runtime_free(runtime, &table_memory);
             }
             break;
         case BASL_OBJECT_INVALID:
