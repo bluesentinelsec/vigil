@@ -3,9 +3,9 @@
 #include <string.h>
 
 #include "basl/chunk.h"
-#include "basl/compiler.h"
 #include "basl/lexer.h"
 #include "basl/token.h"
+#include "internal/basl_compiler_internal.h"
 #include "internal/basl_internal.h"
 
 typedef enum basl_parser_type {
@@ -211,6 +211,30 @@ static basl_status_t basl_program_resolve_type_name(
     }
 
     return basl_compile_report(program, token->span, unsupported_message);
+}
+
+static basl_status_t basl_program_validate_main_signature(
+    basl_program_state_t *program,
+    basl_function_decl_t *decl,
+    const basl_token_t *type_token
+) {
+    if (decl->param_count != 0U) {
+        return basl_compile_report(
+            program,
+            decl->name_span,
+            "main entrypoint must not declare parameters"
+        );
+    }
+
+    if (decl->return_type != BASL_PARSER_TYPE_I32) {
+        return basl_compile_report(
+            program,
+            type_token->span,
+            "main entrypoint must declare return type i32"
+        );
+    }
+
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_program_grow_functions(
@@ -558,19 +582,9 @@ static basl_status_t basl_program_parse_declarations(
             if (status != BASL_STATUS_OK) {
                 return status;
             }
-            if (decl->param_count != 0U) {
-                return basl_compile_report(
-                    program,
-                    decl->name_span,
-                    "main entrypoint must not declare parameters"
-                );
-            }
-            if (decl->return_type != BASL_PARSER_TYPE_I32) {
-                return basl_compile_report(
-                    program,
-                    type_token->span,
-                    "main entrypoint must declare return type i32"
-                );
+            status = basl_program_validate_main_signature(program, decl, type_token);
+            if (status != BASL_STATUS_OK) {
+                return status;
             }
         } else {
             status = basl_program_resolve_type_name(
@@ -740,6 +754,63 @@ static basl_status_t basl_parser_report(
     const char *message
 ) {
     return basl_compile_report(state->program, span, message);
+}
+
+static basl_status_t basl_parser_require_type(
+    basl_parser_state_t *state,
+    basl_source_span_t span,
+    basl_parser_type_t actual_type,
+    basl_parser_type_t expected_type,
+    const char *message
+) {
+    if (actual_type == expected_type) {
+        return BASL_STATUS_OK;
+    }
+
+    return basl_parser_report(state, span, message);
+}
+
+static basl_status_t basl_parser_require_bool_type(
+    basl_parser_state_t *state,
+    basl_source_span_t span,
+    basl_parser_type_t actual_type,
+    const char *message
+) {
+    return basl_parser_require_type(
+        state,
+        span,
+        actual_type,
+        BASL_PARSER_TYPE_BOOL,
+        message
+    );
+}
+
+static basl_status_t basl_parser_require_same_type(
+    basl_parser_state_t *state,
+    basl_source_span_t span,
+    basl_parser_type_t left_type,
+    basl_parser_type_t right_type,
+    const char *message
+) {
+    if (left_type == right_type) {
+        return BASL_STATUS_OK;
+    }
+
+    return basl_parser_report(state, span, message);
+}
+
+static basl_status_t basl_parser_require_i32_operands(
+    basl_parser_state_t *state,
+    basl_source_span_t span,
+    basl_parser_type_t left_type,
+    basl_parser_type_t right_type,
+    const char *message
+) {
+    if (left_type == BASL_PARSER_TYPE_I32 && right_type == BASL_PARSER_TYPE_I32) {
+        return BASL_STATUS_OK;
+    }
+
+    return basl_parser_report(state, span, message);
 }
 
 static basl_status_t basl_parser_expect(
@@ -1391,12 +1462,15 @@ static basl_status_t basl_parser_parse_call(
                     "call argument count does not match function signature"
                 );
             }
-            if (arg_type != decl->params[arg_count].type) {
-                return basl_parser_report(
-                    state,
-                    name_token->span,
-                    "call argument type does not match parameter type"
-                );
+            status = basl_parser_require_type(
+                state,
+                name_token->span,
+                arg_type,
+                decl->params[arg_count].type,
+                "call argument type does not match parameter type"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
             }
             arg_count += 1U;
 
@@ -1558,23 +1632,28 @@ static basl_status_t basl_parser_parse_unary(
         }
 
         if (operator_token->kind == BASL_TOKEN_MINUS) {
-            if (operand_type != BASL_PARSER_TYPE_I32) {
-                return basl_parser_report(
-                    state,
-                    operator_token->span,
-                    "unary '-' requires an i32 operand"
-                );
+            status = basl_parser_require_type(
+                state,
+                operator_token->span,
+                operand_type,
+                BASL_PARSER_TYPE_I32,
+                "unary '-' requires an i32 operand"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
             }
             *out_type = BASL_PARSER_TYPE_I32;
             return basl_parser_emit_opcode(state, BASL_OPCODE_NEGATE, operator_token->span);
         }
 
-        if (operand_type != BASL_PARSER_TYPE_BOOL) {
-            return basl_parser_report(
-                state,
-                operator_token->span,
-                "logical '!' requires a bool operand"
-            );
+        status = basl_parser_require_bool_type(
+            state,
+            operator_token->span,
+            operand_type,
+            "logical '!' requires a bool operand"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
         *out_type = BASL_PARSER_TYPE_BOOL;
         return basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_token->span);
@@ -1614,12 +1693,15 @@ static basl_status_t basl_parser_parse_factor(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (left_type != BASL_PARSER_TYPE_I32 || right_type != BASL_PARSER_TYPE_I32) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "arithmetic operators require i32 operands"
-            );
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_type,
+            right_type,
+            "arithmetic operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         if (operator_kind == BASL_TOKEN_STAR) {
@@ -1668,12 +1750,15 @@ static basl_status_t basl_parser_parse_term(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (left_type != BASL_PARSER_TYPE_I32 || right_type != BASL_PARSER_TYPE_I32) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "arithmetic operators require i32 operands"
-            );
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_type,
+            right_type,
+            "arithmetic operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         status = basl_parser_emit_opcode(
@@ -1724,12 +1809,15 @@ static basl_status_t basl_parser_parse_comparison(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (left_type != BASL_PARSER_TYPE_I32 || right_type != BASL_PARSER_TYPE_I32) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "comparison operators require i32 operands"
-            );
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_type,
+            right_type,
+            "comparison operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         switch (operator_kind) {
@@ -1794,12 +1882,15 @@ static basl_status_t basl_parser_parse_equality(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (left_type != right_type) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "equality operators require operands of the same type"
-            );
+        status = basl_parser_require_same_type(
+            state,
+            operator_span,
+            left_type,
+            right_type,
+            "equality operators require operands of the same type"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         status = basl_parser_emit_opcode(state, BASL_OPCODE_EQUAL, operator_span);
@@ -1836,12 +1927,14 @@ static basl_status_t basl_parser_parse_logical_and(
 
     while (basl_parser_check(state, BASL_TOKEN_AMPERSAND_AMPERSAND)) {
         operator_span = basl_parser_advance(state)->span;
-        if (left_type != BASL_PARSER_TYPE_BOOL) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "logical '&&' requires bool operands"
-            );
+        status = basl_parser_require_bool_type(
+            state,
+            operator_span,
+            left_type,
+            "logical '&&' requires bool operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         status = basl_parser_emit_jump(
@@ -1862,12 +1955,14 @@ static basl_status_t basl_parser_parse_logical_and(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (right_type != BASL_PARSER_TYPE_BOOL) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "logical '&&' requires bool operands"
-            );
+        status = basl_parser_require_bool_type(
+            state,
+            operator_span,
+            right_type,
+            "logical '&&' requires bool operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         status = basl_parser_patch_jump(state, false_jump_offset);
@@ -1899,12 +1994,14 @@ static basl_status_t basl_parser_parse_logical_or(
 
     while (basl_parser_check(state, BASL_TOKEN_PIPE_PIPE)) {
         operator_span = basl_parser_advance(state)->span;
-        if (left_type != BASL_PARSER_TYPE_BOOL) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "logical '||' requires bool operands"
-            );
+        status = basl_parser_require_bool_type(
+            state,
+            operator_span,
+            left_type,
+            "logical '||' requires bool operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         status = basl_parser_emit_jump(
@@ -1939,12 +2036,14 @@ static basl_status_t basl_parser_parse_logical_or(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (right_type != BASL_PARSER_TYPE_BOOL) {
-            return basl_parser_report(
-                state,
-                operator_span,
-                "logical '||' requires bool operands"
-            );
+        status = basl_parser_require_bool_type(
+            state,
+            operator_span,
+            right_type,
+            "logical '||' requires bool operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
 
         status = basl_parser_patch_jump(state, end_jump_offset);
@@ -2014,14 +2113,17 @@ static basl_status_t basl_parser_parse_return_statement(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    if (return_type != state->expected_return_type) {
-        return basl_parser_report(
-            state,
-            return_token->span,
-            state->function_index == state->program->main_index
-                ? "main entrypoint must return an i32 expression"
-                : "return expression type does not match function return type"
-        );
+    status = basl_parser_require_type(
+        state,
+        return_token->span,
+        return_type,
+        state->expected_return_type,
+        state->function_index == state->program->main_index
+            ? "main entrypoint must return an i32 expression"
+            : "return expression type does not match function return type"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
     }
 
     status = basl_parser_expect(
@@ -2060,8 +2162,14 @@ static basl_status_t basl_parser_parse_if_statement(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    if (condition_type != BASL_PARSER_TYPE_BOOL) {
-        return basl_parser_report(state, if_token->span, "if condition must be bool");
+    status = basl_parser_require_bool_type(
+        state,
+        if_token->span,
+        condition_type,
+        "if condition must be bool"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
     }
 
     status = basl_parser_expect(state, BASL_TOKEN_RPAREN, "expected ')' after if condition", NULL);
@@ -2150,8 +2258,14 @@ static basl_status_t basl_parser_parse_while_statement(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    if (condition_type != BASL_PARSER_TYPE_BOOL) {
-        return basl_parser_report(state, while_token->span, "while condition must be bool");
+    status = basl_parser_require_bool_type(
+        state,
+        while_token->span,
+        condition_type,
+        "while condition must be bool"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
     }
 
     status = basl_parser_expect(state, BASL_TOKEN_RPAREN, "expected ')' after while condition", NULL);
@@ -2354,12 +2468,15 @@ static basl_status_t basl_parser_parse_assignment_statement(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    if (value_type != local_type) {
-        return basl_parser_report(
-            state,
-            name_token->span,
-            "assigned expression type does not match local variable type"
-        );
+    status = basl_parser_require_type(
+        state,
+        name_token->span,
+        value_type,
+        local_type,
+        "assigned expression type does not match local variable type"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
     }
 
     status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after assignment", NULL);
@@ -2473,12 +2590,15 @@ static basl_status_t basl_parser_parse_variable_declaration(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    if (initializer_type != declared_type) {
-        return basl_parser_report(
-            state,
-            name_token->span,
-            "initializer type does not match local variable type"
-        );
+    status = basl_parser_require_type(
+        state,
+        name_token->span,
+        initializer_type,
+        declared_type,
+        "initializer type does not match local variable type"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
     }
 
     status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after local declaration", NULL);
@@ -2588,26 +2708,13 @@ static basl_status_t basl_compile_function(
     return BASL_STATUS_OK;
 }
 
-basl_status_t basl_compile_source(
+static basl_status_t basl_compile_validate_inputs(
     const basl_source_registry_t *registry,
-    basl_source_id_t source_id,
-    basl_object_t **out_function,
     basl_diagnostic_list_t *diagnostics,
+    basl_object_t **out_function,
+    basl_compile_mode_t mode,
     basl_error_t *error
 ) {
-    basl_status_t status;
-    basl_token_list_t tokens;
-    basl_program_state_t program;
-    const basl_source_file_t *source;
-    size_t i;
-    basl_object_t **function_table;
-    void *memory;
-
-    basl_error_clear(error);
-    if (out_function != NULL) {
-        *out_function = NULL;
-    }
-
     if (registry == NULL) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "source registry must not be null");
         return BASL_STATUS_INVALID_ARGUMENT;
@@ -2616,10 +2723,24 @@ basl_status_t basl_compile_source(
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "diagnostic list must not be null");
         return BASL_STATUS_INVALID_ARGUMENT;
     }
-    if (out_function == NULL) {
+    if (mode == BASL_COMPILE_MODE_BUILD_ENTRYPOINT && out_function == NULL) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "out_function must not be null");
         return BASL_STATUS_INVALID_ARGUMENT;
     }
+
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_compile_lex_source(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error,
+    const basl_source_file_t **out_source,
+    basl_token_list_t *out_tokens
+) {
+    basl_status_t status;
+    const basl_source_file_t *source;
 
     source = basl_source_registry_get(registry, source_id);
     if (source == NULL) {
@@ -2627,10 +2748,117 @@ basl_status_t basl_compile_source(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    basl_token_list_init(&tokens, registry->runtime);
-    status = basl_lex_source(registry, source_id, &tokens, diagnostics, error);
+    basl_token_list_init(out_tokens, registry->runtime);
+    status = basl_lex_source(registry, source_id, out_tokens, diagnostics, error);
     if (status != BASL_STATUS_OK) {
-        basl_token_list_free(&tokens);
+        basl_token_list_free(out_tokens);
+        return status;
+    }
+
+    *out_source = source;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_compile_all_functions(
+    basl_program_state_t *program
+) {
+    basl_status_t status;
+    size_t i;
+
+    for (i = 0U; i < program->function_count; ++i) {
+        status = basl_compile_function(program, i);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_compile_attach_entrypoint(
+    basl_program_state_t *program,
+    basl_object_t **out_function
+) {
+    basl_status_t status;
+    basl_object_t **function_table;
+    size_t i;
+    void *memory;
+
+    memory = NULL;
+    status = basl_runtime_alloc(
+        program->registry->runtime,
+        program->function_count * sizeof(*function_table),
+        &memory,
+        program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    function_table = (basl_object_t **)memory;
+    for (i = 0U; i < program->function_count; ++i) {
+        function_table[i] = program->functions[i].object;
+    }
+
+    status = basl_function_object_attach_siblings(
+        program->functions[program->main_index].object,
+        function_table,
+        program->function_count,
+        program->main_index,
+        program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        memory = function_table;
+        basl_runtime_free(program->registry->runtime, &memory);
+        return status;
+    }
+
+    *out_function = program->functions[program->main_index].object;
+    for (i = 0U; i < program->function_count; ++i) {
+        program->functions[i].object = NULL;
+    }
+
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_compile_source_internal(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    basl_compile_mode_t mode,
+    basl_object_t **out_function,
+    basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_token_list_t tokens;
+    basl_program_state_t program;
+    const basl_source_file_t *source;
+
+    basl_error_clear(error);
+    if (out_function != NULL) {
+        *out_function = NULL;
+    }
+
+    status = basl_compile_validate_inputs(
+        registry,
+        diagnostics,
+        out_function,
+        mode,
+        error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_compile_lex_source(
+        registry,
+        source_id,
+        diagnostics,
+        error,
+        &source,
+        &tokens
+    );
+    if (status != BASL_STATUS_OK) {
         return status;
     }
 
@@ -2648,8 +2876,15 @@ basl_status_t basl_compile_source(
         return status;
     }
 
-    for (i = 0U; i < program.function_count; ++i) {
-        status = basl_compile_function(&program, i);
+    status = basl_compile_all_functions(&program);
+    if (status != BASL_STATUS_OK) {
+        basl_program_free(&program);
+        basl_token_list_free(&tokens);
+        return status;
+    }
+
+    if (mode == BASL_COMPILE_MODE_BUILD_ENTRYPOINT) {
+        status = basl_compile_attach_entrypoint(&program, out_function);
         if (status != BASL_STATUS_OK) {
             basl_program_free(&program);
             basl_token_list_free(&tokens);
@@ -2657,45 +2892,24 @@ basl_status_t basl_compile_source(
         }
     }
 
-    memory = NULL;
-    status = basl_runtime_alloc(
-        registry->runtime,
-        program.function_count * sizeof(*function_table),
-        &memory,
-        error
-    );
-    if (status != BASL_STATUS_OK) {
-        basl_program_free(&program);
-        basl_token_list_free(&tokens);
-        return status;
-    }
-
-    function_table = (basl_object_t **)memory;
-    for (i = 0U; i < program.function_count; ++i) {
-        function_table[i] = program.functions[i].object;
-    }
-
-    status = basl_function_object_attach_siblings(
-        program.functions[program.main_index].object,
-        function_table,
-        program.function_count,
-        program.main_index,
-        error
-    );
-    if (status != BASL_STATUS_OK) {
-        memory = function_table;
-        basl_runtime_free(registry->runtime, &memory);
-        basl_program_free(&program);
-        basl_token_list_free(&tokens);
-        return status;
-    }
-
-    *out_function = program.functions[program.main_index].object;
-    for (i = 0U; i < program.function_count; ++i) {
-        program.functions[i].object = NULL;
-    }
-
     basl_program_free(&program);
     basl_token_list_free(&tokens);
     return BASL_STATUS_OK;
+}
+
+basl_status_t basl_compile_source(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    basl_object_t **out_function,
+    basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error
+) {
+    return basl_compile_source_internal(
+        registry,
+        source_id,
+        BASL_COMPILE_MODE_BUILD_ENTRYPOINT,
+        out_function,
+        diagnostics,
+        error
+    );
 }
