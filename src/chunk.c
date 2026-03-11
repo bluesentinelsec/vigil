@@ -488,6 +488,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "GREATER";
         case BASL_OPCODE_LESS:
             return "LESS";
+        case BASL_OPCODE_CALL:
+            return "CALL";
         default:
             return "UNKNOWN";
     }
@@ -668,7 +670,51 @@ basl_status_t basl_chunk_disassemble(
             return status;
         }
 
-        if (
+        if (opcode == BASL_OPCODE_CALL) {
+            uint32_t function_index;
+            uint32_t arg_count;
+
+            if (offset + 8U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated call instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            function_index = (uint32_t)chunk->code.data[offset + 1U];
+            function_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            function_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            function_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            arg_count = (uint32_t)chunk->code.data[offset + 5U];
+            arg_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            arg_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            arg_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+
+            written = snprintf(
+                line,
+                sizeof(line),
+                " %u %u",
+                function_index,
+                arg_count
+            );
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk call operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 9U;
+        } else if (
             opcode == BASL_OPCODE_CONSTANT ||
             opcode == BASL_OPCODE_GET_LOCAL ||
             opcode == BASL_OPCODE_SET_LOCAL ||

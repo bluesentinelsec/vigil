@@ -227,7 +227,7 @@ TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_function_object_new_cstr(runtime, "main", &chunk, &function, &error),
+        basl_function_object_new_cstr(runtime, "main", 0U, &chunk, &function, &error),
         BASL_STATUS_OK
     );
 
@@ -235,6 +235,7 @@ TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
     EXPECT_EQ(basl_object_type(function), BASL_OBJECT_FUNCTION);
     EXPECT_EQ(basl_object_ref_count(function), 1U);
     EXPECT_STREQ(basl_function_object_name(function), "main");
+    EXPECT_EQ(basl_function_object_arity(function), 0U);
     ASSERT_NE(basl_function_object_chunk(function), nullptr);
     EXPECT_EQ(basl_chunk_constant_count(basl_function_object_chunk(function)), 1U);
 
@@ -258,23 +259,23 @@ TEST(BaslValueTest, FunctionObjectValidatesArguments) {
     basl_chunk_init(&chunk, other_runtime);
 
     EXPECT_EQ(
-        basl_function_object_new(nullptr, "main", 4U, &chunk, &function, &error),
+        basl_function_object_new(nullptr, "main", 4U, 0U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, nullptr, 0U, &chunk, &function, &error),
+        basl_function_object_new(runtime, nullptr, 0U, 0U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, nullptr, &function, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, nullptr, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, &chunk, nullptr, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, &chunk, nullptr, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, &chunk, &function, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);

@@ -21,7 +21,12 @@ typedef struct basl_string_object {
 typedef struct basl_function_object {
     basl_object_t base;
     basl_string_t name;
+    size_t arity;
     basl_chunk_t chunk;
+    basl_object_t **functions;
+    size_t function_count;
+    size_t function_index;
+    int owns_function_table;
 } basl_function_object_t;
 
 static const basl_string_object_t *basl_string_object_cast(
@@ -64,6 +69,21 @@ static void basl_object_destroy(basl_object_t *object) {
             function_object = (basl_function_object_t *)object;
             basl_string_free(&function_object->name);
             basl_chunk_free(&function_object->chunk);
+            if (function_object->owns_function_table && function_object->functions != NULL) {
+                size_t i;
+                void *memory;
+
+                for (i = 0U; i < function_object->function_count; ++i) {
+                    if (i == function_object->function_index) {
+                        continue;
+                    }
+
+                    basl_object_release(&function_object->functions[i]);
+                }
+
+                memory = function_object->functions;
+                basl_runtime_free(runtime, &memory);
+            }
             break;
         case BASL_OBJECT_INVALID:
         default:
@@ -378,6 +398,7 @@ basl_status_t basl_function_object_new(
     basl_runtime_t *runtime,
     const char *name,
     size_t name_length,
+    size_t arity,
     basl_chunk_t *chunk,
     basl_object_t **out_object,
     basl_error_t *error
@@ -443,6 +464,7 @@ basl_status_t basl_function_object_new(
     object = (basl_function_object_t *)memory;
     basl_object_init(&object->base, runtime, BASL_OBJECT_FUNCTION);
     basl_string_init(&object->name, runtime);
+    object->arity = arity;
     status = basl_string_assign(&object->name, name, name_length, error);
     if (status != BASL_STATUS_OK) {
         basl_object_destroy(&object->base);
@@ -458,6 +480,7 @@ basl_status_t basl_function_object_new(
 basl_status_t basl_function_object_new_cstr(
     basl_runtime_t *runtime,
     const char *name,
+    size_t arity,
     basl_chunk_t *chunk,
     basl_object_t **out_object,
     basl_error_t *error
@@ -475,6 +498,7 @@ basl_status_t basl_function_object_new_cstr(
         runtime,
         name,
         strlen(name),
+        arity,
         chunk,
         out_object,
         error
@@ -492,6 +516,17 @@ const char *basl_function_object_name(const basl_object_t *object) {
     return basl_string_c_str(&function_object->name);
 }
 
+size_t basl_function_object_arity(const basl_object_t *object) {
+    const basl_function_object_t *function_object;
+
+    function_object = basl_function_object_cast(object);
+    if (function_object == NULL) {
+        return 0U;
+    }
+
+    return function_object->arity;
+}
+
 const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
     const basl_function_object_t *function_object;
 
@@ -501,4 +536,82 @@ const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
     }
 
     return &function_object->chunk;
+}
+
+basl_status_t basl_function_object_attach_siblings(
+    basl_object_t *owner_function,
+    basl_object_t **functions,
+    size_t function_count,
+    size_t owner_index,
+    basl_error_t *error
+) {
+    size_t i;
+    basl_function_object_t *owner;
+    basl_function_object_t *function_object;
+
+    basl_error_clear(error);
+    owner = (basl_function_object_t *)owner_function;
+    if (owner == NULL || owner->base.type != BASL_OBJECT_FUNCTION) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "owner_function must be a function object"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (functions == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function table must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (function_count == 0U || owner_index >= function_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function table bounds are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    for (i = 0U; i < function_count; ++i) {
+        function_object = (basl_function_object_t *)functions[i];
+        if (function_object == NULL || function_object->base.type != BASL_OBJECT_FUNCTION) {
+            basl_error_set_literal(
+                error,
+                BASL_STATUS_INVALID_ARGUMENT,
+                "function table entries must all be function objects"
+            );
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+
+        function_object->functions = functions;
+        function_object->function_count = function_count;
+        function_object->function_index = i;
+        function_object->owns_function_table = 0;
+    }
+
+    owner->owns_function_table = 1;
+    return BASL_STATUS_OK;
+}
+
+const basl_object_t *basl_function_object_sibling(
+    const basl_object_t *function,
+    size_t index
+) {
+    const basl_function_object_t *function_object;
+
+    function_object = basl_function_object_cast(function);
+    if (function_object == NULL || function_object->functions == NULL) {
+        return NULL;
+    }
+    if (index >= function_object->function_count) {
+        return NULL;
+    }
+
+    return function_object->functions[index];
 }

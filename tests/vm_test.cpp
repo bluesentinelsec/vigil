@@ -432,7 +432,7 @@ TEST(BaslVmTest, ExecutesFunctionObjectEntry) {
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_function_object_new_cstr(runtime, "main", &chunk, &function, &error),
+        basl_function_object_new_cstr(runtime, "main", 0U, &chunk, &function, &error),
         BASL_STATUS_OK
     );
 
@@ -474,6 +474,44 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject) {
     EXPECT_EQ(std::strcmp(error.value, "function must be a function object"), 0);
 
     basl_object_release(&object);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_object_t *function = nullptr;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(7U, 0U, 1U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_function_object_new_cstr(runtime, "helper", 1U, &chunk, &function, &error),
+        BASL_STATUS_OK
+    );
+
+    EXPECT_EQ(
+        basl_vm_execute_function(vm, function, &result, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(
+        std::strcmp(error.value, "top-level execute_function requires a zero-arity function"),
+        0
+    );
+
+    basl_object_release(&function);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
 }
