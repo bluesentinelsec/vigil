@@ -287,3 +287,30 @@ TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals) {
     basl_source_registry_free(&registry);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslLexerTest, TokenizesNilKeyword) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_token_list_t tokens;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+    basl_token_list_init(&tokens, runtime);
+    source_id = RegisterSource(&registry, "nil.basl", "nil", &error);
+
+    ASSERT_EQ(
+        basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_EQ(TokenAt(&tokens, 0)->kind, BASL_TOKEN_NIL);
+    EXPECT_EQ(TokenAt(&tokens, 1)->kind, BASL_TOKEN_EOF);
+
+    basl_token_list_free(&tokens);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}

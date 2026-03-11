@@ -151,6 +151,7 @@ static basl_token_kind_t basl_lexer_keyword_kind(
             break;
         case 3U:
             if (memcmp(text, "for", 3U) == 0) return BASL_TOKEN_FOR;
+            if (memcmp(text, "nil", 3U) == 0) return BASL_TOKEN_NIL;
             if (memcmp(text, "pub", 3U) == 0) return BASL_TOKEN_PUB;
             break;
         case 4U:
