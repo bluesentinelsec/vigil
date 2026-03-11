@@ -1276,7 +1276,7 @@ static basl_status_t basl_parser_emit_scope_cleanup_to_depth(
     return BASL_STATUS_OK;
 }
 
-static int basl_parser_tokens_equal(
+static int basl_parser_local_matches_token(
     const basl_parser_state_t *state,
     const basl_token_t *left,
     const basl_local_t *right
@@ -1291,7 +1291,26 @@ static int basl_parser_tokens_equal(
            memcmp(left_text, right->name, left_length) == 0;
 }
 
-static basl_status_t basl_parser_declare_local(
+static int basl_parser_find_local_symbol(
+    const basl_parser_state_t *state,
+    const basl_token_t *name_token,
+    size_t *out_index
+) {
+    size_t i;
+
+    for (i = state->local_count; i > 0U; --i) {
+        if (basl_parser_local_matches_token(state, name_token, &state->locals[i - 1U])) {
+            if (out_index != NULL) {
+                *out_index = i - 1U;
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static basl_status_t basl_parser_declare_local_symbol(
     basl_parser_state_t *state,
     const basl_token_t *name_token,
     basl_parser_type_t type,
@@ -1307,7 +1326,7 @@ static basl_status_t basl_parser_declare_local(
             break;
         }
 
-        if (basl_parser_tokens_equal(state, name_token, local)) {
+        if (basl_parser_local_matches_token(state, name_token, local)) {
             return basl_parser_report(
                 state,
                 name_token->span,
@@ -1332,31 +1351,29 @@ static basl_status_t basl_parser_declare_local(
     return BASL_STATUS_OK;
 }
 
-static basl_status_t basl_parser_resolve_local(
+static basl_status_t basl_parser_lookup_local_symbol(
     basl_parser_state_t *state,
     const basl_token_t *name_token,
     size_t *out_index,
     basl_parser_type_t *out_type
 ) {
-    size_t i;
+    size_t local_index;
 
-    for (i = state->local_count; i > 0U; --i) {
-        if (basl_parser_tokens_equal(state, name_token, &state->locals[i - 1U])) {
-            if (out_index != NULL) {
-                *out_index = i - 1U;
-            }
-            if (out_type != NULL) {
-                *out_type = state->locals[i - 1U].type;
-            }
-            return BASL_STATUS_OK;
+    if (basl_parser_find_local_symbol(state, name_token, &local_index)) {
+        if (out_index != NULL) {
+            *out_index = local_index;
         }
+        if (out_type != NULL) {
+            *out_type = state->locals[local_index].type;
+        }
+        return BASL_STATUS_OK;
     }
 
     return basl_parser_report(state, name_token->span, "unknown local variable");
 }
 
-static basl_status_t basl_parser_resolve_function(
-    basl_parser_state_t *state,
+static int basl_program_find_function_symbol(
+    const basl_program_state_t *program,
     const basl_token_t *name_token,
     size_t *out_index,
     const basl_function_decl_t **out_decl
@@ -1365,11 +1382,11 @@ static basl_status_t basl_parser_resolve_function(
     size_t name_length;
     size_t i;
 
-    name_text = basl_parser_token_text(state, name_token, &name_length);
-    for (i = 0U; i < state->program->function_count; ++i) {
+    name_text = basl_program_token_text(program, name_token, &name_length);
+    for (i = 0U; i < program->function_count; ++i) {
         if (basl_program_names_equal(
-                state->program->functions[i].name,
-                state->program->functions[i].name_length,
+                program->functions[i].name,
+                program->functions[i].name_length,
                 name_text,
                 name_length
             )) {
@@ -1377,10 +1394,28 @@ static basl_status_t basl_parser_resolve_function(
                 *out_index = i;
             }
             if (out_decl != NULL) {
-                *out_decl = &state->program->functions[i];
+                *out_decl = &program->functions[i];
             }
-            return BASL_STATUS_OK;
+            return 1;
         }
+    }
+
+    return 0;
+}
+
+static basl_status_t basl_parser_lookup_function_symbol(
+    basl_parser_state_t *state,
+    const basl_token_t *name_token,
+    size_t *out_index,
+    const basl_function_decl_t **out_decl
+) {
+    if (basl_program_find_function_symbol(
+            state->program,
+            name_token,
+            out_index,
+            out_decl
+        )) {
+        return BASL_STATUS_OK;
     }
 
     return basl_parser_report(state, name_token->span, "unknown function");
@@ -1419,7 +1454,8 @@ static basl_status_t basl_parser_parse_expression(
     basl_parser_type_t *out_type
 );
 static basl_status_t basl_parser_parse_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 );
 
 static basl_status_t basl_parser_parse_call(
@@ -1433,7 +1469,7 @@ static basl_status_t basl_parser_parse_call(
     basl_parser_type_t arg_type;
     size_t arg_count;
 
-    status = basl_parser_resolve_function(state, name_token, &function_index, &decl);
+    status = basl_parser_lookup_function_symbol(state, name_token, &function_index, &decl);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -1579,7 +1615,7 @@ static basl_status_t basl_parser_parse_primary(
                 return basl_parser_parse_call(state, token, out_type);
             }
 
-            status = basl_parser_resolve_local(state, token, &local_index, out_type);
+            status = basl_parser_lookup_local_symbol(state, token, &local_index, out_type);
             if (status != BASL_STATUS_OK) {
                 return status;
             }
@@ -2065,13 +2101,18 @@ static basl_status_t basl_parser_parse_expression(
 }
 
 static basl_status_t basl_parser_parse_block_contents(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 );
 
 static basl_status_t basl_parser_parse_block_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
+    int block_guaranteed_return;
+
+    block_guaranteed_return = 0;
 
     status = basl_parser_expect(state, BASL_TOKEN_LBRACE, "expected '{'", NULL);
     if (status != BASL_STATUS_OK) {
@@ -2079,7 +2120,7 @@ static basl_status_t basl_parser_parse_block_statement(
     }
 
     basl_parser_begin_scope(state);
-    status = basl_parser_parse_block_contents(state);
+    status = basl_parser_parse_block_contents(state, &block_guaranteed_return);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -2089,11 +2130,20 @@ static basl_status_t basl_parser_parse_block_statement(
         return status;
     }
 
-    return basl_parser_end_scope(state);
+    status = basl_parser_end_scope(state);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = block_guaranteed_return;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_return_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *return_token;
@@ -2136,17 +2186,33 @@ static basl_status_t basl_parser_parse_return_statement(
         return status;
     }
 
-    return basl_parser_emit_opcode(state, BASL_OPCODE_RETURN, return_token->span);
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_RETURN, return_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 1;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_if_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *if_token;
     basl_parser_type_t condition_type;
     size_t false_jump_offset;
     size_t end_jump_offset;
+    int then_guaranteed_return;
+    int else_guaranteed_return;
+    int has_else_branch;
+
+    then_guaranteed_return = 0;
+    else_guaranteed_return = 0;
+    has_else_branch = 0;
 
     status = basl_parser_expect(state, BASL_TOKEN_IF, "expected 'if'", &if_token);
     if (status != BASL_STATUS_OK) {
@@ -2191,49 +2257,55 @@ static basl_status_t basl_parser_parse_if_statement(
         return status;
     }
 
-    status = basl_parser_parse_statement(state);
+    status = basl_parser_parse_statement(state, &then_guaranteed_return);
     if (status != BASL_STATUS_OK) {
         return status;
     }
 
     if (basl_parser_match(state, BASL_TOKEN_ELSE)) {
-        status = basl_parser_emit_jump(
-            state,
-            BASL_OPCODE_JUMP,
-            if_token->span,
-            &end_jump_offset
-        );
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
+        has_else_branch = 1;
+    }
 
-        status = basl_parser_patch_jump(state, false_jump_offset);
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, if_token->span);
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-
-        status = basl_parser_parse_statement(state);
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-
-        return basl_parser_patch_jump(state, end_jump_offset);
+    status = basl_parser_emit_jump(
+        state,
+        BASL_OPCODE_JUMP,
+        if_token->span,
+        &end_jump_offset
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
     }
 
     status = basl_parser_patch_jump(state, false_jump_offset);
     if (status != BASL_STATUS_OK) {
         return status;
     }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, if_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
 
-    return basl_parser_emit_opcode(state, BASL_OPCODE_POP, if_token->span);
+    if (has_else_branch) {
+        status = basl_parser_parse_statement(state, &else_guaranteed_return);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    status = basl_parser_patch_jump(state, end_jump_offset);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return =
+            has_else_branch && then_guaranteed_return && else_guaranteed_return;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_while_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *while_token;
@@ -2292,7 +2364,7 @@ static basl_status_t basl_parser_parse_while_statement(
         return status;
     }
 
-    status = basl_parser_parse_statement(state);
+    status = basl_parser_parse_statement(state, NULL);
     if (status != BASL_STATUS_OK) {
         goto cleanup_loop;
     }
@@ -2325,11 +2397,15 @@ static basl_status_t basl_parser_parse_while_statement(
 
 cleanup_loop:
     basl_parser_pop_loop(state);
+    if (status == BASL_STATUS_OK && out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 0;
+    }
     return status;
 }
 
 static basl_status_t basl_parser_parse_break_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *break_token;
@@ -2384,11 +2460,15 @@ static basl_status_t basl_parser_parse_break_statement(
     loop->break_jumps[loop->break_count].operand_offset = operand_offset;
     loop->break_jumps[loop->break_count].span = break_token->span;
     loop->break_count += 1U;
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 0;
+    }
     return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_continue_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *continue_token;
@@ -2432,11 +2512,19 @@ static basl_status_t basl_parser_parse_continue_statement(
         return status;
     }
 
-    return basl_parser_emit_loop(state, loop->loop_start, continue_token->span);
+    status = basl_parser_emit_loop(state, loop->loop_start, continue_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 0;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_assignment_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *name_token;
@@ -2454,7 +2542,7 @@ static basl_status_t basl_parser_parse_assignment_statement(
         return status;
     }
 
-    status = basl_parser_resolve_local(state, name_token, &local_index, &local_type);
+    status = basl_parser_lookup_local_symbol(state, name_token, &local_index, &local_type);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -2492,11 +2580,19 @@ static basl_status_t basl_parser_parse_assignment_statement(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    return basl_parser_emit_opcode(state, BASL_OPCODE_POP, name_token->span);
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, name_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 0;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_expression_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     basl_parser_type_t expression_type;
@@ -2513,45 +2609,54 @@ static basl_status_t basl_parser_parse_expression_statement(
         return status;
     }
 
-    return basl_parser_emit_opcode(
+    status = basl_parser_emit_opcode(
         state,
         BASL_OPCODE_POP,
         last_token == NULL ? basl_parser_fallback_span(state) : last_token->span
     );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 0;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_statement(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     if (basl_parser_check(state, BASL_TOKEN_RETURN)) {
-        return basl_parser_parse_return_statement(state);
+        return basl_parser_parse_return_statement(state, out_guaranteed_return);
     }
     if (basl_parser_check(state, BASL_TOKEN_IF)) {
-        return basl_parser_parse_if_statement(state);
+        return basl_parser_parse_if_statement(state, out_guaranteed_return);
     }
     if (basl_parser_check(state, BASL_TOKEN_WHILE)) {
-        return basl_parser_parse_while_statement(state);
+        return basl_parser_parse_while_statement(state, out_guaranteed_return);
     }
     if (basl_parser_check(state, BASL_TOKEN_BREAK)) {
-        return basl_parser_parse_break_statement(state);
+        return basl_parser_parse_break_statement(state, out_guaranteed_return);
     }
     if (basl_parser_check(state, BASL_TOKEN_CONTINUE)) {
-        return basl_parser_parse_continue_statement(state);
+        return basl_parser_parse_continue_statement(state, out_guaranteed_return);
     }
     if (basl_parser_check(state, BASL_TOKEN_LBRACE)) {
-        return basl_parser_parse_block_statement(state);
+        return basl_parser_parse_block_statement(state, out_guaranteed_return);
     }
     if (basl_parser_check(state, BASL_TOKEN_IDENTIFIER) &&
         basl_parser_peek_next(state) != NULL &&
         basl_parser_peek_next(state)->kind == BASL_TOKEN_ASSIGN) {
-        return basl_parser_parse_assignment_statement(state);
+        return basl_parser_parse_assignment_statement(state, out_guaranteed_return);
     }
 
-    return basl_parser_parse_expression_statement(state);
+    return basl_parser_parse_expression_statement(state, out_guaranteed_return);
 }
 
 static basl_status_t basl_parser_parse_variable_declaration(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
     const basl_token_t *type_token;
@@ -2606,11 +2711,19 @@ static basl_status_t basl_parser_parse_variable_declaration(
         return status;
     }
 
-    return basl_parser_declare_local(state, name_token, declared_type, NULL);
+    status = basl_parser_declare_local_symbol(state, name_token, declared_type, NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = 0;
+    }
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_parse_declaration(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     const basl_token_t *token;
     const basl_token_t *next_token;
@@ -2621,25 +2734,83 @@ static basl_status_t basl_parser_parse_declaration(
         next_token != NULL &&
         token->kind == BASL_TOKEN_IDENTIFIER &&
         next_token->kind == BASL_TOKEN_IDENTIFIER) {
-        return basl_parser_parse_variable_declaration(state);
+        return basl_parser_parse_variable_declaration(state, out_guaranteed_return);
     }
 
-    return basl_parser_parse_statement(state);
+    return basl_parser_parse_statement(state, out_guaranteed_return);
 }
 
 static basl_status_t basl_parser_parse_block_contents(
-    basl_parser_state_t *state
+    basl_parser_state_t *state,
+    int *out_guaranteed_return
 ) {
     basl_status_t status;
+    int declaration_guaranteed_return;
+    int block_guaranteed_return;
+
+    declaration_guaranteed_return = 0;
+    block_guaranteed_return = 0;
 
     while (!basl_parser_is_at_end(state) && !basl_parser_check(state, BASL_TOKEN_RBRACE)) {
-        status = basl_parser_parse_declaration(state);
+        status = basl_parser_parse_declaration(state, &declaration_guaranteed_return);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (declaration_guaranteed_return) {
+            block_guaranteed_return = 1;
+        }
+    }
+
+    if (out_guaranteed_return != NULL) {
+        *out_guaranteed_return = block_guaranteed_return;
+    }
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_compile_seed_parameter_symbols(
+    basl_parser_state_t *state,
+    const basl_function_decl_t *decl
+) {
+    basl_status_t status;
+    size_t i;
+
+    for (i = 0U; i < decl->param_count; ++i) {
+        const basl_token_t fake_name = {
+            BASL_TOKEN_IDENTIFIER,
+            decl->params[i].span
+        };
+
+        status = basl_parser_declare_local_symbol(
+            state,
+            &fake_name,
+            decl->params[i].type,
+            NULL
+        );
         if (status != BASL_STATUS_OK) {
             return status;
         }
     }
 
     return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_compile_require_function_returns(
+    basl_program_state_t *program,
+    const basl_function_decl_t *decl,
+    size_t function_index,
+    int guaranteed_return
+) {
+    if (guaranteed_return) {
+        return BASL_STATUS_OK;
+    }
+
+    return basl_compile_report(
+        program,
+        decl->name_span,
+        function_index == program->main_index
+            ? "main entrypoint must return an i32 value on all paths"
+            : "function must return a value on all paths"
+    );
 }
 
 static basl_status_t basl_compile_function(
@@ -2650,7 +2821,7 @@ static basl_status_t basl_compile_function(
     basl_parser_state_t state;
     basl_function_decl_t *decl;
     basl_object_t *object;
-    size_t i;
+    int guaranteed_return;
 
     decl = &program->functions[function_index];
     memset(&state, 0, sizeof(state));
@@ -2661,27 +2832,28 @@ static basl_status_t basl_compile_function(
     state.scope_depth = 1U;
     state.expected_return_type = decl->return_type;
     basl_chunk_init(&state.chunk, program->registry->runtime);
+    guaranteed_return = 0;
 
-    for (i = 0U; i < decl->param_count; ++i) {
-        const basl_token_t fake_name = {
-            BASL_TOKEN_IDENTIFIER,
-            decl->params[i].span
-        };
-
-        status = basl_parser_declare_local(
-            &state,
-            &fake_name,
-            decl->params[i].type,
-            NULL
-        );
-        if (status != BASL_STATUS_OK) {
-            basl_chunk_free(&state.chunk);
-            basl_parser_state_free(&state);
-            return status;
-        }
+    status = basl_compile_seed_parameter_symbols(&state, decl);
+    if (status != BASL_STATUS_OK) {
+        basl_chunk_free(&state.chunk);
+        basl_parser_state_free(&state);
+        return status;
     }
 
-    status = basl_parser_parse_block_contents(&state);
+    status = basl_parser_parse_block_contents(&state, &guaranteed_return);
+    if (status != BASL_STATUS_OK) {
+        basl_chunk_free(&state.chunk);
+        basl_parser_state_free(&state);
+        return status;
+    }
+
+    status = basl_compile_require_function_returns(
+        program,
+        decl,
+        function_index,
+        guaranteed_return
+    );
     if (status != BASL_STATUS_OK) {
         basl_chunk_free(&state.chunk);
         basl_parser_state_free(&state);

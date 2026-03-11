@@ -107,6 +107,49 @@ TEST(BaslCheckerTest, ReportsSemanticErrorsWithoutProducingEntrypoint) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslCheckerTest, ReportsMissingReturnOnSomePaths) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_source_id_t source_id;
+    const basl_diagnostic_t *diagnostic;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "missing_return.basl",
+        "fn choose(bool ready) -> i32 {"
+        "    if (ready) {"
+        "        return 1;"
+        "    }"
+        "}"
+        "fn main() -> i32 {"
+        "    return choose(false);"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_check_source(&registry, source_id, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
+    ASSERT_NE(diagnostic, nullptr);
+    EXPECT_STREQ(
+        basl_string_c_str(&diagnostic->message),
+        "function must return a value on all paths"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
 TEST(BaslCheckerTest, ValidatesArguments) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
