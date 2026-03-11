@@ -22,6 +22,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/allocator.c
     src/array.c
     src/chunk.c
+    src/compiler.c
     src/diagnostic.c
     src/lexer.c
     src/map.c
@@ -75,6 +76,7 @@ if(BASL_BUILD_TESTS)
     add_executable(basl_tests
         tests/array_test.cpp
         tests/chunk_test.cpp
+        tests/compiler_test.cpp
         tests/diagnostic_test.cpp
         tests/lexer_test.cpp
         tests/map_test.cpp

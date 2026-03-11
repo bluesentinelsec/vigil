@@ -7,6 +7,7 @@ extern "C" {
 TEST(BaslTokenTest, KindNamesAreStable) {
     EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_EOF), "eof");
     EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_FN), "fn");
+    EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_NIL), "nil");
     EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_STRING_LITERAL), "string_literal");
     EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_ARROW), "arrow");
     EXPECT_STREQ(basl_token_kind_name((basl_token_kind_t)999), "unknown");
