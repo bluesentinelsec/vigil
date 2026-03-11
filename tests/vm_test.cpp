@@ -447,6 +447,7 @@ TEST(BaslVmTest, ExecutesFunctionObjectEntry) {
 
     basl_value_release(&result);
     basl_object_release(&function);
+    basl_vm_close(&vm);
     basl_runtime_close(&runtime);
 }
 
