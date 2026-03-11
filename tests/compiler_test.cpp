@@ -390,6 +390,9 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
+    EXPECT_EQ(error.location.source_id, source_id);
+    EXPECT_EQ(error.location.line, 1U);
+    EXPECT_EQ(error.location.column, 4U);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),

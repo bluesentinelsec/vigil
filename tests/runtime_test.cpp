@@ -62,6 +62,7 @@ void FailDeallocate(void *user_data, void *memory) {
 
 void ExpectClearedLocation(const basl_source_location_t &location) {
     EXPECT_EQ(location.source_id, 0U);
+    EXPECT_EQ(location.offset, 0U);
     EXPECT_EQ(location.line, 0U);
     EXPECT_EQ(location.column, 0U);
 }

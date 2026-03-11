@@ -514,6 +514,7 @@ static basl_status_t basl_vm_fail_at_ip(
     if (error != NULL && frame != NULL) {
         span = basl_chunk_span_at(frame->chunk, frame->ip);
         error->location.source_id = span.source_id;
+        error->location.offset = span.start_offset;
     }
 
     return status;

@@ -21,6 +21,7 @@ typedef enum basl_status {
 
 typedef struct basl_source_location {
     uint32_t source_id;
+    size_t offset;
     uint32_t line;
     uint32_t column;
 } basl_source_location_t;
