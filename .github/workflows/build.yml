@@ -3,6 +3,8 @@ name: Build
 on:
   pull_request:
   push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -47,3 +49,28 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  valgrind:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes valgrind
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DBASL_BUILD_TESTS=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCTEST_MEMORYCHECK_COMMAND=valgrind
+          -DCTEST_MEMORYCHECK_COMMAND_OPTIONS=--leak-check=full\ --show-leak-kinds=all\ --track-origins=yes\ --error-exitcode=1
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Memcheck
+        run: ctest --test-dir build -T memcheck --output-on-failure -C Debug
