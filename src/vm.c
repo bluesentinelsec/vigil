@@ -711,7 +711,7 @@ basl_status_t basl_vm_execute_function(
     basl_value_t value;
     basl_value_t left;
     basl_value_t right;
-    int64_t integer_result;
+    int64_t integer_result = 0;
     const basl_value_t *constant;
     const basl_value_t *peeked;
     uint32_t constant_index;
