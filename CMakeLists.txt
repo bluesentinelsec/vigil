@@ -23,12 +23,14 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/array.c
     src/chunk.c
     src/diagnostic.c
+    src/lexer.c
     src/map.c
     src/runtime.c
     src/source.c
     src/string.c
     src/status.c
     src/symbol.c
+    src/token.c
     src/value.c
     src/vm.c
 )
@@ -74,12 +76,14 @@ if(BASL_BUILD_TESTS)
         tests/array_test.cpp
         tests/chunk_test.cpp
         tests/diagnostic_test.cpp
+        tests/lexer_test.cpp
         tests/map_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp
         tests/string_test.cpp
         tests/status_test.cpp
         tests/symbol_test.cpp
+        tests/token_test.cpp
         tests/value_test.cpp
         tests/vm_test.cpp
     )

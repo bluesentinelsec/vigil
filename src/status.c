@@ -58,6 +58,8 @@ const char *basl_status_name(basl_status_t status) {
             return "internal";
         case BASL_STATUS_UNSUPPORTED:
             return "unsupported";
+        case BASL_STATUS_SYNTAX_ERROR:
+            return "syntax_error";
         default:
             return "unknown";
     }
