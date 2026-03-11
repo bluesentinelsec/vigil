@@ -152,28 +152,13 @@ int main(int argc, char **argv) {
         goto cleanup;
     }
 
-    switch (basl_value_kind(&result)) {
-        case BASL_VALUE_INT:
-            exit_code = (int)basl_value_as_int(&result);
-            break;
-        case BASL_VALUE_BOOL:
-            puts(basl_value_as_bool(&result) ? "true" : "false");
-            break;
-        case BASL_VALUE_FLOAT:
-            printf("%g\n", basl_value_as_float(&result));
-            break;
-        case BASL_VALUE_OBJECT:
-            if (basl_object_type(basl_value_as_object(&result)) == BASL_OBJECT_STRING) {
-                puts(basl_string_object_c_str(basl_value_as_object(&result)));
-            } else {
-                fprintf(stderr, "execution returned unsupported object type\n");
-                exit_code = 1;
-            }
-            break;
-        case BASL_VALUE_NIL:
-        default:
-            break;
+    if (basl_value_kind(&result) != BASL_VALUE_INT) {
+        fprintf(stderr, "compiled entrypoint did not return i32\n");
+        exit_code = 1;
+        goto cleanup;
     }
+
+    exit_code = (int)basl_value_as_int(&result);
 
 cleanup:
     basl_value_release(&result);

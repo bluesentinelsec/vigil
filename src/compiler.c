@@ -350,6 +350,14 @@ static basl_status_t basl_parser_parse_return_statement(
         return basl_parser_report(state, return_token->span, "expected literal after return");
     }
 
+    if (literal_token->kind != BASL_TOKEN_INT_LITERAL) {
+        return basl_parser_report(
+            state,
+            literal_token->span,
+            "main entrypoint must return an integer literal"
+        );
+    }
+
     basl_parser_advance(state);
     status = basl_parser_emit_literal(state, literal_token);
     if (status != BASL_STATUS_OK) {
@@ -380,8 +388,11 @@ static basl_status_t basl_parser_parse_script(
 ) {
     basl_status_t status;
     const basl_token_t *name_token;
+    const basl_token_t *return_type_token;
     const char *name_text;
     size_t name_length;
+    const char *return_type_text;
+    size_t return_type_length;
 
     status = basl_parser_expect(state, BASL_TOKEN_FN, "expected top-level 'fn'", NULL);
     if (status != BASL_STATUS_OK) {
@@ -418,9 +429,23 @@ static basl_status_t basl_parser_parse_script(
         return status;
     }
 
-    status = basl_parser_expect(state, BASL_TOKEN_IDENTIFIER, "expected return type name", NULL);
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_IDENTIFIER,
+        "expected return type name",
+        &return_type_token
+    );
     if (status != BASL_STATUS_OK) {
         return status;
+    }
+
+    return_type_text = basl_parser_token_text(state, return_type_token, &return_type_length);
+    if (return_type_length != 3U || memcmp(return_type_text, "i32", 3U) != 0) {
+        return basl_parser_report(
+            state,
+            return_type_token->span,
+            "main entrypoint must declare return type i32"
+        );
     }
 
     status = basl_parser_expect(state, BASL_TOKEN_LBRACE, "expected '{' before function body", NULL);
@@ -489,14 +514,9 @@ basl_status_t basl_compile_source(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    basl_diagnostic_list_clear(diagnostics);
     basl_token_list_init(&tokens, registry->runtime);
     status = basl_lex_source(registry, source_id, &tokens, diagnostics, error);
-    if (status != BASL_STATUS_OK && status != BASL_STATUS_SYNTAX_ERROR) {
-        basl_token_list_free(&tokens);
-        return status;
-    }
-    if (status == BASL_STATUS_SYNTAX_ERROR) {
+    if (status != BASL_STATUS_OK) {
         basl_token_list_free(&tokens);
         return status;
     }
