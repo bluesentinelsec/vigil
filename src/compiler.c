@@ -22,6 +22,19 @@ typedef struct basl_local {
     basl_parser_type_t type;
 } basl_local_t;
 
+typedef struct basl_loop_jump {
+    size_t operand_offset;
+    basl_source_span_t span;
+} basl_loop_jump_t;
+
+typedef struct basl_loop_context {
+    size_t loop_start;
+    size_t scope_depth;
+    basl_loop_jump_t *break_jumps;
+    size_t break_count;
+    size_t break_capacity;
+} basl_loop_context_t;
+
 typedef struct basl_function_param {
     const char *name;
     size_t length;
@@ -65,6 +78,9 @@ typedef struct basl_parser_state {
     basl_local_t *locals;
     size_t local_count;
     size_t local_capacity;
+    basl_loop_context_t *loops;
+    size_t loop_count;
+    size_t loop_capacity;
 } basl_parser_state_t;
 
 static basl_status_t basl_compile_report(
@@ -959,6 +975,208 @@ static basl_status_t basl_parser_grow_locals(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_grow_loops(
+    basl_parser_state_t *state,
+    size_t minimum_capacity
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= state->loop_capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = state->loop_capacity;
+    next_capacity = old_capacity == 0U ? 4U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+
+        next_capacity *= 2U;
+    }
+
+    if (next_capacity > SIZE_MAX / sizeof(*state->loops)) {
+        basl_error_set_literal(
+            state->program->error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "loop context allocation overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = state->loops;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            state->program->registry->runtime,
+            next_capacity * sizeof(*state->loops),
+            &memory,
+            state->program->error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            state->program->registry->runtime,
+            &memory,
+            next_capacity * sizeof(*state->loops),
+            state->program->error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (basl_loop_context_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(*state->loops)
+            );
+        }
+    }
+
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    state->loops = (basl_loop_context_t *)memory;
+    state->loop_capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_loop_context_grow_breaks(
+    basl_parser_state_t *state,
+    basl_loop_context_t *loop,
+    size_t minimum_capacity
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= loop->break_capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = loop->break_capacity;
+    next_capacity = old_capacity == 0U ? 4U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+
+        next_capacity *= 2U;
+    }
+
+    if (next_capacity > SIZE_MAX / sizeof(*loop->break_jumps)) {
+        basl_error_set_literal(
+            state->program->error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "loop break table allocation overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = loop->break_jumps;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            state->program->registry->runtime,
+            next_capacity * sizeof(*loop->break_jumps),
+            &memory,
+            state->program->error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            state->program->registry->runtime,
+            &memory,
+            next_capacity * sizeof(*loop->break_jumps),
+            state->program->error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (basl_loop_jump_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(*loop->break_jumps)
+            );
+        }
+    }
+
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    loop->break_jumps = (basl_loop_jump_t *)memory;
+    loop->break_capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
+static basl_loop_context_t *basl_parser_current_loop(
+    basl_parser_state_t *state
+) {
+    if (state == NULL || state->loop_count == 0U) {
+        return NULL;
+    }
+
+    return &state->loops[state->loop_count - 1U];
+}
+
+static basl_status_t basl_parser_push_loop(
+    basl_parser_state_t *state,
+    size_t loop_start
+) {
+    basl_status_t status;
+    basl_loop_context_t *loop;
+
+    status = basl_parser_grow_loops(state, state->loop_count + 1U);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    loop = &state->loops[state->loop_count];
+    memset(loop, 0, sizeof(*loop));
+    loop->loop_start = loop_start;
+    loop->scope_depth = state->scope_depth;
+    state->loop_count += 1U;
+    return BASL_STATUS_OK;
+}
+
+static void basl_parser_pop_loop(
+    basl_parser_state_t *state
+) {
+    basl_loop_context_t *loop;
+    void *memory;
+
+    if (state == NULL || state->loop_count == 0U) {
+        return;
+    }
+
+    loop = &state->loops[state->loop_count - 1U];
+    memory = loop->break_jumps;
+    basl_runtime_free(state->program->registry->runtime, &memory);
+    memset(loop, 0, sizeof(*loop));
+    state->loop_count -= 1U;
+}
+
+static basl_status_t basl_parser_emit_scope_cleanup_to_depth(
+    basl_parser_state_t *state,
+    size_t target_depth,
+    basl_source_span_t span
+) {
+    basl_status_t status;
+    size_t i;
+
+    for (i = state->local_count; i > 0U; --i) {
+        if (state->locals[i - 1U].depth <= target_depth) {
+            break;
+        }
+
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    return BASL_STATUS_OK;
+}
+
 static int basl_parser_tokens_equal(
     const basl_parser_state_t *state,
     const basl_token_t *left,
@@ -1573,11 +1791,150 @@ static basl_status_t basl_parser_parse_equality(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_logical_and(
+    basl_parser_state_t *state,
+    basl_parser_type_t *out_type
+) {
+    basl_status_t status;
+    basl_parser_type_t left_type;
+    basl_parser_type_t right_type;
+    basl_source_span_t operator_span;
+    size_t false_jump_offset;
+
+    status = basl_parser_parse_equality(state, &left_type);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (basl_parser_check(state, BASL_TOKEN_AMPERSAND_AMPERSAND)) {
+        operator_span = basl_parser_advance(state)->span;
+        if (left_type != BASL_PARSER_TYPE_BOOL) {
+            return basl_parser_report(
+                state,
+                operator_span,
+                "logical '&&' requires bool operands"
+            );
+        }
+
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP_IF_FALSE,
+            operator_span,
+            &false_jump_offset
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_parse_equality(state, &right_type);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (right_type != BASL_PARSER_TYPE_BOOL) {
+            return basl_parser_report(
+                state,
+                operator_span,
+                "logical '&&' requires bool operands"
+            );
+        }
+
+        status = basl_parser_patch_jump(state, false_jump_offset);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        left_type = BASL_PARSER_TYPE_BOOL;
+    }
+
+    *out_type = left_type;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_logical_or(
+    basl_parser_state_t *state,
+    basl_parser_type_t *out_type
+) {
+    basl_status_t status;
+    basl_parser_type_t left_type;
+    basl_parser_type_t right_type;
+    basl_source_span_t operator_span;
+    size_t false_jump_offset;
+    size_t end_jump_offset;
+
+    status = basl_parser_parse_logical_and(state, &left_type);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (basl_parser_check(state, BASL_TOKEN_PIPE_PIPE)) {
+        operator_span = basl_parser_advance(state)->span;
+        if (left_type != BASL_PARSER_TYPE_BOOL) {
+            return basl_parser_report(
+                state,
+                operator_span,
+                "logical '||' requires bool operands"
+            );
+        }
+
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP_IF_FALSE,
+            operator_span,
+            &false_jump_offset
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP,
+            operator_span,
+            &end_jump_offset
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_patch_jump(state, false_jump_offset);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_parse_logical_and(state, &right_type);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (right_type != BASL_PARSER_TYPE_BOOL) {
+            return basl_parser_report(
+                state,
+                operator_span,
+                "logical '||' requires bool operands"
+            );
+        }
+
+        status = basl_parser_patch_jump(state, end_jump_offset);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        left_type = BASL_PARSER_TYPE_BOOL;
+    }
+
+    *out_type = left_type;
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_parser_parse_expression(
     basl_parser_state_t *state,
     basl_parser_type_t *out_type
 ) {
-    return basl_parser_parse_equality(state, out_type);
+    return basl_parser_parse_logical_or(state, out_type);
 }
 
 static basl_status_t basl_parser_parse_block_contents(
@@ -1747,6 +2104,7 @@ static basl_status_t basl_parser_parse_while_statement(
     basl_parser_type_t condition_type;
     size_t loop_start;
     size_t exit_jump_offset;
+    size_t break_target_offset;
 
     status = basl_parser_expect(state, BASL_TOKEN_WHILE, "expected 'while'", &while_token);
     if (status != BASL_STATUS_OK) {
@@ -1786,20 +2144,162 @@ static basl_status_t basl_parser_parse_while_statement(
         return status;
     }
 
+    status = basl_parser_push_loop(state, loop_start);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
     status = basl_parser_parse_statement(state);
     if (status != BASL_STATUS_OK) {
+        basl_parser_pop_loop(state);
         return status;
     }
 
     status = basl_parser_emit_loop(state, loop_start, while_token->span);
     if (status != BASL_STATUS_OK) {
+        basl_parser_pop_loop(state);
         return status;
     }
     status = basl_parser_patch_jump(state, exit_jump_offset);
     if (status != BASL_STATUS_OK) {
+        basl_parser_pop_loop(state);
         return status;
     }
-    return basl_parser_emit_opcode(state, BASL_OPCODE_POP, while_token->span);
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, while_token->span);
+    if (status != BASL_STATUS_OK) {
+        basl_parser_pop_loop(state);
+        return status;
+    }
+
+    break_target_offset = basl_chunk_code_size(&state->chunk);
+    if (state->loop_count > 0U) {
+        basl_loop_context_t *loop;
+        size_t i;
+
+        loop = basl_parser_current_loop(state);
+        if (loop != NULL) {
+            for (i = 0U; i < loop->break_count; ++i) {
+                status = basl_parser_patch_u32(
+                    state,
+                    loop->break_jumps[i].operand_offset,
+                    (uint32_t)(break_target_offset - (loop->break_jumps[i].operand_offset + 4U))
+                );
+                if (status != BASL_STATUS_OK) {
+                    basl_parser_pop_loop(state);
+                    return status;
+                }
+            }
+        }
+    }
+    basl_parser_pop_loop(state);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_break_statement(
+    basl_parser_state_t *state
+) {
+    basl_status_t status;
+    const basl_token_t *break_token;
+    basl_loop_context_t *loop;
+    size_t operand_offset;
+
+    status = basl_parser_expect(state, BASL_TOKEN_BREAK, "expected 'break'", &break_token);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    loop = basl_parser_current_loop(state);
+    if (loop == NULL) {
+        return basl_parser_report(state, break_token->span, "'break' is only valid inside a loop");
+    }
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_SEMICOLON,
+        "expected ';' after break",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_emit_scope_cleanup_to_depth(
+        state,
+        loop->scope_depth,
+        break_token->span
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_loop_context_grow_breaks(state, loop, loop->break_count + 1U);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_emit_jump(
+        state,
+        BASL_OPCODE_JUMP,
+        break_token->span,
+        &operand_offset
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    loop = basl_parser_current_loop(state);
+    loop->break_jumps[loop->break_count].operand_offset = operand_offset;
+    loop->break_jumps[loop->break_count].span = break_token->span;
+    loop->break_count += 1U;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_continue_statement(
+    basl_parser_state_t *state
+) {
+    basl_status_t status;
+    const basl_token_t *continue_token;
+    basl_loop_context_t *loop;
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_CONTINUE,
+        "expected 'continue'",
+        &continue_token
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    loop = basl_parser_current_loop(state);
+    if (loop == NULL) {
+        return basl_parser_report(
+            state,
+            continue_token->span,
+            "'continue' is only valid inside a loop"
+        );
+    }
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_SEMICOLON,
+        "expected ';' after continue",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_emit_scope_cleanup_to_depth(
+        state,
+        loop->scope_depth,
+        continue_token->span
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    return basl_parser_emit_loop(state, loop->loop_start, continue_token->span);
 }
 
 static basl_status_t basl_parser_parse_assignment_statement(
@@ -1895,6 +2395,12 @@ static basl_status_t basl_parser_parse_statement(
     }
     if (basl_parser_check(state, BASL_TOKEN_WHILE)) {
         return basl_parser_parse_while_statement(state);
+    }
+    if (basl_parser_check(state, BASL_TOKEN_BREAK)) {
+        return basl_parser_parse_break_statement(state);
+    }
+    if (basl_parser_check(state, BASL_TOKEN_CONTINUE)) {
+        return basl_parser_parse_continue_statement(state);
     }
     if (basl_parser_check(state, BASL_TOKEN_LBRACE)) {
         return basl_parser_parse_block_statement(state);
@@ -2005,7 +2511,6 @@ static basl_status_t basl_compile_function(
     basl_parser_state_t state;
     basl_function_decl_t *decl;
     basl_object_t *object;
-    void *memory;
     size_t i;
 
     decl = &program->functions[function_index];
@@ -2032,8 +2537,16 @@ static basl_status_t basl_compile_function(
         );
         if (status != BASL_STATUS_OK) {
             basl_chunk_free(&state.chunk);
-            memory = state.locals;
-            basl_runtime_free(program->registry->runtime, &memory);
+            for (i = 0U; i < state.loop_count; ++i) {
+                void *break_memory = state.loops[i].break_jumps;
+                basl_runtime_free(program->registry->runtime, &break_memory);
+            }
+            {
+                void *loop_memory = state.loops;
+                void *local_memory = state.locals;
+                basl_runtime_free(program->registry->runtime, &loop_memory);
+                basl_runtime_free(program->registry->runtime, &local_memory);
+            }
             return status;
         }
     }
@@ -2041,8 +2554,16 @@ static basl_status_t basl_compile_function(
     status = basl_parser_parse_block_contents(&state);
     if (status != BASL_STATUS_OK) {
         basl_chunk_free(&state.chunk);
-        memory = state.locals;
-        basl_runtime_free(program->registry->runtime, &memory);
+        for (i = 0U; i < state.loop_count; ++i) {
+            void *break_memory = state.loops[i].break_jumps;
+            basl_runtime_free(program->registry->runtime, &break_memory);
+        }
+        {
+            void *loop_memory = state.loops;
+            void *local_memory = state.locals;
+            basl_runtime_free(program->registry->runtime, &loop_memory);
+            basl_runtime_free(program->registry->runtime, &local_memory);
+        }
         return status;
     }
 
@@ -2056,8 +2577,16 @@ static basl_status_t basl_compile_function(
         &object,
         program->error
     );
-    memory = state.locals;
-    basl_runtime_free(program->registry->runtime, &memory);
+    for (i = 0U; i < state.loop_count; ++i) {
+        void *break_memory = state.loops[i].break_jumps;
+        basl_runtime_free(program->registry->runtime, &break_memory);
+    }
+    {
+        void *loop_memory = state.loops;
+        void *local_memory = state.locals;
+        basl_runtime_free(program->registry->runtime, &loop_memory);
+        basl_runtime_free(program->registry->runtime, &local_memory);
+    }
     if (status != BASL_STATUS_OK) {
         basl_chunk_free(&state.chunk);
         return status;

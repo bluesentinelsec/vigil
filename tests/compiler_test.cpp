@@ -151,6 +151,52 @@ TEST(BaslCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn panic_bool() -> bool {"
+            "    i32 x = 1 / 0;"
+            "    return x == 0;"
+            "}"
+            "fn main() -> i32 {"
+            "    if (true || panic_bool()) {"
+            "        if (!(false && panic_bool())) {"
+            "            return 7;"
+            "        }"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        7
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i32 sum = 0;"
+            "    i32 i = 0;"
+            "    while (i < 8) {"
+            "        i = i + 1;"
+            "        {"
+            "            i32 current = i;"
+            "            if (current == 3) {"
+            "                continue;"
+            "            }"
+            "            if (current == 6) {"
+            "                break;"
+            "            }"
+            "        }"
+            "        sum = sum + i;"
+            "    }"
+            "    return sum;"
+            "}"
+        ),
+        12
+    );
+}
+
 TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
@@ -404,6 +450,73 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown function"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "logical_type.basl",
+        "fn main() -> i32 { if (1 && true) { return 1; } return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "logical '&&' requires bool operands"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "break_outside.basl",
+        "fn main() -> i32 { break; return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "'break' is only valid inside a loop"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "continue_outside.basl",
+        "fn main() -> i32 { continue; return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "'continue' is only valid inside a loop"
     );
 
     basl_diagnostic_list_free(&diagnostics);

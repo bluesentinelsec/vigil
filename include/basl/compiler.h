@@ -16,8 +16,9 @@ extern "C" {
  * multiple top-level `fn` declarations with direct same-module calls,
  * `i32`/`bool` parameters and return types, and a required
  * `fn main() -> i32 { ... }` entrypoint. Function bodies support typed local
- * declarations, integer/bool expressions, assignment, `if`, `while`, and
- * explicit `return` statements.
+ * declarations, integer/bool expressions, short-circuit `&&`/`||`,
+ * assignment, `if`, `while`, `break`, `continue`, and explicit `return`
+ * statements.
  */
 BASL_API basl_status_t basl_compile_source(
     const basl_source_registry_t *registry,
