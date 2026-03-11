@@ -13,7 +13,9 @@ extern "C" {
 
 /*
  * Current implementation compiles a narrow runnable BASL slice:
- * exactly one top-level `fn main() -> i32 { ... }` with typed local
+ * multiple top-level `fn` declarations with direct same-module calls,
+ * `i32`/`bool` parameters and return types, and a required
+ * `fn main() -> i32 { ... }` entrypoint. Function bodies support typed local
  * declarations, integer/bool expressions, assignment, `if`, `while`, and
  * explicit `return` statements.
  */

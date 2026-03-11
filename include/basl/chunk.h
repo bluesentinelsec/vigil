@@ -36,7 +36,8 @@ typedef enum basl_opcode {
     BASL_OPCODE_NOT = 17,
     BASL_OPCODE_EQUAL = 18,
     BASL_OPCODE_GREATER = 19,
-    BASL_OPCODE_LESS = 20
+    BASL_OPCODE_LESS = 20,
+    BASL_OPCODE_CALL = 21
 } basl_opcode_t;
 
 typedef struct basl_chunk {

@@ -93,6 +93,7 @@ BASL_API basl_status_t basl_function_object_new(
     basl_runtime_t *runtime,
     const char *name,
     size_t name_length,
+    size_t arity,
     basl_chunk_t *chunk,
     basl_object_t **out_object,
     basl_error_t *error
@@ -100,11 +101,13 @@ BASL_API basl_status_t basl_function_object_new(
 BASL_API basl_status_t basl_function_object_new_cstr(
     basl_runtime_t *runtime,
     const char *name,
+    size_t arity,
     basl_chunk_t *chunk,
     basl_object_t **out_object,
     basl_error_t *error
 );
 BASL_API const char *basl_function_object_name(const basl_object_t *object);
+BASL_API size_t basl_function_object_arity(const basl_object_t *object);
 BASL_API const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object);
 
 #ifdef __cplusplus

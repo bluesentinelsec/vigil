@@ -28,6 +28,7 @@ static basl_status_t basl_vm_fail_at_ip(
     const char *message,
     basl_error_t *error
 );
+static basl_value_t basl_vm_pop_or_nil(basl_vm_t *vm);
 
 static basl_status_t basl_vm_validate(
     const basl_vm_t *vm,
@@ -76,6 +77,19 @@ static void basl_vm_clear_frames(basl_vm_t *vm) {
     }
 
     vm->frame_count = 0U;
+}
+
+static void basl_vm_unwind_stack_to(basl_vm_t *vm, size_t target_count) {
+    basl_value_t value;
+
+    if (vm == NULL) {
+        return;
+    }
+
+    while (vm->stack_count > target_count) {
+        value = basl_vm_pop_or_nil(vm);
+        basl_value_release(&value);
+    }
 }
 
 static basl_status_t basl_vm_grow_stack(
@@ -545,6 +559,46 @@ static basl_status_t basl_vm_read_u32(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_vm_read_raw_u32(
+    basl_vm_t *vm,
+    uint32_t *out_value,
+    basl_error_t *error
+) {
+    basl_vm_frame_t *frame;
+    const uint8_t *code;
+    size_t code_size;
+    size_t ip;
+
+    frame = basl_vm_current_frame(vm);
+    if (frame == NULL) {
+        return basl_vm_fail_at_ip(
+            vm,
+            BASL_STATUS_INTERNAL,
+            "vm frame is missing",
+            error
+        );
+    }
+
+    code = basl_chunk_code(frame->chunk);
+    code_size = basl_chunk_code_size(frame->chunk);
+    ip = frame->ip;
+    if (code == NULL || ip + 3U >= code_size) {
+        return basl_vm_fail_at_ip(
+            vm,
+            BASL_STATUS_INTERNAL,
+            "truncated operand in chunk",
+            error
+        );
+    }
+
+    *out_value = (uint32_t)code[ip];
+    *out_value |= (uint32_t)code[ip + 1U] << 8U;
+    *out_value |= (uint32_t)code[ip + 2U] << 16U;
+    *out_value |= (uint32_t)code[ip + 3U] << 24U;
+    frame->ip += 4U;
+    return BASL_STATUS_OK;
+}
+
 void basl_vm_options_init(basl_vm_options_t *options) {
     if (options == NULL) {
         return;
@@ -745,6 +799,15 @@ basl_status_t basl_vm_execute_function(
             return BASL_STATUS_INVALID_ARGUMENT;
         }
 
+        if (basl_function_object_arity(function) != 0U) {
+            basl_error_set_literal(
+                error,
+                BASL_STATUS_INVALID_ARGUMENT,
+                "top-level execute_function requires a zero-arity function"
+            );
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+
         basl_vm_release_stack(vm);
         basl_vm_clear_frames(vm);
         status = basl_vm_push_frame(
@@ -848,6 +911,78 @@ basl_status_t basl_vm_execute_function(
                 basl_value_release(&vm->stack[local_index]);
                 vm->stack[local_index] = value;
                 break;
+            case BASL_OPCODE_CALL: {
+                const basl_object_t *callee;
+                size_t arg_count;
+                size_t base_slot;
+
+                status = basl_vm_read_u32(vm, &constant_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                frame = basl_vm_current_frame(vm);
+                if (frame == NULL || frame->function == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "call requires a function-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                callee = basl_function_object_sibling(
+                    frame->function,
+                    (size_t)constant_index
+                );
+                if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "call target is invalid",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                arg_count = (size_t)operand;
+                if (basl_function_object_arity(callee) != arg_count) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "call arity does not match function signature",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (arg_count > vm->stack_count) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "call arguments are missing from the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                base_slot = vm->stack_count - arg_count;
+                status = basl_vm_push_frame(
+                    vm,
+                    callee,
+                    basl_function_object_chunk(callee),
+                    base_slot,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
             case BASL_OPCODE_JUMP:
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
@@ -1109,11 +1244,26 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 break;
             case BASL_OPCODE_RETURN:
-                frame->ip += 1U;
-                *out_value = basl_vm_pop_or_nil(vm);
-                basl_vm_release_stack(vm);
-                basl_vm_clear_frames(vm);
-                return BASL_STATUS_OK;
+                {
+                    size_t base_slot;
+
+                    frame->ip += 1U;
+                    value = basl_vm_pop_or_nil(vm);
+                    base_slot = frame->base_slot;
+                    vm->frame_count -= 1U;
+                    basl_vm_unwind_stack_to(vm, base_slot);
+                    if (vm->frame_count == 0U) {
+                        *out_value = value;
+                        return BASL_STATUS_OK;
+                    }
+
+                    status = basl_vm_push(vm, &value, error);
+                    basl_value_release(&value);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                }
+                break;
             default:
                 status = basl_vm_fail_at_ip(
                     vm,
