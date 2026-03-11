@@ -4,6 +4,19 @@
 
 #include "basl/basl.h"
 
+static FILE *basl_open_file(const char *path, const char *mode) {
+#ifdef _WIN32
+    FILE *file = NULL;
+
+    if (fopen_s(&file, path, mode) != 0) {
+        return NULL;
+    }
+    return file;
+#else
+    return fopen(path, mode);
+#endif
+}
+
 static int basl_print_diagnostics(
     const basl_source_registry_t *registry,
     const basl_diagnostic_list_t *diagnostics
@@ -39,7 +52,7 @@ static char *basl_read_file(const char *path, size_t *out_length) {
     size_t read_length;
 
     *out_length = 0U;
-    file = fopen(path, "rb");
+    file = basl_open_file(path, "rb");
     if (file == NULL) {
         return NULL;
     }
