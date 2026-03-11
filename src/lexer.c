@@ -20,6 +20,7 @@ typedef struct basl_lexer_state {
     basl_diagnostic_list_t *diagnostics;
     basl_error_t *error;
     int had_error;
+    basl_error_t last_error;
 } basl_lexer_state_t;
 
 static basl_source_span_t basl_lexer_span(
@@ -111,7 +112,24 @@ static basl_status_t basl_lexer_report(
 
     basl_error_set_literal(state->error, BASL_STATUS_SYNTAX_ERROR, message);
     state->error->location.source_id = state->source_id;
+    state->last_error = *state->error;
     return BASL_STATUS_SYNTAX_ERROR;
+}
+
+static int basl_lexer_is_prefixed_digit(char ch, char prefix) {
+    switch (prefix) {
+        case 'x':
+        case 'X':
+            return isxdigit((unsigned char)ch);
+        case 'b':
+        case 'B':
+            return ch == '0' || ch == '1';
+        case 'o':
+        case 'O':
+            return ch >= '0' && ch <= '7';
+        default:
+            return 0;
+    }
 }
 
 static int basl_lexer_is_identifier_start(char ch) {
@@ -189,6 +207,7 @@ static basl_status_t basl_lexer_scan_number(
     kind = BASL_TOKEN_INT_LITERAL;
     if (state->text[start] == '0') {
         char prefix;
+        size_t digits_start;
 
         prefix = basl_lexer_peek(state);
         if (
@@ -197,9 +216,32 @@ static basl_status_t basl_lexer_scan_number(
             prefix == 'o' || prefix == 'O'
         ) {
             basl_lexer_advance(state);
-            while (isalnum((unsigned char)basl_lexer_peek(state))) {
+            digits_start = state->offset;
+            while (basl_lexer_is_prefixed_digit(basl_lexer_peek(state), prefix)) {
                 basl_lexer_advance(state);
             }
+
+            if (state->offset == digits_start) {
+                return basl_lexer_report(
+                    state,
+                    start,
+                    state->offset,
+                    "expected digits after numeric base prefix"
+                );
+            }
+
+            if (isalnum((unsigned char)basl_lexer_peek(state))) {
+                while (isalnum((unsigned char)basl_lexer_peek(state))) {
+                    basl_lexer_advance(state);
+                }
+                return basl_lexer_report(
+                    state,
+                    start,
+                    state->offset,
+                    "invalid digits for numeric base prefix"
+                );
+            }
+
             return basl_lexer_emit(state, kind, start, state->offset);
         }
     }
@@ -493,14 +535,11 @@ basl_status_t basl_lex_source(
     }
 
     if (state.had_error) {
-        basl_error_t saved_error;
-
-        saved_error = *error;
         status = basl_lexer_emit(&state, BASL_TOKEN_EOF, state.offset, state.offset);
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        *error = saved_error;
+        *error = state.last_error;
         return BASL_STATUS_SYNTAX_ERROR;
     }
 

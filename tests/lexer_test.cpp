@@ -233,3 +233,57 @@ TEST(BaslLexerTest, ReportsUnterminatedStringAndBlockComment) {
     basl_source_registry_free(&registry);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_token_list_t tokens;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+    basl_token_list_init(&tokens, runtime);
+
+    source_id = RegisterSource(&registry, "badnum1.basl", "0x", &error);
+    EXPECT_EQ(
+        basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "expected digits after numeric base prefix"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(&registry, "badnum2.basl", "0b129", &error);
+    EXPECT_EQ(
+        basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "invalid digits for numeric base prefix"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(&registry, "badnum3.basl", "0o78", &error);
+    EXPECT_EQ(
+        basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "invalid digits for numeric base prefix"
+    );
+
+    basl_token_list_free(&tokens);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}

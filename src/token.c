@@ -44,7 +44,7 @@ static basl_status_t basl_token_list_grow(
         return BASL_STATUS_OK;
     }
 
-    new_capacity = list->capacity == 0U ? 16U : list->capacity * 2U;
+    new_capacity = list->capacity == 0U ? 16U : list->capacity;
     while (new_capacity < minimum_capacity) {
         if (new_capacity > SIZE_MAX / 2U) {
             basl_error_set_literal(
