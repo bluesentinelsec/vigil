@@ -278,6 +278,7 @@ static basl_status_t basl_chunk_append_value(
     char buffer[64];
     int written;
     basl_object_t *object;
+    basl_status_t status;
 
     if (value == NULL) {
         return basl_chunk_append_text(output, "<null>", error);
@@ -311,15 +312,18 @@ static basl_status_t basl_chunk_append_value(
         case BASL_VALUE_OBJECT:
             object = basl_value_as_object(value);
             if (basl_object_type(object) == BASL_OBJECT_STRING) {
-                if (basl_chunk_append_text(output, "\"", error) != BASL_STATUS_OK) {
-                    return error == NULL ? BASL_STATUS_INTERNAL : error->type;
+                status = basl_chunk_append_text(output, "\"", error);
+                if (status != BASL_STATUS_OK) {
+                    return status;
                 }
-                if (basl_string_append_cstr(
-                        output,
-                        basl_string_object_c_str(object),
-                        error
-                    ) != BASL_STATUS_OK) {
-                    return error == NULL ? BASL_STATUS_INTERNAL : error->type;
+
+                status = basl_string_append_cstr(
+                    output,
+                    basl_string_object_c_str(object),
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
                 }
 
                 return basl_chunk_append_text(output, "\"", error);
