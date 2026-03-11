@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "basl/chunk.h"
 #include "internal/basl_internal.h"
 #include "basl/string.h"
 #include "basl/value.h"
@@ -17,6 +18,12 @@ typedef struct basl_string_object {
     basl_string_t value;
 } basl_string_object_t;
 
+typedef struct basl_function_object {
+    basl_object_t base;
+    basl_string_t name;
+    basl_chunk_t chunk;
+} basl_function_object_t;
+
 static const basl_string_object_t *basl_string_object_cast(
     const basl_object_t *object
 ) {
@@ -27,10 +34,21 @@ static const basl_string_object_t *basl_string_object_cast(
     return (const basl_string_object_t *)object;
 }
 
+static const basl_function_object_t *basl_function_object_cast(
+    const basl_object_t *object
+) {
+    if (object == NULL || object->type != BASL_OBJECT_FUNCTION) {
+        return NULL;
+    }
+
+    return (const basl_function_object_t *)object;
+}
+
 static void basl_object_destroy(basl_object_t *object) {
     basl_runtime_t *runtime;
     void *memory;
     basl_string_object_t *string_object;
+    basl_function_object_t *function_object;
 
     if (object == NULL) {
         return;
@@ -41,6 +59,11 @@ static void basl_object_destroy(basl_object_t *object) {
         case BASL_OBJECT_STRING:
             string_object = (basl_string_object_t *)object;
             basl_string_free(&string_object->value);
+            break;
+        case BASL_OBJECT_FUNCTION:
+            function_object = (basl_function_object_t *)object;
+            basl_string_free(&function_object->name);
+            basl_chunk_free(&function_object->chunk);
             break;
         case BASL_OBJECT_INVALID:
         default:
@@ -349,4 +372,133 @@ size_t basl_string_object_length(const basl_object_t *object) {
     }
 
     return basl_string_length(&string_object->value);
+}
+
+basl_status_t basl_function_object_new(
+    basl_runtime_t *runtime,
+    const char *name,
+    size_t name_length,
+    basl_chunk_t *chunk,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_function_object_t *object;
+    void *memory;
+
+    basl_error_clear(error);
+
+    if (runtime == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "runtime must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (name == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function object name must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (chunk == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function object chunk must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (chunk->runtime != runtime) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function object chunk runtime must match runtime"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (out_object == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "out_object must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_object = NULL;
+    memory = NULL;
+    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    object = (basl_function_object_t *)memory;
+    basl_object_init(&object->base, runtime, BASL_OBJECT_FUNCTION);
+    basl_string_init(&object->name, runtime);
+    status = basl_string_assign(&object->name, name, name_length, error);
+    if (status != BASL_STATUS_OK) {
+        basl_object_destroy(&object->base);
+        return status;
+    }
+
+    object->chunk = *chunk;
+    memset(chunk, 0, sizeof(*chunk));
+    *out_object = &object->base;
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_function_object_new_cstr(
+    basl_runtime_t *runtime,
+    const char *name,
+    basl_chunk_t *chunk,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    if (name == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function object name must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    return basl_function_object_new(
+        runtime,
+        name,
+        strlen(name),
+        chunk,
+        out_object,
+        error
+    );
+}
+
+const char *basl_function_object_name(const basl_object_t *object) {
+    const basl_function_object_t *function_object;
+
+    function_object = basl_function_object_cast(object);
+    if (function_object == NULL) {
+        return "";
+    }
+
+    return basl_string_c_str(&function_object->name);
+}
+
+const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
+    const basl_function_object_t *function_object;
+
+    function_object = basl_function_object_cast(object);
+    if (function_object == NULL) {
+        return NULL;
+    }
+
+    return &function_object->chunk;
 }

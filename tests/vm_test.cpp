@@ -65,6 +65,7 @@ TEST(BaslVmTest, OpenAndCloseVm) {
     ASSERT_NE(vm, nullptr);
     EXPECT_EQ(basl_vm_runtime(vm), runtime);
     EXPECT_EQ(basl_vm_stack_depth(vm), 0U);
+    EXPECT_EQ(basl_vm_frame_depth(vm), 0U);
 
     basl_vm_close(&vm);
     EXPECT_EQ(vm, nullptr);
@@ -98,6 +99,7 @@ TEST(BaslVmTest, ExecutesConstantAndReturn) {
     EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
     EXPECT_EQ(basl_value_as_int(&result), 42);
     EXPECT_EQ(basl_vm_stack_depth(vm), 0U);
+    EXPECT_EQ(basl_vm_frame_depth(vm), 0U);
 
     basl_value_release(&result);
     basl_chunk_free(&chunk);
@@ -228,6 +230,10 @@ TEST(BaslVmTest, RejectsMissingArguments) {
         basl_vm_execute(vm, &chunk, nullptr, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
+    EXPECT_EQ(
+        basl_vm_execute_function(vm, nullptr, nullptr, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
 
     basl_chunk_free(&chunk);
     basl_vm_close(&vm);
@@ -309,4 +315,74 @@ TEST(BaslVmTest, UsesRuntimeAllocatorHooks) {
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
     EXPECT_GE(stats.deallocate_calls, 4);
+}
+
+TEST(BaslVmTest, ExecutesFunctionObjectEntry) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_object_t *function = nullptr;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_int(&constant, 99);
+    basl_value_init_nil(&result);
+
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(4U, 0U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(4U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_function_object_new_cstr(runtime, "main", &chunk, &function, &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(
+        basl_vm_execute_function(vm, function, &result, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), 99);
+    EXPECT_EQ(basl_vm_stack_depth(vm), 0U);
+    EXPECT_EQ(basl_vm_frame_depth(vm), 0U);
+
+    basl_value_release(&result);
+    basl_object_release(&function);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_object_t *object = nullptr;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(
+        basl_string_object_new_cstr(runtime, "hello", &object, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_init_nil(&result);
+
+    EXPECT_EQ(
+        basl_vm_execute_function(vm, object, &result, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(std::strcmp(error.value, "function must be a function object"), 0);
+
+    basl_object_release(&object);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
 }

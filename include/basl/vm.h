@@ -29,6 +29,7 @@ BASL_API basl_status_t basl_vm_open(
 BASL_API void basl_vm_close(basl_vm_t **vm);
 BASL_API basl_runtime_t *basl_vm_runtime(const basl_vm_t *vm);
 BASL_API size_t basl_vm_stack_depth(const basl_vm_t *vm);
+BASL_API size_t basl_vm_frame_depth(const basl_vm_t *vm);
 /*
  * out_value must not be null and should be initialized to nil before reuse if
  * it may already own an object reference.
@@ -36,6 +37,12 @@ BASL_API size_t basl_vm_stack_depth(const basl_vm_t *vm);
 BASL_API basl_status_t basl_vm_execute(
     basl_vm_t *vm,
     const basl_chunk_t *chunk,
+    basl_value_t *out_value,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_vm_execute_function(
+    basl_vm_t *vm,
+    const basl_object_t *function,
     basl_value_t *out_value,
     basl_error_t *error
 );
