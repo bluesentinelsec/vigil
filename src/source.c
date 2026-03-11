@@ -4,7 +4,7 @@
 #include "internal/basl_internal.h"
 #include "basl/source.h"
 
-static basl_status_t basl_source_registry_validate_mutable(
+static basl_status_t basl_source_registry_validate(
     const basl_source_registry_t *registry,
     basl_error_t *error
 ) {
@@ -15,15 +15,6 @@ static basl_status_t basl_source_registry_validate_mutable(
             error,
             BASL_STATUS_INVALID_ARGUMENT,
             "source registry must not be null"
-        );
-        return BASL_STATUS_INVALID_ARGUMENT;
-    }
-
-    if (registry->runtime == NULL) {
-        basl_error_set_literal(
-            error,
-            BASL_STATUS_INVALID_ARGUMENT,
-            "source registry runtime must not be null"
         );
         return BASL_STATUS_INVALID_ARGUMENT;
     }
@@ -46,6 +37,98 @@ static basl_status_t basl_source_registry_validate_mutable(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_source_registry_validate_mutable(
+    const basl_source_registry_t *registry,
+    basl_error_t *error
+) {
+    basl_status_t status;
+
+    status = basl_source_registry_validate(registry, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (registry->runtime == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "source registry runtime must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_source_registry_locate(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    size_t offset,
+    basl_source_location_t *out_location,
+    basl_error_t *error
+) {
+    const basl_source_file_t *file;
+    const char *text;
+    size_t length;
+    size_t index;
+    basl_status_t status;
+    basl_source_location_t location;
+
+    status = basl_source_registry_validate(registry, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (out_location == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "source location output must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    file = basl_source_registry_get(registry, source_id);
+    if (file == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "source_id must reference a registered source file"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    text = basl_string_c_str(&file->text);
+    length = basl_string_length(&file->text);
+    if (offset > length) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "source offset exceeds source text length"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    basl_source_location_clear(&location);
+    location.source_id = source_id;
+    location.offset = offset;
+    location.line = 1U;
+    location.column = 1U;
+
+    for (index = 0U; index < offset; index += 1U) {
+        if (text[index] == '\n') {
+            location.line += 1U;
+            location.column = 1U;
+        } else {
+            location.column += 1U;
+        }
+    }
+
+    *out_location = location;
+    basl_error_clear(error);
     return BASL_STATUS_OK;
 }
 
@@ -186,6 +269,44 @@ const basl_source_file_t *basl_source_registry_get(
     }
 
     return &registry->files[source_id - 1U];
+}
+
+basl_status_t basl_source_registry_resolve_location(
+    const basl_source_registry_t *registry,
+    basl_source_location_t *location,
+    basl_error_t *error
+) {
+    if (location == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "source location must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    return basl_source_registry_locate(
+        registry,
+        (basl_source_id_t)location->source_id,
+        location->offset,
+        location,
+        error
+    );
+}
+
+basl_status_t basl_source_registry_resolve_span_start(
+    const basl_source_registry_t *registry,
+    basl_source_span_t span,
+    basl_source_location_t *out_location,
+    basl_error_t *error
+) {
+    return basl_source_registry_locate(
+        registry,
+        span.source_id,
+        span.start_offset,
+        out_location,
+        error
+    );
 }
 
 basl_status_t basl_source_registry_register(

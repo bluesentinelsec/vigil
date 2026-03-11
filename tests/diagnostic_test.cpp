@@ -256,3 +256,68 @@ TEST(BaslDiagnosticTest, FreeResetsWholeList) {
     EXPECT_EQ(list.capacity, 0U);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslDiagnosticTest, SeverityNamesAreStable) {
+    EXPECT_STREQ(basl_diagnostic_severity_name(BASL_DIAGNOSTIC_ERROR), "error");
+    EXPECT_STREQ(basl_diagnostic_severity_name(BASL_DIAGNOSTIC_WARNING), "warning");
+    EXPECT_STREQ(basl_diagnostic_severity_name(BASL_DIAGNOSTIC_NOTE), "note");
+}
+
+TEST(BaslDiagnosticTest, FormatIncludesPathLineColumnSeverityAndMessage) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_source_id_t source_id = 0U;
+    basl_diagnostic_list_t list;
+    basl_string_t output;
+    basl_source_span_t span;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&list, runtime);
+    basl_string_init(&output, runtime);
+
+    ASSERT_EQ(
+        basl_source_registry_register_cstr(
+            &registry,
+            "main.basl",
+            "fn main() -> i32 {\n    return 1;\n}\n",
+            &source_id,
+            &error
+        ),
+        BASL_STATUS_OK
+    );
+
+    span.source_id = source_id;
+    span.start_offset = 23U;
+    span.end_offset = 29U;
+    ASSERT_EQ(
+        basl_diagnostic_list_append_cstr(
+            &list,
+            BASL_DIAGNOSTIC_ERROR,
+            span,
+            "unexpected token",
+            &error
+        ),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(
+        basl_diagnostic_format(
+            &registry,
+            basl_diagnostic_list_get(&list, 0U),
+            &output,
+            &error
+        ),
+        BASL_STATUS_OK
+    );
+    EXPECT_STREQ(
+        basl_string_c_str(&output),
+        "main.basl:2:5: error: unexpected token"
+    );
+
+    basl_string_free(&output);
+    basl_diagnostic_list_free(&list);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}

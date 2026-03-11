@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "internal/basl_internal.h"
@@ -176,6 +177,21 @@ size_t basl_diagnostic_list_count(const basl_diagnostic_list_t *list) {
     return list->count;
 }
 
+const char *basl_diagnostic_severity_name(
+    basl_diagnostic_severity_t severity
+) {
+    switch (severity) {
+        case BASL_DIAGNOSTIC_ERROR:
+            return "error";
+        case BASL_DIAGNOSTIC_WARNING:
+            return "warning";
+        case BASL_DIAGNOSTIC_NOTE:
+            return "note";
+        default:
+            return "unknown";
+    }
+}
+
 const basl_diagnostic_t *basl_diagnostic_list_get(
     const basl_diagnostic_list_t *list,
     size_t index
@@ -264,4 +280,97 @@ basl_status_t basl_diagnostic_list_append_cstr(
         strlen(message),
         error
     );
+}
+
+basl_status_t basl_diagnostic_format(
+    const basl_source_registry_t *registry,
+    const basl_diagnostic_t *diagnostic,
+    basl_string_t *output,
+    basl_error_t *error
+) {
+    basl_source_location_t location;
+    const basl_source_file_t *source;
+    char prefix[128];
+    int written;
+    basl_status_t status;
+    const char *path;
+
+    basl_error_clear(error);
+
+    if (registry == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "source registry must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (diagnostic == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "diagnostic must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (output == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "output string must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (output->bytes.runtime == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "output string runtime must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    basl_string_clear(output);
+
+    path = "<unknown>";
+    basl_source_location_clear(&location);
+    location.source_id = diagnostic->span.source_id;
+    location.offset = diagnostic->span.start_offset;
+    source = basl_source_registry_get(registry, diagnostic->span.source_id);
+    if (source != NULL) {
+        path = basl_string_c_str(&source->path);
+        if (basl_source_registry_resolve_location(registry, &location, NULL) != BASL_STATUS_OK) {
+            basl_source_location_clear(&location);
+            location.source_id = diagnostic->span.source_id;
+            location.offset = diagnostic->span.start_offset;
+        }
+    }
+
+    written = snprintf(
+        prefix,
+        sizeof(prefix),
+        "%s:%u:%u: %s: ",
+        path,
+        location.line,
+        location.column,
+        basl_diagnostic_severity_name(diagnostic->severity)
+    );
+    if (written < 0) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "failed to format diagnostic prefix"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    status = basl_string_append(output, prefix, (size_t)written, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    return basl_string_append_cstr(output, basl_string_c_str(&diagnostic->message), error);
 }

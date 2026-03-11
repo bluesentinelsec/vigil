@@ -10,6 +10,7 @@ namespace {
 
 void ExpectClearedLocation(const basl_source_location_t &location) {
     EXPECT_EQ(location.source_id, 0U);
+    EXPECT_EQ(location.offset, 0U);
     EXPECT_EQ(location.line, 0U);
     EXPECT_EQ(location.column, 0U);
 }
@@ -32,6 +33,7 @@ TEST(BaslStatusTest, ErrorClearResetsSourceLocation) {
     error.value = "bad";
     error.length = 3U;
     error.location.source_id = 7U;
+    error.location.offset = 17U;
     error.location.line = 11U;
     error.location.column = 13U;
 
@@ -47,6 +49,7 @@ TEST(BaslStatusTest, SourceLocationClearResetsFields) {
     basl_source_location_t location = {};
 
     location.source_id = 3U;
+    location.offset = 21U;
     location.line = 5U;
     location.column = 8U;
 

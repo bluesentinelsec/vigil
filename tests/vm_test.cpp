@@ -356,6 +356,7 @@ TEST(BaslVmTest, ReportsUnsupportedOpcodeAndSourceId) {
     ASSERT_NE(error.value, nullptr);
     EXPECT_EQ(std::strcmp(error.value, "unsupported opcode"), 0);
     EXPECT_EQ(error.location.source_id, 9U);
+    EXPECT_EQ(error.location.offset, 10U);
 
     basl_chunk_free(&chunk);
     basl_vm_close(&vm);

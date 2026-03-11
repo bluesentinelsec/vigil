@@ -167,6 +167,7 @@ static basl_status_t basl_compile_report(
     const char *message
 ) {
     basl_status_t status;
+    basl_source_location_t location;
 
     status = basl_diagnostic_list_append_cstr(
         program->diagnostics,
@@ -181,7 +182,15 @@ static basl_status_t basl_compile_report(
 
     basl_error_set_literal(program->error, BASL_STATUS_SYNTAX_ERROR, message);
     if (program->error != NULL) {
-        program->error->location.source_id = span.source_id;
+        basl_source_location_clear(&location);
+        location.source_id = span.source_id;
+        location.offset = span.start_offset;
+        if (basl_source_registry_resolve_location(program->registry, &location, NULL) == BASL_STATUS_OK) {
+            program->error->location = location;
+        } else {
+            program->error->location.source_id = span.source_id;
+            program->error->location.offset = span.start_offset;
+        }
     }
     return BASL_STATUS_SYNTAX_ERROR;
 }
@@ -1575,6 +1584,8 @@ static basl_status_t basl_parser_parse_call(
     basl_expression_result_t arg_result;
     size_t arg_count;
 
+    function_index = 0U;
+    decl = NULL;
     basl_expression_result_clear(&arg_result);
 
     status = basl_parser_lookup_function_symbol(state, name_token, &function_index, &decl);
@@ -1677,6 +1688,8 @@ static basl_status_t basl_parser_parse_primary(
     size_t local_index;
     basl_parser_type_t local_type;
 
+    local_index = 0U;
+    local_type = BASL_PARSER_TYPE_INVALID;
     token = basl_parser_peek(state);
     if (token == NULL) {
         return basl_parser_report(
@@ -2449,6 +2462,7 @@ static basl_status_t basl_parser_parse_while_statement(
     basl_loop_context_t *loop;
     size_t i;
 
+    while_token = NULL;
     basl_expression_result_clear(&condition_result);
 
     status = basl_parser_expect(state, BASL_TOKEN_WHILE, "expected 'while'", &while_token);
@@ -2664,6 +2678,8 @@ static basl_status_t basl_parser_parse_assignment_statement(
     basl_parser_type_t local_type;
     basl_expression_result_t value_result;
 
+    local_index = 0U;
+    local_type = BASL_PARSER_TYPE_INVALID;
     basl_expression_result_clear(&value_result);
 
     status = basl_parser_expect(

@@ -49,6 +49,17 @@ BASL_API const basl_source_file_t *basl_source_registry_get(
     const basl_source_registry_t *registry,
     basl_source_id_t source_id
 );
+BASL_API basl_status_t basl_source_registry_resolve_location(
+    const basl_source_registry_t *registry,
+    basl_source_location_t *location,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_source_registry_resolve_span_start(
+    const basl_source_registry_t *registry,
+    basl_source_span_t span,
+    basl_source_location_t *out_location,
+    basl_error_t *error
+);
 BASL_API basl_status_t basl_source_registry_register(
     basl_source_registry_t *registry,
     const char *path,

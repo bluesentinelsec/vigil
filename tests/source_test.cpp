@@ -193,3 +193,51 @@ TEST(BaslSourceTest, FreeResetsWholeRegistry) {
     EXPECT_EQ(registry.capacity, 0U);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslSourceTest, ResolvesOffsetToLineAndColumn) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_source_id_t source_id = 0U;
+    basl_source_location_t location = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    ASSERT_EQ(
+        basl_source_registry_register_cstr(
+            &registry,
+            "main.basl",
+            "alpha\nbeta\ngamma",
+            &source_id,
+            &error
+        ),
+        BASL_STATUS_OK
+    );
+
+    location.source_id = source_id;
+    location.offset = 7U;
+    ASSERT_EQ(
+        basl_source_registry_resolve_location(&registry, &location, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_EQ(location.source_id, source_id);
+    EXPECT_EQ(location.offset, 7U);
+    EXPECT_EQ(location.line, 2U);
+    EXPECT_EQ(location.column, 2U);
+
+    ASSERT_EQ(
+        basl_source_registry_resolve_span_start(
+            &registry,
+            basl_source_span_t{source_id, 11U, 16U},
+            &location,
+            &error
+        ),
+        BASL_STATUS_OK
+    );
+    EXPECT_EQ(location.offset, 11U);
+    EXPECT_EQ(location.line, 3U);
+    EXPECT_EQ(location.column, 1U);
+
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}

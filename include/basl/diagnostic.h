@@ -39,6 +39,9 @@ BASL_API void basl_diagnostic_list_init(
 BASL_API void basl_diagnostic_list_clear(basl_diagnostic_list_t *list);
 BASL_API void basl_diagnostic_list_free(basl_diagnostic_list_t *list);
 BASL_API size_t basl_diagnostic_list_count(const basl_diagnostic_list_t *list);
+BASL_API const char *basl_diagnostic_severity_name(
+    basl_diagnostic_severity_t severity
+);
 /*
  * The returned pointer is invalidated by any subsequent list mutation,
  * including append calls that may reallocate the backing array.
@@ -60,6 +63,12 @@ BASL_API basl_status_t basl_diagnostic_list_append_cstr(
     basl_diagnostic_severity_t severity,
     basl_source_span_t span,
     const char *message,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_diagnostic_format(
+    const basl_source_registry_t *registry,
+    const basl_diagnostic_t *diagnostic,
+    basl_string_t *output,
     basl_error_t *error
 );
 

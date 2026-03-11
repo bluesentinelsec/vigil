@@ -8,6 +8,7 @@ void basl_source_location_clear(basl_source_location_t *location) {
     }
 
     location->source_id = 0U;
+    location->offset = 0U;
     location->line = 0U;
     location->column = 0U;
 }

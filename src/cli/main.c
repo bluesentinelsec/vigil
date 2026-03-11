@@ -27,27 +27,63 @@ static int basl_print_diagnostics(
     const basl_diagnostic_list_t *diagnostics
 ) {
     size_t index;
+    basl_string_t line;
+    basl_runtime_t *runtime;
+    basl_error_t error;
 
+    runtime = registry == NULL ? NULL : registry->runtime;
+    basl_string_init(&line, runtime);
+    memset(&error, 0, sizeof(error));
     for (index = 0U; index < basl_diagnostic_list_count(diagnostics); index += 1U) {
         const basl_diagnostic_t *diagnostic;
-        const basl_source_file_t *source;
 
         diagnostic = basl_diagnostic_list_get(diagnostics, index);
         if (diagnostic == NULL) {
             continue;
         }
 
-        source = basl_source_registry_get(registry, diagnostic->span.source_id);
-        fprintf(
-            stderr,
-            "%s:%zu: %s\n",
-            source == NULL ? "<unknown>" : basl_string_c_str(&source->path),
-            diagnostic->span.start_offset,
-            basl_string_c_str(&diagnostic->message)
-        );
+        if (basl_diagnostic_format(registry, diagnostic, &line, &error) == BASL_STATUS_OK) {
+            fprintf(stderr, "%s\n", basl_string_c_str(&line));
+        } else {
+            fprintf(stderr, "failed to format diagnostic: %s\n", basl_error_message(&error));
+        }
     }
+    basl_string_free(&line);
 
     return 1;
+}
+
+static void basl_print_error(
+    const basl_source_registry_t *registry,
+    const char *prefix,
+    const basl_error_t *error
+) {
+    basl_source_location_t location;
+    const basl_source_file_t *source;
+
+    if (error == NULL) {
+        fprintf(stderr, "%s: unknown error\n", prefix);
+        return;
+    }
+
+    if (registry != NULL && error->location.source_id != 0U) {
+        location = error->location;
+        if (basl_source_registry_resolve_location(registry, &location, NULL) == BASL_STATUS_OK) {
+            source = basl_source_registry_get(registry, location.source_id);
+            fprintf(
+                stderr,
+                "%s: %s:%u:%u: %s\n",
+                prefix,
+                source == NULL ? "<unknown>" : basl_string_c_str(&source->path),
+                location.line,
+                location.column,
+                basl_error_message(error)
+            );
+            return;
+        }
+    }
+
+    fprintf(stderr, "%s: %s\n", prefix, basl_error_message(error));
 }
 
 static char *basl_read_file(const char *path, size_t *out_length) {
@@ -151,7 +187,7 @@ static int basl_check_script(
         return 2;
     }
 
-    fprintf(stderr, "check failed: %s\n", basl_error_message(error));
+    basl_print_error(registry, "check failed", error);
     return 1;
 }
 
@@ -174,7 +210,7 @@ static int basl_run_script(
             return 2;
         }
 
-        fprintf(stderr, "compile failed: %s\n", basl_error_message(error));
+        basl_print_error(registry, "compile failed", error);
         basl_object_release(&function);
         return 1;
     }
@@ -182,7 +218,7 @@ static int basl_run_script(
     status = basl_vm_execute_function(vm, function, result, error);
     basl_object_release(&function);
     if (status != BASL_STATUS_OK) {
-        fprintf(stderr, "execution failed: %s\n", basl_error_message(error));
+        basl_print_error(registry, "execution failed", error);
         return 1;
     }
 
