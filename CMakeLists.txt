@@ -28,6 +28,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/source.c
     src/string.c
     src/status.c
+    src/symbol.c
     src/value.c
     src/vm.c
 )
@@ -78,6 +79,7 @@ if(BASL_BUILD_TESTS)
         tests/source_test.cpp
         tests/string_test.cpp
         tests/status_test.cpp
+        tests/symbol_test.cpp
         tests/value_test.cpp
         tests/vm_test.cpp
     )
