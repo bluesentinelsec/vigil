@@ -149,6 +149,97 @@ TEST(BaslVmTest, ExecutesLiteralOpcodes) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslVmTest, RejectsArithmeticOverflow) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    basl_value_init_int(&constant, INT64_MAX);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(5U, 0U, 1U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_init_int(&constant, 1);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(5U, 2U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_ADD, Span(5U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(5U, 6U, 7U), &error),
+        BASL_STATUS_OK
+    );
+
+    EXPECT_EQ(
+        basl_vm_execute(vm, &chunk, &result, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(
+        std::strcmp(error.value, "integer arithmetic overflow or invalid operation"),
+        0
+    );
+
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslVmTest, RejectsNegateOverflow) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    basl_value_init_int(&constant, INT64_MIN);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(6U, 0U, 1U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEGATE, Span(6U, 2U, 3U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(6U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+
+    EXPECT_EQ(
+        basl_vm_execute(vm, &chunk, &result, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(
+        std::strcmp(error.value, "integer arithmetic overflow or invalid operation"),
+        0
+    );
+
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
+
 TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime) {
     basl_runtime_t *runtime = nullptr;
     basl_vm_t *vm = nullptr;

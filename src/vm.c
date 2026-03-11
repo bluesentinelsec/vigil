@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "internal/basl_internal.h"
@@ -344,6 +345,119 @@ static basl_status_t basl_vm_validate_local_slot(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_vm_checked_add(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (
+        (right > 0 && left > INT64_MAX - right) ||
+        (right < 0 && left < INT64_MIN - right)
+    ) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left + right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_checked_subtract(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (
+        (right > 0 && left < INT64_MIN + right) ||
+        (right < 0 && left > INT64_MAX + right)
+    ) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left - right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_checked_multiply(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (left == 0 || right == 0) {
+        *out_result = 0;
+        return BASL_STATUS_OK;
+    }
+
+    if (
+        (left == -1 && right == INT64_MIN) ||
+        (right == -1 && left == INT64_MIN)
+    ) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (left > 0) {
+        if (right > 0) {
+            if (left > INT64_MAX / right) {
+                return BASL_STATUS_INVALID_ARGUMENT;
+            }
+        } else if (right < INT64_MIN / left) {
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+    } else if (right > 0) {
+        if (left < INT64_MIN / right) {
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+    } else if (left != 0 && right < INT64_MAX / left) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left * right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_checked_divide(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (right == 0) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (left == INT64_MIN && right == -1) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left / right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_checked_modulo(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (right == 0) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (left == INT64_MIN && right == -1) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left % right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_checked_negate(
+    int64_t value,
+    int64_t *out_result
+) {
+    if (value == INT64_MIN) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = -value;
+    return BASL_STATUS_OK;
+}
+
 static int basl_vm_values_equal(
     const basl_value_t *left,
     const basl_value_t *right
@@ -597,6 +711,7 @@ basl_status_t basl_vm_execute_function(
     basl_value_t value;
     basl_value_t left;
     basl_value_t right;
+    int64_t integer_result;
     const basl_value_t *constant;
     const basl_value_t *peeked;
     uint32_t constant_index;
@@ -700,7 +815,9 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
 
-                status = basl_vm_push(vm, &vm->stack[local_index], error);
+                value = basl_value_copy(&vm->stack[local_index]);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
@@ -849,64 +966,49 @@ basl_status_t basl_vm_execute_function(
 
                     switch ((basl_opcode_t)code[frame->ip]) {
                         case BASL_OPCODE_ADD:
-                            basl_value_init_int(
-                                &value,
-                                basl_value_as_int(&left) + basl_value_as_int(&right)
+                            status = basl_vm_checked_add(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
                             );
                             break;
                         case BASL_OPCODE_SUBTRACT:
-                            basl_value_init_int(
-                                &value,
-                                basl_value_as_int(&left) - basl_value_as_int(&right)
+                            status = basl_vm_checked_subtract(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
                             );
                             break;
                         case BASL_OPCODE_MULTIPLY:
-                            basl_value_init_int(
-                                &value,
-                                basl_value_as_int(&left) * basl_value_as_int(&right)
+                            status = basl_vm_checked_multiply(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
                             );
                             break;
                         case BASL_OPCODE_DIVIDE:
-                            if (basl_value_as_int(&right) == 0) {
-                                basl_value_release(&left);
-                                basl_value_release(&right);
-                                status = basl_vm_fail_at_ip(
-                                    vm,
-                                    BASL_STATUS_INVALID_ARGUMENT,
-                                    "division by zero",
-                                    error
-                                );
-                                goto cleanup;
-                            }
-                            basl_value_init_int(
-                                &value,
-                                basl_value_as_int(&left) / basl_value_as_int(&right)
+                            status = basl_vm_checked_divide(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
                             );
                             break;
                         case BASL_OPCODE_MODULO:
-                            if (basl_value_as_int(&right) == 0) {
-                                basl_value_release(&left);
-                                basl_value_release(&right);
-                                status = basl_vm_fail_at_ip(
-                                    vm,
-                                    BASL_STATUS_INVALID_ARGUMENT,
-                                    "modulo by zero",
-                                    error
-                                );
-                                goto cleanup;
-                            }
-                            basl_value_init_int(
-                                &value,
-                                basl_value_as_int(&left) % basl_value_as_int(&right)
+                            status = basl_vm_checked_modulo(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
                             );
                             break;
                         case BASL_OPCODE_GREATER:
+                            status = BASL_STATUS_OK;
                             basl_value_init_bool(
                                 &value,
                                 basl_value_as_int(&left) > basl_value_as_int(&right)
                             );
                             break;
                         case BASL_OPCODE_LESS:
+                            status = BASL_STATUS_OK;
                             basl_value_init_bool(
                                 &value,
                                 basl_value_as_int(&left) < basl_value_as_int(&right)
@@ -915,6 +1017,26 @@ basl_status_t basl_vm_execute_function(
                         default:
                             basl_value_init_nil(&value);
                             break;
+                    }
+                    if (status != BASL_STATUS_OK) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer arithmetic overflow or invalid operation",
+                            error
+                        );
+                        goto cleanup;
+                    }
+                    if (
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_ADD ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_SUBTRACT ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_MULTIPLY ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_DIVIDE ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_MODULO
+                    ) {
+                        basl_value_init_int(&value, integer_result);
                     }
                 }
 
@@ -940,7 +1062,21 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                basl_value_init_int(&left, -basl_value_as_int(&value));
+                status = basl_vm_checked_negate(
+                    basl_value_as_int(&value),
+                    &integer_result
+                );
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "integer arithmetic overflow or invalid operation",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_int(&left, integer_result);
                 basl_value_release(&value);
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {

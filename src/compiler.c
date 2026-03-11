@@ -85,7 +85,10 @@ static int basl_parser_check(
 }
 
 static int basl_parser_is_at_end(const basl_parser_state_t *state) {
-    return basl_parser_check(state, BASL_TOKEN_EOF);
+    const basl_token_t *token;
+
+    token = basl_parser_peek(state);
+    return token == NULL || token->kind == BASL_TOKEN_EOF;
 }
 
 static const basl_token_t *basl_parser_advance(basl_parser_state_t *state) {
@@ -195,8 +198,11 @@ static basl_status_t basl_parser_parse_int_literal(
     long long parsed;
 
     text = basl_parser_token_text(state, token, &length);
-    if (text == NULL || length == 0U || length >= sizeof(buffer)) {
+    if (text == NULL || length == 0U) {
         return basl_parser_report(state, token->span, "invalid integer literal");
+    }
+    if (length >= sizeof(buffer)) {
+        return basl_parser_report(state, token->span, "integer literal is too long");
     }
 
     memcpy(buffer, text, length);
