@@ -22,6 +22,7 @@ TEST(BaslStatusTest, StatusNamesAreStable) {
     EXPECT_STREQ(basl_status_name(BASL_STATUS_OUT_OF_MEMORY), "out_of_memory");
     EXPECT_STREQ(basl_status_name(BASL_STATUS_INTERNAL), "internal");
     EXPECT_STREQ(basl_status_name(BASL_STATUS_UNSUPPORTED), "unsupported");
+    EXPECT_STREQ(basl_status_name(BASL_STATUS_SYNTAX_ERROR), "syntax_error");
 }
 
 TEST(BaslStatusTest, ErrorClearResetsSourceLocation) {

@@ -15,7 +15,8 @@ typedef enum basl_status {
     BASL_STATUS_INVALID_ARGUMENT = 1,
     BASL_STATUS_OUT_OF_MEMORY = 2,
     BASL_STATUS_INTERNAL = 3,
-    BASL_STATUS_UNSUPPORTED = 4
+    BASL_STATUS_UNSUPPORTED = 4,
+    BASL_STATUS_SYNTAX_ERROR = 5
 } basl_status_t;
 
 typedef struct basl_source_location {
