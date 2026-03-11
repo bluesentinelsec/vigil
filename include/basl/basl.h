@@ -11,5 +11,6 @@
 #include "basl/string.h"
 #include "basl/status.h"
 #include "basl/value.h"
+#include "basl/vm.h"
 
 #endif
