@@ -21,6 +21,7 @@ endif()
 add_library(basl ${BASL_LIBRARY_TYPE}
     src/allocator.c
     src/array.c
+    src/chunk.c
     src/diagnostic.c
     src/runtime.c
     src/source.c
@@ -68,6 +69,7 @@ if(BASL_BUILD_TESTS)
 
     add_executable(basl_tests
         tests/array_test.cpp
+        tests/chunk_test.cpp
         tests/diagnostic_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp
