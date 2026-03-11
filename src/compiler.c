@@ -303,6 +303,30 @@ static basl_status_t basl_program_grow_functions(
     return BASL_STATUS_OK;
 }
 
+static void basl_function_decl_free(
+    basl_program_state_t *program,
+    basl_function_decl_t *decl
+) {
+    void *memory;
+
+    if (program == NULL || program->registry == NULL || decl == NULL) {
+        return;
+    }
+
+    memory = decl->params;
+    basl_runtime_free(program->registry->runtime, &memory);
+    memset(decl, 0, sizeof(*decl));
+}
+
+static basl_status_t basl_program_fail_partial_decl(
+    basl_program_state_t *program,
+    basl_function_decl_t *decl,
+    basl_status_t status
+) {
+    basl_function_decl_free(program, decl);
+    return status;
+}
+
 static basl_status_t basl_function_decl_grow_params(
     basl_program_state_t *program,
     basl_function_decl_t *decl,
@@ -483,10 +507,14 @@ static basl_status_t basl_program_parse_declarations(
 
         token = basl_program_token_at(program, cursor);
         if (token == NULL || token->kind != BASL_TOKEN_LPAREN) {
-            return basl_compile_report(
+            return basl_program_fail_partial_decl(
                 program,
-                name_token->span,
-                "expected '(' after function name"
+                decl,
+                basl_compile_report(
+                    program,
+                    name_token->span,
+                    "expected '(' after function name"
+                )
             );
         }
         cursor += 1U;
@@ -496,10 +524,14 @@ static basl_status_t basl_program_parse_declarations(
             while (1) {
                 type_token = basl_program_token_at(program, cursor);
                 if (type_token == NULL || type_token->kind != BASL_TOKEN_IDENTIFIER) {
-                    return basl_compile_report(
+                    return basl_program_fail_partial_decl(
                         program,
-                        decl->name_span,
-                        "expected parameter type name"
+                        decl,
+                        basl_compile_report(
+                            program,
+                            decl->name_span,
+                            "expected parameter type name"
+                        )
                     );
                 }
                 status = basl_program_resolve_type_name(
@@ -509,17 +541,21 @@ static basl_status_t basl_program_parse_declarations(
                     &decl->return_type
                 );
                 if (status != BASL_STATUS_OK) {
-                    return status;
+                    return basl_program_fail_partial_decl(program, decl, status);
                 }
                 cursor += 1U;
 
                 param_name_token = basl_program_token_at(program, cursor);
                 if (param_name_token == NULL ||
                     param_name_token->kind != BASL_TOKEN_IDENTIFIER) {
-                    return basl_compile_report(
+                    return basl_program_fail_partial_decl(
                         program,
-                        type_token->span,
-                        "expected parameter name"
+                        decl,
+                        basl_compile_report(
+                            program,
+                            type_token->span,
+                            "expected parameter name"
+                        )
                     );
                 }
                 status = basl_program_add_param(
@@ -529,7 +565,7 @@ static basl_status_t basl_program_parse_declarations(
                     param_name_token
                 );
                 if (status != BASL_STATUS_OK) {
-                    return status;
+                    return basl_program_fail_partial_decl(program, decl, status);
                 }
                 cursor += 1U;
 
@@ -544,30 +580,42 @@ static basl_status_t basl_program_parse_declarations(
 
         token = basl_program_token_at(program, cursor);
         if (token == NULL || token->kind != BASL_TOKEN_RPAREN) {
-            return basl_compile_report(
+            return basl_program_fail_partial_decl(
                 program,
-                decl->name_span,
-                "expected ')' after parameter list"
+                decl,
+                basl_compile_report(
+                    program,
+                    decl->name_span,
+                    "expected ')' after parameter list"
+                )
             );
         }
         cursor += 1U;
 
         token = basl_program_token_at(program, cursor);
         if (token == NULL || token->kind != BASL_TOKEN_ARROW) {
-            return basl_compile_report(
+            return basl_program_fail_partial_decl(
                 program,
-                decl->name_span,
-                "expected '->' after function signature"
+                decl,
+                basl_compile_report(
+                    program,
+                    decl->name_span,
+                    "expected '->' after function signature"
+                )
             );
         }
         cursor += 1U;
 
         type_token = basl_program_token_at(program, cursor);
         if (type_token == NULL || type_token->kind != BASL_TOKEN_IDENTIFIER) {
-            return basl_compile_report(
+            return basl_program_fail_partial_decl(
                 program,
-                decl->name_span,
-                "expected return type name"
+                decl,
+                basl_compile_report(
+                    program,
+                    decl->name_span,
+                    "expected return type name"
+                )
             );
         }
         if (basl_program_names_equal(name_text, name_length, "main", 4U)) {
@@ -580,11 +628,11 @@ static basl_status_t basl_program_parse_declarations(
                 &decl->return_type
             );
             if (status != BASL_STATUS_OK) {
-                return status;
+                return basl_program_fail_partial_decl(program, decl, status);
             }
             status = basl_program_validate_main_signature(program, decl, type_token);
             if (status != BASL_STATUS_OK) {
-                return status;
+                return basl_program_fail_partial_decl(program, decl, status);
             }
         } else {
             status = basl_program_resolve_type_name(
@@ -594,17 +642,21 @@ static basl_status_t basl_program_parse_declarations(
                 &decl->return_type
             );
             if (status != BASL_STATUS_OK) {
-                return status;
+                return basl_program_fail_partial_decl(program, decl, status);
             }
         }
         cursor += 1U;
 
         token = basl_program_token_at(program, cursor);
         if (token == NULL || token->kind != BASL_TOKEN_LBRACE) {
-            return basl_compile_report(
+            return basl_program_fail_partial_decl(
                 program,
-                decl->name_span,
-                "expected '{' before function body"
+                decl,
+                basl_compile_report(
+                    program,
+                    decl->name_span,
+                    "expected '{' before function body"
+                )
             );
         }
         cursor += 1U;
@@ -614,10 +666,14 @@ static basl_status_t basl_program_parse_declarations(
         while (body_depth > 0U) {
             token = basl_program_token_at(program, cursor);
             if (token == NULL || token->kind == BASL_TOKEN_EOF) {
-                return basl_compile_report(
+                return basl_program_fail_partial_decl(
                     program,
-                    basl_program_eof_span(program),
-                    "expected '}' after function body"
+                    decl,
+                    basl_compile_report(
+                        program,
+                        basl_program_eof_span(program),
+                        "expected '}' after function body"
+                    )
                 );
             }
 
@@ -635,6 +691,7 @@ static basl_status_t basl_program_parse_declarations(
         }
 
         program->function_count += 1U;
+        decl = NULL;
     }
 
     if (!found_main) {
@@ -660,8 +717,7 @@ static void basl_program_free(basl_program_state_t *program) {
         if (program->functions[i].object != NULL) {
             basl_object_release(&program->functions[i].object);
         }
-        memory = program->functions[i].params;
-        basl_runtime_free(program->registry->runtime, &memory);
+        basl_function_decl_free(program, &program->functions[i]);
     }
 
     memory = program->functions;
