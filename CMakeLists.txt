@@ -23,6 +23,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/array.c
     src/chunk.c
     src/diagnostic.c
+    src/map.c
     src/runtime.c
     src/source.c
     src/string.c
@@ -72,6 +73,7 @@ if(BASL_BUILD_TESTS)
         tests/array_test.cpp
         tests/chunk_test.cpp
         tests/diagnostic_test.cpp
+        tests/map_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp
         tests/string_test.cpp
