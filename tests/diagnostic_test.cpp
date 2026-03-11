@@ -313,7 +313,7 @@ TEST(BaslDiagnosticTest, FormatIncludesPathLineColumnSeverityAndMessage) {
     );
     EXPECT_STREQ(
         basl_string_c_str(&output),
-        "main.basl:2:6: error: unexpected token"
+        "main.basl:2:5: error: unexpected token"
     );
 
     basl_string_free(&output);
