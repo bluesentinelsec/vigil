@@ -456,6 +456,38 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "FALSE";
         case BASL_OPCODE_RETURN:
             return "RETURN";
+        case BASL_OPCODE_POP:
+            return "POP";
+        case BASL_OPCODE_GET_LOCAL:
+            return "GET_LOCAL";
+        case BASL_OPCODE_SET_LOCAL:
+            return "SET_LOCAL";
+        case BASL_OPCODE_JUMP:
+            return "JUMP";
+        case BASL_OPCODE_JUMP_IF_FALSE:
+            return "JUMP_IF_FALSE";
+        case BASL_OPCODE_LOOP:
+            return "LOOP";
+        case BASL_OPCODE_ADD:
+            return "ADD";
+        case BASL_OPCODE_SUBTRACT:
+            return "SUBTRACT";
+        case BASL_OPCODE_MULTIPLY:
+            return "MULTIPLY";
+        case BASL_OPCODE_DIVIDE:
+            return "DIVIDE";
+        case BASL_OPCODE_MODULO:
+            return "MODULO";
+        case BASL_OPCODE_NEGATE:
+            return "NEGATE";
+        case BASL_OPCODE_NOT:
+            return "NOT";
+        case BASL_OPCODE_EQUAL:
+            return "EQUAL";
+        case BASL_OPCODE_GREATER:
+            return "GREATER";
+        case BASL_OPCODE_LESS:
+            return "LESS";
         default:
             return "UNKNOWN";
     }
@@ -602,9 +634,10 @@ basl_status_t basl_chunk_disassemble(
 ) {
     size_t offset;
     char line[64];
-    uint32_t constant_index;
+    uint32_t operand;
     int written;
     basl_status_t status;
+    basl_opcode_t opcode;
 
     status = basl_chunk_validate_output(chunk, output, error);
     if (status != BASL_STATUS_OK) {
@@ -613,12 +646,13 @@ basl_status_t basl_chunk_disassemble(
 
     basl_string_clear(output);
     for (offset = 0U; offset < chunk->code.length; ) {
+        opcode = (basl_opcode_t)chunk->code.data[offset];
         written = snprintf(
             line,
             sizeof(line),
             "%04zu %s",
             offset,
-            basl_opcode_name((basl_opcode_t)chunk->code.data[offset])
+            basl_opcode_name(opcode)
         );
         if (written < 0) {
             basl_error_set_literal(
@@ -634,7 +668,14 @@ basl_status_t basl_chunk_disassemble(
             return status;
         }
 
-        if ((basl_opcode_t)chunk->code.data[offset] == BASL_OPCODE_CONSTANT) {
+        if (
+            opcode == BASL_OPCODE_CONSTANT ||
+            opcode == BASL_OPCODE_GET_LOCAL ||
+            opcode == BASL_OPCODE_SET_LOCAL ||
+            opcode == BASL_OPCODE_JUMP ||
+            opcode == BASL_OPCODE_JUMP_IF_FALSE ||
+            opcode == BASL_OPCODE_LOOP
+        ) {
             if (offset + 4U >= chunk->code.length) {
                 basl_error_set_literal(
                     error,
@@ -644,12 +685,12 @@ basl_status_t basl_chunk_disassemble(
                 return BASL_STATUS_INTERNAL;
             }
 
-            constant_index = (uint32_t)chunk->code.data[offset + 1U];
-            constant_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            constant_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            constant_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            operand = (uint32_t)chunk->code.data[offset + 1U];
+            operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
 
-            written = snprintf(line, sizeof(line), " %u ", constant_index);
+            written = snprintf(line, sizeof(line), " %u", operand);
             if (written < 0) {
                 basl_error_set_literal(
                     error,
@@ -664,13 +705,20 @@ basl_status_t basl_chunk_disassemble(
                 return status;
             }
 
-            status = basl_chunk_append_value(
-                output,
-                basl_chunk_constant(chunk, (size_t)constant_index),
-                error
-            );
-            if (status != BASL_STATUS_OK) {
-                return status;
+            if (opcode == BASL_OPCODE_CONSTANT) {
+                status = basl_chunk_append_text(output, " ", error);
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+
+                status = basl_chunk_append_value(
+                    output,
+                    basl_chunk_constant(chunk, (size_t)operand),
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
             }
 
             offset += 5U;

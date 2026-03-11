@@ -21,6 +21,13 @@ struct basl_vm {
     size_t frame_capacity;
 };
 
+static basl_status_t basl_vm_fail_at_ip(
+    basl_vm_t *vm,
+    basl_status_t status,
+    const char *message,
+    basl_error_t *error
+);
+
 static basl_status_t basl_vm_validate(
     const basl_vm_t *vm,
     basl_error_t *error
@@ -291,6 +298,80 @@ static basl_value_t basl_vm_pop_or_nil(basl_vm_t *vm) {
     return value;
 }
 
+static const basl_value_t *basl_vm_peek(
+    const basl_vm_t *vm,
+    size_t distance
+) {
+    if (vm == NULL || distance >= vm->stack_count) {
+        return NULL;
+    }
+
+    return &vm->stack[vm->stack_count - 1U - distance];
+}
+
+static basl_status_t basl_vm_validate_local_slot(
+    basl_vm_t *vm,
+    uint32_t slot_index,
+    size_t *out_index,
+    basl_error_t *error
+) {
+    basl_vm_frame_t *frame;
+    size_t index;
+
+    frame = basl_vm_current_frame(vm);
+    if (frame == NULL) {
+        return basl_vm_fail_at_ip(
+            vm,
+            BASL_STATUS_INTERNAL,
+            "vm frame is missing",
+            error
+        );
+    }
+
+    index = frame->base_slot + (size_t)slot_index;
+    if (index >= vm->stack_count) {
+        return basl_vm_fail_at_ip(
+            vm,
+            BASL_STATUS_INTERNAL,
+            "local slot out of range",
+            error
+        );
+    }
+
+    if (out_index != NULL) {
+        *out_index = index;
+    }
+    return BASL_STATUS_OK;
+}
+
+static int basl_vm_values_equal(
+    const basl_value_t *left,
+    const basl_value_t *right
+) {
+    if (left == NULL || right == NULL) {
+        return 0;
+    }
+
+    if (left->kind != right->kind) {
+        return 0;
+    }
+
+    switch (left->kind) {
+        case BASL_VALUE_NIL:
+            return 1;
+        case BASL_VALUE_BOOL:
+            return left->as.boolean == right->as.boolean;
+        case BASL_VALUE_INT:
+            return left->as.integer == right->as.integer;
+        case BASL_VALUE_FLOAT:
+            return left->as.number == right->as.number;
+        case BASL_VALUE_OBJECT:
+            return left->as.object == right->as.object;
+        default:
+            return 0;
+    }
+}
+
 static basl_status_t basl_vm_fail_at_ip(
     basl_vm_t *vm,
     basl_status_t status,
@@ -514,11 +595,16 @@ basl_status_t basl_vm_execute_function(
 ) {
     basl_status_t status;
     basl_value_t value;
+    basl_value_t left;
+    basl_value_t right;
     const basl_value_t *constant;
+    const basl_value_t *peeked;
     uint32_t constant_index;
+    uint32_t operand;
     basl_vm_frame_t *frame;
     const uint8_t *code;
     size_t code_size;
+    size_t local_index;
 
     status = basl_vm_validate(vm, error);
     if (status != BASL_STATUS_OK) {
@@ -558,19 +644,23 @@ basl_status_t basl_vm_execute_function(
         }
     }
 
-    frame = basl_vm_current_frame(vm);
-    if (frame == NULL || frame->chunk == NULL) {
-        basl_error_set_literal(
-            error,
-            BASL_STATUS_INVALID_ARGUMENT,
-            "vm frame chunk must not be null"
-        );
-        return BASL_STATUS_INVALID_ARGUMENT;
-    }
+    while (1) {
+        frame = basl_vm_current_frame(vm);
+        if (frame == NULL || frame->chunk == NULL) {
+            basl_error_set_literal(
+                error,
+                BASL_STATUS_INVALID_ARGUMENT,
+                "vm frame chunk must not be null"
+            );
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
 
-    code = basl_chunk_code(frame->chunk);
-    code_size = basl_chunk_code_size(frame->chunk);
-    while (frame->ip < code_size) {
+        code = basl_chunk_code(frame->chunk);
+        code_size = basl_chunk_code_size(frame->chunk);
+        if (frame->ip >= code_size) {
+            break;
+        }
+
         switch ((basl_opcode_t)code[frame->ip]) {
             case BASL_OPCODE_CONSTANT:
                 status = basl_vm_read_u32(vm, &constant_index, error);
@@ -594,6 +684,113 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 break;
+            case BASL_OPCODE_POP:
+                value = basl_vm_pop_or_nil(vm);
+                basl_value_release(&value);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_GET_LOCAL:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                status = basl_vm_validate_local_slot(vm, operand, &local_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                status = basl_vm_push(vm, &vm->stack[local_index], error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_SET_LOCAL:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                peeked = basl_vm_peek(vm, 0U);
+                if (peeked == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "assignment requires a value on the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                status = basl_vm_validate_local_slot(vm, operand, &local_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                value = basl_value_copy(peeked);
+                basl_value_release(&vm->stack[local_index]);
+                vm->stack[local_index] = value;
+                break;
+            case BASL_OPCODE_JUMP:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                if ((size_t)operand > SIZE_MAX - frame->ip) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "jump target overflow",
+                        error
+                    );
+                    goto cleanup;
+                }
+                frame->ip += (size_t)operand;
+                break;
+            case BASL_OPCODE_JUMP_IF_FALSE:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                peeked = basl_vm_peek(vm, 0U);
+                if (peeked == NULL || basl_value_kind(peeked) != BASL_VALUE_BOOL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "condition must evaluate to bool",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (!basl_value_as_bool(peeked)) {
+                    if ((size_t)operand > SIZE_MAX - frame->ip) {
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INTERNAL,
+                            "jump target overflow",
+                            error
+                        );
+                        goto cleanup;
+                    }
+                    frame->ip += (size_t)operand;
+                }
+                break;
+            case BASL_OPCODE_LOOP:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                if ((size_t)operand > frame->ip) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "loop target out of range",
+                        error
+                    );
+                    goto cleanup;
+                }
+                frame->ip -= (size_t)operand;
+                break;
             case BASL_OPCODE_NIL:
                 basl_value_init_nil(&value);
                 status = basl_vm_push(vm, &value, error);
@@ -616,6 +813,163 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_ADD:
+            case BASL_OPCODE_SUBTRACT:
+            case BASL_OPCODE_MULTIPLY:
+            case BASL_OPCODE_DIVIDE:
+            case BASL_OPCODE_MODULO:
+            case BASL_OPCODE_GREATER:
+            case BASL_OPCODE_LESS:
+            case BASL_OPCODE_EQUAL:
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if ((basl_opcode_t)code[frame->ip] == BASL_OPCODE_EQUAL) {
+                    basl_value_init_bool(
+                        &value,
+                        basl_vm_values_equal(&left, &right)
+                    );
+                } else {
+                    if (
+                        basl_value_kind(&left) != BASL_VALUE_INT ||
+                        basl_value_kind(&right) != BASL_VALUE_INT
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer operands are required",
+                            error
+                        );
+                        goto cleanup;
+                    }
+
+                    switch ((basl_opcode_t)code[frame->ip]) {
+                        case BASL_OPCODE_ADD:
+                            basl_value_init_int(
+                                &value,
+                                basl_value_as_int(&left) + basl_value_as_int(&right)
+                            );
+                            break;
+                        case BASL_OPCODE_SUBTRACT:
+                            basl_value_init_int(
+                                &value,
+                                basl_value_as_int(&left) - basl_value_as_int(&right)
+                            );
+                            break;
+                        case BASL_OPCODE_MULTIPLY:
+                            basl_value_init_int(
+                                &value,
+                                basl_value_as_int(&left) * basl_value_as_int(&right)
+                            );
+                            break;
+                        case BASL_OPCODE_DIVIDE:
+                            if (basl_value_as_int(&right) == 0) {
+                                basl_value_release(&left);
+                                basl_value_release(&right);
+                                status = basl_vm_fail_at_ip(
+                                    vm,
+                                    BASL_STATUS_INVALID_ARGUMENT,
+                                    "division by zero",
+                                    error
+                                );
+                                goto cleanup;
+                            }
+                            basl_value_init_int(
+                                &value,
+                                basl_value_as_int(&left) / basl_value_as_int(&right)
+                            );
+                            break;
+                        case BASL_OPCODE_MODULO:
+                            if (basl_value_as_int(&right) == 0) {
+                                basl_value_release(&left);
+                                basl_value_release(&right);
+                                status = basl_vm_fail_at_ip(
+                                    vm,
+                                    BASL_STATUS_INVALID_ARGUMENT,
+                                    "modulo by zero",
+                                    error
+                                );
+                                goto cleanup;
+                            }
+                            basl_value_init_int(
+                                &value,
+                                basl_value_as_int(&left) % basl_value_as_int(&right)
+                            );
+                            break;
+                        case BASL_OPCODE_GREATER:
+                            basl_value_init_bool(
+                                &value,
+                                basl_value_as_int(&left) > basl_value_as_int(&right)
+                            );
+                            break;
+                        case BASL_OPCODE_LESS:
+                            basl_value_init_bool(
+                                &value,
+                                basl_value_as_int(&left) < basl_value_as_int(&right)
+                            );
+                            break;
+                        default:
+                            basl_value_init_nil(&value);
+                            break;
+                    }
+                }
+
+                basl_value_release(&left);
+                basl_value_release(&right);
+                status = basl_vm_push(vm, &value, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&value);
+                    goto cleanup;
+                }
+                basl_value_release(&value);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_NEGATE:
+                value = basl_vm_pop_or_nil(vm);
+                if (basl_value_kind(&value) != BASL_VALUE_INT) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "negation requires an integer operand",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_int(&left, -basl_value_as_int(&value));
+                basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_NOT:
+                value = basl_vm_pop_or_nil(vm);
+                if (basl_value_kind(&value) != BASL_VALUE_BOOL) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "logical not requires a bool operand",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_bool(&left, !basl_value_as_bool(&value));
+                basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
                 frame->ip += 1U;
                 break;
             case BASL_OPCODE_RETURN:
