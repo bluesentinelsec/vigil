@@ -1,0 +1,114 @@
+#include <gtest/gtest.h>
+
+extern "C" {
+#include "basl/basl.h"
+}
+
+TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_INVALID), "invalid");
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_I32), "i32");
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_BOOL), "bool");
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_NIL), "nil");
+
+    EXPECT_EQ(basl_type_kind_from_name("i32", 3U), BASL_TYPE_I32);
+    EXPECT_EQ(basl_type_kind_from_name("bool", 4U), BASL_TYPE_BOOL);
+    EXPECT_EQ(basl_type_kind_from_name("nil", 3U), BASL_TYPE_NIL);
+    EXPECT_EQ(basl_type_kind_from_name("string", 6U), BASL_TYPE_INVALID);
+}
+
+TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes) {
+    EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_I32));
+    EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_BOOL));
+    EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_BOOL));
+    EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_NIL));
+    EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_INVALID, BASL_TYPE_I32));
+}
+
+TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
+    EXPECT_TRUE(
+        basl_type_supports_unary_operator(BASL_UNARY_OPERATOR_NEGATE, BASL_TYPE_I32)
+    );
+    EXPECT_FALSE(
+        basl_type_supports_unary_operator(BASL_UNARY_OPERATOR_NEGATE, BASL_TYPE_BOOL)
+    );
+    EXPECT_TRUE(
+        basl_type_supports_unary_operator(
+            BASL_UNARY_OPERATOR_LOGICAL_NOT,
+            BASL_TYPE_BOOL
+        )
+    );
+    EXPECT_FALSE(
+        basl_type_supports_unary_operator(BASL_UNARY_OPERATOR_LOGICAL_NOT, BASL_TYPE_I32)
+    );
+
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_ADD,
+            BASL_TYPE_I32,
+            BASL_TYPE_I32
+        )
+    );
+    EXPECT_FALSE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_ADD,
+            BASL_TYPE_BOOL,
+            BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_EQUAL,
+            BASL_TYPE_BOOL,
+            BASL_TYPE_BOOL
+        )
+    );
+    EXPECT_FALSE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_EQUAL,
+            BASL_TYPE_BOOL,
+            BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_LOGICAL_AND,
+            BASL_TYPE_BOOL,
+            BASL_TYPE_BOOL
+        )
+    );
+    EXPECT_FALSE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_LOGICAL_AND,
+            BASL_TYPE_I32,
+            BASL_TYPE_BOOL
+        )
+    );
+}
+
+TEST(BaslTypeTest, FunctionSignaturesValidateAndCheckArguments) {
+    basl_type_kind_t parameter_types[2] = {BASL_TYPE_I32, BASL_TYPE_BOOL};
+    basl_type_kind_t valid_arguments[2] = {BASL_TYPE_I32, BASL_TYPE_BOOL};
+    basl_type_kind_t invalid_arguments[2] = {BASL_TYPE_BOOL, BASL_TYPE_BOOL};
+    basl_function_signature_t signature = {
+        BASL_TYPE_I32,
+        parameter_types,
+        2U
+    };
+    basl_function_signature_t invalid_signature = {
+        BASL_TYPE_INVALID,
+        parameter_types,
+        2U
+    };
+
+    EXPECT_TRUE(basl_function_signature_is_valid(&signature));
+    EXPECT_FALSE(basl_function_signature_is_valid(&invalid_signature));
+    EXPECT_TRUE(
+        basl_function_signature_accepts_arguments(&signature, valid_arguments, 2U)
+    );
+    EXPECT_FALSE(
+        basl_function_signature_accepts_arguments(&signature, valid_arguments, 1U)
+    );
+    EXPECT_FALSE(
+        basl_function_signature_accepts_arguments(&signature, invalid_arguments, 2U)
+    );
+}

@@ -16,6 +16,7 @@
 #include "basl/status.h"
 #include "basl/symbol.h"
 #include "basl/token.h"
+#include "basl/type.h"
 #include "basl/lexer.h"
 #include "basl/value.h"
 #include "basl/vm.h"

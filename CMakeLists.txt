@@ -34,6 +34,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/status.c
     src/symbol.c
     src/token.c
+    src/type.c
     src/value.c
     src/vm.c
 )
@@ -90,6 +91,7 @@ if(BASL_BUILD_TESTS)
         tests/status_test.cpp
         tests/symbol_test.cpp
         tests/token_test.cpp
+        tests/type_test.cpp
         tests/value_test.cpp
         tests/vm_test.cpp
     )
