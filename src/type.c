@@ -14,6 +14,8 @@ const char *basl_type_kind_name(basl_type_kind_t kind) {
             return "i32";
         case BASL_TYPE_BOOL:
             return "bool";
+        case BASL_TYPE_STRING:
+            return "string";
         case BASL_TYPE_NIL:
             return "nil";
         case BASL_TYPE_OBJECT:
@@ -38,6 +40,10 @@ basl_type_kind_t basl_type_kind_from_name(const char *text, size_t length) {
 
     if (length == 4U && memcmp(text, "bool", 4U) == 0) {
         return BASL_TYPE_BOOL;
+    }
+
+    if (length == 6U && memcmp(text, "string", 6U) == 0) {
+        return BASL_TYPE_STRING;
     }
 
     if (length == 3U && memcmp(text, "nil", 3U) == 0) {
@@ -80,6 +86,8 @@ int basl_type_supports_binary_operator(
 
     switch (operator_kind) {
         case BASL_BINARY_OPERATOR_ADD:
+            return (left_type == BASL_TYPE_I32 && right_type == BASL_TYPE_I32) ||
+                   (left_type == BASL_TYPE_STRING && right_type == BASL_TYPE_STRING);
         case BASL_BINARY_OPERATOR_SUBTRACT:
         case BASL_BINARY_OPERATOR_MULTIPLY:
         case BASL_BINARY_OPERATOR_DIVIDE:

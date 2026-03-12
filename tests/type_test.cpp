@@ -8,18 +8,20 @@ TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_INVALID), "invalid");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_I32), "i32");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_BOOL), "bool");
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_STRING), "string");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_NIL), "nil");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_OBJECT), "object");
 
     EXPECT_EQ(basl_type_kind_from_name("i32", 3U), BASL_TYPE_I32);
     EXPECT_EQ(basl_type_kind_from_name("bool", 4U), BASL_TYPE_BOOL);
+    EXPECT_EQ(basl_type_kind_from_name("string", 6U), BASL_TYPE_STRING);
     EXPECT_EQ(basl_type_kind_from_name("nil", 3U), BASL_TYPE_NIL);
-    EXPECT_EQ(basl_type_kind_from_name("string", 6U), BASL_TYPE_INVALID);
 }
 
 TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes) {
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_I32));
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_BOOL));
+    EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_STRING, BASL_TYPE_STRING));
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_OBJECT, BASL_TYPE_OBJECT));
     EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_BOOL));
     EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_NIL));
@@ -55,6 +57,13 @@ TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
             BASL_BINARY_OPERATOR_ADD,
             BASL_TYPE_BOOL,
             BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_ADD,
+            BASL_TYPE_STRING,
+            BASL_TYPE_STRING
         )
     );
     EXPECT_TRUE(

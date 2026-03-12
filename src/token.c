@@ -209,6 +209,9 @@ const char *basl_token_kind_name(basl_token_kind_t kind) {
         case BASL_TOKEN_ELSE: return "else";
         case BASL_TOKEN_FOR: return "for";
         case BASL_TOKEN_WHILE: return "while";
+        case BASL_TOKEN_SWITCH: return "switch";
+        case BASL_TOKEN_CASE: return "case";
+        case BASL_TOKEN_DEFAULT: return "default";
         case BASL_TOKEN_BREAK: return "break";
         case BASL_TOKEN_CONTINUE: return "continue";
         case BASL_TOKEN_NIL: return "nil";

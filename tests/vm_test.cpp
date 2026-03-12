@@ -285,6 +285,73 @@ TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_object_t *left_object = nullptr;
+    basl_object_t *right_object = nullptr;
+    basl_object_t *expected_object = nullptr;
+    basl_value_t left;
+    basl_value_t right;
+    basl_value_t expected;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    ASSERT_EQ(basl_string_object_new_cstr(runtime, "ba", &left_object, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_string_object_new_cstr(runtime, "sl", &right_object, &error), BASL_STATUS_OK);
+    ASSERT_EQ(
+        basl_string_object_new_cstr(runtime, "basl", &expected_object, &error),
+        BASL_STATUS_OK
+    );
+
+    basl_value_init_object(&left, &left_object);
+    basl_value_init_object(&right, &right_object);
+    basl_value_init_object(&expected, &expected_object);
+    basl_value_init_nil(&result);
+
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &left, Span(3U, 0U, 1U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &right, Span(3U, 2U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_ADD, Span(3U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &expected, Span(3U, 6U, 10U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_EQUAL, Span(3U, 11U, 13U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(3U, 14U, 15U), &error),
+        BASL_STATUS_OK
+    );
+
+    basl_value_release(&left);
+    basl_value_release(&right);
+    basl_value_release(&expected);
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_BOOL);
+    EXPECT_TRUE(basl_value_as_bool(&result));
+
+    basl_value_release(&result);
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
+
 TEST(BaslVmTest, RejectsMissingArguments) {
     basl_runtime_t *runtime = nullptr;
     basl_vm_t *vm = nullptr;

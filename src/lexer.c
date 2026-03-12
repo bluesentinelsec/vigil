@@ -156,6 +156,7 @@ static basl_token_kind_t basl_lexer_keyword_kind(
             if (memcmp(text, "pub", 3U) == 0) return BASL_TOKEN_PUB;
             break;
         case 4U:
+            if (memcmp(text, "case", 4U) == 0) return BASL_TOKEN_CASE;
             if (memcmp(text, "else", 4U) == 0) return BASL_TOKEN_ELSE;
             if (memcmp(text, "enum", 4U) == 0) return BASL_TOKEN_ENUM;
             if (memcmp(text, "true", 4U) == 0) return BASL_TOKEN_TRUE;
@@ -170,6 +171,10 @@ static basl_token_kind_t basl_lexer_keyword_kind(
         case 6U:
             if (memcmp(text, "import", 6U) == 0) return BASL_TOKEN_IMPORT;
             if (memcmp(text, "return", 6U) == 0) return BASL_TOKEN_RETURN;
+            if (memcmp(text, "switch", 6U) == 0) return BASL_TOKEN_SWITCH;
+            break;
+        case 7U:
+            if (memcmp(text, "default", 7U) == 0) return BASL_TOKEN_DEFAULT;
             break;
         case 8U:
             if (memcmp(text, "continue", 8U) == 0) return BASL_TOKEN_CONTINUE;

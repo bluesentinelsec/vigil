@@ -663,6 +663,81 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpression
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "enum Color {"
+            "    Red,"
+            "    Green = 3,"
+            "    Blue"
+            "}"
+            "fn main() -> i32 {"
+            "    Color color = Color.Blue;"
+            "    switch (color) {"
+            "        case Color.Red:"
+            "            return 1;"
+            "        case Color.Green, Color.Blue:"
+            "            return 7;"
+            "        default:"
+            "            return 0;"
+            "    }"
+            "}"
+        ),
+        7
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesStringsAndStringConstants) {
+    const char *source = R"(
+const string PREFIX = "he" + 'l';
+
+fn make_message() -> string {
+    return PREFIX + `lo`;
+}
+
+fn main() -> i32 {
+    string message = make_message();
+    if (message == "hello" && message != "world") {
+        return 12;
+    }
+    return 0;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 12);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "labels.basl",
+            R"(
+pub const string GREETING = "ba" + "sl";
+
+pub fn render(string suffix) -> string {
+    return GREETING + suffix;
+}
+)"
+        },
+        {
+            "main.basl",
+            R"(
+import "labels";
+
+fn main() -> i32 {
+    string value = labels.render(" vm");
+    if (value == "basl vm") {
+        return 15;
+    }
+    return 0;
+}
+)"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, sizeof(sources) / sizeof(sources[0]), "main.basl"), 15);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
     const TestSource sources[] = {
         {
@@ -741,6 +816,39 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
     EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/colors.basl",
+            "pub enum Color {"
+            "    Red,"
+            "    Green,"
+            "    Blue"
+            "}"
+            "pub fn pick() -> Color {"
+            "    return Color.Green;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"colors\";"
+            "fn main() -> i32 {"
+            "    colors.Color color = colors.pick();"
+            "    switch (color) {"
+            "        case colors.Color.Red:"
+            "            return 1;"
+            "        case colors.Color.Green:"
+            "            return 2;"
+            "        default:"
+            "            return 0;"
+            "    }"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 2);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions) {
     const TestSource sources[] = {
         {
@@ -792,6 +900,44 @@ TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "global constant is already declared"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "enum Color { Red, Blue }"
+        "fn main() -> i32 {"
+        "    Color color = 1;"
+        "    return 0;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "initializer type does not match local variable type"
     );
 
     basl_diagnostic_list_free(&diagnostics);

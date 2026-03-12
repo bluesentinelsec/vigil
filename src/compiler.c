@@ -4,6 +4,7 @@
 
 #include "basl/chunk.h"
 #include "basl/lexer.h"
+#include "basl/string.h"
 #include "basl/token.h"
 #include "basl/type.h"
 #include "internal/basl_binding.h"
@@ -76,6 +77,24 @@ typedef struct basl_interface_decl {
     size_t method_count;
     size_t method_capacity;
 } basl_interface_decl_t;
+
+typedef struct basl_enum_member {
+    const char *name;
+    size_t name_length;
+    basl_source_span_t name_span;
+    int64_t value;
+} basl_enum_member_t;
+
+typedef struct basl_enum_decl {
+    basl_source_id_t source_id;
+    const char *name;
+    size_t name_length;
+    basl_source_span_t name_span;
+    int is_public;
+    basl_enum_member_t *members;
+    size_t member_count;
+    size_t member_capacity;
+} basl_enum_decl_t;
 
 typedef struct basl_loop_jump {
     size_t operand_offset;
@@ -153,6 +172,9 @@ typedef struct basl_program_state {
     basl_interface_decl_t *interfaces;
     size_t interface_count;
     size_t interface_capacity;
+    basl_enum_decl_t *enums;
+    size_t enum_count;
+    size_t enum_capacity;
     basl_global_constant_t *constants;
     size_t constant_count;
     size_t constant_capacity;
@@ -206,6 +228,14 @@ static basl_status_t basl_parser_parse_variable_declaration(
 );
 static int basl_parser_is_variable_declaration_start(
     const basl_parser_state_t *state
+);
+static basl_status_t basl_parser_parse_declaration(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+);
+static basl_status_t basl_parser_parse_switch_statement(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
 );
 
 static void basl_parser_state_free(
@@ -416,7 +446,9 @@ static int basl_program_names_equal(
 static int basl_parser_type_is_primitive(
     basl_parser_type_t type
 ) {
-    return type.kind != BASL_TYPE_INVALID && type.kind != BASL_TYPE_OBJECT;
+    return type.kind != BASL_TYPE_INVALID &&
+           type.kind != BASL_TYPE_OBJECT &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
 }
 
 static int basl_parser_type_is_class(
@@ -432,6 +464,14 @@ static int basl_parser_type_is_interface(
 ) {
     return type.kind == BASL_TYPE_OBJECT &&
            type.object_kind == BASL_BINDING_OBJECT_INTERFACE &&
+           type.object_index != BASL_BINDING_INVALID_CLASS_INDEX;
+}
+
+static int basl_parser_type_is_enum(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_I32 &&
+           type.object_kind == BASL_BINDING_OBJECT_ENUM &&
            type.object_index != BASL_BINDING_INVALID_CLASS_INDEX;
 }
 
@@ -466,7 +506,9 @@ static int basl_program_type_is_assignable(
         basl_parser_type_is_class(target_type) ||
         basl_parser_type_is_class(source_type) ||
         basl_parser_type_is_interface(target_type) ||
-        basl_parser_type_is_interface(source_type)
+        basl_parser_type_is_interface(source_type) ||
+        basl_parser_type_is_enum(target_type) ||
+        basl_parser_type_is_enum(source_type)
     ) {
         return basl_parser_type_equal(target_type, source_type);
     }
@@ -1367,6 +1409,279 @@ static int basl_program_find_interface_in_source(
             }
             if (out_interface != NULL) {
                 *out_interface = &program->interfaces[i];
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static void basl_enum_decl_free(
+    basl_program_state_t *program,
+    basl_enum_decl_t *decl
+) {
+    void *memory;
+
+    if (program == NULL || decl == NULL) {
+        return;
+    }
+
+    memory = decl->members;
+    basl_runtime_free(program->registry->runtime, &memory);
+    memset(decl, 0, sizeof(*decl));
+}
+
+static basl_status_t basl_program_grow_enums(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= program->enum_capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = program->enum_capacity;
+    next_capacity = old_capacity == 0U ? 4U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+        next_capacity *= 2U;
+    }
+
+    if (next_capacity > SIZE_MAX / sizeof(*program->enums)) {
+        basl_error_set_literal(
+            program->error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "enum table allocation overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = program->enums;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            program->registry->runtime,
+            next_capacity * sizeof(*program->enums),
+            &memory,
+            program->error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            program->registry->runtime,
+            &memory,
+            next_capacity * sizeof(*program->enums),
+            program->error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (basl_enum_decl_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(*program->enums)
+            );
+        }
+    }
+
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    program->enums = (basl_enum_decl_t *)memory;
+    program->enum_capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_enum_decl_grow_members(
+    basl_program_state_t *program,
+    basl_enum_decl_t *decl,
+    size_t minimum_capacity
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= decl->member_capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = decl->member_capacity;
+    next_capacity = old_capacity == 0U ? 4U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+        next_capacity *= 2U;
+    }
+
+    if (next_capacity > SIZE_MAX / sizeof(*decl->members)) {
+        basl_error_set_literal(
+            program->error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "enum member table allocation overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = decl->members;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            program->registry->runtime,
+            next_capacity * sizeof(*decl->members),
+            &memory,
+            program->error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            program->registry->runtime,
+            &memory,
+            next_capacity * sizeof(*decl->members),
+            program->error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (basl_enum_member_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(*decl->members)
+            );
+        }
+    }
+
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    decl->members = (basl_enum_member_t *)memory;
+    decl->member_capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
+static int basl_program_find_enum(
+    const basl_program_state_t *program,
+    const char *name,
+    size_t name_length,
+    size_t *out_index,
+    const basl_enum_decl_t **out_decl
+) {
+    size_t i;
+
+    if (out_index != NULL) {
+        *out_index = 0U;
+    }
+    if (out_decl != NULL) {
+        *out_decl = NULL;
+    }
+    if (program == NULL || name == NULL) {
+        return 0;
+    }
+
+    for (i = 0U; i < program->enum_count; i += 1U) {
+        if (
+            basl_program_names_equal(
+                program->enums[i].name,
+                program->enums[i].name_length,
+                name,
+                name_length
+            )
+        ) {
+            if (out_index != NULL) {
+                *out_index = i;
+            }
+            if (out_decl != NULL) {
+                *out_decl = &program->enums[i];
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int basl_program_find_enum_in_source(
+    const basl_program_state_t *program,
+    basl_source_id_t source_id,
+    const char *name,
+    size_t name_length,
+    size_t *out_index,
+    const basl_enum_decl_t **out_decl
+) {
+    size_t i;
+
+    if (out_index != NULL) {
+        *out_index = 0U;
+    }
+    if (out_decl != NULL) {
+        *out_decl = NULL;
+    }
+    if (program == NULL || source_id == 0U || name == NULL) {
+        return 0;
+    }
+
+    for (i = 0U; i < program->enum_count; i += 1U) {
+        if (program->enums[i].source_id != source_id) {
+            continue;
+        }
+        if (
+            basl_program_names_equal(
+                program->enums[i].name,
+                program->enums[i].name_length,
+                name,
+                name_length
+            )
+        ) {
+            if (out_index != NULL) {
+                *out_index = i;
+            }
+            if (out_decl != NULL) {
+                *out_decl = &program->enums[i];
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int basl_enum_decl_find_member(
+    const basl_enum_decl_t *decl,
+    const char *name,
+    size_t name_length,
+    size_t *out_index,
+    const basl_enum_member_t **out_member
+) {
+    size_t i;
+
+    if (out_index != NULL) {
+        *out_index = 0U;
+    }
+    if (out_member != NULL) {
+        *out_member = NULL;
+    }
+    if (decl == NULL || name == NULL) {
+        return 0;
+    }
+
+    for (i = 0U; i < decl->member_count; i += 1U) {
+        if (
+            basl_program_names_equal(
+                decl->members[i].name,
+                decl->members[i].name_length,
+                name,
+                name_length
+            )
+        ) {
+            if (out_index != NULL) {
+                *out_index = i;
+            }
+            if (out_member != NULL) {
+                *out_member = &decl->members[i];
             }
             return 1;
         }
@@ -2335,6 +2650,13 @@ static int basl_program_values_equal(
     const basl_value_t *left,
     const basl_value_t *right
 ) {
+    const basl_object_t *left_object;
+    const basl_object_t *right_object;
+    const char *left_text;
+    const char *right_text;
+    size_t left_length;
+    size_t right_length;
+
     if (left == NULL || right == NULL || left->kind != right->kind) {
         return 0;
     }
@@ -2346,13 +2668,273 @@ static int basl_program_values_equal(
             return left->as.boolean == right->as.boolean;
         case BASL_VALUE_INT:
             return left->as.integer == right->as.integer;
+        case BASL_VALUE_OBJECT:
+            left_object = left->as.object;
+            right_object = right->as.object;
+            if (left_object == right_object) {
+                return 1;
+            }
+            if (left_object == NULL || right_object == NULL) {
+                return 0;
+            }
+            if (
+                basl_object_type(left_object) != BASL_OBJECT_STRING ||
+                basl_object_type(right_object) != BASL_OBJECT_STRING
+            ) {
+                return 0;
+            }
+            left_text = basl_string_object_c_str(left_object);
+            right_text = basl_string_object_c_str(right_object);
+            left_length = basl_string_object_length(left_object);
+            right_length = basl_string_object_length(right_object);
+            return left_length == right_length &&
+                   left_text != NULL &&
+                   right_text != NULL &&
+                   memcmp(left_text, right_text, left_length) == 0;
         default:
             return 0;
     }
 }
 
+static size_t basl_program_utf8_codepoint_count(const char *text, size_t length) {
+    size_t count;
+    size_t index;
+    unsigned char lead;
+
+    if (text == NULL) {
+        return 0U;
+    }
+
+    count = 0U;
+    index = 0U;
+    while (index < length) {
+        lead = (unsigned char)text[index];
+        if ((lead & 0x80U) == 0U) {
+            index += 1U;
+        } else if (
+            (lead & 0xE0U) == 0xC0U &&
+            index + 1U < length &&
+            (((unsigned char)text[index + 1U]) & 0xC0U) == 0x80U
+        ) {
+            index += 2U;
+        } else if (
+            (lead & 0xF0U) == 0xE0U &&
+            index + 2U < length &&
+            (((unsigned char)text[index + 1U]) & 0xC0U) == 0x80U &&
+            (((unsigned char)text[index + 2U]) & 0xC0U) == 0x80U
+        ) {
+            index += 3U;
+        } else if (
+            (lead & 0xF8U) == 0xF0U &&
+            index + 3U < length &&
+            (((unsigned char)text[index + 1U]) & 0xC0U) == 0x80U &&
+            (((unsigned char)text[index + 2U]) & 0xC0U) == 0x80U &&
+            (((unsigned char)text[index + 3U]) & 0xC0U) == 0x80U
+        ) {
+            index += 4U;
+        } else {
+            return 0U;
+        }
+
+        count += 1U;
+    }
+
+    return count;
+}
+
+static basl_status_t basl_program_decode_string_literal(
+    const basl_program_state_t *program,
+    const basl_token_t *token,
+    basl_string_t *out_text
+) {
+    const char *text;
+    size_t length;
+    size_t index;
+    size_t start;
+    size_t end;
+    char decoded;
+    basl_status_t status;
+
+    if (program == NULL || token == NULL || out_text == NULL) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    text = basl_program_token_text(program, token, &length);
+    if (text == NULL || length < 2U) {
+        return basl_compile_report(program, token->span, "invalid string literal");
+    }
+
+    start = token->kind == BASL_TOKEN_FSTRING_LITERAL ? 2U : 1U;
+    if (length < start + 1U) {
+        return basl_compile_report(program, token->span, "invalid string literal");
+    }
+    end = length - 1U;
+
+    basl_string_clear(out_text);
+    if (token->kind == BASL_TOKEN_RAW_STRING_LITERAL) {
+        return basl_string_assign(
+            out_text,
+            text + start,
+            end - start,
+            program->error
+        );
+    }
+
+    for (index = start; index < end; index += 1U) {
+        if (text[index] != '\\') {
+            status = basl_string_append(out_text, text + index, 1U, program->error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            continue;
+        }
+
+        index += 1U;
+        if (index >= end) {
+            return basl_compile_report(program, token->span, "invalid escape sequence");
+        }
+
+        switch (text[index]) {
+            case 'n':
+                decoded = '\n';
+                break;
+            case 'r':
+                decoded = '\r';
+                break;
+            case 't':
+                decoded = '\t';
+                break;
+            case '\\':
+                decoded = '\\';
+                break;
+            case '"':
+                decoded = '"';
+                break;
+            case '\'':
+                decoded = '\'';
+                break;
+            case '0':
+                decoded = '\0';
+                break;
+            default:
+                return basl_compile_report(program, token->span, "invalid escape sequence");
+        }
+
+        status = basl_string_append(out_text, &decoded, 1U, program->error);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    if (token->kind == BASL_TOKEN_CHAR_LITERAL) {
+        if (basl_program_utf8_codepoint_count(basl_string_c_str(out_text), basl_string_length(out_text)) != 1U) {
+            return basl_compile_report(
+                program,
+                token->span,
+                "character literals must contain exactly one character"
+            );
+        }
+    }
+
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_parse_string_literal_value(
+    const basl_program_state_t *program,
+    const basl_token_t *token,
+    basl_value_t *out_value
+) {
+    basl_status_t status;
+    basl_string_t decoded;
+    basl_object_t *object;
+
+    if (program == NULL || token == NULL || out_value == NULL) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    object = NULL;
+    basl_string_init(&decoded, program->registry->runtime);
+    status = basl_program_decode_string_literal(program, token, &decoded);
+    if (status == BASL_STATUS_OK) {
+        status = basl_string_object_new(
+            program->registry->runtime,
+            basl_string_c_str(&decoded),
+            basl_string_length(&decoded),
+            &object,
+            program->error
+        );
+    }
+    if (status == BASL_STATUS_OK) {
+        basl_value_init_object(out_value, &object);
+    }
+    basl_object_release(&object);
+    basl_string_free(&decoded);
+    return status;
+}
+
+static basl_status_t basl_program_concat_string_values(
+    const basl_program_state_t *program,
+    const basl_value_t *left,
+    const basl_value_t *right,
+    basl_value_t *out_value
+) {
+    basl_status_t status;
+    basl_string_t text;
+    const basl_object_t *left_object;
+    const basl_object_t *right_object;
+    basl_object_t *object;
+
+    if (program == NULL || left == NULL || right == NULL || out_value == NULL) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    left_object = basl_value_as_object(left);
+    right_object = basl_value_as_object(right);
+    if (
+        left_object == NULL ||
+        right_object == NULL ||
+        basl_object_type(left_object) != BASL_OBJECT_STRING ||
+        basl_object_type(right_object) != BASL_OBJECT_STRING
+    ) {
+        return basl_compile_report(program, basl_program_eof_span(program), "string operands are required");
+    }
+
+    object = NULL;
+    basl_string_init(&text, program->registry->runtime);
+    status = basl_string_append(
+        &text,
+        basl_string_object_c_str(left_object),
+        basl_string_object_length(left_object),
+        program->error
+    );
+    if (status == BASL_STATUS_OK) {
+        status = basl_string_append(
+            &text,
+            basl_string_object_c_str(right_object),
+            basl_string_object_length(right_object),
+            program->error
+        );
+    }
+    if (status == BASL_STATUS_OK) {
+        status = basl_string_object_new(
+            program->registry->runtime,
+            basl_string_c_str(&text),
+            basl_string_length(&text),
+            &object,
+            program->error
+        );
+    }
+    if (status == BASL_STATUS_OK) {
+        basl_value_init_object(out_value, &object);
+    }
+    basl_object_release(&object);
+    basl_string_free(&text);
+    return status;
+}
+
 static int basl_program_is_class_public(const basl_class_decl_t *decl);
 static int basl_program_is_interface_public(const basl_interface_decl_t *decl);
+static int basl_program_is_enum_public(const basl_enum_decl_t *decl);
 static int basl_program_is_function_public(const basl_function_decl_t *decl);
 static int basl_program_is_constant_public(const basl_global_constant_t *decl);
 static int basl_program_is_global_public(const basl_global_variable_t *decl);
@@ -2370,7 +2952,11 @@ static basl_status_t basl_program_parse_type_name(
 
     text = basl_program_token_text(program, token, &length);
     type_kind = basl_type_kind_from_name(text, length);
-    if (type_kind == BASL_TYPE_I32 || type_kind == BASL_TYPE_BOOL) {
+    if (
+        type_kind == BASL_TYPE_I32 ||
+        type_kind == BASL_TYPE_BOOL ||
+        type_kind == BASL_TYPE_STRING
+    ) {
         *out_type = basl_binding_type_primitive(type_kind);
         return BASL_STATUS_OK;
     }
@@ -2383,6 +2969,10 @@ static basl_status_t basl_program_parse_type_name(
     }
     if (basl_program_find_interface(program, text, length, &object_index, NULL)) {
         *out_type = basl_binding_type_interface(object_index);
+        return BASL_STATUS_OK;
+    }
+    if (basl_program_find_enum(program, text, length, &object_index, NULL)) {
+        *out_type = basl_binding_type_enum(object_index);
         return BASL_STATUS_OK;
     }
 
@@ -2471,6 +3061,21 @@ static basl_status_t basl_program_parse_type_reference(
         *cursor += 3U;
         return BASL_STATUS_OK;
     }
+    if (basl_program_find_enum_in_source(
+            program,
+            source_id,
+            member_text,
+            member_length,
+            &object_index,
+            NULL
+        )) {
+        if (!basl_program_is_enum_public(&program->enums[object_index])) {
+            return basl_compile_report(program, member_token->span, "module member is not public");
+        }
+        *out_type = basl_binding_type_enum(object_index);
+        *cursor += 3U;
+        return BASL_STATUS_OK;
+    }
 
     return basl_compile_report(program, member_token->span, unsupported_message);
 }
@@ -2489,7 +3094,11 @@ static basl_status_t basl_program_parse_primitive_type_reference(
     if (status != BASL_STATUS_OK) {
         return status;
     }
-    if (out_type->kind == BASL_TYPE_I32 || out_type->kind == BASL_TYPE_BOOL) {
+    if (
+        out_type->kind == BASL_TYPE_I32 ||
+        out_type->kind == BASL_TYPE_BOOL ||
+        out_type->kind == BASL_TYPE_STRING
+    ) {
         return BASL_STATUS_OK;
     }
 
@@ -2512,6 +3121,12 @@ static int basl_program_is_interface_public(
     return decl != NULL && decl->is_public;
 }
 
+static int basl_program_is_enum_public(
+    const basl_enum_decl_t *decl
+) {
+    return decl != NULL && decl->is_public;
+}
+
 static int basl_program_is_function_public(
     const basl_function_decl_t *decl
 ) {
@@ -2528,6 +3143,76 @@ static int basl_program_is_global_public(
     const basl_global_variable_t *decl
 ) {
     return decl != NULL && decl->is_public;
+}
+
+static int basl_program_lookup_enum_member(
+    const basl_program_state_t *program,
+    const char *enum_name,
+    size_t enum_name_length,
+    const char *member_name,
+    size_t member_name_length,
+    size_t *out_enum_index,
+    const basl_enum_member_t **out_member
+) {
+    const basl_enum_decl_t *decl;
+    size_t enum_index;
+
+    decl = NULL;
+    enum_index = 0U;
+    if (
+        !basl_program_find_enum(
+            program,
+            enum_name,
+            enum_name_length,
+            &enum_index,
+            &decl
+        )
+    ) {
+        return 0;
+    }
+    if (!basl_enum_decl_find_member(decl, member_name, member_name_length, NULL, out_member)) {
+        return 0;
+    }
+    if (out_enum_index != NULL) {
+        *out_enum_index = enum_index;
+    }
+    return 1;
+}
+
+static int basl_program_lookup_enum_member_in_source(
+    const basl_program_state_t *program,
+    basl_source_id_t source_id,
+    const char *enum_name,
+    size_t enum_name_length,
+    const char *member_name,
+    size_t member_name_length,
+    size_t *out_enum_index,
+    const basl_enum_member_t **out_member
+) {
+    const basl_enum_decl_t *decl;
+    size_t enum_index;
+
+    decl = NULL;
+    enum_index = 0U;
+    if (
+        !basl_program_find_enum_in_source(
+            program,
+            source_id,
+            enum_name,
+            enum_name_length,
+            &enum_index,
+            &decl
+        )
+    ) {
+        return 0;
+    }
+    if (!basl_enum_decl_find_member(decl, member_name, member_name_length, NULL, out_member)) {
+        return 0;
+    }
+    if (out_enum_index != NULL) {
+        *out_enum_index = enum_index;
+    }
+    return 1;
 }
 
 static basl_status_t basl_program_validate_main_signature(
@@ -2958,11 +3643,16 @@ static basl_status_t basl_program_parse_constant_primary(
     const basl_token_t *token;
     const basl_global_constant_t *constant;
     const basl_token_t *member_token;
+    const basl_token_t *enum_member_token;
+    const basl_enum_member_t *enum_member;
     basl_source_id_t source_id;
     const char *name_text;
     const char *member_text;
+    const char *enum_member_text;
     size_t name_length;
     size_t member_length;
+    size_t enum_member_length;
+    size_t enum_index;
 
     token = basl_program_cursor_peek(program, *cursor);
     if (token == NULL) {
@@ -2992,9 +3682,25 @@ static basl_status_t basl_program_parse_constant_primary(
             basl_value_init_bool(&out_result->value, 0);
             out_result->type = basl_binding_type_primitive(BASL_TYPE_BOOL);
             return BASL_STATUS_OK;
+        case BASL_TOKEN_STRING_LITERAL:
+        case BASL_TOKEN_RAW_STRING_LITERAL:
+        case BASL_TOKEN_CHAR_LITERAL:
+            basl_program_cursor_advance(program, cursor);
+            status = basl_program_parse_string_literal_value(
+                program,
+                token,
+                &out_result->value
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            out_result->type = basl_binding_type_primitive(BASL_TYPE_STRING);
+            return BASL_STATUS_OK;
         case BASL_TOKEN_IDENTIFIER:
             basl_program_cursor_advance(program, cursor);
             name_text = basl_program_token_text(program, token, &name_length);
+            enum_member = NULL;
+            enum_index = 0U;
             if (
                 basl_program_cursor_peek(program, *cursor) != NULL &&
                 basl_program_cursor_peek(program, *cursor)->kind == BASL_TOKEN_DOT &&
@@ -3011,6 +3717,57 @@ static basl_status_t basl_program_parse_constant_primary(
                 }
                 basl_program_cursor_advance(program, cursor);
                 member_text = basl_program_token_text(program, member_token, &member_length);
+                if (
+                    basl_program_cursor_peek(program, *cursor) != NULL &&
+                    basl_program_cursor_peek(program, *cursor)->kind == BASL_TOKEN_DOT
+                ) {
+                    basl_program_cursor_advance(program, cursor);
+                    enum_member_token = basl_program_cursor_peek(program, *cursor);
+                    if (
+                        enum_member_token == NULL ||
+                        enum_member_token->kind != BASL_TOKEN_IDENTIFIER
+                    ) {
+                        return basl_compile_report(
+                            program,
+                            member_token->span,
+                            "unknown enum member"
+                        );
+                    }
+                    basl_program_cursor_advance(program, cursor);
+                    enum_member_text = basl_program_token_text(
+                        program,
+                        enum_member_token,
+                        &enum_member_length
+                    );
+                    if (
+                        !basl_program_lookup_enum_member_in_source(
+                            program,
+                            source_id,
+                            member_text,
+                            member_length,
+                            enum_member_text,
+                            enum_member_length,
+                            &enum_index,
+                            &enum_member
+                        )
+                    ) {
+                        return basl_compile_report(
+                            program,
+                            enum_member_token->span,
+                            "unknown enum member"
+                        );
+                    }
+                    if (!basl_program_is_enum_public(&program->enums[enum_index])) {
+                        return basl_compile_report(
+                            program,
+                            member_token->span,
+                            "module member is not public"
+                        );
+                    }
+                    basl_value_init_int(&out_result->value, enum_member->value);
+                    out_result->type = basl_binding_type_enum(enum_index);
+                    return BASL_STATUS_OK;
+                }
                 if (
                     !basl_program_find_constant_in_source(
                         program,
@@ -3035,6 +3792,34 @@ static basl_status_t basl_program_parse_constant_primary(
                 }
                 out_result->type = constant->type;
                 out_result->value = basl_value_copy(&constant->value);
+                return BASL_STATUS_OK;
+            }
+            if (
+                basl_program_cursor_peek(program, *cursor) != NULL &&
+                basl_program_cursor_peek(program, *cursor)->kind == BASL_TOKEN_DOT
+            ) {
+                basl_program_cursor_advance(program, cursor);
+                member_token = basl_program_cursor_peek(program, *cursor);
+                if (member_token == NULL || member_token->kind != BASL_TOKEN_IDENTIFIER) {
+                    return basl_compile_report(program, token->span, "unknown enum member");
+                }
+                basl_program_cursor_advance(program, cursor);
+                member_text = basl_program_token_text(program, member_token, &member_length);
+                if (
+                    !basl_program_lookup_enum_member(
+                        program,
+                        name_text,
+                        name_length,
+                        member_text,
+                        member_length,
+                        &enum_index,
+                        &enum_member
+                    )
+                ) {
+                    return basl_compile_report(program, member_token->span, "unknown enum member");
+                }
+                basl_value_init_int(&out_result->value, enum_member->value);
+                out_result->type = basl_binding_type_enum(enum_index);
                 return BASL_STATUS_OK;
             }
             if (!basl_program_find_constant(program, name_text, name_length, &constant)) {
@@ -3257,13 +4042,42 @@ static basl_status_t basl_program_parse_constant_term(
             basl_constant_result_release(&left);
             return status;
         }
+        if (token->kind == BASL_TOKEN_PLUS &&
+            basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_STRING)) &&
+            basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_STRING))) {
+            basl_value_t concatenated;
+
+            basl_value_init_nil(&concatenated);
+            status = basl_program_concat_string_values(
+                program,
+                &left.value,
+                &right.value,
+                &concatenated
+            );
+            if (status != BASL_STATUS_OK) {
+                basl_constant_result_release(&left);
+                basl_constant_result_release(&right);
+                return status;
+            }
+            basl_constant_result_release(&left);
+            left.value = concatenated;
+            left.type = basl_binding_type_primitive(BASL_TYPE_STRING);
+            basl_constant_result_release(&right);
+            continue;
+        }
         if (
             !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
             !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
         ) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
-            return basl_compile_report(program, token->span, "integer operands are required");
+            return basl_compile_report(
+                program,
+                token->span,
+                token->kind == BASL_TOKEN_PLUS
+                    ? "'+' requires matching i32 or string operands"
+                    : "arithmetic operators require i32 operands"
+            );
         }
 
         if (token->kind == BASL_TOKEN_PLUS) {
@@ -3918,6 +4732,13 @@ static basl_status_t basl_program_parse_global_variable_declaration(
             "global variable name conflicts with interface"
         );
     }
+    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "global variable name conflicts with enum"
+        );
+    }
     if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
         return basl_compile_report(
             program,
@@ -4068,6 +4889,13 @@ static basl_status_t basl_program_parse_constant_declaration(
             "global constant name conflicts with interface"
         );
     }
+    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "global constant name conflicts with enum"
+        );
+    }
     if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
         return basl_compile_report(
             program,
@@ -4147,6 +4975,186 @@ static basl_status_t basl_program_parse_constant_declaration(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_program_parse_enum_declaration(
+    basl_program_state_t *program,
+    size_t *cursor,
+    int is_public
+) {
+    basl_status_t status;
+    const basl_token_t *enum_token;
+    const basl_token_t *name_token;
+    const basl_token_t *member_token;
+    const basl_token_t *token;
+    const char *name_text;
+    size_t name_length;
+    basl_enum_decl_t *decl;
+    basl_enum_member_t *member;
+    basl_constant_result_t value_result;
+    int64_t next_value;
+
+    basl_constant_result_clear(&value_result);
+    next_value = 0;
+
+    enum_token = basl_program_cursor_peek(program, *cursor);
+    if (enum_token == NULL || enum_token->kind != BASL_TOKEN_ENUM) {
+        return basl_compile_report(
+            program,
+            enum_token == NULL ? basl_program_eof_span(program) : enum_token->span,
+            "expected 'enum'"
+        );
+    }
+    basl_program_cursor_advance(program, cursor);
+
+    name_token = basl_program_cursor_peek(program, *cursor);
+    if (name_token == NULL || name_token->kind != BASL_TOKEN_IDENTIFIER) {
+        return basl_compile_report(program, enum_token->span, "expected enum name");
+    }
+    name_text = basl_program_token_text(program, name_token, &name_length);
+    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(program, name_token->span, "enum is already declared");
+    }
+    if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(program, name_token->span, "enum name conflicts with class");
+    }
+    if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "enum name conflicts with interface"
+        );
+    }
+    if (basl_program_find_constant(program, name_text, name_length, NULL)) {
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "enum name conflicts with global constant"
+        );
+    }
+    if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "enum name conflicts with global variable"
+        );
+    }
+    if (basl_program_find_top_level_function_name(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(program, name_token->span, "enum name conflicts with function");
+    }
+
+    status = basl_program_grow_enums(program, program->enum_count + 1U);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    decl = &program->enums[program->enum_count];
+    memset(decl, 0, sizeof(*decl));
+    decl->source_id = program->source->id;
+    decl->name = name_text;
+    decl->name_length = name_length;
+    decl->name_span = name_token->span;
+    decl->is_public = is_public;
+    program->enum_count += 1U;
+    basl_program_cursor_advance(program, cursor);
+
+    token = basl_program_cursor_peek(program, *cursor);
+    if (token == NULL || token->kind != BASL_TOKEN_LBRACE) {
+        return basl_compile_report(program, name_token->span, "expected '{' after enum name");
+    }
+    basl_program_cursor_advance(program, cursor);
+
+    while (1) {
+        token = basl_program_cursor_peek(program, *cursor);
+        if (token == NULL) {
+            return basl_compile_report(
+                program,
+                basl_program_eof_span(program),
+                "expected '}' after enum body"
+            );
+        }
+        if (token->kind == BASL_TOKEN_RBRACE) {
+            basl_program_cursor_advance(program, cursor);
+            break;
+        }
+        if (token->kind != BASL_TOKEN_IDENTIFIER) {
+            return basl_compile_report(program, token->span, "expected enum member name");
+        }
+        member_token = token;
+        name_text = basl_program_token_text(program, member_token, &name_length);
+        if (basl_enum_decl_find_member(decl, name_text, name_length, NULL, NULL)) {
+            return basl_compile_report(
+                program,
+                member_token->span,
+                "enum member is already declared"
+            );
+        }
+        basl_program_cursor_advance(program, cursor);
+
+        if (basl_program_cursor_peek(program, *cursor) != NULL &&
+            basl_program_cursor_peek(program, *cursor)->kind == BASL_TOKEN_ASSIGN) {
+            basl_program_cursor_advance(program, cursor);
+            basl_constant_result_release(&value_result);
+            basl_constant_result_clear(&value_result);
+            status = basl_program_parse_constant_expression(program, cursor, &value_result);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            if (
+                !basl_parser_type_equal(
+                    value_result.type,
+                    basl_binding_type_primitive(BASL_TYPE_I32)
+                )
+            ) {
+                basl_constant_result_release(&value_result);
+                return basl_compile_report(
+                    program,
+                    member_token->span,
+                    "enum member value must be i32"
+                );
+            }
+            next_value = basl_value_as_int(&value_result.value);
+            basl_constant_result_release(&value_result);
+            basl_constant_result_clear(&value_result);
+        }
+
+        status = basl_enum_decl_grow_members(program, decl, decl->member_count + 1U);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        member = &decl->members[decl->member_count];
+        memset(member, 0, sizeof(*member));
+        member->name = name_text;
+        member->name_length = name_length;
+        member->name_span = member_token->span;
+        member->value = next_value;
+        decl->member_count += 1U;
+        next_value += 1;
+
+        token = basl_program_cursor_peek(program, *cursor);
+        if (token == NULL) {
+            return basl_compile_report(
+                program,
+                basl_program_eof_span(program),
+                "expected '}' after enum body"
+            );
+        }
+        if (token->kind == BASL_TOKEN_COMMA) {
+            basl_program_cursor_advance(program, cursor);
+            continue;
+        }
+        if (token->kind == BASL_TOKEN_RBRACE) {
+            continue;
+        }
+        return basl_compile_report(
+            program,
+            token->span,
+            "expected ',' or '}' after enum member"
+        );
+    }
+
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_program_parse_interface_declaration(
     basl_program_state_t *program,
     size_t *cursor,
@@ -4191,6 +5199,9 @@ static basl_status_t basl_program_parse_interface_declaration(
             name_token->span,
             "interface name conflicts with global constant"
         );
+    }
+    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(program, name_token->span, "interface name conflicts with enum");
     }
     if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
         return basl_compile_report(
@@ -4513,6 +5524,9 @@ static basl_status_t basl_program_parse_class_declaration(
             name_token->span,
             "class name conflicts with global constant"
         );
+    }
+    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+        return basl_compile_report(program, name_token->span, "class name conflicts with enum");
     }
     if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
         return basl_compile_report(
@@ -4899,6 +5913,13 @@ static basl_status_t basl_program_parse_declarations(
             }
             continue;
         }
+        if (token->kind == BASL_TOKEN_ENUM) {
+            status = basl_program_parse_enum_declaration(program, &cursor, is_public);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            continue;
+        }
         if (token->kind == BASL_TOKEN_INTERFACE) {
             status = basl_program_parse_interface_declaration(program, &cursor, is_public);
             if (status != BASL_STATUS_OK) {
@@ -4924,7 +5945,7 @@ static basl_status_t basl_program_parse_declarations(
             return basl_compile_report(
                 program,
                 token->span,
-                "expected top-level 'import', 'const', 'interface', 'class', variable declaration, or 'fn'"
+                "expected top-level 'import', 'const', 'enum', 'interface', 'class', variable declaration, or 'fn'"
             );
         }
         cursor += 1U;
@@ -4973,6 +5994,13 @@ static basl_status_t basl_program_parse_declarations(
                 program,
                 name_token->span,
                 "function name conflicts with class"
+            );
+        }
+        if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+            return basl_compile_report(
+                program,
+                name_token->span,
+                "function name conflicts with enum"
             );
         }
         if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
@@ -5272,6 +6300,14 @@ static void basl_program_free(basl_program_state_t *program) {
     program->interfaces = NULL;
     program->interface_count = 0U;
     program->interface_capacity = 0U;
+    for (i = 0U; i < program->enum_count; i += 1U) {
+        basl_enum_decl_free(program, &program->enums[i]);
+    }
+    memory = program->enums;
+    basl_runtime_free(program->registry->runtime, &memory);
+    program->enums = NULL;
+    program->enum_count = 0U;
+    program->enum_capacity = 0U;
     for (i = 0U; i < program->constant_count; i += 1U) {
         basl_value_release(&program->constants[i].value);
     }
@@ -5790,6 +6826,73 @@ static basl_loop_context_t *basl_parser_current_loop(
     }
 
     return &state->loops[state->loop_count - 1U];
+}
+
+static basl_status_t basl_parser_grow_jump_offsets(
+    basl_parser_state_t *state,
+    size_t **offsets,
+    size_t *capacity,
+    size_t minimum_capacity,
+    const char *overflow_message
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= *capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = *capacity;
+    next_capacity = old_capacity == 0U ? 4U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+        next_capacity *= 2U;
+    }
+
+    if (next_capacity > SIZE_MAX / sizeof(**offsets)) {
+        basl_error_set_literal(
+            state->program->error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            overflow_message
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = *offsets;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            state->program->registry->runtime,
+            next_capacity * sizeof(**offsets),
+            &memory,
+            state->program->error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            state->program->registry->runtime,
+            &memory,
+            next_capacity * sizeof(**offsets),
+            state->program->error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (size_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(**offsets)
+            );
+        }
+    }
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    *offsets = (size_t *)memory;
+    *capacity = next_capacity;
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_parser_push_loop(
@@ -6479,24 +7582,33 @@ static basl_status_t basl_parser_parse_qualified_symbol(
     basl_expression_result_t *out_result
 ) {
     basl_status_t status;
+    basl_value_t value;
     const basl_token_t *member_token;
+    const basl_token_t *enum_member_token;
     const basl_global_constant_t *constant;
     const basl_function_decl_t *function_decl;
     const basl_class_decl_t *class_decl;
+    const basl_enum_member_t *enum_member;
     const char *module_name;
     const char *member_name;
+    const char *enum_member_name;
     size_t module_name_length;
     size_t member_name_length;
+    size_t enum_member_name_length;
     size_t function_index;
     size_t class_index;
+    size_t enum_index;
     basl_source_id_t source_id;
 
     constant = NULL;
     function_decl = NULL;
     class_decl = NULL;
+    enum_member = NULL;
     function_index = 0U;
     class_index = 0U;
+    enum_index = 0U;
     source_id = 0U;
+    basl_value_init_nil(&value);
 
     module_name = basl_parser_token_text(state, module_token, &module_name_length);
     if (
@@ -6525,6 +7637,51 @@ static basl_status_t basl_parser_parse_qualified_symbol(
     }
 
     member_name = basl_parser_token_text(state, member_token, &member_name_length);
+    if (basl_parser_match(state, BASL_TOKEN_DOT)) {
+        enum_member_token = basl_parser_peek(state);
+        if (enum_member_token == NULL || enum_member_token->kind != BASL_TOKEN_IDENTIFIER) {
+            return basl_parser_report(state, member_token->span, "unknown enum member");
+        }
+        basl_parser_advance(state);
+        enum_member_name = basl_parser_token_text(
+            state,
+            enum_member_token,
+            &enum_member_name_length
+        );
+        if (
+            !basl_program_lookup_enum_member_in_source(
+                state->program,
+                source_id,
+                member_name,
+                member_name_length,
+                enum_member_name,
+                enum_member_name_length,
+                &enum_index,
+                &enum_member
+            )
+        ) {
+            return basl_parser_report(state, enum_member_token->span, "unknown enum member");
+        }
+        if (!basl_program_is_enum_public(&state->program->enums[enum_index])) {
+            return basl_parser_report(state, member_token->span, "module member is not public");
+        }
+
+        basl_value_init_int(&value, enum_member->value);
+        status = basl_chunk_write_constant(
+            &state->chunk,
+            &value,
+            enum_member_token->span,
+            NULL,
+            state->program->error
+        );
+        basl_value_release(&value);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_type(out_result, basl_binding_type_enum(enum_index));
+        return BASL_STATUS_OK;
+    }
+
     if (basl_parser_check(state, BASL_TOKEN_LPAREN)) {
         if (
             basl_program_find_top_level_function_name_in_source(
@@ -6955,18 +8112,26 @@ static basl_status_t basl_parser_parse_primary_base(
     size_t global_index;
     basl_parser_type_t local_type;
     const basl_global_variable_t *global_decl;
+    const basl_enum_member_t *enum_member;
     const char *name_text;
+    const char *member_text;
     size_t name_length;
+    size_t member_length;
     basl_source_id_t source_id;
+    size_t enum_index;
 
     constant = NULL;
     local_index = 0U;
     global_index = 0U;
     local_type = basl_binding_type_invalid();
     global_decl = NULL;
+    enum_member = NULL;
     name_text = NULL;
     name_length = 0U;
+    member_text = NULL;
+    member_length = 0U;
     source_id = 0U;
+    enum_index = 0U;
     token = basl_parser_peek(state);
     if (token == NULL) {
         return basl_parser_report(
@@ -7032,6 +8197,52 @@ static basl_status_t basl_parser_parse_primary_base(
                 }
                 return basl_parser_report(state, token->span, "unknown function");
             }
+            if (
+                basl_parser_check(state, BASL_TOKEN_DOT) &&
+                !basl_parser_find_local_symbol(state, token, &local_index)
+            ) {
+                basl_parser_advance(state);
+                {
+                    const basl_token_t *member_token = basl_parser_peek(state);
+
+                    if (member_token == NULL || member_token->kind != BASL_TOKEN_IDENTIFIER) {
+                        return basl_parser_report(state, token->span, "unknown enum member");
+                    }
+                    basl_parser_advance(state);
+                    member_text = basl_parser_token_text(state, member_token, &member_length);
+                    if (
+                        !basl_program_lookup_enum_member(
+                            state->program,
+                            name_text,
+                            name_length,
+                            member_text,
+                            member_length,
+                            &enum_index,
+                            &enum_member
+                        )
+                    ) {
+                        return basl_parser_report(state, member_token->span, "unknown enum member");
+                    }
+
+                    basl_value_init_int(&value, enum_member->value);
+                    status = basl_chunk_write_constant(
+                        &state->chunk,
+                        &value,
+                        member_token->span,
+                        NULL,
+                        state->program->error
+                    );
+                    basl_value_release(&value);
+                    if (status != BASL_STATUS_OK) {
+                        return status;
+                    }
+                    basl_expression_result_set_type(
+                        out_result,
+                        basl_binding_type_enum(enum_index)
+                    );
+                    return BASL_STATUS_OK;
+                }
+            }
 
             if (basl_parser_find_local_symbol(state, token, &local_index)) {
                 local_type =
@@ -7084,7 +8295,32 @@ static basl_status_t basl_parser_parse_primary_base(
         case BASL_TOKEN_STRING_LITERAL:
         case BASL_TOKEN_RAW_STRING_LITERAL:
         case BASL_TOKEN_CHAR_LITERAL:
-            return basl_parser_report(state, token->span, "string expressions are not yet supported");
+            basl_parser_advance(state);
+            {
+                basl_value_t value;
+
+                basl_value_init_nil(&value);
+                status = basl_program_parse_string_literal_value(state->program, token, &value);
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+                status = basl_chunk_write_constant(
+                    &state->chunk,
+                    &value,
+                    token->span,
+                    NULL,
+                    state->program->error
+                );
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_STRING)
+            );
+            return BASL_STATUS_OK;
         case BASL_TOKEN_FLOAT_LITERAL:
             return basl_parser_report(state, token->span, "float expressions are not yet supported");
         case BASL_TOKEN_FSTRING_LITERAL:
@@ -7259,18 +8495,22 @@ static basl_status_t basl_parser_parse_term(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        status = basl_parser_require_i32_operands(
-            state,
-            operator_span,
-            left_result.type,
-            right_result.type,
-            operator_kind == BASL_TOKEN_PLUS
-                ? BASL_BINARY_OPERATOR_ADD
-                : BASL_BINARY_OPERATOR_SUBTRACT,
-            "arithmetic operators require i32 operands"
-        );
-        if (status != BASL_STATUS_OK) {
-            return status;
+        if (
+            !basl_parser_type_supports_binary_operator(
+                operator_kind == BASL_TOKEN_PLUS
+                    ? BASL_BINARY_OPERATOR_ADD
+                    : BASL_BINARY_OPERATOR_SUBTRACT,
+                left_result.type,
+                right_result.type
+            )
+        ) {
+            return basl_parser_report(
+                state,
+                operator_span,
+                operator_kind == BASL_TOKEN_PLUS
+                    ? "'+' requires matching i32 or string operands"
+                    : "arithmetic operators require i32 operands"
+            );
         }
 
         status = basl_parser_emit_opcode(
@@ -7281,7 +8521,13 @@ static basl_status_t basl_parser_parse_term(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        left_result.type = operator_kind == BASL_TOKEN_PLUS &&
+                                   basl_parser_type_equal(
+                                       left_result.type,
+                                       basl_binding_type_primitive(BASL_TYPE_STRING)
+                                   )
+                               ? basl_binding_type_primitive(BASL_TYPE_STRING)
+                               : basl_binding_type_primitive(BASL_TYPE_I32);
     }
 
     basl_expression_result_set_type(out_result, left_result.type);
@@ -8400,6 +9646,380 @@ cleanup_loop:
     return status;
 }
 
+static basl_status_t basl_parser_parse_switch_case_contents(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+) {
+    basl_status_t status;
+    basl_statement_result_t declaration_result;
+    basl_statement_result_t block_result;
+    const basl_token_t *token;
+
+    basl_statement_result_clear(&declaration_result);
+    basl_statement_result_clear(&block_result);
+
+    while (!basl_parser_is_at_end(state)) {
+        token = basl_parser_peek(state);
+        if (
+            token == NULL ||
+            token->kind == BASL_TOKEN_RBRACE ||
+            token->kind == BASL_TOKEN_CASE ||
+            token->kind == BASL_TOKEN_DEFAULT
+        ) {
+            break;
+        }
+
+        status = basl_parser_parse_declaration(state, &declaration_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (declaration_result.guaranteed_return) {
+            block_result.guaranteed_return = 1;
+        }
+    }
+
+    basl_statement_result_set_guaranteed_return(
+        out_result,
+        block_result.guaranteed_return
+    );
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_switch_statement(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+) {
+    basl_status_t status;
+    const basl_token_t *switch_token;
+    const basl_token_t *token;
+    basl_expression_result_t switch_result;
+    basl_expression_result_t case_result;
+    basl_statement_result_t case_body_result;
+    size_t *end_jumps;
+    size_t end_jump_count;
+    size_t end_jump_capacity;
+    size_t *body_jumps;
+    size_t body_jump_count;
+    size_t body_jump_capacity;
+    size_t jump_offset;
+    size_t false_jump_offset;
+    int has_default;
+    int all_branches_return;
+
+    basl_expression_result_clear(&switch_result);
+    basl_expression_result_clear(&case_result);
+    basl_statement_result_clear(&case_body_result);
+    end_jumps = NULL;
+    end_jump_count = 0U;
+    end_jump_capacity = 0U;
+    body_jumps = NULL;
+    body_jump_count = 0U;
+    body_jump_capacity = 0U;
+    has_default = 0;
+    all_branches_return = 1;
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_SWITCH,
+        "expected 'switch'",
+        &switch_token
+    );
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_LPAREN,
+        "expected '(' after 'switch'",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_parse_expression(state, &switch_result);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    if (
+        !basl_parser_type_equal(
+            switch_result.type,
+            basl_binding_type_primitive(BASL_TYPE_I32)
+        ) &&
+        !basl_parser_type_equal(
+            switch_result.type,
+            basl_binding_type_primitive(BASL_TYPE_BOOL)
+        ) &&
+        !basl_parser_type_is_enum(switch_result.type)
+    ) {
+        status = basl_parser_report(
+            state,
+            switch_token->span,
+            "switch expression must be i32, bool, or enum"
+        );
+        goto cleanup;
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_RPAREN,
+        "expected ')' after switch expression",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_LBRACE,
+        "expected '{' after switch expression",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+
+    while (!basl_parser_is_at_end(state)) {
+        token = basl_parser_peek(state);
+        if (token == NULL) {
+            status = basl_parser_report(
+                state,
+                basl_parser_fallback_span(state),
+                "expected '}' after switch body"
+            );
+            goto cleanup;
+        }
+        if (token->kind == BASL_TOKEN_RBRACE) {
+            basl_parser_advance(state);
+            break;
+        }
+
+        if (token->kind == BASL_TOKEN_DEFAULT) {
+            if (has_default) {
+                status = basl_parser_report(
+                    state,
+                    token->span,
+                    "switch already has a default case"
+                );
+                goto cleanup;
+            }
+            has_default = 1;
+            basl_parser_advance(state);
+            status = basl_parser_expect(
+                state,
+                BASL_TOKEN_COLON,
+                "expected ':' after default",
+                NULL
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, token->span);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            basl_statement_result_clear(&case_body_result);
+            status = basl_parser_parse_switch_case_contents(state, &case_body_result);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            all_branches_return =
+                all_branches_return && case_body_result.guaranteed_return;
+            status = basl_parser_grow_jump_offsets(
+                state,
+                &end_jumps,
+                &end_jump_capacity,
+                end_jump_count + 1U,
+                "switch jump table allocation overflow"
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_jump(
+                state,
+                BASL_OPCODE_JUMP,
+                token->span,
+                &end_jumps[end_jump_count]
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            end_jump_count += 1U;
+            continue;
+        }
+
+        if (token->kind != BASL_TOKEN_CASE) {
+            status = basl_parser_report(
+                state,
+                token->span,
+                "expected 'case', 'default', or '}' in switch body"
+            );
+            goto cleanup;
+        }
+        basl_parser_advance(state);
+
+        body_jump_count = 0U;
+        while (1) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_DUP, token->span);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            basl_expression_result_clear(&case_result);
+            status = basl_parser_parse_expression(state, &case_result);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_require_same_type(
+                state,
+                token->span,
+                case_result.type,
+                switch_result.type,
+                "switch case value type does not match switch expression"
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_EQUAL, token->span);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_jump(
+                state,
+                BASL_OPCODE_JUMP_IF_FALSE,
+                token->span,
+                &false_jump_offset
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, token->span);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_grow_jump_offsets(
+                state,
+                &body_jumps,
+                &body_jump_capacity,
+                body_jump_count + 1U,
+                "switch jump table allocation overflow"
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_jump(
+                state,
+                BASL_OPCODE_JUMP,
+                token->span,
+                &body_jumps[body_jump_count]
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            body_jump_count += 1U;
+            status = basl_parser_patch_jump(state, false_jump_offset);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, token->span);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+
+            if (!basl_parser_match(state, BASL_TOKEN_COMMA)) {
+                break;
+            }
+        }
+
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_COLON,
+            "expected ':' after case value",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP,
+            token->span,
+            &jump_offset
+        );
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        for (false_jump_offset = 0U; false_jump_offset < body_jump_count; false_jump_offset += 1U) {
+            status = basl_parser_patch_jump(state, body_jumps[false_jump_offset]);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+        }
+
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        basl_statement_result_clear(&case_body_result);
+        status = basl_parser_parse_switch_case_contents(state, &case_body_result);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        all_branches_return = all_branches_return && case_body_result.guaranteed_return;
+        status = basl_parser_grow_jump_offsets(
+            state,
+            &end_jumps,
+            &end_jump_capacity,
+            end_jump_count + 1U,
+            "switch jump table allocation overflow"
+        );
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP,
+            token->span,
+            &end_jumps[end_jump_count]
+        );
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        end_jump_count += 1U;
+        status = basl_parser_patch_jump(state, jump_offset);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+    if (!has_default) {
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, switch_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+    for (jump_offset = 0U; jump_offset < end_jump_count; jump_offset += 1U) {
+        status = basl_parser_patch_jump(state, end_jumps[jump_offset]);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+    basl_statement_result_set_guaranteed_return(
+        out_result,
+        has_default && all_branches_return
+    );
+    status = BASL_STATUS_OK;
+
+cleanup:
+    if (end_jumps != NULL) {
+        void *memory = end_jumps;
+        basl_runtime_free(state->program->registry->runtime, &memory);
+    }
+    if (body_jumps != NULL) {
+        void *memory = body_jumps;
+        basl_runtime_free(state->program->registry->runtime, &memory);
+    }
+    return status;
+}
+
 static basl_status_t basl_parser_parse_break_statement(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
@@ -8939,6 +10559,9 @@ static basl_status_t basl_parser_parse_statement(
     }
     if (basl_parser_check(state, BASL_TOKEN_IF)) {
         return basl_parser_parse_if_statement(state, out_result);
+    }
+    if (basl_parser_check(state, BASL_TOKEN_SWITCH)) {
+        return basl_parser_parse_switch_statement(state, out_result);
     }
     if (basl_parser_check(state, BASL_TOKEN_FOR)) {
         return basl_parser_parse_for_statement(state, out_result);
