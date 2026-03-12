@@ -165,6 +165,7 @@ static basl_token_kind_t basl_lexer_keyword_kind(
             if (memcmp(text, "break", 5U) == 0) return BASL_TOKEN_BREAK;
             if (memcmp(text, "class", 5U) == 0) return BASL_TOKEN_CLASS;
             if (memcmp(text, "const", 5U) == 0) return BASL_TOKEN_CONST;
+            if (memcmp(text, "defer", 5U) == 0) return BASL_TOKEN_DEFER;
             if (memcmp(text, "false", 5U) == 0) return BASL_TOKEN_FALSE;
             if (memcmp(text, "while", 5U) == 0) return BASL_TOKEN_WHILE;
             break;

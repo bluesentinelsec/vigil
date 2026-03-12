@@ -205,6 +205,7 @@ const char *basl_token_kind_name(basl_token_kind_t kind) {
         case BASL_TOKEN_ENUM: return "enum";
         case BASL_TOKEN_CONST: return "const";
         case BASL_TOKEN_RETURN: return "return";
+        case BASL_TOKEN_DEFER: return "defer";
         case BASL_TOKEN_IF: return "if";
         case BASL_TOKEN_ELSE: return "else";
         case BASL_TOKEN_FOR: return "for";

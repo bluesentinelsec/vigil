@@ -514,6 +514,12 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "SET_FIELD";
         case BASL_OPCODE_CALL_INTERFACE:
             return "CALL_INTERFACE";
+        case BASL_OPCODE_DEFER_CALL:
+            return "DEFER_CALL";
+        case BASL_OPCODE_DEFER_NEW_INSTANCE:
+            return "DEFER_NEW_INSTANCE";
+        case BASL_OPCODE_DEFER_CALL_INTERFACE:
+            return "DEFER_CALL_INTERFACE";
         default:
             return "UNKNOWN";
     }
@@ -694,7 +700,7 @@ basl_status_t basl_chunk_disassemble(
             return status;
         }
 
-        if (opcode == BASL_OPCODE_CALL) {
+        if (opcode == BASL_OPCODE_CALL || opcode == BASL_OPCODE_DEFER_CALL) {
             uint32_t function_index;
             uint32_t arg_count;
 
@@ -738,7 +744,10 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 9U;
-        } else if (opcode == BASL_OPCODE_CALL_INTERFACE) {
+        } else if (
+            opcode == BASL_OPCODE_CALL_INTERFACE ||
+            opcode == BASL_OPCODE_DEFER_CALL_INTERFACE
+        ) {
             uint32_t interface_index;
             uint32_t method_index;
             uint32_t arg_count;
@@ -788,7 +797,10 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 13U;
-        } else if (opcode == BASL_OPCODE_NEW_INSTANCE) {
+        } else if (
+            opcode == BASL_OPCODE_NEW_INSTANCE ||
+            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+        ) {
             uint32_t class_index;
             uint32_t field_count;
 

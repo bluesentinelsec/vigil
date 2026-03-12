@@ -10,7 +10,28 @@ typedef struct basl_vm_frame {
     const basl_chunk_t *chunk;
     size_t ip;
     size_t base_slot;
+    struct basl_vm_defer_action *defers;
+    size_t defer_count;
+    size_t defer_capacity;
+    basl_value_t pending_return;
+    int has_pending_return;
+    int draining_defers;
 } basl_vm_frame_t;
+
+typedef enum basl_vm_defer_kind {
+    BASL_VM_DEFER_CALL = 0,
+    BASL_VM_DEFER_NEW_INSTANCE = 1,
+    BASL_VM_DEFER_CALL_INTERFACE = 2
+} basl_vm_defer_kind_t;
+
+typedef struct basl_vm_defer_action {
+    basl_vm_defer_kind_t kind;
+    uint32_t operand_a;
+    uint32_t operand_b;
+    uint32_t arg_count;
+    basl_value_t *values;
+    size_t value_count;
+} basl_vm_defer_action_t;
 
 struct basl_vm {
     basl_runtime_t *runtime;
@@ -29,6 +50,16 @@ static basl_status_t basl_vm_fail_at_ip(
     basl_error_t *error
 );
 static basl_value_t basl_vm_pop_or_nil(basl_vm_t *vm);
+static void basl_vm_defer_action_clear(
+    basl_runtime_t *runtime,
+    basl_vm_defer_action_t *action
+);
+static basl_status_t basl_vm_complete_return(
+    basl_vm_t *vm,
+    basl_value_t returned_value,
+    basl_value_t *out_value,
+    basl_error_t *error
+);
 
 static basl_status_t basl_vm_validate(
     const basl_vm_t *vm,
@@ -71,11 +102,56 @@ static void basl_vm_release_stack(basl_vm_t *vm) {
     vm->stack_count = 0U;
 }
 
+static void basl_vm_defer_action_clear(
+    basl_runtime_t *runtime,
+    basl_vm_defer_action_t *action
+) {
+    size_t i;
+    void *memory;
+
+    if (action == NULL) {
+        return;
+    }
+
+    for (i = 0U; i < action->value_count; i += 1U) {
+        basl_value_release(&action->values[i]);
+    }
+    memory = action->values;
+    if (runtime != NULL) {
+        basl_runtime_free(runtime, &memory);
+    }
+    memset(action, 0, sizeof(*action));
+}
+
+static void basl_vm_frame_clear(basl_runtime_t *runtime, basl_vm_frame_t *frame) {
+    size_t i;
+    void *memory;
+
+    if (frame == NULL) {
+        return;
+    }
+
+    for (i = 0U; i < frame->defer_count; i += 1U) {
+        basl_vm_defer_action_clear(runtime, &frame->defers[i]);
+    }
+    memory = frame->defers;
+    if (runtime != NULL) {
+        basl_runtime_free(runtime, &memory);
+    }
+    basl_value_release(&frame->pending_return);
+    memset(frame, 0, sizeof(*frame));
+}
+
 static void basl_vm_clear_frames(basl_vm_t *vm) {
+    size_t i;
+
     if (vm == NULL) {
         return;
     }
 
+    for (i = 0U; i < vm->frame_count; i += 1U) {
+        basl_vm_frame_clear(vm->runtime, &vm->frames[i]);
+    }
     vm->frame_count = 0U;
 }
 
@@ -265,10 +341,12 @@ static basl_status_t basl_vm_push_frame(
     }
 
     frame = &vm->frames[vm->frame_count];
+    memset(frame, 0, sizeof(*frame));
     frame->function = function;
     frame->chunk = chunk;
     frame->ip = 0U;
     frame->base_slot = base_slot;
+    basl_value_init_nil(&frame->pending_return);
     vm->frame_count += 1U;
     return BASL_STATUS_OK;
 }
@@ -357,6 +435,491 @@ static basl_status_t basl_vm_validate_local_slot(
         *out_index = index;
     }
     return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_frame_grow_defers(
+    basl_vm_t *vm,
+    basl_vm_frame_t *frame,
+    size_t minimum_capacity,
+    basl_error_t *error
+) {
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+    basl_status_t status;
+
+    if (frame == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "vm frame must not be null");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (minimum_capacity <= frame->defer_capacity) {
+        basl_error_clear(error);
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = frame->defer_capacity;
+    next_capacity = old_capacity == 0U ? 4U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+        next_capacity *= 2U;
+    }
+    if (next_capacity > SIZE_MAX / sizeof(*frame->defers)) {
+        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "vm defer allocation overflow");
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    if (frame->defers == NULL) {
+        memory = NULL;
+        status = basl_runtime_alloc(
+            vm->runtime,
+            next_capacity * sizeof(*frame->defers),
+            &memory,
+            error
+        );
+    } else {
+        memory = frame->defers;
+        status = basl_runtime_realloc(
+            vm->runtime,
+            &memory,
+            next_capacity * sizeof(*frame->defers),
+            error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (basl_vm_defer_action_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(*frame->defers)
+            );
+        }
+    }
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    frame->defers = (basl_vm_defer_action_t *)memory;
+    frame->defer_capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_copy_values(
+    basl_vm_t *vm,
+    const basl_value_t *values,
+    size_t value_count,
+    basl_value_t **out_values,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    void *memory;
+    size_t i;
+
+    if (out_values == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "out_values must not be null");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_values = NULL;
+    if (value_count == 0U) {
+        return BASL_STATUS_OK;
+    }
+
+    if (value_count > SIZE_MAX / sizeof(*values)) {
+        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "vm defer value allocation overflow");
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = NULL;
+    status = basl_runtime_alloc(
+        vm->runtime,
+        value_count * sizeof(*values),
+        &memory,
+        error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    *out_values = (basl_value_t *)memory;
+    for (i = 0U; i < value_count; i += 1U) {
+        (*out_values)[i] = basl_value_copy(&values[i]);
+    }
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_invoke_call(
+    basl_vm_t *vm,
+    basl_vm_frame_t *frame,
+    size_t function_index,
+    size_t arg_count,
+    basl_error_t *error
+) {
+    const basl_object_t *callee;
+    size_t base_slot;
+
+    if (frame == NULL || frame->function == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "call requires a function-backed frame"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    callee = basl_function_object_sibling(frame->function, function_index);
+    if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "call target is invalid");
+        return BASL_STATUS_INTERNAL;
+    }
+    if (basl_function_object_arity(callee) != arg_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "call arity does not match function signature"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (arg_count > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "call arguments are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    base_slot = vm->stack_count - arg_count;
+    return basl_vm_push_frame(
+        vm,
+        callee,
+        basl_function_object_chunk(callee),
+        base_slot,
+        error
+    );
+}
+
+static basl_status_t basl_vm_invoke_interface_call(
+    basl_vm_t *vm,
+    basl_vm_frame_t *frame,
+    size_t interface_index,
+    size_t method_index,
+    size_t arg_count,
+    basl_error_t *error
+) {
+    const basl_object_t *callee;
+    const basl_value_t *receiver;
+    size_t base_slot;
+    size_t class_index;
+
+    if (arg_count + 1U > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "call arguments are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    base_slot = vm->stack_count - (arg_count + 1U);
+    receiver = &vm->stack[base_slot];
+    if (
+        basl_value_kind(receiver) != BASL_VALUE_OBJECT ||
+        basl_object_type(basl_value_as_object(receiver)) != BASL_OBJECT_INSTANCE
+    ) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "interface call requires a class instance receiver"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (frame == NULL || frame->function == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "call requires a function-backed frame"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    class_index = basl_instance_object_class_index(basl_value_as_object(receiver));
+    callee = basl_function_object_resolve_interface_method(
+        frame->function,
+        class_index,
+        interface_index,
+        method_index
+    );
+    if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "interface call target is invalid");
+        return BASL_STATUS_INTERNAL;
+    }
+    if (basl_function_object_arity(callee) != arg_count + 1U) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "call arity does not match function signature"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    return basl_vm_push_frame(
+        vm,
+        callee,
+        basl_function_object_chunk(callee),
+        base_slot,
+        error
+    );
+}
+
+static basl_status_t basl_vm_invoke_new_instance(
+    basl_vm_t *vm,
+    size_t class_index,
+    size_t field_count,
+    int discard_result,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_object_t *instance;
+    basl_value_t value;
+    size_t base_slot;
+
+    if (field_count > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "constructor arguments are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    base_slot = vm->stack_count - field_count;
+    instance = NULL;
+    status = basl_instance_object_new(
+        vm->runtime,
+        class_index,
+        vm->stack + base_slot,
+        field_count,
+        &instance,
+        error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (vm->stack_count > base_slot) {
+        value = basl_vm_pop_or_nil(vm);
+        basl_value_release(&value);
+    }
+
+    basl_value_init_object(&value, &instance);
+    if (discard_result) {
+        basl_value_release(&value);
+        return BASL_STATUS_OK;
+    }
+    status = basl_vm_push(vm, &value, error);
+    basl_value_release(&value);
+    return status;
+}
+
+static basl_status_t basl_vm_schedule_defer(
+    basl_vm_t *vm,
+    basl_vm_frame_t *frame,
+    basl_vm_defer_kind_t kind,
+    uint32_t operand_a,
+    uint32_t operand_b,
+    uint32_t arg_count,
+    size_t value_count,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_vm_defer_action_t *action;
+    size_t base_slot;
+    basl_value_t value;
+
+    if (frame == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "vm frame is missing");
+        return BASL_STATUS_INTERNAL;
+    }
+    if (value_count > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "defer arguments are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    status = basl_vm_frame_grow_defers(vm, frame, frame->defer_count + 1U, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    action = &frame->defers[frame->defer_count];
+    memset(action, 0, sizeof(*action));
+    action->kind = kind;
+    action->operand_a = operand_a;
+    action->operand_b = operand_b;
+    action->arg_count = arg_count;
+    action->value_count = value_count;
+
+    base_slot = vm->stack_count - value_count;
+    status = basl_vm_copy_values(
+        vm,
+        vm->stack + base_slot,
+        value_count,
+        &action->values,
+        error
+    );
+    if (status != BASL_STATUS_OK) {
+        basl_vm_defer_action_clear(vm->runtime, action);
+        return status;
+    }
+
+    while (vm->stack_count > base_slot) {
+        value = basl_vm_pop_or_nil(vm);
+        basl_value_release(&value);
+    }
+    frame->defer_count += 1U;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_execute_next_defer(
+    basl_vm_t *vm,
+    basl_vm_frame_t *frame,
+    int *out_pushed_frame,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_vm_defer_action_t action;
+    size_t i;
+
+    if (out_pushed_frame != NULL) {
+        *out_pushed_frame = 0;
+    }
+    if (frame == NULL || frame->defer_count == 0U) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "no deferred call is available");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    action = frame->defers[frame->defer_count - 1U];
+    memset(&frame->defers[frame->defer_count - 1U], 0, sizeof(frame->defers[frame->defer_count - 1U]));
+    frame->defer_count -= 1U;
+
+    for (i = 0U; i < action.value_count; i += 1U) {
+        status = basl_vm_push(vm, &action.values[i], error);
+        if (status != BASL_STATUS_OK) {
+            basl_vm_defer_action_clear(vm->runtime, &action);
+            return status;
+        }
+    }
+
+    switch (action.kind) {
+        case BASL_VM_DEFER_CALL:
+            status = basl_vm_invoke_call(
+                vm,
+                frame,
+                (size_t)action.operand_a,
+                (size_t)action.arg_count,
+                error
+            );
+            if (status == BASL_STATUS_OK && out_pushed_frame != NULL) {
+                *out_pushed_frame = 1;
+            }
+            break;
+        case BASL_VM_DEFER_CALL_INTERFACE:
+            status = basl_vm_invoke_interface_call(
+                vm,
+                frame,
+                (size_t)action.operand_a,
+                (size_t)action.operand_b,
+                (size_t)action.arg_count,
+                error
+            );
+            if (status == BASL_STATUS_OK && out_pushed_frame != NULL) {
+                *out_pushed_frame = 1;
+            }
+            break;
+        case BASL_VM_DEFER_NEW_INSTANCE:
+            status = basl_vm_invoke_new_instance(
+                vm,
+                (size_t)action.operand_a,
+                (size_t)action.arg_count,
+                1,
+                error
+            );
+            break;
+        default:
+            basl_error_set_literal(error, BASL_STATUS_INTERNAL, "defer target is invalid");
+            status = BASL_STATUS_INTERNAL;
+            break;
+    }
+
+    basl_vm_defer_action_clear(vm->runtime, &action);
+    return status;
+}
+
+static basl_status_t basl_vm_complete_return(
+    basl_vm_t *vm,
+    basl_value_t returned_value,
+    basl_value_t *out_value,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_value_t current_value;
+
+    current_value = returned_value;
+    while (1) {
+        basl_vm_frame_t *frame;
+        size_t base_slot;
+        int pushed_frame;
+
+        frame = basl_vm_current_frame(vm);
+        if (frame == NULL) {
+            basl_value_release(&current_value);
+            basl_error_set_literal(error, BASL_STATUS_INTERNAL, "vm frame is missing");
+            return BASL_STATUS_INTERNAL;
+        }
+
+        if (!frame->has_pending_return) {
+            frame->pending_return = current_value;
+            frame->has_pending_return = 1;
+            current_value.kind = BASL_VALUE_NIL;
+            frame->draining_defers = 1;
+        } else {
+            basl_value_release(&current_value);
+        }
+
+        while (frame->defer_count > 0U) {
+            status = basl_vm_execute_next_defer(vm, frame, &pushed_frame, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            if (pushed_frame) {
+                return BASL_STATUS_OK;
+            }
+        }
+
+        current_value = frame->pending_return;
+        basl_value_init_nil(&frame->pending_return);
+        frame->has_pending_return = 0;
+        frame->draining_defers = 0;
+        base_slot = frame->base_slot;
+        vm->frame_count -= 1U;
+        basl_vm_frame_clear(vm->runtime, &vm->frames[vm->frame_count]);
+        basl_vm_unwind_stack_to(vm, base_slot);
+        if (vm->frame_count == 0U) {
+            *out_value = current_value;
+            return BASL_STATUS_OK;
+        }
+        frame = basl_vm_current_frame(vm);
+        if (frame != NULL && frame->draining_defers) {
+            continue;
+        }
+
+        status = basl_vm_push(vm, &current_value, error);
+        basl_value_release(&current_value);
+        return status;
+    }
 }
 
 static basl_status_t basl_vm_checked_add(
@@ -1130,10 +1693,6 @@ basl_status_t basl_vm_execute_function(
                 }
                 break;
             case BASL_OPCODE_CALL: {
-                const basl_object_t *callee;
-                size_t arg_count;
-                size_t base_slot;
-
                 status = basl_vm_read_u32(vm, &constant_index, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -1144,56 +1703,11 @@ basl_status_t basl_vm_execute_function(
                 }
 
                 frame = basl_vm_current_frame(vm);
-                if (frame == NULL || frame->function == NULL) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "call requires a function-backed frame",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                callee = basl_function_object_sibling(
-                    frame->function,
-                    (size_t)constant_index
-                );
-                if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "call target is invalid",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                arg_count = (size_t)operand;
-                if (basl_function_object_arity(callee) != arg_count) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INVALID_ARGUMENT,
-                        "call arity does not match function signature",
-                        error
-                    );
-                    goto cleanup;
-                }
-                if (arg_count > vm->stack_count) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "call arguments are missing from the stack",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                base_slot = vm->stack_count - arg_count;
-                status = basl_vm_push_frame(
+                status = basl_vm_invoke_call(
                     vm,
-                    callee,
-                    basl_function_object_chunk(callee),
-                    base_slot,
+                    frame,
+                    (size_t)constant_index,
+                    (size_t)operand,
                     error
                 );
                 if (status != BASL_STATUS_OK) {
@@ -1202,13 +1716,9 @@ basl_status_t basl_vm_execute_function(
                 break;
             }
             case BASL_OPCODE_CALL_INTERFACE: {
-                const basl_object_t *callee;
-                const basl_value_t *receiver;
                 size_t interface_index;
                 size_t method_index;
                 size_t arg_count;
-                size_t base_slot;
-                size_t class_index;
 
                 status = basl_vm_read_u32(vm, &constant_index, error);
                 if (status != BASL_STATUS_OK) {
@@ -1226,73 +1736,13 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 arg_count = (size_t)operand;
-                if (arg_count + 1U > vm->stack_count) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "call arguments are missing from the stack",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                base_slot = vm->stack_count - (arg_count + 1U);
-                receiver = &vm->stack[base_slot];
-                if (
-                    basl_value_kind(receiver) != BASL_VALUE_OBJECT ||
-                    basl_object_type(basl_value_as_object(receiver)) != BASL_OBJECT_INSTANCE
-                ) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INVALID_ARGUMENT,
-                        "interface call requires a class instance receiver",
-                        error
-                    );
-                    goto cleanup;
-                }
-
                 frame = basl_vm_current_frame(vm);
-                if (frame == NULL || frame->function == NULL) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "call requires a function-backed frame",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                class_index = basl_instance_object_class_index(basl_value_as_object(receiver));
-                callee = basl_function_object_resolve_interface_method(
-                    frame->function,
-                    class_index,
-                    interface_index,
-                    method_index
-                );
-                if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "interface call target is invalid",
-                        error
-                    );
-                    goto cleanup;
-                }
-                if (basl_function_object_arity(callee) != arg_count + 1U) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INVALID_ARGUMENT,
-                        "call arity does not match function signature",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                status = basl_vm_push_frame(
+                status = basl_vm_invoke_interface_call(
                     vm,
-                    callee,
-                    basl_function_object_chunk(callee),
-                    base_slot,
+                    frame,
+                    interface_index,
+                    method_index,
+                    arg_count,
                     error
                 );
                 if (status != BASL_STATUS_OK) {
@@ -1301,10 +1751,8 @@ basl_status_t basl_vm_execute_function(
                 break;
             }
             case BASL_OPCODE_NEW_INSTANCE: {
-                basl_object_t *instance;
                 size_t class_index;
                 size_t field_count;
-                size_t base_slot;
 
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
@@ -1318,38 +1766,101 @@ basl_status_t basl_vm_execute_function(
                 }
 
                 field_count = (size_t)operand;
-                if (field_count > vm->stack_count) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "constructor arguments are missing from the stack",
-                        error
-                    );
-                    goto cleanup;
-                }
-
-                base_slot = vm->stack_count - field_count;
-                instance = NULL;
-                status = basl_instance_object_new(
-                    vm->runtime,
+                status = basl_vm_invoke_new_instance(
+                    vm,
                     class_index,
-                    vm->stack + base_slot,
                     field_count,
-                    &instance,
+                    0,
                     error
                 );
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
+                break;
+            }
+            case BASL_OPCODE_DEFER_CALL: {
+                uint32_t arg_count;
 
-                while (vm->stack_count > base_slot) {
-                    value = basl_vm_pop_or_nil(vm);
-                    basl_value_release(&value);
+                status = basl_vm_read_u32(vm, &constant_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
                 }
+                status = basl_vm_read_raw_u32(vm, &arg_count, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                frame = basl_vm_current_frame(vm);
+                status = basl_vm_schedule_defer(
+                    vm,
+                    frame,
+                    BASL_VM_DEFER_CALL,
+                    constant_index,
+                    0U,
+                    arg_count,
+                    (size_t)arg_count,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_DEFER_CALL_INTERFACE: {
+                uint32_t interface_index;
+                uint32_t method_index;
+                uint32_t arg_count;
 
-                basl_value_init_object(&value, &instance);
-                status = basl_vm_push(vm, &value, error);
-                basl_value_release(&value);
+                status = basl_vm_read_u32(vm, &interface_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_read_raw_u32(vm, &method_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_read_raw_u32(vm, &arg_count, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                frame = basl_vm_current_frame(vm);
+                status = basl_vm_schedule_defer(
+                    vm,
+                    frame,
+                    BASL_VM_DEFER_CALL_INTERFACE,
+                    interface_index,
+                    method_index,
+                    arg_count,
+                    (size_t)arg_count + 1U,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_DEFER_NEW_INSTANCE: {
+                uint32_t class_index;
+                uint32_t field_count;
+
+                status = basl_vm_read_u32(vm, &class_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_read_raw_u32(vm, &field_count, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                frame = basl_vm_current_frame(vm);
+                status = basl_vm_schedule_defer(
+                    vm,
+                    frame,
+                    BASL_VM_DEFER_NEW_INSTANCE,
+                    class_index,
+                    0U,
+                    field_count,
+                    (size_t)field_count,
+                    error
+                );
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
@@ -1752,24 +2263,14 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 break;
             case BASL_OPCODE_RETURN:
-                {
-                    size_t base_slot;
-
-                    frame->ip += 1U;
-                    value = basl_vm_pop_or_nil(vm);
-                    base_slot = frame->base_slot;
-                    vm->frame_count -= 1U;
-                    basl_vm_unwind_stack_to(vm, base_slot);
-                    if (vm->frame_count == 0U) {
-                        *out_value = value;
-                        return BASL_STATUS_OK;
-                    }
-
-                    status = basl_vm_push(vm, &value, error);
-                    basl_value_release(&value);
-                    if (status != BASL_STATUS_OK) {
-                        goto cleanup;
-                    }
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                status = basl_vm_complete_return(vm, value, out_value, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                if (vm->frame_count == 0U) {
+                    return BASL_STATUS_OK;
                 }
                 break;
             default:

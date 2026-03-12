@@ -771,6 +771,89 @@ fn main() -> i32 {
     EXPECT_EQ(CompileAndRun(source), 6);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments) {
+    const char *source = R"(
+i32 state = 0;
+
+fn push(i32 value) -> void {
+    state = state * 10 + value;
+}
+
+fn next() -> i32 {
+    state = state + 1;
+    return state;
+}
+
+fn run() -> void {
+    defer push(next());
+    defer push(next());
+}
+
+fn main() -> i32 {
+    run();
+    return state;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 221);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain) {
+    const char *source = R"(
+class Counter {
+    i32 value;
+
+    fn bump(i32 delta) -> void {
+        self.value += delta;
+    }
+}
+
+fn run(Counter counter) -> i32 {
+    defer counter.bump(2);
+    defer counter.bump(3);
+    return 7;
+}
+
+fn main() -> i32 {
+    Counter counter = Counter(4);
+    i32 result = run(counter);
+    return counter.value * 10 + result;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 97);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesDeferredInterfaceCalls) {
+    const char *source = R"(
+interface Reader {
+    fn read() -> i32;
+}
+
+i32 state = 0;
+
+class Counter implements Reader {
+    i32 value;
+
+    fn read() -> i32 {
+        state = state * 10 + self.value;
+        return self.value;
+    }
+}
+
+fn run(Reader reader) -> void {
+    defer reader.read();
+}
+
+fn main() -> i32 {
+    run(Counter(8));
+    return state;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 8);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
     const TestSource sources[] = {
         {
@@ -1723,6 +1806,43 @@ TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "class fields cannot use type void"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_defer.basl",
+        "fn main() -> i32 {"
+        "    i32 value = 1;"
+        "    defer value;"
+        "    return 0;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "defer requires a call expression"
     );
 
     basl_diagnostic_list_free(&diagnostics);
