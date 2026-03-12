@@ -475,6 +475,13 @@ static int basl_parser_type_is_enum(
            type.object_index != BASL_BINDING_INVALID_CLASS_INDEX;
 }
 
+static int basl_parser_type_is_void(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_VOID &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
 static int basl_parser_type_equal(
     basl_parser_type_t left,
     basl_parser_type_t right
@@ -2955,7 +2962,8 @@ static basl_status_t basl_program_parse_type_name(
     if (
         type_kind == BASL_TYPE_I32 ||
         type_kind == BASL_TYPE_BOOL ||
-        type_kind == BASL_TYPE_STRING
+        type_kind == BASL_TYPE_STRING ||
+        type_kind == BASL_TYPE_VOID
     ) {
         *out_type = basl_binding_type_primitive(type_kind);
         return BASL_STATUS_OK;
@@ -3107,6 +3115,19 @@ static basl_status_t basl_program_parse_primitive_type_reference(
         type_token == NULL ? basl_program_eof_span(program) : type_token->span,
         unsupported_message
     );
+}
+
+static basl_status_t basl_program_require_non_void_type(
+    const basl_program_state_t *program,
+    basl_source_span_t span,
+    basl_parser_type_t type,
+    const char *message
+) {
+    if (basl_parser_type_is_void(type)) {
+        return basl_compile_report(program, span, message);
+    }
+
+    return BASL_STATUS_OK;
 }
 
 static int basl_program_is_class_public(
@@ -4690,6 +4711,7 @@ static basl_status_t basl_program_parse_global_variable_declaration(
     size_t initializer_start;
     size_t initializer_end;
 
+    type_token = basl_program_cursor_peek(program, *cursor);
     status = basl_program_parse_type_reference(
         program,
         cursor,
@@ -4699,8 +4721,16 @@ static basl_status_t basl_program_parse_global_variable_declaration(
     if (status != BASL_STATUS_OK) {
         return status;
     }
+    status = basl_program_require_non_void_type(
+        program,
+        type_token == NULL ? basl_program_eof_span(program) : type_token->span,
+        declared_type,
+        "global variables cannot use type void"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
 
-    type_token = basl_program_cursor_peek(program, *cursor);
     name_token = basl_program_cursor_peek(program, *cursor);
     if (name_token == NULL || name_token->kind != BASL_TOKEN_IDENTIFIER) {
         return basl_compile_report(
@@ -5304,6 +5334,15 @@ static basl_status_t basl_program_parse_interface_declaration(
                 if (status != BASL_STATUS_OK) {
                     return status;
                 }
+                status = basl_program_require_non_void_type(
+                    program,
+                    type_token == NULL ? method_name_token->span : type_token->span,
+                    param_type,
+                    "function parameters cannot use type void"
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
 
                 param_name_token = basl_program_cursor_peek(program, *cursor);
                 if (param_name_token == NULL || param_name_token->kind != BASL_TOKEN_IDENTIFIER) {
@@ -5701,6 +5740,15 @@ static basl_status_t basl_program_parse_class_declaration(
                     if (status != BASL_STATUS_OK) {
                         return status;
                     }
+                    status = basl_program_require_non_void_type(
+                        program,
+                        type_token == NULL ? name_token->span : type_token->span,
+                        field_type,
+                        "function parameters cannot use type void"
+                    );
+                    if (status != BASL_STATUS_OK) {
+                        return status;
+                    }
 
                     param_name_token = basl_program_token_at(program, *cursor);
                     if (param_name_token == NULL ||
@@ -5819,6 +5867,15 @@ static basl_status_t basl_program_parse_class_declaration(
             cursor,
             "unsupported class field type",
             &field_type
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_program_require_non_void_type(
+            program,
+            type_token == NULL ? name_token->span : type_token->span,
+            field_type,
+            "class fields cannot use type void"
         );
         if (status != BASL_STATUS_OK) {
             return status;
@@ -6048,6 +6105,15 @@ static basl_status_t basl_program_parse_declarations(
                     &cursor,
                     "unsupported function parameter type",
                     &decl->return_type
+                );
+                if (status != BASL_STATUS_OK) {
+                    return basl_program_fail_partial_decl(program, decl, status);
+                }
+                status = basl_program_require_non_void_type(
+                    program,
+                    type_token == NULL ? decl->name_span : type_token->span,
+                    decl->return_type,
+                    "function parameters cannot use type void"
                 );
                 if (status != BASL_STATUS_OK) {
                     return basl_program_fail_partial_decl(program, decl, status);
@@ -9199,6 +9265,7 @@ static basl_status_t basl_parser_parse_return_statement(
 ) {
     basl_status_t status;
     const basl_token_t *return_token;
+    const basl_token_t *next_token;
     basl_expression_result_t return_result;
 
     basl_expression_result_clear(&return_result);
@@ -9211,6 +9278,42 @@ static basl_status_t basl_parser_parse_return_statement(
     );
     if (status != BASL_STATUS_OK) {
         return status;
+    }
+
+    next_token = basl_parser_peek(state);
+    if (basl_parser_type_is_void(state->expected_return_type)) {
+        if (next_token != NULL && next_token->kind != BASL_TOKEN_SEMICOLON) {
+            return basl_parser_report(
+                state,
+                return_token->span,
+                "void functions cannot return a value"
+            );
+        }
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_SEMICOLON,
+            "expected ';' after return",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_RETURN, return_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        basl_statement_result_set_guaranteed_return(out_result, 1);
+        return BASL_STATUS_OK;
+    }
+    if (next_token != NULL && next_token->kind == BASL_TOKEN_SEMICOLON) {
+        return basl_parser_report(
+            state,
+            return_token->span,
+            state->function_index == state->program->functions.main_index
+                ? "main entrypoint must return an i32 expression"
+                : "return statement requires a value"
+        );
     }
 
     status = basl_parser_parse_expression(state, &return_result);
@@ -10605,6 +10708,17 @@ static basl_status_t basl_parser_parse_variable_declaration(
     if (status != BASL_STATUS_OK) {
         return status;
     }
+    status = basl_program_require_non_void_type(
+        state->program,
+        basl_parser_previous(state) == NULL
+            ? basl_parser_fallback_span(state)
+            : basl_parser_previous(state)->span,
+        declared_type,
+        "local variables cannot use type void"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
     status = basl_parser_expect(state, BASL_TOKEN_IDENTIFIER, "expected local variable name", &name_token);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -10843,6 +10957,9 @@ static basl_status_t basl_compile_require_function_returns(
     size_t function_index,
     int guaranteed_return
 ) {
+    if (basl_parser_type_is_void(decl->return_type)) {
+        return BASL_STATUS_OK;
+    }
     if (guaranteed_return) {
         return BASL_STATUS_OK;
     }
@@ -10900,6 +11017,15 @@ static basl_status_t basl_compile_function(
         basl_chunk_free(&state.chunk);
         basl_parser_state_free(&state);
         return status;
+    }
+    if (!body_result.guaranteed_return && basl_parser_type_is_void(decl->return_type)) {
+        status = basl_parser_emit_opcode(&state, BASL_OPCODE_RETURN, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            basl_chunk_free(&state.chunk);
+            basl_parser_state_free(&state);
+            return status;
+        }
+        body_result.guaranteed_return = 1;
     }
 
     status = basl_compile_require_function_returns(

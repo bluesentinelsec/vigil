@@ -14,8 +14,9 @@ typedef enum basl_type_kind {
     BASL_TYPE_I32 = 1,
     BASL_TYPE_BOOL = 2,
     BASL_TYPE_STRING = 3,
-    BASL_TYPE_NIL = 4,
-    BASL_TYPE_OBJECT = 5
+    BASL_TYPE_VOID = 4,
+    BASL_TYPE_NIL = 5,
+    BASL_TYPE_OBJECT = 6
 } basl_type_kind_t;
 
 typedef enum basl_unary_operator_kind {
