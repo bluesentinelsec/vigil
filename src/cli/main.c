@@ -9,6 +9,35 @@ typedef enum basl_cli_mode {
     BASL_CLI_MODE_CHECK = 1
 } basl_cli_mode_t;
 
+static void basl_log_cli_message(
+    basl_runtime_t *runtime,
+    basl_log_level_t level,
+    const char *message,
+    const char *field_key,
+    const char *field_value
+) {
+    basl_log_field_t field;
+    const basl_logger_t *logger;
+
+    logger = basl_runtime_logger(runtime);
+
+    if (field_key != NULL && field_value != NULL) {
+        field.key = field_key;
+        field.value = field_value;
+        (void)basl_logger_log(
+            logger,
+            level,
+            message,
+            &field,
+            1U,
+            NULL
+        );
+        return;
+    }
+
+    (void)basl_logger_log(logger, level, message, NULL, 0U, NULL);
+}
+
 static FILE *basl_open_file(const char *path, const char *mode) {
 #ifdef _WIN32
     FILE *file = NULL;
@@ -45,7 +74,13 @@ static int basl_print_diagnostics(
         if (basl_diagnostic_format(registry, diagnostic, &line, &error) == BASL_STATUS_OK) {
             fprintf(stderr, "%s\n", basl_string_c_str(&line));
         } else {
-            fprintf(stderr, "failed to format diagnostic: %s\n", basl_error_message(&error));
+            basl_log_cli_message(
+                runtime,
+                BASL_LOG_ERROR,
+                "failed to format diagnostic",
+                "error",
+                basl_error_message(&error)
+            );
         }
     }
     basl_string_free(&line);
@@ -192,6 +227,7 @@ static int basl_check_script(
 }
 
 static int basl_run_script(
+    basl_runtime_t *runtime,
     basl_vm_t *vm,
     const basl_source_registry_t *registry,
     basl_source_id_t source_id,
@@ -223,7 +259,13 @@ static int basl_run_script(
     }
 
     if (basl_value_kind(result) != BASL_VALUE_INT) {
-        fprintf(stderr, "compiled entrypoint did not return i32\n");
+        basl_log_cli_message(
+            runtime,
+            BASL_LOG_ERROR,
+            "compiled entrypoint did not return i32",
+            NULL,
+            NULL
+        );
         return 1;
     }
 
@@ -266,7 +308,13 @@ int main(int argc, char **argv) {
         mode == BASL_CLI_MODE_RUN &&
         basl_vm_open(&vm, runtime, NULL, &error) != BASL_STATUS_OK
     ) {
-        fprintf(stderr, "failed to initialize vm: %s\n", basl_error_message(&error));
+        basl_log_cli_message(
+            runtime,
+            BASL_LOG_ERROR,
+            "failed to initialize vm",
+            "error",
+            basl_error_message(&error)
+        );
         basl_runtime_close(&runtime);
         free(file_text);
         return 1;
@@ -286,7 +334,13 @@ int main(int argc, char **argv) {
             &error
         )
     ) {
-        fprintf(stderr, "failed to register source: %s\n", basl_error_message(&error));
+        basl_log_cli_message(
+            runtime,
+            BASL_LOG_ERROR,
+            "failed to register source",
+            "error",
+            basl_error_message(&error)
+        );
         exit_code = 1;
         goto cleanup;
     }
@@ -300,6 +354,7 @@ int main(int argc, char **argv) {
     }
 
     exit_code = basl_run_script(
+        runtime,
         vm,
         &registry,
         source_id,

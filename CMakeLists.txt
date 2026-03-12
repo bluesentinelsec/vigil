@@ -26,6 +26,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/compiler.c
     src/diagnostic.c
     src/lexer.c
+    src/log.c
     src/map.c
     src/runtime.c
     src/source.c
@@ -81,6 +82,7 @@ if(BASL_BUILD_TESTS)
         tests/compiler_test.cpp
         tests/diagnostic_test.cpp
         tests/lexer_test.cpp
+        tests/log_test.cpp
         tests/map_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp

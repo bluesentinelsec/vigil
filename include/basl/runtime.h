@@ -5,6 +5,7 @@
 
 #include "basl/allocator.h"
 #include "basl/export.h"
+#include "basl/log.h"
 #include "basl/status.h"
 
 #ifdef __cplusplus
@@ -13,6 +14,7 @@ extern "C" {
 
 typedef struct basl_runtime_options {
     const basl_allocator_t *allocator;
+    const basl_logger_t *logger;
 } basl_runtime_options_t;
 
 typedef struct basl_runtime basl_runtime_t;
@@ -25,6 +27,12 @@ BASL_API basl_status_t basl_runtime_open(
 );
 BASL_API void basl_runtime_close(basl_runtime_t **runtime);
 BASL_API const basl_allocator_t *basl_runtime_allocator(const basl_runtime_t *runtime);
+BASL_API const basl_logger_t *basl_runtime_logger(const basl_runtime_t *runtime);
+BASL_API basl_status_t basl_runtime_set_logger(
+    basl_runtime_t *runtime,
+    const basl_logger_t *logger,
+    basl_error_t *error
+);
 /* basl_runtime_alloc zero-initializes the returned memory on success. */
 BASL_API basl_status_t basl_runtime_alloc(
     basl_runtime_t *runtime,

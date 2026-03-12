@@ -8,6 +8,7 @@
 #include "basl/compiler.h"
 #include "basl/diagnostic.h"
 #include "basl/export.h"
+#include "basl/log.h"
 #include "basl/map.h"
 #include "basl/runtime.h"
 #include "basl/source.h"

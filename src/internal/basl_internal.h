@@ -6,6 +6,7 @@
 
 struct basl_runtime {
     basl_allocator_t allocator;
+    basl_logger_t logger;
 };
 
 basl_allocator_t basl_default_allocator(void);
