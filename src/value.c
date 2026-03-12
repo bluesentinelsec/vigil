@@ -27,7 +27,28 @@ typedef struct basl_function_object {
     size_t function_count;
     size_t function_index;
     int owns_function_table;
+    struct basl_runtime_class *classes;
+    size_t class_count;
+    int owns_class_table;
 } basl_function_object_t;
+
+typedef struct basl_runtime_interface_impl {
+    size_t interface_index;
+    size_t *function_indices;
+    size_t function_count;
+} basl_runtime_interface_impl_t;
+
+typedef struct basl_runtime_class {
+    basl_runtime_interface_impl_t *interface_impls;
+    size_t interface_impl_count;
+} basl_runtime_class_t;
+
+typedef struct basl_instance_object {
+    basl_object_t base;
+    size_t class_index;
+    basl_value_t *fields;
+    size_t field_count;
+} basl_instance_object_t;
 
 static const basl_string_object_t *basl_string_object_cast(
     const basl_object_t *object
@@ -49,11 +70,22 @@ static const basl_function_object_t *basl_function_object_cast(
     return (const basl_function_object_t *)object;
 }
 
+static const basl_instance_object_t *basl_instance_object_cast(
+    const basl_object_t *object
+) {
+    if (object == NULL || object->type != BASL_OBJECT_INSTANCE) {
+        return NULL;
+    }
+
+    return (const basl_instance_object_t *)object;
+}
+
 static void basl_object_destroy(basl_object_t *object) {
     basl_runtime_t *runtime;
     void *memory;
     basl_string_object_t *string_object;
     basl_function_object_t *function_object;
+    basl_instance_object_t *instance_object;
 
     if (object == NULL) {
         return;
@@ -69,6 +101,31 @@ static void basl_object_destroy(basl_object_t *object) {
             function_object = (basl_function_object_t *)object;
             basl_string_free(&function_object->name);
             basl_chunk_free(&function_object->chunk);
+            if (function_object->owns_class_table && function_object->classes != NULL) {
+                size_t class_index;
+
+                for (class_index = 0U; class_index < function_object->class_count; ++class_index) {
+                    size_t impl_index;
+
+                    for (
+                        impl_index = 0U;
+                        impl_index < function_object->classes[class_index].interface_impl_count;
+                        ++impl_index
+                    ) {
+                        memory =
+                            function_object->classes[class_index]
+                                .interface_impls[impl_index]
+                                .function_indices;
+                        basl_runtime_free(runtime, &memory);
+                    }
+
+                    memory = function_object->classes[class_index].interface_impls;
+                    basl_runtime_free(runtime, &memory);
+                }
+
+                memory = function_object->classes;
+                basl_runtime_free(runtime, &memory);
+            }
             if (function_object->owns_function_table && function_object->functions != NULL) {
                 size_t i;
                 void *table_memory;
@@ -83,6 +140,19 @@ static void basl_object_destroy(basl_object_t *object) {
 
                 table_memory = function_object->functions;
                 basl_runtime_free(runtime, &table_memory);
+            }
+            break;
+        case BASL_OBJECT_INSTANCE:
+            instance_object = (basl_instance_object_t *)object;
+            if (instance_object->fields != NULL) {
+                size_t i;
+
+                for (i = 0U; i < instance_object->field_count; ++i) {
+                    basl_value_release(&instance_object->fields[i]);
+                }
+
+                memory = instance_object->fields;
+                basl_runtime_free(runtime, &memory);
             }
             break;
         case BASL_OBJECT_INVALID:
@@ -465,6 +535,13 @@ basl_status_t basl_function_object_new(
     basl_object_init(&object->base, runtime, BASL_OBJECT_FUNCTION);
     basl_string_init(&object->name, runtime);
     object->arity = arity;
+    object->functions = NULL;
+    object->function_count = 0U;
+    object->function_index = 0U;
+    object->owns_function_table = 0;
+    object->classes = NULL;
+    object->class_count = 0U;
+    object->owns_class_table = 0;
     status = basl_string_assign(&object->name, name, name_length, error);
     if (status != BASL_STATUS_OK) {
         basl_object_destroy(&object->base);
@@ -538,16 +615,178 @@ const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
     return &function_object->chunk;
 }
 
+basl_status_t basl_instance_object_new(
+    basl_runtime_t *runtime,
+    size_t class_index,
+    const basl_value_t *fields,
+    size_t field_count,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_instance_object_t *object;
+    void *memory;
+    size_t i;
+
+    basl_error_clear(error);
+
+    if (runtime == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "runtime must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (field_count != 0U && fields == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "instance object fields must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (out_object == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "out_object must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_object = NULL;
+    memory = NULL;
+    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    object = (basl_instance_object_t *)memory;
+    basl_object_init(&object->base, runtime, BASL_OBJECT_INSTANCE);
+    object->class_index = class_index;
+    object->fields = NULL;
+    object->field_count = field_count;
+    if (field_count != 0U) {
+        memory = NULL;
+        status = basl_runtime_alloc(
+            runtime,
+            field_count * sizeof(*object->fields),
+            &memory,
+            error
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_object_destroy(&object->base);
+            return status;
+        }
+
+        object->fields = (basl_value_t *)memory;
+        for (i = 0U; i < field_count; ++i) {
+            object->fields[i] = basl_value_copy(&fields[i]);
+        }
+    }
+
+    *out_object = &object->base;
+    return BASL_STATUS_OK;
+}
+
+size_t basl_instance_object_class_index(const basl_object_t *object) {
+    const basl_instance_object_t *instance_object;
+
+    instance_object = basl_instance_object_cast(object);
+    if (instance_object == NULL) {
+        return 0U;
+    }
+
+    return instance_object->class_index;
+}
+
+size_t basl_instance_object_field_count(const basl_object_t *object) {
+    const basl_instance_object_t *instance_object;
+
+    instance_object = basl_instance_object_cast(object);
+    if (instance_object == NULL) {
+        return 0U;
+    }
+
+    return instance_object->field_count;
+}
+
+int basl_instance_object_get_field(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_value
+) {
+    const basl_instance_object_t *instance_object;
+
+    instance_object = basl_instance_object_cast(object);
+    if (instance_object == NULL || out_value == NULL || index >= instance_object->field_count) {
+        return 0;
+    }
+
+    *out_value = basl_value_copy(&instance_object->fields[index]);
+    return 1;
+}
+
+basl_status_t basl_instance_object_set_field(
+    basl_object_t *object,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+) {
+    const basl_instance_object_t *instance_object;
+    basl_value_t copy;
+
+    basl_error_clear(error);
+    instance_object = basl_instance_object_cast(object);
+    if (instance_object == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "object must be an instance object"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "field value must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (index >= instance_object->field_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "field index is out of range"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    copy = basl_value_copy(value);
+    basl_value_release(&((basl_instance_object_t *)object)->fields[index]);
+    ((basl_instance_object_t *)object)->fields[index] = copy;
+    return BASL_STATUS_OK;
+}
+
 basl_status_t basl_function_object_attach_siblings(
     basl_object_t *owner_function,
     basl_object_t **functions,
     size_t function_count,
     size_t owner_index,
+    const basl_runtime_class_init_t *classes_init,
+    size_t class_count,
     basl_error_t *error
 ) {
     size_t i;
     basl_function_object_t *owner;
     basl_function_object_t *function_object;
+    basl_runtime_t *runtime;
+    basl_runtime_class_t *classes;
+    void *memory;
 
     basl_error_clear(error);
     owner = (basl_function_object_t *)owner_function;
@@ -578,7 +817,131 @@ basl_status_t basl_function_object_attach_siblings(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
+    runtime = owner->base.runtime;
+    classes = NULL;
+    if (class_count != 0U && classes_init == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "class metadata must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (class_count != 0U) {
+        size_t class_index;
+
+        memory = NULL;
+        if (basl_runtime_alloc(runtime, class_count * sizeof(*classes), &memory, error) !=
+            BASL_STATUS_OK) {
+            return BASL_STATUS_OUT_OF_MEMORY;
+        }
+        classes = (basl_runtime_class_t *)memory;
+        memset(classes, 0, class_count * sizeof(*classes));
+
+        for (class_index = 0U; class_index < class_count; ++class_index) {
+            size_t interface_count = classes_init[class_index].interface_impl_count;
+
+            classes[class_index].interface_impl_count = interface_count;
+            if (interface_count == 0U) {
+                continue;
+            }
+
+            memory = NULL;
+            if (
+                basl_runtime_alloc(
+                    runtime,
+                    interface_count * sizeof(*classes[class_index].interface_impls),
+                    &memory,
+                    error
+                ) != BASL_STATUS_OK
+            ) {
+                goto cleanup_classes;
+            }
+            classes[class_index].interface_impls = (basl_runtime_interface_impl_t *)memory;
+            memset(
+                classes[class_index].interface_impls,
+                0,
+                interface_count * sizeof(*classes[class_index].interface_impls)
+            );
+
+            for (i = 0U; i < interface_count; ++i) {
+                size_t method_count = classes_init[class_index].interface_impls[i].function_count;
+
+                classes[class_index].interface_impls[i].interface_index =
+                    classes_init[class_index].interface_impls[i].interface_index;
+                classes[class_index].interface_impls[i].function_count = method_count;
+                if (method_count == 0U) {
+                    continue;
+                }
+
+                memory = NULL;
+                if (
+                    basl_runtime_alloc(
+                        runtime,
+                        method_count *
+                            sizeof(*classes[class_index].interface_impls[i].function_indices),
+                        &memory,
+                        error
+                    ) != BASL_STATUS_OK
+                ) {
+                    goto cleanup_classes;
+                }
+                classes[class_index].interface_impls[i].function_indices = (size_t *)memory;
+                memcpy(
+                    classes[class_index].interface_impls[i].function_indices,
+                    classes_init[class_index].interface_impls[i].function_indices,
+                    method_count *
+                        sizeof(*classes[class_index].interface_impls[i].function_indices)
+                );
+            }
+        }
+    }
+
     for (i = 0U; i < function_count; ++i) {
+        function_object = (basl_function_object_t *)functions[i];
+        if (function_object == NULL || function_object->base.type != BASL_OBJECT_FUNCTION) {
+            goto cleanup_classes;
+        }
+
+        function_object->functions = functions;
+        function_object->function_count = function_count;
+        function_object->function_index = i;
+        function_object->owns_function_table = 0;
+        function_object->classes = classes;
+        function_object->class_count = class_count;
+        function_object->owns_class_table = 0;
+    }
+
+    owner->owns_function_table = 1;
+    owner->owns_class_table = 1;
+    return BASL_STATUS_OK;
+
+cleanup_classes:
+    if (classes != NULL) {
+        size_t class_index;
+
+        for (class_index = 0U; class_index < class_count; ++class_index) {
+            size_t impl_index;
+
+            for (
+                impl_index = 0U;
+                impl_index < classes[class_index].interface_impl_count;
+                ++impl_index
+            ) {
+                memory = classes[class_index].interface_impls[impl_index].function_indices;
+                basl_runtime_free(runtime, &memory);
+            }
+
+            memory = classes[class_index].interface_impls;
+            basl_runtime_free(runtime, &memory);
+        }
+
+        memory = classes;
+        basl_runtime_free(runtime, &memory);
+    }
+
+    if (i < function_count) {
         function_object = (basl_function_object_t *)functions[i];
         if (function_object == NULL || function_object->base.type != BASL_OBJECT_FUNCTION) {
             basl_error_set_literal(
@@ -588,15 +951,8 @@ basl_status_t basl_function_object_attach_siblings(
             );
             return BASL_STATUS_INVALID_ARGUMENT;
         }
-
-        function_object->functions = functions;
-        function_object->function_count = function_count;
-        function_object->function_index = i;
-        function_object->owns_function_table = 0;
     }
-
-    owner->owns_function_table = 1;
-    return BASL_STATUS_OK;
+    return BASL_STATUS_OUT_OF_MEMORY;
 }
 
 const basl_object_t *basl_function_object_sibling(
@@ -614,4 +970,39 @@ const basl_object_t *basl_function_object_sibling(
     }
 
     return function_object->functions[index];
+}
+
+const basl_object_t *basl_function_object_resolve_interface_method(
+    const basl_object_t *function,
+    size_t class_index,
+    size_t interface_index,
+    size_t method_index
+) {
+    const basl_function_object_t *function_object;
+    const basl_runtime_class_t *class_metadata;
+    size_t impl_index;
+    size_t function_index;
+
+    function_object = basl_function_object_cast(function);
+    if (function_object == NULL || function_object->classes == NULL) {
+        return NULL;
+    }
+    if (class_index >= function_object->class_count) {
+        return NULL;
+    }
+
+    class_metadata = &function_object->classes[class_index];
+    for (impl_index = 0U; impl_index < class_metadata->interface_impl_count; ++impl_index) {
+        if (class_metadata->interface_impls[impl_index].interface_index != interface_index) {
+            continue;
+        }
+        if (method_index >= class_metadata->interface_impls[impl_index].function_count) {
+            return NULL;
+        }
+
+        function_index = class_metadata->interface_impls[impl_index].function_indices[method_index];
+        return basl_function_object_sibling(function, function_index);
+    }
+
+    return NULL;
 }

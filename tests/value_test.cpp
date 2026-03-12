@@ -289,3 +289,47 @@ TEST(BaslValueTest, FunctionObjectValidatesArguments) {
     basl_runtime_close(&other_runtime);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_object_t *instance = nullptr;
+    basl_value_t fields[2];
+    basl_value_t field_value;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_value_init_int(&fields[0], 3);
+    basl_value_init_bool(&fields[1], true);
+
+    ASSERT_EQ(
+        basl_instance_object_new(runtime, 3U, fields, 2U, &instance, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_NE(instance, nullptr);
+    EXPECT_EQ(basl_object_type(instance), BASL_OBJECT_INSTANCE);
+    EXPECT_EQ(basl_instance_object_class_index(instance), 3U);
+    EXPECT_EQ(basl_instance_object_field_count(instance), 2U);
+
+    basl_value_init_nil(&field_value);
+    ASSERT_TRUE(basl_instance_object_get_field(instance, 0U, &field_value));
+    EXPECT_EQ(basl_value_kind(&field_value), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&field_value), 3);
+    basl_value_release(&field_value);
+
+    basl_value_init_int(&field_value, 9);
+    ASSERT_EQ(
+        basl_instance_object_set_field(instance, 0U, &field_value, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&field_value);
+
+    basl_value_init_nil(&field_value);
+    ASSERT_TRUE(basl_instance_object_get_field(instance, 0U, &field_value));
+    EXPECT_EQ(basl_value_as_int(&field_value), 9);
+    basl_value_release(&field_value);
+
+    basl_value_release(&fields[0]);
+    basl_value_release(&fields[1]);
+    basl_object_release(&instance);
+    basl_runtime_close(&runtime);
+}

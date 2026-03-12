@@ -6,13 +6,28 @@
 #include "basl/runtime.h"
 #include "basl/source.h"
 #include "basl/status.h"
+#include "basl/token.h"
 #include "basl/type.h"
 #include "basl/value.h"
+
+typedef enum basl_binding_object_kind {
+    BASL_BINDING_OBJECT_NONE = 0,
+    BASL_BINDING_OBJECT_CLASS = 1,
+    BASL_BINDING_OBJECT_INTERFACE = 2
+} basl_binding_object_kind_t;
+
+typedef struct basl_binding_type {
+    basl_type_kind_t kind;
+    basl_binding_object_kind_t object_kind;
+    size_t object_index;
+} basl_binding_type_t;
+
+#define BASL_BINDING_INVALID_CLASS_INDEX ((size_t)-1)
 
 typedef struct basl_binding_function_param {
     const char *name;
     size_t length;
-    basl_type_kind_t type;
+    basl_binding_type_t type;
     basl_source_span_t span;
 } basl_binding_function_param_t;
 
@@ -20,12 +35,15 @@ typedef struct basl_binding_function {
     const char *name;
     size_t name_length;
     basl_source_span_t name_span;
-    basl_type_kind_t return_type;
+    basl_binding_type_t return_type;
+    size_t owner_class_index;
     basl_binding_function_param_t *params;
     size_t param_count;
     size_t param_capacity;
     size_t body_start;
     size_t body_end;
+    const basl_source_file_t *source;
+    const basl_token_list_t *tokens;
     basl_object_t *object;
 } basl_binding_function_t;
 
@@ -42,7 +60,7 @@ typedef struct basl_binding_local {
     const char *name;
     size_t length;
     size_t depth;
-    basl_type_kind_t type;
+    basl_binding_type_t type;
 } basl_binding_local_t;
 
 typedef struct basl_binding_scope_stack {
@@ -52,6 +70,13 @@ typedef struct basl_binding_scope_stack {
     size_t local_capacity;
     size_t scope_depth;
 } basl_binding_scope_stack_t;
+
+basl_binding_type_t basl_binding_type_invalid(void);
+basl_binding_type_t basl_binding_type_primitive(basl_type_kind_t kind);
+basl_binding_type_t basl_binding_type_class(size_t class_index);
+basl_binding_type_t basl_binding_type_interface(size_t interface_index);
+int basl_binding_type_is_valid(basl_binding_type_t type);
+int basl_binding_type_equal(basl_binding_type_t left, basl_binding_type_t right);
 
 void basl_binding_function_init(basl_binding_function_t *function);
 void basl_binding_function_free(
@@ -64,7 +89,7 @@ basl_status_t basl_binding_function_add_param(
     const char *name,
     size_t name_length,
     basl_source_span_t span,
-    basl_type_kind_t type,
+    basl_binding_type_t type,
     basl_error_t *error
 );
 
@@ -115,7 +140,7 @@ basl_status_t basl_binding_scope_stack_declare_local(
     basl_binding_scope_stack_t *stack,
     const char *name,
     size_t name_length,
-    basl_type_kind_t type,
+    basl_binding_type_t type,
     size_t *out_index,
     basl_error_t *error
 );
@@ -124,7 +149,7 @@ int basl_binding_scope_stack_find_local(
     const char *name,
     size_t name_length,
     size_t *out_index,
-    basl_type_kind_t *out_type
+    basl_binding_type_t *out_type
 );
 const basl_binding_local_t *basl_binding_scope_stack_local_at(
     const basl_binding_scope_stack_t *stack,

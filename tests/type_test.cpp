@@ -9,6 +9,7 @@ TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_I32), "i32");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_BOOL), "bool");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_NIL), "nil");
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_OBJECT), "object");
 
     EXPECT_EQ(basl_type_kind_from_name("i32", 3U), BASL_TYPE_I32);
     EXPECT_EQ(basl_type_kind_from_name("bool", 4U), BASL_TYPE_BOOL);
@@ -19,6 +20,7 @@ TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
 TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes) {
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_I32));
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_BOOL));
+    EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_OBJECT, BASL_TYPE_OBJECT));
     EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_BOOL));
     EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_NIL));
     EXPECT_FALSE(basl_type_is_assignable(BASL_TYPE_INVALID, BASL_TYPE_I32));

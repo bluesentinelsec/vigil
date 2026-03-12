@@ -37,7 +37,11 @@ typedef enum basl_opcode {
     BASL_OPCODE_EQUAL = 18,
     BASL_OPCODE_GREATER = 19,
     BASL_OPCODE_LESS = 20,
-    BASL_OPCODE_CALL = 21
+    BASL_OPCODE_CALL = 21,
+    BASL_OPCODE_NEW_INSTANCE = 22,
+    BASL_OPCODE_GET_FIELD = 23,
+    BASL_OPCODE_SET_FIELD = 24,
+    BASL_OPCODE_CALL_INTERFACE = 25
 } basl_opcode_t;
 
 typedef struct basl_chunk {

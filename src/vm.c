@@ -984,6 +984,240 @@ basl_status_t basl_vm_execute_function(
                 }
                 break;
             }
+            case BASL_OPCODE_CALL_INTERFACE: {
+                const basl_object_t *callee;
+                const basl_value_t *receiver;
+                size_t interface_index;
+                size_t method_index;
+                size_t arg_count;
+                size_t base_slot;
+                size_t class_index;
+
+                status = basl_vm_read_u32(vm, &constant_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                interface_index = (size_t)constant_index;
+                method_index = (size_t)operand;
+
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                arg_count = (size_t)operand;
+                if (arg_count + 1U > vm->stack_count) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "call arguments are missing from the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                base_slot = vm->stack_count - (arg_count + 1U);
+                receiver = &vm->stack[base_slot];
+                if (
+                    basl_value_kind(receiver) != BASL_VALUE_OBJECT ||
+                    basl_object_type(basl_value_as_object(receiver)) != BASL_OBJECT_INSTANCE
+                ) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "interface call requires a class instance receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                frame = basl_vm_current_frame(vm);
+                if (frame == NULL || frame->function == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "call requires a function-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                class_index = basl_instance_object_class_index(basl_value_as_object(receiver));
+                callee = basl_function_object_resolve_interface_method(
+                    frame->function,
+                    class_index,
+                    interface_index,
+                    method_index
+                );
+                if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "interface call target is invalid",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (basl_function_object_arity(callee) != arg_count + 1U) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "call arity does not match function signature",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                status = basl_vm_push_frame(
+                    vm,
+                    callee,
+                    basl_function_object_chunk(callee),
+                    base_slot,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_NEW_INSTANCE: {
+                basl_object_t *instance;
+                size_t class_index;
+                size_t field_count;
+                size_t base_slot;
+
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                class_index = (size_t)operand;
+
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                field_count = (size_t)operand;
+                if (field_count > vm->stack_count) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "constructor arguments are missing from the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                base_slot = vm->stack_count - field_count;
+                instance = NULL;
+                status = basl_instance_object_new(
+                    vm->runtime,
+                    class_index,
+                    vm->stack + base_slot,
+                    field_count,
+                    &instance,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                while (vm->stack_count > base_slot) {
+                    value = basl_vm_pop_or_nil(vm);
+                    basl_value_release(&value);
+                }
+
+                basl_value_init_object(&value, &instance);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_GET_FIELD:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_INSTANCE
+                ) {
+                    basl_value_release(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "field access requires a class instance",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                if (
+                    !basl_instance_object_get_field(
+                        basl_value_as_object(&left),
+                        (size_t)operand,
+                        &value
+                    )
+                ) {
+                    basl_value_release(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "field index out of range",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_SET_FIELD:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_INSTANCE
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "field assignment requires a class instance",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                status = basl_instance_object_set_field(
+                    basl_value_as_object(&left),
+                    (size_t)operand,
+                    &right,
+                    error
+                );
+                basl_value_release(&left);
+                basl_value_release(&right);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
             case BASL_OPCODE_JUMP:
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {

@@ -15,6 +15,61 @@ static int basl_binding_names_equal(
            memcmp(left, right, left_length) == 0;
 }
 
+basl_binding_type_t basl_binding_type_invalid(void) {
+    basl_binding_type_t type;
+
+    type.kind = BASL_TYPE_INVALID;
+    type.object_kind = BASL_BINDING_OBJECT_NONE;
+    type.object_index = BASL_BINDING_INVALID_CLASS_INDEX;
+    return type;
+}
+
+basl_binding_type_t basl_binding_type_primitive(basl_type_kind_t kind) {
+    basl_binding_type_t type;
+
+    type.kind = kind;
+    type.object_kind = BASL_BINDING_OBJECT_NONE;
+    type.object_index = BASL_BINDING_INVALID_CLASS_INDEX;
+    return type;
+}
+
+basl_binding_type_t basl_binding_type_class(size_t class_index) {
+    basl_binding_type_t type;
+
+    type.kind = BASL_TYPE_OBJECT;
+    type.object_kind = BASL_BINDING_OBJECT_CLASS;
+    type.object_index = class_index;
+    return type;
+}
+
+basl_binding_type_t basl_binding_type_interface(size_t interface_index) {
+    basl_binding_type_t type;
+
+    type.kind = BASL_TYPE_OBJECT;
+    type.object_kind = BASL_BINDING_OBJECT_INTERFACE;
+    type.object_index = interface_index;
+    return type;
+}
+
+int basl_binding_type_is_valid(basl_binding_type_t type) {
+    if (type.kind == BASL_TYPE_OBJECT) {
+        return type.object_kind != BASL_BINDING_OBJECT_NONE &&
+               type.object_index != BASL_BINDING_INVALID_CLASS_INDEX;
+    }
+
+    return basl_type_kind_is_valid(type.kind);
+}
+
+int basl_binding_type_equal(basl_binding_type_t left, basl_binding_type_t right) {
+    if (!basl_binding_type_is_valid(left) || !basl_binding_type_is_valid(right)) {
+        return 0;
+    }
+
+    return left.kind == right.kind &&
+           left.object_kind == right.object_kind &&
+           left.object_index == right.object_index;
+}
+
 static basl_status_t basl_binding_grow_function_params(
     basl_runtime_t *runtime,
     basl_binding_function_t *function,
@@ -220,6 +275,8 @@ void basl_binding_function_init(basl_binding_function_t *function) {
     }
 
     memset(function, 0, sizeof(*function));
+    function->return_type = basl_binding_type_invalid();
+    function->owner_class_index = BASL_BINDING_INVALID_CLASS_INDEX;
 }
 
 void basl_binding_function_free(
@@ -247,7 +304,7 @@ basl_status_t basl_binding_function_add_param(
     const char *name,
     size_t name_length,
     basl_source_span_t span,
-    basl_type_kind_t type,
+    basl_binding_type_t type,
     basl_error_t *error
 ) {
     basl_status_t status;
@@ -538,7 +595,7 @@ basl_status_t basl_binding_scope_stack_declare_local(
     basl_binding_scope_stack_t *stack,
     const char *name,
     size_t name_length,
-    basl_type_kind_t type,
+    basl_binding_type_t type,
     size_t *out_index,
     basl_error_t *error
 ) {
@@ -597,7 +654,7 @@ int basl_binding_scope_stack_find_local(
     const char *name,
     size_t name_length,
     size_t *out_index,
-    basl_type_kind_t *out_type
+    basl_binding_type_t *out_type
 ) {
     size_t index;
 

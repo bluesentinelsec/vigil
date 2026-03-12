@@ -490,6 +490,14 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "LESS";
         case BASL_OPCODE_CALL:
             return "CALL";
+        case BASL_OPCODE_NEW_INSTANCE:
+            return "NEW_INSTANCE";
+        case BASL_OPCODE_GET_FIELD:
+            return "GET_FIELD";
+        case BASL_OPCODE_SET_FIELD:
+            return "SET_FIELD";
+        case BASL_OPCODE_CALL_INTERFACE:
+            return "CALL_INTERFACE";
         default:
             return "UNKNOWN";
     }
@@ -714,13 +722,103 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 9U;
+        } else if (opcode == BASL_OPCODE_CALL_INTERFACE) {
+            uint32_t interface_index;
+            uint32_t method_index;
+            uint32_t arg_count;
+
+            if (offset + 12U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated interface call instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            interface_index = (uint32_t)chunk->code.data[offset + 1U];
+            interface_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            interface_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            interface_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            method_index = (uint32_t)chunk->code.data[offset + 5U];
+            method_index |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            method_index |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            method_index |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+            arg_count = (uint32_t)chunk->code.data[offset + 9U];
+            arg_count |= (uint32_t)chunk->code.data[offset + 10U] << 8U;
+            arg_count |= (uint32_t)chunk->code.data[offset + 11U] << 16U;
+            arg_count |= (uint32_t)chunk->code.data[offset + 12U] << 24U;
+
+            written = snprintf(
+                line,
+                sizeof(line),
+                " %u %u %u",
+                interface_index,
+                method_index,
+                arg_count
+            );
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk interface call operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 13U;
+        } else if (opcode == BASL_OPCODE_NEW_INSTANCE) {
+            uint32_t class_index;
+            uint32_t field_count;
+
+            if (offset + 8U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated constructor instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            class_index = (uint32_t)chunk->code.data[offset + 1U];
+            class_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            class_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            class_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            field_count = (uint32_t)chunk->code.data[offset + 5U];
+            field_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            field_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            field_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+
+            written = snprintf(line, sizeof(line), " %u %u", class_index, field_count);
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk constructor operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 9U;
         } else if (
             opcode == BASL_OPCODE_CONSTANT ||
             opcode == BASL_OPCODE_GET_LOCAL ||
             opcode == BASL_OPCODE_SET_LOCAL ||
             opcode == BASL_OPCODE_JUMP ||
             opcode == BASL_OPCODE_JUMP_IF_FALSE ||
-            opcode == BASL_OPCODE_LOOP
+            opcode == BASL_OPCODE_LOOP ||
+            opcode == BASL_OPCODE_GET_FIELD ||
+            opcode == BASL_OPCODE_SET_FIELD
         ) {
             if (offset + 4U >= chunk->code.length) {
                 basl_error_set_literal(

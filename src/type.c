@@ -16,13 +16,15 @@ const char *basl_type_kind_name(basl_type_kind_t kind) {
             return "bool";
         case BASL_TYPE_NIL:
             return "nil";
+        case BASL_TYPE_OBJECT:
+            return "object";
         default:
             return "invalid";
     }
 }
 
 int basl_type_kind_is_valid(basl_type_kind_t kind) {
-    return kind >= BASL_TYPE_I32 && kind <= BASL_TYPE_NIL;
+    return kind >= BASL_TYPE_I32 && kind <= BASL_TYPE_OBJECT;
 }
 
 basl_type_kind_t basl_type_kind_from_name(const char *text, size_t length) {

@@ -6,6 +6,11 @@ extern "C" {
 
 namespace {
 
+struct TestSource {
+    const char *path;
+    const char *text;
+};
+
 basl_source_id_t RegisterSource(
     basl_source_registry_t *registry,
     const char *path,
@@ -38,6 +43,66 @@ int64_t CompileAndRun(const char *source_text) {
     basl_diagnostic_list_init(&diagnostics, runtime);
     source_id = RegisterSource(&registry, "main.basl", source_text, &error);
 
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_NE(function, nullptr);
+    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+
+    basl_value_init_nil(&result);
+    EXPECT_EQ(
+        basl_vm_execute_function(vm, function, &result, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    output = basl_value_as_int(&result);
+
+    basl_value_release(&result);
+    basl_object_release(&function);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+    return output;
+}
+
+int64_t CompileAndRun(
+    const TestSource *sources,
+    size_t source_count,
+    const char *entry_path
+) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_value_t result;
+    basl_source_id_t source_id = 0U;
+    int64_t output = 0;
+    size_t index;
+
+    EXPECT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    for (index = 0U; index < source_count; index += 1U) {
+        RegisterSource(&registry, sources[index].path, sources[index].text, &error);
+    }
+
+    for (index = 1U; index <= basl_source_registry_count(&registry); index += 1U) {
+        const basl_source_file_t *source =
+            basl_source_registry_get(&registry, (basl_source_id_t)index);
+
+        if (source != nullptr && std::strcmp(basl_string_c_str(&source->path), entry_path) == 0) {
+            source_id = source->id;
+            break;
+        }
+    }
+
+    EXPECT_NE(source_id, 0U);
     EXPECT_EQ(
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_OK
@@ -195,6 +260,464 @@ TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
         ),
         12
     );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/math.basl",
+            "fn add(i32 left, i32 right) -> i32 {"
+            "    return left + right;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"math\";"
+            "fn main() -> i32 {"
+            "    return add(2, 5);"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/lib/math.basl",
+            "fn inc(i32 value) -> i32 {"
+            "    return value + 1;"
+            "}"
+        },
+        {
+            "/project/lib/logic.basl",
+            "import \"math\";"
+            "fn bump_twice(i32 value) -> i32 {"
+            "    return inc(inc(value));"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"lib/logic\";"
+            "fn main() -> i32 {"
+            "    return bump_twice(5);"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 7);
+}
+
+TEST(BaslCompilerTest, RejectsUnregisteredImportedSource) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "import \"missing\";"
+        "fn main() -> i32 {"
+        "    return 0;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "imported source is not registered"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/config.basl",
+            "const i32 LIMIT = 7;"
+        },
+        {
+            "/project/main.basl",
+            "import \"config\";"
+            "fn main() -> i32 {"
+            "    return LIMIT;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions) {
+    const TestSource sources[] = {
+        {
+            "/project/config.basl",
+            "const i32 BASE = 2 + 3 * 4;"
+            "const bool READY = BASE == 14;"
+        },
+        {
+            "/project/main.basl",
+            "import \"config\";"
+            "fn main() -> i32 {"
+            "    if (READY) {"
+            "        return BASE;"
+            "    }"
+            "    return 0;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 14);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "class Pair {"
+            "    i32 left;"
+            "    i32 right;"
+            "}"
+            "fn sum(Pair pair) -> i32 {"
+            "    return pair.left + pair.right;"
+            "}"
+            "fn main() -> i32 {"
+            "    Pair pair = Pair(3, 4);"
+            "    pair.left = pair.left + 1;"
+            "    return sum(pair);"
+            "}"
+        ),
+        8
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/model.basl",
+            "class Counter {"
+            "    i32 value;"
+            "}"
+            "fn make_counter(i32 value) -> Counter {"
+            "    return Counter(value);"
+            "}"
+            "fn read_counter(Counter counter) -> i32 {"
+            "    return counter.value;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"model\";"
+            "fn main() -> i32 {"
+            "    Counter counter = make_counter(7);"
+            "    return read_counter(counter);"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "class Counter {"
+            "    i32 value;"
+            "    fn bump(i32 delta) -> i32 {"
+            "        self.value = self.value + delta;"
+            "        return self.value;"
+            "    }"
+            "    fn read() -> i32 {"
+            "        return self.value;"
+            "    }"
+            "}"
+            "fn main() -> i32 {"
+            "    Counter counter = Counter(5);"
+            "    counter.bump(2);"
+            "    return counter.read();"
+            "}"
+        ),
+        7
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/model.basl",
+            "class Counter {"
+            "    i32 value;"
+            "    fn bump(i32 delta) -> i32 {"
+            "        self.value = self.value + delta;"
+            "        return self.value;"
+            "    }"
+            "}"
+            "fn build(i32 value) -> Counter {"
+            "    return Counter(value);"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"model\";"
+            "fn main() -> i32 {"
+            "    Counter counter = build(8);"
+            "    return counter.bump(3);"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 11);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/model.basl",
+            "interface Reader {"
+            "    fn read() -> i32;"
+            "}"
+            "class Counter implements Reader {"
+            "    i32 value;"
+            "    fn bump(i32 delta) -> i32 {"
+            "        self.value = self.value + delta;"
+            "        return self.value;"
+            "    }"
+            "    fn read() -> i32 {"
+            "        return self.value;"
+            "    }"
+            "}"
+            "fn make_reader(i32 value) -> Reader {"
+            "    Counter counter = Counter(value);"
+            "    counter.bump(1);"
+            "    return counter;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"model\";"
+            "fn use_reader(Reader reader) -> i32 {"
+            "    return reader.read();"
+            "}"
+            "fn main() -> i32 {"
+            "    Reader reader = make_reader(6);"
+            "    return use_reader(reader);"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+}
+
+TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "const i32 LIMIT = 1;"
+        "const i32 LIMIT = 2;"
+        "fn main() -> i32 {"
+        "    return LIMIT;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "global constant is already declared"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "missing_interface_method.basl",
+        "interface Reader { fn read() -> i32; }"
+        "class Counter implements Reader {"
+        "    i32 value;"
+        "}"
+        "fn main() -> i32 {"
+        "    return 0;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "class does not implement required interface method"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "wrong_interface_signature.basl",
+        "interface Reader { fn read() -> i32; }"
+        "class Counter implements Reader {"
+        "    i32 value;"
+        "    fn read(i32 delta) -> i32 {"
+        "        return self.value + delta;"
+        "    }"
+        "}"
+        "fn main() -> i32 {"
+        "    return 0;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "class method signature does not match interface"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsUnknownClassFields) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "missing_field.basl",
+        "class Pair { i32 left; }"
+        "fn main() -> i32 {"
+        "    Pair pair = Pair(1);"
+        "    return pair.right;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "unknown class field"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsUnknownClassMethods) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "missing_method.basl",
+        "class Pair { i32 left; }"
+        "fn main() -> i32 {"
+        "    Pair pair = Pair(1);"
+        "    return pair.right();"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "unknown class method"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
 }
 
 TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
