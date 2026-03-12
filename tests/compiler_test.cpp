@@ -525,6 +525,94 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/model.basl",
+            "const i32 OFFSET = 2;"
+            "class Counter {"
+            "    i32 value;"
+            "    fn bump(i32 delta) -> i32 {"
+            "        self.value = self.value + delta;"
+            "        return self.value;"
+            "    }"
+            "}"
+            "fn make_counter(i32 value) -> Counter {"
+            "    return Counter(value + OFFSET);"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"model\" as models;"
+            "fn read(models.Counter counter) -> i32 {"
+            "    return counter.value;"
+            "}"
+            "fn main() -> i32 {"
+            "    models.Counter counter = models.make_counter(models.OFFSET + 5);"
+            "    return read(counter) + counter.bump(1);"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 19);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/contracts.basl",
+            "interface Reader {"
+            "    fn read() -> i32;"
+            "}"
+        },
+        {
+            "/project/model.basl",
+            "import \"contracts\";"
+            "class Counter implements contracts.Reader {"
+            "    i32 value;"
+            "    fn read() -> i32 {"
+            "        return self.value;"
+            "    }"
+            "}"
+            "fn make_reader(i32 value) -> contracts.Reader {"
+            "    return Counter(value);"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"contracts\";"
+            "import \"model\";"
+            "fn use_reader(contracts.Reader reader) -> i32 {"
+            "    return reader.read();"
+            "}"
+            "fn main() -> i32 {"
+            "    return use_reader(model.make_reader(9));"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 9);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions) {
+    const TestSource sources[] = {
+        {
+            "/project/config.basl",
+            "const i32 BASE = 7;"
+        },
+        {
+            "/project/main.basl",
+            "import \"config\" as cfg;"
+            "const i32 LIMIT = cfg.BASE + 1;"
+            "fn main() -> i32 {"
+            "    return LIMIT;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
+}
+
 TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
