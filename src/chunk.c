@@ -462,6 +462,10 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "GET_LOCAL";
         case BASL_OPCODE_SET_LOCAL:
             return "SET_LOCAL";
+        case BASL_OPCODE_GET_GLOBAL:
+            return "GET_GLOBAL";
+        case BASL_OPCODE_SET_GLOBAL:
+            return "SET_GLOBAL";
         case BASL_OPCODE_JUMP:
             return "JUMP";
         case BASL_OPCODE_JUMP_IF_FALSE:
@@ -814,6 +818,8 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_CONSTANT ||
             opcode == BASL_OPCODE_GET_LOCAL ||
             opcode == BASL_OPCODE_SET_LOCAL ||
+            opcode == BASL_OPCODE_GET_GLOBAL ||
+            opcode == BASL_OPCODE_SET_GLOBAL ||
             opcode == BASL_OPCODE_JUMP ||
             opcode == BASL_OPCODE_JUMP_IF_FALSE ||
             opcode == BASL_OPCODE_LOOP ||

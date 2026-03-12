@@ -529,15 +529,15 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/model.basl",
-            "const i32 OFFSET = 2;"
-            "class Counter {"
+            "pub const i32 OFFSET = 2;"
+            "pub class Counter {"
             "    i32 value;"
             "    fn bump(i32 delta) -> i32 {"
             "        self.value = self.value + delta;"
             "        return self.value;"
             "    }"
             "}"
-            "fn make_counter(i32 value) -> Counter {"
+            "pub fn make_counter(i32 value) -> Counter {"
             "    return Counter(value + OFFSET);"
             "}"
         },
@@ -561,20 +561,20 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles
     const TestSource sources[] = {
         {
             "/project/contracts.basl",
-            "interface Reader {"
+            "pub interface Reader {"
             "    fn read() -> i32;"
             "}"
         },
         {
             "/project/model.basl",
             "import \"contracts\";"
-            "class Counter implements contracts.Reader {"
+            "pub class Counter implements contracts.Reader {"
             "    i32 value;"
             "    fn read() -> i32 {"
             "        return self.value;"
             "    }"
             "}"
-            "fn make_reader(i32 value) -> contracts.Reader {"
+            "pub fn make_reader(i32 value) -> contracts.Reader {"
             "    return Counter(value);"
             "}"
         },
@@ -598,7 +598,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpression
     const TestSource sources[] = {
         {
             "/project/config.basl",
-            "const i32 BASE = 7;"
+            "pub const i32 BASE = 7;"
         },
         {
             "/project/main.basl",
@@ -611,6 +611,65 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpression
     };
 
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/lib.basl",
+            "pub i32 counter = 3;"
+            "pub fn bump() -> i32 {"
+            "    counter = counter + 1;"
+            "    return counter;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"lib\";"
+            "fn main() -> i32 {"
+            "    return lib.bump() + lib.counter;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
+    const TestSource sources[] = {
+        {
+            "/project/contracts.basl",
+            "pub interface Reader {"
+            "    fn read() -> i32;"
+            "}"
+        },
+        {
+            "/project/model.basl",
+            "import \"contracts\";"
+            "pub i32 seed = 4;"
+            "pub class Counter implements contracts.Reader {"
+            "    pub i32 value;"
+            "    pub fn read() -> i32 {"
+            "        return self.value;"
+            "    }"
+            "}"
+            "pub fn make_reader(i32 delta) -> contracts.Reader {"
+            "    return Counter(seed + delta);"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"contracts\";"
+            "import \"model\";"
+            "fn main() -> i32 {"
+            "    contracts.Reader reader = model.make_reader(5);"
+            "    model.Counter counter = model.Counter(model.seed);"
+            "    return reader.read() + counter.value;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
 }
 
 TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
@@ -644,6 +703,52 @@ TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "global constant is already declared"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    RegisterSource(
+        &registry,
+        "/project/lib.basl",
+        "fn hidden() -> i32 {"
+        "    return 7;"
+        "}"
+        "i32 value = 3;",
+        &error
+    );
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "import \"lib\";"
+        "fn main() -> i32 {"
+        "    return lib.hidden() + lib.value;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "module member is not public"
     );
 
     basl_diagnostic_list_free(&diagnostics);

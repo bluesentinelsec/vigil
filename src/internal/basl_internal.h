@@ -32,6 +32,8 @@ basl_status_t basl_function_object_attach_siblings(
     basl_object_t **functions,
     size_t function_count,
     size_t owner_index,
+    const basl_value_t *initial_globals,
+    size_t global_count,
     const basl_runtime_class_init_t *classes,
     size_t class_count,
     basl_error_t *error
@@ -45,6 +47,17 @@ const basl_object_t *basl_function_object_resolve_interface_method(
     size_t class_index,
     size_t interface_index,
     size_t method_index
+);
+int basl_function_object_get_global(
+    const basl_object_t *function,
+    size_t index,
+    basl_value_t *out_value
+);
+basl_status_t basl_function_object_set_global(
+    const basl_object_t *function,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
 );
 
 #endif

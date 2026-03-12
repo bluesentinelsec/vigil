@@ -912,6 +912,78 @@ basl_status_t basl_vm_execute_function(
                 basl_value_release(&vm->stack[local_index]);
                 vm->stack[local_index] = value;
                 break;
+            case BASL_OPCODE_GET_GLOBAL:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                frame = basl_vm_current_frame(vm);
+                if (frame == NULL || frame->function == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "global read requires a function-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                basl_value_init_nil(&value);
+                if (!basl_function_object_get_global(frame->function, (size_t)operand, &value)) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "global index out of range",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_SET_GLOBAL:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                peeked = basl_vm_peek(vm, 0U);
+                if (peeked == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "global assignment requires a value on the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                frame = basl_vm_current_frame(vm);
+                if (frame == NULL || frame->function == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "global assignment requires a function-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                status = basl_function_object_set_global(
+                    frame->function,
+                    (size_t)operand,
+                    peeked,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
             case BASL_OPCODE_CALL: {
                 const basl_object_t *callee;
                 size_t arg_count;

@@ -35,6 +35,7 @@ typedef struct basl_binding_function {
     const char *name;
     size_t name_length;
     basl_source_span_t name_span;
+    int is_public;
     basl_binding_type_t return_type;
     size_t owner_class_index;
     basl_binding_function_param_t *params;

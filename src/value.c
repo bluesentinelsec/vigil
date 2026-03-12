@@ -27,6 +27,9 @@ typedef struct basl_function_object {
     size_t function_count;
     size_t function_index;
     int owns_function_table;
+    basl_value_t *globals;
+    size_t global_count;
+    int owns_global_table;
     struct basl_runtime_class *classes;
     size_t class_count;
     int owns_class_table;
@@ -140,6 +143,16 @@ static void basl_object_destroy(basl_object_t *object) {
 
                 table_memory = function_object->functions;
                 basl_runtime_free(runtime, &table_memory);
+            }
+            if (function_object->owns_global_table && function_object->globals != NULL) {
+                size_t global_index;
+
+                for (global_index = 0U; global_index < function_object->global_count; ++global_index) {
+                    basl_value_release(&function_object->globals[global_index]);
+                }
+
+                memory = function_object->globals;
+                basl_runtime_free(runtime, &memory);
             }
             break;
         case BASL_OBJECT_INSTANCE:
@@ -539,6 +552,9 @@ basl_status_t basl_function_object_new(
     object->function_count = 0U;
     object->function_index = 0U;
     object->owns_function_table = 0;
+    object->globals = NULL;
+    object->global_count = 0U;
+    object->owns_global_table = 0;
     object->classes = NULL;
     object->class_count = 0U;
     object->owns_class_table = 0;
@@ -777,6 +793,8 @@ basl_status_t basl_function_object_attach_siblings(
     basl_object_t **functions,
     size_t function_count,
     size_t owner_index,
+    const basl_value_t *initial_globals,
+    size_t global_count,
     const basl_runtime_class_init_t *classes_init,
     size_t class_count,
     basl_error_t *error
@@ -786,6 +804,7 @@ basl_status_t basl_function_object_attach_siblings(
     basl_function_object_t *function_object;
     basl_runtime_t *runtime;
     basl_runtime_class_t *classes;
+    basl_value_t *globals;
     void *memory;
     int invalid_function_table;
 
@@ -820,6 +839,7 @@ basl_status_t basl_function_object_attach_siblings(
 
     runtime = owner->base.runtime;
     classes = NULL;
+    globals = NULL;
     invalid_function_table = 0;
     if (class_count != 0U && classes_init == NULL) {
         basl_error_set_literal(
@@ -828,6 +848,26 @@ basl_status_t basl_function_object_attach_siblings(
             "class metadata must not be null"
         );
         return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (global_count != 0U) {
+        size_t global_index;
+
+        memory = NULL;
+        if (
+            basl_runtime_alloc(runtime, global_count * sizeof(*globals), &memory, error) !=
+            BASL_STATUS_OK
+        ) {
+            return BASL_STATUS_OUT_OF_MEMORY;
+        }
+        globals = (basl_value_t *)memory;
+        for (global_index = 0U; global_index < global_count; ++global_index) {
+            if (initial_globals != NULL) {
+                globals[global_index] = basl_value_copy(&initial_globals[global_index]);
+            } else {
+                basl_value_init_nil(&globals[global_index]);
+            }
+        }
     }
 
     if (class_count != 0U) {
@@ -911,16 +951,30 @@ basl_status_t basl_function_object_attach_siblings(
         function_object->function_count = function_count;
         function_object->function_index = i;
         function_object->owns_function_table = 0;
+        function_object->globals = globals;
+        function_object->global_count = global_count;
+        function_object->owns_global_table = 0;
         function_object->classes = classes;
         function_object->class_count = class_count;
         function_object->owns_class_table = 0;
     }
 
     owner->owns_function_table = 1;
+    owner->owns_global_table = 1;
     owner->owns_class_table = 1;
     return BASL_STATUS_OK;
 
 cleanup_classes:
+    if (globals != NULL) {
+        size_t global_index;
+
+        for (global_index = 0U; global_index < global_count; ++global_index) {
+            basl_value_release(&globals[global_index]);
+        }
+
+        memory = globals;
+        basl_runtime_free(runtime, &memory);
+    }
     if (classes != NULL) {
         size_t class_index;
 
@@ -1005,4 +1059,67 @@ const basl_object_t *basl_function_object_resolve_interface_method(
     }
 
     return NULL;
+}
+
+int basl_function_object_get_global(
+    const basl_object_t *function,
+    size_t index,
+    basl_value_t *out_value
+) {
+    const basl_function_object_t *function_object;
+
+    function_object = basl_function_object_cast(function);
+    if (
+        function_object == NULL ||
+        out_value == NULL ||
+        function_object->globals == NULL ||
+        index >= function_object->global_count
+    ) {
+        return 0;
+    }
+
+    *out_value = basl_value_copy(&function_object->globals[index]);
+    return 1;
+}
+
+basl_status_t basl_function_object_set_global(
+    const basl_object_t *function,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+) {
+    const basl_function_object_t *function_object;
+    basl_value_t copy;
+
+    basl_error_clear(error);
+    function_object = basl_function_object_cast(function);
+    if (function_object == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function must be a function object"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "global value must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (function_object->globals == NULL || index >= function_object->global_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "global index is out of range"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    copy = basl_value_copy(value);
+    basl_value_release(&((basl_function_object_t *)function)->globals[index]);
+    ((basl_function_object_t *)function)->globals[index] = copy;
+    return BASL_STATUS_OK;
 }
