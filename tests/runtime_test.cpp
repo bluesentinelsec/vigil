@@ -127,11 +127,14 @@ TEST(BaslRuntimeTest, RuntimeUsesCustomAllocatorHooks) {
 TEST(BaslRuntimeTest, RuntimeOptionsInitClearsFields) {
     basl_runtime_options_t options = {};
     basl_allocator_t allocator = {};
+    basl_logger_t logger = {};
 
     options.allocator = &allocator;
+    options.logger = &logger;
     basl_runtime_options_init(&options);
 
     EXPECT_EQ(options.allocator, nullptr);
+    EXPECT_EQ(options.logger, nullptr);
 }
 
 TEST(BaslRuntimeTest, RuntimeRejectsIncompleteAllocator) {
