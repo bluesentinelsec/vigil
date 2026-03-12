@@ -787,6 +787,7 @@ basl_status_t basl_function_object_attach_siblings(
     basl_runtime_t *runtime;
     basl_runtime_class_t *classes;
     void *memory;
+    int invalid_function_table;
 
     basl_error_clear(error);
     owner = (basl_function_object_t *)owner_function;
@@ -819,6 +820,7 @@ basl_status_t basl_function_object_attach_siblings(
 
     runtime = owner->base.runtime;
     classes = NULL;
+    invalid_function_table = 0;
     if (class_count != 0U && classes_init == NULL) {
         basl_error_set_literal(
             error,
@@ -901,6 +903,7 @@ basl_status_t basl_function_object_attach_siblings(
     for (i = 0U; i < function_count; ++i) {
         function_object = (basl_function_object_t *)functions[i];
         if (function_object == NULL || function_object->base.type != BASL_OBJECT_FUNCTION) {
+            invalid_function_table = 1;
             goto cleanup_classes;
         }
 
@@ -941,16 +944,13 @@ cleanup_classes:
         basl_runtime_free(runtime, &memory);
     }
 
-    if (i < function_count) {
-        function_object = (basl_function_object_t *)functions[i];
-        if (function_object == NULL || function_object->base.type != BASL_OBJECT_FUNCTION) {
-            basl_error_set_literal(
-                error,
-                BASL_STATUS_INVALID_ARGUMENT,
-                "function table entries must all be function objects"
-            );
-            return BASL_STATUS_INVALID_ARGUMENT;
-        }
+    if (invalid_function_table) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "function table entries must all be function objects"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
     }
     return BASL_STATUS_OUT_OF_MEMORY;
 }

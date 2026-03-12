@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cstring>
+
 extern "C" {
 #include "basl/basl.h"
 }
