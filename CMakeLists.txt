@@ -21,6 +21,7 @@ endif()
 add_library(basl ${BASL_LIBRARY_TYPE}
     src/allocator.c
     src/array.c
+    src/binding.c
     src/checker.c
     src/chunk.c
     src/compiler.c
@@ -78,6 +79,7 @@ if(BASL_BUILD_TESTS)
 
     add_executable(basl_tests
         tests/array_test.cpp
+        tests/binding_test.cpp
         tests/checker_test.cpp
         tests/chunk_test.cpp
         tests/compiler_test.cpp
@@ -97,6 +99,7 @@ if(BASL_BUILD_TESTS)
     )
 
     target_link_libraries(basl_tests PRIVATE basl GTest::gtest_main)
+    target_include_directories(basl_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(basl_tests PRIVATE cxx_std_17)
 
     include(GoogleTest)

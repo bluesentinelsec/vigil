@@ -6,17 +6,13 @@
 #include "basl/lexer.h"
 #include "basl/token.h"
 #include "basl/type.h"
+#include "internal/basl_binding.h"
 #include "internal/basl_compiler_internal.h"
 #include "internal/basl_internal.h"
 
 typedef basl_type_kind_t basl_parser_type_t;
-
-typedef struct basl_local {
-    const char *name;
-    size_t length;
-    size_t depth;
-    basl_parser_type_t type;
-} basl_local_t;
+typedef basl_binding_function_t basl_function_decl_t;
+typedef basl_binding_function_param_t basl_function_param_t;
 
 typedef struct basl_loop_jump {
     size_t operand_offset;
@@ -31,36 +27,13 @@ typedef struct basl_loop_context {
     size_t break_capacity;
 } basl_loop_context_t;
 
-typedef struct basl_function_param {
-    const char *name;
-    size_t length;
-    basl_parser_type_t type;
-    basl_source_span_t span;
-} basl_function_param_t;
-
-typedef struct basl_function_decl {
-    const char *name;
-    size_t name_length;
-    basl_source_span_t name_span;
-    basl_parser_type_t return_type;
-    basl_function_param_t *params;
-    size_t param_count;
-    size_t param_capacity;
-    size_t body_start;
-    size_t body_end;
-    basl_object_t *object;
-} basl_function_decl_t;
-
 typedef struct basl_program_state {
     const basl_source_registry_t *registry;
     const basl_source_file_t *source;
     const basl_token_list_t *tokens;
     basl_diagnostic_list_t *diagnostics;
     basl_error_t *error;
-    basl_function_decl_t *functions;
-    size_t function_count;
-    size_t function_capacity;
-    size_t main_index;
+    basl_binding_function_table_t functions;
 } basl_program_state_t;
 
 typedef struct basl_parser_state {
@@ -68,12 +41,9 @@ typedef struct basl_parser_state {
     size_t current;
     size_t body_end;
     size_t function_index;
-    size_t scope_depth;
     basl_parser_type_t expected_return_type;
     basl_chunk_t chunk;
-    basl_local_t *locals;
-    size_t local_count;
-    size_t local_capacity;
+    basl_binding_scope_stack_t locals;
     basl_loop_context_t *loops;
     size_t loop_count;
     size_t loop_capacity;
@@ -104,15 +74,11 @@ static void basl_parser_state_free(
 
     memory = state->loops;
     basl_runtime_free(state->program->registry->runtime, &memory);
-    memory = state->locals;
-    basl_runtime_free(state->program->registry->runtime, &memory);
+    basl_binding_scope_stack_free(&state->locals);
 
     state->loops = NULL;
-    state->locals = NULL;
     state->loop_count = 0U;
     state->loop_capacity = 0U;
-    state->local_count = 0U;
-    state->local_capacity = 0U;
 }
 
 static void basl_expression_result_clear(
@@ -299,11 +265,11 @@ static basl_status_t basl_program_grow_functions(
     void *memory;
     basl_status_t status;
 
-    if (minimum_capacity <= program->function_capacity) {
+    if (minimum_capacity <= program->functions.capacity) {
         return BASL_STATUS_OK;
     }
 
-    old_capacity = program->function_capacity;
+    old_capacity = program->functions.capacity;
     next_capacity = old_capacity == 0U ? 4U : old_capacity;
     while (next_capacity < minimum_capacity) {
         if (next_capacity > SIZE_MAX / 2U) {
@@ -314,7 +280,7 @@ static basl_status_t basl_program_grow_functions(
         next_capacity *= 2U;
     }
 
-    if (next_capacity > SIZE_MAX / sizeof(*program->functions)) {
+    if (next_capacity > SIZE_MAX / sizeof(*program->functions.functions)) {
         basl_error_set_literal(
             program->error,
             BASL_STATUS_OUT_OF_MEMORY,
@@ -323,11 +289,11 @@ static basl_status_t basl_program_grow_functions(
         return BASL_STATUS_OUT_OF_MEMORY;
     }
 
-    memory = program->functions;
+    memory = program->functions.functions;
     if (memory == NULL) {
         status = basl_runtime_alloc(
             program->registry->runtime,
-            next_capacity * sizeof(*program->functions),
+            next_capacity * sizeof(*program->functions.functions),
             &memory,
             program->error
         );
@@ -335,14 +301,14 @@ static basl_status_t basl_program_grow_functions(
         status = basl_runtime_realloc(
             program->registry->runtime,
             &memory,
-            next_capacity * sizeof(*program->functions),
+            next_capacity * sizeof(*program->functions.functions),
             program->error
         );
         if (status == BASL_STATUS_OK) {
             memset(
                 (basl_function_decl_t *)memory + old_capacity,
                 0,
-                (next_capacity - old_capacity) * sizeof(*program->functions)
+                (next_capacity - old_capacity) * sizeof(*program->functions.functions)
             );
         }
     }
@@ -351,8 +317,8 @@ static basl_status_t basl_program_grow_functions(
         return status;
     }
 
-    program->functions = (basl_function_decl_t *)memory;
-    program->function_capacity = next_capacity;
+    program->functions.functions = (basl_function_decl_t *)memory;
+    program->functions.capacity = next_capacity;
     return BASL_STATUS_OK;
 }
 
@@ -360,15 +326,11 @@ static void basl_function_decl_free(
     basl_program_state_t *program,
     basl_function_decl_t *decl
 ) {
-    void *memory;
-
     if (program == NULL || program->registry == NULL || decl == NULL) {
         return;
     }
 
-    memory = decl->params;
-    basl_runtime_free(program->registry->runtime, &memory);
-    memset(decl, 0, sizeof(*decl));
+    basl_binding_function_free(program->registry->runtime, decl);
 }
 
 static basl_status_t basl_program_fail_partial_decl(
@@ -380,73 +342,6 @@ static basl_status_t basl_program_fail_partial_decl(
     return status;
 }
 
-static basl_status_t basl_function_decl_grow_params(
-    basl_program_state_t *program,
-    basl_function_decl_t *decl,
-    size_t minimum_capacity
-) {
-    size_t old_capacity;
-    size_t next_capacity;
-    void *memory;
-    basl_status_t status;
-
-    if (minimum_capacity <= decl->param_capacity) {
-        return BASL_STATUS_OK;
-    }
-
-    old_capacity = decl->param_capacity;
-    next_capacity = old_capacity == 0U ? 4U : old_capacity;
-    while (next_capacity < minimum_capacity) {
-        if (next_capacity > SIZE_MAX / 2U) {
-            next_capacity = minimum_capacity;
-            break;
-        }
-
-        next_capacity *= 2U;
-    }
-
-    if (next_capacity > SIZE_MAX / sizeof(*decl->params)) {
-        basl_error_set_literal(
-            program->error,
-            BASL_STATUS_OUT_OF_MEMORY,
-            "parameter table allocation overflow"
-        );
-        return BASL_STATUS_OUT_OF_MEMORY;
-    }
-
-    memory = decl->params;
-    if (memory == NULL) {
-        status = basl_runtime_alloc(
-            program->registry->runtime,
-            next_capacity * sizeof(*decl->params),
-            &memory,
-            program->error
-        );
-    } else {
-        status = basl_runtime_realloc(
-            program->registry->runtime,
-            &memory,
-            next_capacity * sizeof(*decl->params),
-            program->error
-        );
-        if (status == BASL_STATUS_OK) {
-            memset(
-                (basl_function_param_t *)memory + old_capacity,
-                0,
-                (next_capacity - old_capacity) * sizeof(*decl->params)
-            );
-        }
-    }
-
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-
-    decl->params = (basl_function_param_t *)memory;
-    decl->param_capacity = next_capacity;
-    return BASL_STATUS_OK;
-}
-
 static basl_status_t basl_program_add_param(
     basl_program_state_t *program,
     basl_function_decl_t *decl,
@@ -454,39 +349,28 @@ static basl_status_t basl_program_add_param(
     const basl_token_t *name_token
 ) {
     basl_status_t status;
-    basl_function_param_t *param;
     const char *name;
     size_t name_length;
-    size_t i;
 
     name = basl_program_token_text(program, name_token, &name_length);
-    for (i = 0U; i < decl->param_count; ++i) {
-        if (basl_program_names_equal(
-                decl->params[i].name,
-                decl->params[i].length,
-                name,
-                name_length
-            )) {
-            return basl_compile_report(
-                program,
-                name_token->span,
-                "function parameter is already declared"
-            );
-        }
+    status = basl_binding_function_add_param(
+        program->registry->runtime,
+        decl,
+        name,
+        name_length,
+        name_token->span,
+        type,
+        program->error
+    );
+    if (status == BASL_STATUS_INVALID_ARGUMENT) {
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "function parameter is already declared"
+        );
     }
 
-    status = basl_function_decl_grow_params(program, decl, decl->param_count + 1U);
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-
-    param = &decl->params[decl->param_count];
-    param->name = name;
-    param->length = name_length;
-    param->type = type;
-    param->span = name_token->span;
-    decl->param_count += 1U;
-    return BASL_STATUS_OK;
+    return status;
 }
 
 static basl_status_t basl_program_parse_declarations(
@@ -501,7 +385,6 @@ static basl_status_t basl_program_parse_declarations(
     basl_function_decl_t *decl;
     const char *name_text;
     size_t name_length;
-    size_t i;
     size_t body_depth;
     int found_main;
 
@@ -531,27 +414,28 @@ static basl_status_t basl_program_parse_declarations(
         }
 
         name_text = basl_program_token_text(program, name_token, &name_length);
-        for (i = 0U; i < program->function_count; ++i) {
-            if (basl_program_names_equal(
-                    program->functions[i].name,
-                    program->functions[i].name_length,
-                    name_text,
-                    name_length
-                )) {
-                return basl_compile_report(
-                    program,
-                    name_token->span,
-                    "function is already declared"
-                );
-            }
+        if (
+            basl_binding_function_table_find(
+                &program->functions,
+                name_text,
+                name_length,
+                NULL,
+                NULL
+            )
+        ) {
+            return basl_compile_report(
+                program,
+                name_token->span,
+                "function is already declared"
+            );
         }
 
-        status = basl_program_grow_functions(program, program->function_count + 1U);
+        status = basl_program_grow_functions(program, program->functions.count + 1U);
         if (status != BASL_STATUS_OK) {
             return status;
         }
 
-        decl = &program->functions[program->function_count];
+        decl = &program->functions.functions[program->functions.count];
         memset(decl, 0, sizeof(*decl));
         decl->name = name_text;
         decl->name_length = name_length;
@@ -673,7 +557,8 @@ static basl_status_t basl_program_parse_declarations(
         }
         if (basl_program_names_equal(name_text, name_length, "main", 4U)) {
             found_main = 1;
-            program->main_index = program->function_count;
+            program->functions.main_index = program->functions.count;
+            program->functions.has_main = 1;
             status = basl_program_parse_type_name(
                 program,
                 type_token,
@@ -743,7 +628,7 @@ static basl_status_t basl_program_parse_declarations(
             cursor += 1U;
         }
 
-        program->function_count += 1U;
+        program->functions.count += 1U;
         decl = NULL;
     }
 
@@ -759,22 +644,11 @@ static basl_status_t basl_program_parse_declarations(
 }
 
 static void basl_program_free(basl_program_state_t *program) {
-    size_t i;
-    void *memory;
-
-    if (program == NULL || program->registry == NULL) {
+    if (program == NULL) {
         return;
     }
 
-    for (i = 0U; i < program->function_count; ++i) {
-        if (program->functions[i].object != NULL) {
-            basl_object_release(&program->functions[i].object);
-        }
-        basl_function_decl_free(program, &program->functions[i]);
-    }
-
-    memory = program->functions;
-    basl_runtime_free(program->registry->runtime, &memory);
+    basl_binding_function_table_free(&program->functions);
 }
 
 static const basl_token_t *basl_parser_previous(const basl_parser_state_t *state);
@@ -1138,72 +1012,6 @@ static basl_status_t basl_parser_emit_loop(
     return basl_parser_emit_u32(state, (uint32_t)distance, span);
 }
 
-static basl_status_t basl_parser_grow_locals(
-    basl_parser_state_t *state,
-    size_t minimum_capacity
-) {
-    basl_status_t status;
-    size_t old_capacity;
-    size_t next_capacity;
-    void *memory;
-
-    if (minimum_capacity <= state->local_capacity) {
-        return BASL_STATUS_OK;
-    }
-
-    old_capacity = state->local_capacity;
-    next_capacity = old_capacity == 0U ? 16U : old_capacity;
-    while (next_capacity < minimum_capacity) {
-        if (next_capacity > SIZE_MAX / 2U) {
-            next_capacity = minimum_capacity;
-            break;
-        }
-
-        next_capacity *= 2U;
-    }
-
-    if (next_capacity > SIZE_MAX / sizeof(*state->locals)) {
-        basl_error_set_literal(
-            state->program->error,
-            BASL_STATUS_OUT_OF_MEMORY,
-            "local table allocation overflow"
-        );
-        return BASL_STATUS_OUT_OF_MEMORY;
-    }
-
-    memory = state->locals;
-    if (memory == NULL) {
-        status = basl_runtime_alloc(
-            state->program->registry->runtime,
-            next_capacity * sizeof(*state->locals),
-            &memory,
-            state->program->error
-        );
-    } else {
-        status = basl_runtime_realloc(
-            state->program->registry->runtime,
-            &memory,
-            next_capacity * sizeof(*state->locals),
-            state->program->error
-        );
-        if (status == BASL_STATUS_OK) {
-            memset(
-                (basl_local_t *)memory + old_capacity,
-                0,
-                (next_capacity - old_capacity) * sizeof(*state->locals)
-            );
-        }
-    }
-
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-
-    state->locals = (basl_local_t *)memory;
-    state->local_capacity = next_capacity;
-    return BASL_STATUS_OK;
-}
-
 static basl_status_t basl_parser_grow_loops(
     basl_parser_state_t *state,
     size_t minimum_capacity
@@ -1362,7 +1170,7 @@ static basl_status_t basl_parser_push_loop(
     loop = &state->loops[state->loop_count];
     memset(loop, 0, sizeof(*loop));
     loop->loop_start = loop_start;
-    loop->scope_depth = state->scope_depth;
+    loop->scope_depth = basl_binding_scope_stack_depth(&state->locals);
     state->loop_count += 1U;
     return BASL_STATUS_OK;
 }
@@ -1390,13 +1198,11 @@ static basl_status_t basl_parser_emit_scope_cleanup_to_depth(
     basl_source_span_t span
 ) {
     basl_status_t status;
-    size_t i;
+    size_t count;
+    size_t index;
 
-    for (i = state->local_count; i > 0U; --i) {
-        if (state->locals[i - 1U].depth <= target_depth) {
-            break;
-        }
-
+    count = basl_binding_scope_stack_count_above_depth(&state->locals, target_depth);
+    for (index = 0U; index < count; index += 1U) {
         status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, span);
         if (status != BASL_STATUS_OK) {
             return status;
@@ -1409,7 +1215,7 @@ static basl_status_t basl_parser_emit_scope_cleanup_to_depth(
 static int basl_parser_local_matches_token(
     const basl_parser_state_t *state,
     const basl_token_t *left,
-    const basl_local_t *right
+    const basl_binding_local_t *right
 ) {
     size_t left_length;
     const char *left_text;
@@ -1428,8 +1234,14 @@ static int basl_parser_find_local_symbol(
 ) {
     size_t i;
 
-    for (i = state->local_count; i > 0U; --i) {
-        if (basl_parser_local_matches_token(state, name_token, &state->locals[i - 1U])) {
+    for (i = basl_binding_scope_stack_count(&state->locals); i > 0U; --i) {
+        if (
+            basl_parser_local_matches_token(
+                state,
+                name_token,
+                basl_binding_scope_stack_local_at(&state->locals, i - 1U)
+            )
+        ) {
             if (out_index != NULL) {
                 *out_index = i - 1U;
             }
@@ -1447,38 +1259,27 @@ static basl_status_t basl_parser_declare_local_symbol(
     size_t *out_index
 ) {
     basl_status_t status;
-    size_t i;
-    basl_local_t *local;
+    const char *name;
+    size_t name_length;
 
-    for (i = state->local_count; i > 0U; --i) {
-        local = &state->locals[i - 1U];
-        if (local->depth < state->scope_depth) {
-            break;
-        }
-
-        if (basl_parser_local_matches_token(state, name_token, local)) {
-            return basl_parser_report(
-                state,
-                name_token->span,
-                "local variable is already declared in this scope"
-            );
-        }
+    name = basl_parser_token_text(state, name_token, &name_length);
+    status = basl_binding_scope_stack_declare_local(
+        &state->locals,
+        name,
+        name_length,
+        type,
+        out_index,
+        state->program->error
+    );
+    if (status == BASL_STATUS_INVALID_ARGUMENT) {
+        return basl_parser_report(
+            state,
+            name_token->span,
+            "local variable is already declared in this scope"
+        );
     }
 
-    status = basl_parser_grow_locals(state, state->local_count + 1U);
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-
-    local = &state->locals[state->local_count];
-    local->name = basl_parser_token_text(state, name_token, &local->length);
-    local->depth = state->scope_depth;
-    local->type = type;
-    if (out_index != NULL) {
-        *out_index = state->local_count;
-    }
-    state->local_count += 1U;
-    return BASL_STATUS_OK;
+    return status;
 }
 
 static basl_status_t basl_parser_lookup_local_symbol(
@@ -1494,7 +1295,7 @@ static basl_status_t basl_parser_lookup_local_symbol(
             *out_index = local_index;
         }
         if (out_type != NULL) {
-            *out_type = state->locals[local_index].type;
+            *out_type = basl_binding_scope_stack_local_at(&state->locals, local_index)->type;
         }
         return BASL_STATUS_OK;
     }
@@ -1510,27 +1311,15 @@ static int basl_program_find_function_symbol(
 ) {
     const char *name_text;
     size_t name_length;
-    size_t i;
 
     name_text = basl_program_token_text(program, name_token, &name_length);
-    for (i = 0U; i < program->function_count; ++i) {
-        if (basl_program_names_equal(
-                program->functions[i].name,
-                program->functions[i].name_length,
-                name_text,
-                name_length
-            )) {
-            if (out_index != NULL) {
-                *out_index = i;
-            }
-            if (out_decl != NULL) {
-                *out_decl = &program->functions[i];
-            }
-            return 1;
-        }
-    }
-
-    return 0;
+    return basl_binding_function_table_find(
+        &program->functions,
+        name_text,
+        name_length,
+        out_index,
+        out_decl
+    );
 }
 
 static basl_status_t basl_parser_lookup_function_symbol(
@@ -1552,28 +1341,26 @@ static basl_status_t basl_parser_lookup_function_symbol(
 }
 
 static void basl_parser_begin_scope(basl_parser_state_t *state) {
-    state->scope_depth += 1U;
+    basl_binding_scope_stack_begin_scope(&state->locals);
 }
 
 static basl_status_t basl_parser_end_scope(basl_parser_state_t *state) {
     basl_status_t status;
     basl_source_span_t span;
+    size_t popped_count;
+    size_t index;
 
-    if (state->scope_depth == 0U) {
+    if (basl_binding_scope_stack_depth(&state->locals) == 0U) {
         return BASL_STATUS_OK;
     }
 
-    state->scope_depth -= 1U;
-    while (
-        state->local_count > 0U &&
-        state->locals[state->local_count - 1U].depth > state->scope_depth
-    ) {
+    basl_binding_scope_stack_end_scope(&state->locals, &popped_count);
+    for (index = 0U; index < popped_count; index += 1U) {
         span = basl_parser_fallback_span(state);
         status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, span);
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        state->local_count -= 1U;
     }
 
     return BASL_STATUS_OK;
@@ -2345,7 +2132,7 @@ static basl_status_t basl_parser_parse_return_statement(
         return_token->span,
         return_result.type,
         state->expected_return_type,
-        state->function_index == state->program->main_index
+        state->function_index == state->program->functions.main_index
             ? "main entrypoint must return an i32 expression"
             : "return expression type does not match function return type"
     );
@@ -2987,7 +2774,7 @@ static basl_status_t basl_compile_require_function_returns(
     return basl_compile_report(
         program,
         decl->name_span,
-        function_index == program->main_index
+        function_index == program->functions.main_index
             ? "main entrypoint must return an i32 value on all paths"
             : "function must return a value on all paths"
     );
@@ -3003,15 +2790,16 @@ static basl_status_t basl_compile_function(
     basl_object_t *object;
     basl_statement_result_t body_result;
 
-    decl = &program->functions[function_index];
+    decl = &program->functions.functions[function_index];
     memset(&state, 0, sizeof(state));
     state.program = program;
     state.current = decl->body_start;
     state.body_end = decl->body_end;
     state.function_index = function_index;
-    state.scope_depth = 1U;
     state.expected_return_type = decl->return_type;
     basl_chunk_init(&state.chunk, program->registry->runtime);
+    basl_binding_scope_stack_init(&state.locals, program->registry->runtime);
+    basl_binding_scope_stack_begin_scope(&state.locals);
     basl_statement_result_clear(&body_result);
 
     status = basl_compile_seed_parameter_symbols(&state, decl);
@@ -3117,7 +2905,7 @@ static basl_status_t basl_compile_all_functions(
     basl_status_t status;
     size_t i;
 
-    for (i = 0U; i < program->function_count; ++i) {
+    for (i = 0U; i < program->functions.count; ++i) {
         status = basl_compile_function(program, i);
         if (status != BASL_STATUS_OK) {
             return status;
@@ -3139,7 +2927,7 @@ static basl_status_t basl_compile_attach_entrypoint(
     memory = NULL;
     status = basl_runtime_alloc(
         program->registry->runtime,
-        program->function_count * sizeof(*function_table),
+        program->functions.count * sizeof(*function_table),
         &memory,
         program->error
     );
@@ -3148,15 +2936,15 @@ static basl_status_t basl_compile_attach_entrypoint(
     }
 
     function_table = (basl_object_t **)memory;
-    for (i = 0U; i < program->function_count; ++i) {
-        function_table[i] = program->functions[i].object;
+    for (i = 0U; i < program->functions.count; ++i) {
+        function_table[i] = program->functions.functions[i].object;
     }
 
     status = basl_function_object_attach_siblings(
-        program->functions[program->main_index].object,
+        program->functions.functions[program->functions.main_index].object,
         function_table,
-        program->function_count,
-        program->main_index,
+        program->functions.count,
+        program->functions.main_index,
         program->error
     );
     if (status != BASL_STATUS_OK) {
@@ -3165,9 +2953,9 @@ static basl_status_t basl_compile_attach_entrypoint(
         return status;
     }
 
-    *out_function = program->functions[program->main_index].object;
-    for (i = 0U; i < program->function_count; ++i) {
-        program->functions[i].object = NULL;
+    *out_function = program->functions.functions[program->functions.main_index].object;
+    for (i = 0U; i < program->functions.count; ++i) {
+        program->functions.functions[i].object = NULL;
     }
 
     return BASL_STATUS_OK;
@@ -3220,6 +3008,7 @@ basl_status_t basl_compile_source_internal(
     program.tokens = &tokens;
     program.diagnostics = diagnostics;
     program.error = error;
+    basl_binding_function_table_init(&program.functions, registry->runtime);
 
     status = basl_program_parse_declarations(&program);
     if (status != BASL_STATUS_OK) {
