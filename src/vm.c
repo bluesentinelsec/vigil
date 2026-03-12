@@ -472,6 +472,43 @@ static basl_status_t basl_vm_checked_negate(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_vm_checked_shift_left(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (right < 0 || right >= 64) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = (int64_t)(((uint64_t)left) << (uint32_t)right);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_vm_checked_shift_right(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    uint64_t shifted;
+
+    if (right < 0 || right >= 64) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (right == 0) {
+        *out_result = left;
+        return BASL_STATUS_OK;
+    }
+
+    shifted = ((uint64_t)left) >> (uint32_t)right;
+    if (left < 0) {
+        shifted |= UINT64_MAX << (64U - (uint32_t)right);
+    }
+
+    *out_result = (int64_t)shifted;
+    return BASL_STATUS_OK;
+}
+
 static int basl_vm_values_equal(
     const basl_value_t *left,
     const basl_value_t *right
@@ -866,6 +903,26 @@ basl_status_t basl_vm_execute_function(
             case BASL_OPCODE_POP:
                 value = basl_vm_pop_or_nil(vm);
                 basl_value_release(&value);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_DUP:
+                peeked = basl_vm_peek(vm, 0U);
+                if (peeked == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "dup requires a value on the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                value = basl_value_copy(peeked);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
                 frame->ip += 1U;
                 break;
             case BASL_OPCODE_GET_LOCAL:
@@ -1379,6 +1436,11 @@ basl_status_t basl_vm_execute_function(
             case BASL_OPCODE_MULTIPLY:
             case BASL_OPCODE_DIVIDE:
             case BASL_OPCODE_MODULO:
+            case BASL_OPCODE_BITWISE_AND:
+            case BASL_OPCODE_BITWISE_OR:
+            case BASL_OPCODE_BITWISE_XOR:
+            case BASL_OPCODE_SHIFT_LEFT:
+            case BASL_OPCODE_SHIFT_RIGHT:
             case BASL_OPCODE_GREATER:
             case BASL_OPCODE_LESS:
             case BASL_OPCODE_EQUAL:
@@ -1442,6 +1504,35 @@ basl_status_t basl_vm_execute_function(
                                 &integer_result
                             );
                             break;
+                        case BASL_OPCODE_BITWISE_AND:
+                            status = BASL_STATUS_OK;
+                            integer_result =
+                                basl_value_as_int(&left) & basl_value_as_int(&right);
+                            break;
+                        case BASL_OPCODE_BITWISE_OR:
+                            status = BASL_STATUS_OK;
+                            integer_result =
+                                basl_value_as_int(&left) | basl_value_as_int(&right);
+                            break;
+                        case BASL_OPCODE_BITWISE_XOR:
+                            status = BASL_STATUS_OK;
+                            integer_result =
+                                basl_value_as_int(&left) ^ basl_value_as_int(&right);
+                            break;
+                        case BASL_OPCODE_SHIFT_LEFT:
+                            status = basl_vm_checked_shift_left(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
+                            );
+                            break;
+                        case BASL_OPCODE_SHIFT_RIGHT:
+                            status = basl_vm_checked_shift_right(
+                                basl_value_as_int(&left),
+                                basl_value_as_int(&right),
+                                &integer_result
+                            );
+                            break;
                         case BASL_OPCODE_GREATER:
                             status = BASL_STATUS_OK;
                             basl_value_init_bool(
@@ -1476,7 +1567,12 @@ basl_status_t basl_vm_execute_function(
                         (basl_opcode_t)code[frame->ip] == BASL_OPCODE_SUBTRACT ||
                         (basl_opcode_t)code[frame->ip] == BASL_OPCODE_MULTIPLY ||
                         (basl_opcode_t)code[frame->ip] == BASL_OPCODE_DIVIDE ||
-                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_MODULO
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_MODULO ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_BITWISE_AND ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_BITWISE_OR ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_BITWISE_XOR ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_SHIFT_LEFT ||
+                        (basl_opcode_t)code[frame->ip] == BASL_OPCODE_SHIFT_RIGHT
                     ) {
                         basl_value_init_int(&value, integer_result);
                     }

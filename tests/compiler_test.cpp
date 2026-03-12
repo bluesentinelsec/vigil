@@ -238,6 +238,20 @@ TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "const i32 MASK = (1 << 3) | 1;"
+            "const i32 PICK = true ? MASK : 0;"
+            "fn main() -> i32 {"
+            "    i32 bits = PICK ^ 2;"
+            "    return bits > 7 ? bits & 14 : 0;"
+            "}"
+        ),
+        10
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
     EXPECT_EQ(
         CompileAndRun(
@@ -725,6 +739,26 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
     };
 
     EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions) {
+    const TestSource sources[] = {
+        {
+            "/project/config.basl",
+            "pub const i32 BASE = 1 << 4;"
+            "pub const i32 FLAG = BASE | 3;"
+        },
+        {
+            "/project/main.basl",
+            "import \"config\" as cfg;"
+            "const i32 LIMIT = true ? cfg.FLAG : 0;"
+            "fn main() -> i32 {"
+            "    return LIMIT ^ 2;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 17);
 }
 
 TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {

@@ -73,6 +73,27 @@ TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
     );
     EXPECT_TRUE(
         basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_BITWISE_AND,
+            BASL_TYPE_I32,
+            BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_SHIFT_LEFT,
+            BASL_TYPE_I32,
+            BASL_TYPE_I32
+        )
+    );
+    EXPECT_FALSE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_BITWISE_OR,
+            BASL_TYPE_BOOL,
+            BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
             BASL_BINARY_OPERATOR_LOGICAL_AND,
             BASL_TYPE_BOOL,
             BASL_TYPE_BOOL

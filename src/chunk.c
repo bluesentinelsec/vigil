@@ -458,6 +458,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "RETURN";
         case BASL_OPCODE_POP:
             return "POP";
+        case BASL_OPCODE_DUP:
+            return "DUP";
         case BASL_OPCODE_GET_LOCAL:
             return "GET_LOCAL";
         case BASL_OPCODE_SET_LOCAL:
@@ -482,6 +484,16 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "DIVIDE";
         case BASL_OPCODE_MODULO:
             return "MODULO";
+        case BASL_OPCODE_BITWISE_AND:
+            return "BITWISE_AND";
+        case BASL_OPCODE_BITWISE_OR:
+            return "BITWISE_OR";
+        case BASL_OPCODE_BITWISE_XOR:
+            return "BITWISE_XOR";
+        case BASL_OPCODE_SHIFT_LEFT:
+            return "SHIFT_LEFT";
+        case BASL_OPCODE_SHIFT_RIGHT:
+            return "SHIFT_RIGHT";
         case BASL_OPCODE_NEGATE:
             return "NEGATE";
         case BASL_OPCODE_NOT:

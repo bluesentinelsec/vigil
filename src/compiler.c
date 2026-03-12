@@ -2294,6 +2294,43 @@ static basl_status_t basl_program_checked_negate(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_program_checked_shift_left(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    if (right < 0 || right >= 64) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = (int64_t)(((uint64_t)left) << (uint32_t)right);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_shift_right(
+    int64_t left,
+    int64_t right,
+    int64_t *out_result
+) {
+    uint64_t shifted;
+
+    if (right < 0 || right >= 64) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (right == 0) {
+        *out_result = left;
+        return BASL_STATUS_OK;
+    }
+
+    shifted = ((uint64_t)left) >> (uint32_t)right;
+    if (left < 0) {
+        shifted |= UINT64_MAX << (64U - (uint32_t)right);
+    }
+
+    *out_result = (int64_t)shifted;
+    return BASL_STATUS_OK;
+}
+
 static int basl_program_values_equal(
     const basl_value_t *left,
     const basl_value_t *right
@@ -3259,6 +3296,80 @@ static basl_status_t basl_program_parse_constant_term(
     }
 }
 
+static basl_status_t basl_program_parse_constant_shift(
+    basl_program_state_t *program,
+    size_t *cursor,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_constant_result_t left;
+    basl_constant_result_t right;
+    const basl_token_t *token;
+    int64_t integer_result;
+
+    basl_constant_result_clear(&left);
+    basl_constant_result_clear(&right);
+    status = basl_program_parse_constant_term(program, cursor, &left);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (1) {
+        token = basl_program_cursor_peek(program, *cursor);
+        if (
+            token == NULL ||
+            (token->kind != BASL_TOKEN_SHIFT_LEFT &&
+             token->kind != BASL_TOKEN_SHIFT_RIGHT)
+        ) {
+            *out_result = left;
+            return BASL_STATUS_OK;
+        }
+        basl_program_cursor_advance(program, cursor);
+        basl_constant_result_clear(&right);
+        status = basl_program_parse_constant_term(program, cursor, &right);
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            return status;
+        }
+        if (
+            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
+            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
+        ) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return basl_compile_report(program, token->span, "shift operators require i32 operands");
+        }
+
+        if (token->kind == BASL_TOKEN_SHIFT_LEFT) {
+            status = basl_program_checked_shift_left(
+                basl_value_as_int(&left.value),
+                basl_value_as_int(&right.value),
+                &integer_result
+            );
+        } else {
+            status = basl_program_checked_shift_right(
+                basl_value_as_int(&left.value),
+                basl_value_as_int(&right.value),
+                &integer_result
+            );
+        }
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return basl_compile_report(
+                program,
+                token->span,
+                "integer arithmetic overflow or invalid operation"
+            );
+        }
+
+        basl_constant_result_release(&left);
+        basl_value_init_int(&left.value, integer_result);
+        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        basl_constant_result_release(&right);
+    }
+}
+
 static basl_status_t basl_program_parse_constant_comparison(
     basl_program_state_t *program,
     size_t *cursor,
@@ -3272,7 +3383,7 @@ static basl_status_t basl_program_parse_constant_comparison(
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
-    status = basl_program_parse_constant_term(program, cursor, &left);
+    status = basl_program_parse_constant_shift(program, cursor, &left);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -3291,7 +3402,7 @@ static basl_status_t basl_program_parse_constant_comparison(
         }
         basl_program_cursor_advance(program, cursor);
         basl_constant_result_clear(&right);
-        status = basl_program_parse_constant_term(program, cursor, &right);
+        status = basl_program_parse_constant_shift(program, cursor, &right);
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
             return status;
@@ -3386,7 +3497,163 @@ static basl_status_t basl_program_parse_constant_equality(
     }
 }
 
-static basl_status_t basl_program_parse_constant_and(
+static basl_status_t basl_program_parse_constant_bitwise_and(
+    basl_program_state_t *program,
+    size_t *cursor,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_constant_result_t left;
+    basl_constant_result_t right;
+    const basl_token_t *token;
+    int64_t integer_result;
+
+    basl_constant_result_clear(&left);
+    basl_constant_result_clear(&right);
+    status = basl_program_parse_constant_equality(program, cursor, &left);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (1) {
+        token = basl_program_cursor_peek(program, *cursor);
+        if (token == NULL || token->kind != BASL_TOKEN_AMPERSAND) {
+            *out_result = left;
+            return BASL_STATUS_OK;
+        }
+        basl_program_cursor_advance(program, cursor);
+        basl_constant_result_clear(&right);
+        status = basl_program_parse_constant_equality(program, cursor, &right);
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            return status;
+        }
+        if (
+            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
+            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
+        ) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return basl_compile_report(
+                program,
+                token->span,
+                "bitwise operators require i32 operands"
+            );
+        }
+
+        integer_result = basl_value_as_int(&left.value) & basl_value_as_int(&right.value);
+        basl_constant_result_release(&left);
+        basl_value_init_int(&left.value, integer_result);
+        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        basl_constant_result_release(&right);
+    }
+}
+
+static basl_status_t basl_program_parse_constant_bitwise_xor(
+    basl_program_state_t *program,
+    size_t *cursor,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_constant_result_t left;
+    basl_constant_result_t right;
+    const basl_token_t *token;
+    int64_t integer_result;
+
+    basl_constant_result_clear(&left);
+    basl_constant_result_clear(&right);
+    status = basl_program_parse_constant_bitwise_and(program, cursor, &left);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (1) {
+        token = basl_program_cursor_peek(program, *cursor);
+        if (token == NULL || token->kind != BASL_TOKEN_CARET) {
+            *out_result = left;
+            return BASL_STATUS_OK;
+        }
+        basl_program_cursor_advance(program, cursor);
+        basl_constant_result_clear(&right);
+        status = basl_program_parse_constant_bitwise_and(program, cursor, &right);
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            return status;
+        }
+        if (
+            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
+            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
+        ) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return basl_compile_report(
+                program,
+                token->span,
+                "bitwise operators require i32 operands"
+            );
+        }
+
+        integer_result = basl_value_as_int(&left.value) ^ basl_value_as_int(&right.value);
+        basl_constant_result_release(&left);
+        basl_value_init_int(&left.value, integer_result);
+        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        basl_constant_result_release(&right);
+    }
+}
+
+static basl_status_t basl_program_parse_constant_bitwise_or(
+    basl_program_state_t *program,
+    size_t *cursor,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_constant_result_t left;
+    basl_constant_result_t right;
+    const basl_token_t *token;
+    int64_t integer_result;
+
+    basl_constant_result_clear(&left);
+    basl_constant_result_clear(&right);
+    status = basl_program_parse_constant_bitwise_xor(program, cursor, &left);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (1) {
+        token = basl_program_cursor_peek(program, *cursor);
+        if (token == NULL || token->kind != BASL_TOKEN_PIPE) {
+            *out_result = left;
+            return BASL_STATUS_OK;
+        }
+        basl_program_cursor_advance(program, cursor);
+        basl_constant_result_clear(&right);
+        status = basl_program_parse_constant_bitwise_xor(program, cursor, &right);
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            return status;
+        }
+        if (
+            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
+            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
+        ) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return basl_compile_report(
+                program,
+                token->span,
+                "bitwise operators require i32 operands"
+            );
+        }
+
+        integer_result = basl_value_as_int(&left.value) | basl_value_as_int(&right.value);
+        basl_constant_result_release(&left);
+        basl_value_init_int(&left.value, integer_result);
+        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        basl_constant_result_release(&right);
+    }
+}
+
+static basl_status_t basl_program_parse_constant_logical_and(
     basl_program_state_t *program,
     size_t *cursor,
     basl_constant_result_t *out_result
@@ -3399,7 +3666,7 @@ static basl_status_t basl_program_parse_constant_and(
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
-    status = basl_program_parse_constant_equality(program, cursor, &left);
+    status = basl_program_parse_constant_bitwise_or(program, cursor, &left);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -3412,7 +3679,7 @@ static basl_status_t basl_program_parse_constant_and(
         }
         basl_program_cursor_advance(program, cursor);
         basl_constant_result_clear(&right);
-        status = basl_program_parse_constant_equality(program, cursor, &right);
+        status = basl_program_parse_constant_bitwise_or(program, cursor, &right);
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
             return status;
@@ -3439,7 +3706,7 @@ static basl_status_t basl_program_parse_constant_and(
     }
 }
 
-static basl_status_t basl_program_parse_constant_expression(
+static basl_status_t basl_program_parse_constant_logical_or(
     basl_program_state_t *program,
     size_t *cursor,
     basl_constant_result_t *out_result
@@ -3452,7 +3719,7 @@ static basl_status_t basl_program_parse_constant_expression(
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
-    status = basl_program_parse_constant_and(program, cursor, &left);
+    status = basl_program_parse_constant_logical_and(program, cursor, &left);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -3465,7 +3732,7 @@ static basl_status_t basl_program_parse_constant_expression(
         }
         basl_program_cursor_advance(program, cursor);
         basl_constant_result_clear(&right);
-        status = basl_program_parse_constant_and(program, cursor, &right);
+        status = basl_program_parse_constant_logical_and(program, cursor, &right);
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
             return status;
@@ -3490,6 +3757,104 @@ static basl_status_t basl_program_parse_constant_expression(
         left.type = basl_binding_type_primitive(BASL_TYPE_BOOL);
         basl_constant_result_release(&right);
     }
+}
+
+static basl_status_t basl_program_parse_constant_expression(
+    basl_program_state_t *program,
+    size_t *cursor,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_constant_result_t condition_result;
+    basl_constant_result_t then_result;
+    basl_constant_result_t else_result;
+    const basl_token_t *question_token;
+    const basl_token_t *colon_token;
+    int take_then_branch;
+
+    basl_constant_result_clear(&condition_result);
+    basl_constant_result_clear(&then_result);
+    basl_constant_result_clear(&else_result);
+
+    status = basl_program_parse_constant_logical_or(
+        program,
+        cursor,
+        &condition_result
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    question_token = basl_program_cursor_peek(program, *cursor);
+    if (question_token == NULL || question_token->kind != BASL_TOKEN_QUESTION) {
+        *out_result = condition_result;
+        return BASL_STATUS_OK;
+    }
+
+    if (
+        !basl_parser_type_equal(
+            condition_result.type,
+            basl_binding_type_primitive(BASL_TYPE_BOOL)
+        )
+    ) {
+        basl_constant_result_release(&condition_result);
+        return basl_compile_report(
+            program,
+            question_token->span,
+            "ternary condition must be bool"
+        );
+    }
+
+    basl_program_cursor_advance(program, cursor);
+    status = basl_program_parse_constant_expression(program, cursor, &then_result);
+    if (status != BASL_STATUS_OK) {
+        basl_constant_result_release(&condition_result);
+        return status;
+    }
+
+    colon_token = basl_program_cursor_peek(program, *cursor);
+    if (colon_token == NULL || colon_token->kind != BASL_TOKEN_COLON) {
+        basl_constant_result_release(&condition_result);
+        basl_constant_result_release(&then_result);
+        return basl_compile_report(
+            program,
+            question_token->span,
+            "expected ':' in ternary expression"
+        );
+    }
+    basl_program_cursor_advance(program, cursor);
+
+    status = basl_program_parse_constant_expression(program, cursor, &else_result);
+    if (status != BASL_STATUS_OK) {
+        basl_constant_result_release(&condition_result);
+        basl_constant_result_release(&then_result);
+        return status;
+    }
+
+    if (!basl_parser_type_equal(then_result.type, else_result.type)) {
+        basl_constant_result_release(&condition_result);
+        basl_constant_result_release(&then_result);
+        basl_constant_result_release(&else_result);
+        return basl_compile_report(
+            program,
+            colon_token->span,
+            "ternary branches must have the same type"
+        );
+    }
+
+    take_then_branch = basl_value_as_bool(&condition_result.value);
+    if (take_then_branch) {
+        *out_result = then_result;
+        basl_constant_result_clear(&then_result);
+    } else {
+        *out_result = else_result;
+        basl_constant_result_clear(&else_result);
+    }
+
+    basl_constant_result_release(&condition_result);
+    basl_constant_result_release(&then_result);
+    basl_constant_result_release(&else_result);
+    return BASL_STATUS_OK;
 }
 
 static basl_status_t basl_program_parse_global_variable_declaration(
@@ -6923,7 +7288,7 @@ static basl_status_t basl_parser_parse_term(
     return BASL_STATUS_OK;
 }
 
-static basl_status_t basl_parser_parse_comparison(
+static basl_status_t basl_parser_parse_shift(
     basl_parser_state_t *state,
     basl_expression_result_t *out_result
 ) {
@@ -6942,6 +7307,69 @@ static basl_status_t basl_parser_parse_comparison(
     }
 
     while (1) {
+        if (basl_parser_check(state, BASL_TOKEN_SHIFT_LEFT)) {
+            operator_kind = BASL_TOKEN_SHIFT_LEFT;
+        } else if (basl_parser_check(state, BASL_TOKEN_SHIFT_RIGHT)) {
+            operator_kind = BASL_TOKEN_SHIFT_RIGHT;
+        } else {
+            break;
+        }
+
+        operator_span = basl_parser_advance(state)->span;
+        status = basl_parser_parse_term(state, &right_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_result.type,
+            right_result.type,
+            operator_kind == BASL_TOKEN_SHIFT_LEFT
+                ? BASL_BINARY_OPERATOR_SHIFT_LEFT
+                : BASL_BINARY_OPERATOR_SHIFT_RIGHT,
+            "shift operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_emit_opcode(
+            state,
+            operator_kind == BASL_TOKEN_SHIFT_LEFT
+                ? BASL_OPCODE_SHIFT_LEFT
+                : BASL_OPCODE_SHIFT_RIGHT,
+            operator_span
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+    }
+
+    basl_expression_result_set_type(out_result, left_result.type);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_comparison(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t left_result;
+    basl_expression_result_t right_result;
+    basl_token_kind_t operator_kind;
+    basl_source_span_t operator_span;
+
+    basl_expression_result_clear(&left_result);
+    basl_expression_result_clear(&right_result);
+
+    status = basl_parser_parse_shift(state, &left_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (1) {
         if (basl_parser_check(state, BASL_TOKEN_GREATER)) {
             operator_kind = BASL_TOKEN_GREATER;
         } else if (basl_parser_check(state, BASL_TOKEN_GREATER_EQUAL)) {
@@ -6955,7 +7383,7 @@ static basl_status_t basl_parser_parse_comparison(
         }
 
         operator_span = basl_parser_advance(state)->span;
-        status = basl_parser_parse_term(state, &right_result);
+        status = basl_parser_parse_shift(state, &right_result);
         if (status != BASL_STATUS_OK) {
             return status;
         }
@@ -7070,6 +7498,144 @@ static basl_status_t basl_parser_parse_equality(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_bitwise_and(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t left_result;
+    basl_expression_result_t right_result;
+    basl_source_span_t operator_span;
+
+    basl_expression_result_clear(&left_result);
+    basl_expression_result_clear(&right_result);
+
+    status = basl_parser_parse_equality(state, &left_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (basl_parser_check(state, BASL_TOKEN_AMPERSAND)) {
+        operator_span = basl_parser_advance(state)->span;
+        status = basl_parser_parse_equality(state, &right_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_result.type,
+            right_result.type,
+            BASL_BINARY_OPERATOR_BITWISE_AND,
+            "bitwise operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_BITWISE_AND, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+    }
+
+    basl_expression_result_set_type(out_result, left_result.type);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_bitwise_xor(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t left_result;
+    basl_expression_result_t right_result;
+    basl_source_span_t operator_span;
+
+    basl_expression_result_clear(&left_result);
+    basl_expression_result_clear(&right_result);
+
+    status = basl_parser_parse_bitwise_and(state, &left_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (basl_parser_check(state, BASL_TOKEN_CARET)) {
+        operator_span = basl_parser_advance(state)->span;
+        status = basl_parser_parse_bitwise_and(state, &right_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_result.type,
+            right_result.type,
+            BASL_BINARY_OPERATOR_BITWISE_XOR,
+            "bitwise operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_BITWISE_XOR, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+    }
+
+    basl_expression_result_set_type(out_result, left_result.type);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_bitwise_or(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t left_result;
+    basl_expression_result_t right_result;
+    basl_source_span_t operator_span;
+
+    basl_expression_result_clear(&left_result);
+    basl_expression_result_clear(&right_result);
+
+    status = basl_parser_parse_bitwise_xor(state, &left_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    while (basl_parser_check(state, BASL_TOKEN_PIPE)) {
+        operator_span = basl_parser_advance(state)->span;
+        status = basl_parser_parse_bitwise_xor(state, &right_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_i32_operands(
+            state,
+            operator_span,
+            left_result.type,
+            right_result.type,
+            BASL_BINARY_OPERATOR_BITWISE_OR,
+            "bitwise operators require i32 operands"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_BITWISE_OR, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+    }
+
+    basl_expression_result_set_type(out_result, left_result.type);
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_parser_parse_logical_and(
     basl_parser_state_t *state,
     basl_expression_result_t *out_result
@@ -7083,7 +7649,7 @@ static basl_status_t basl_parser_parse_logical_and(
     basl_expression_result_clear(&left_result);
     basl_expression_result_clear(&right_result);
 
-    status = basl_parser_parse_equality(state, &left_result);
+    status = basl_parser_parse_bitwise_or(state, &left_result);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -7114,7 +7680,7 @@ static basl_status_t basl_parser_parse_logical_and(
             return status;
         }
 
-        status = basl_parser_parse_equality(state, &right_result);
+        status = basl_parser_parse_bitwise_or(state, &right_result);
         if (status != BASL_STATUS_OK) {
             return status;
         }
@@ -7223,11 +7789,120 @@ static basl_status_t basl_parser_parse_logical_or(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_ternary(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t condition_result;
+    basl_expression_result_t then_result;
+    basl_expression_result_t else_result;
+    const basl_token_t *question_token;
+    const basl_token_t *colon_token;
+    size_t false_jump_offset;
+    size_t end_jump_offset;
+
+    basl_expression_result_clear(&condition_result);
+    basl_expression_result_clear(&then_result);
+    basl_expression_result_clear(&else_result);
+
+    status = basl_parser_parse_logical_or(state, &condition_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (!basl_parser_check(state, BASL_TOKEN_QUESTION)) {
+        basl_expression_result_set_type(out_result, condition_result.type);
+        return BASL_STATUS_OK;
+    }
+
+    question_token = basl_parser_advance(state);
+    status = basl_parser_require_bool_type(
+        state,
+        question_token->span,
+        condition_result.type,
+        "ternary condition must be bool"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_emit_jump(
+        state,
+        BASL_OPCODE_JUMP_IF_FALSE,
+        question_token->span,
+        &false_jump_offset
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, question_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_parse_expression(state, &then_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_emit_jump(
+        state,
+        BASL_OPCODE_JUMP,
+        question_token->span,
+        &end_jump_offset
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_patch_jump(state, false_jump_offset);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, question_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_COLON,
+        "expected ':' in ternary expression",
+        &colon_token
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_parse_ternary(state, &else_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_require_same_type(
+        state,
+        colon_token->span,
+        then_result.type,
+        else_result.type,
+        "ternary branches must have the same type"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_patch_jump(state, end_jump_offset);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    basl_expression_result_set_type(out_result, then_result.type);
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_parser_parse_expression(
     basl_parser_state_t *state,
     basl_expression_result_t *out_result
 ) {
-    return basl_parser_parse_logical_or(state, out_result);
+    return basl_parser_parse_ternary(state, out_result);
 }
 
 static basl_status_t basl_parser_parse_block_contents(
@@ -8056,6 +8731,10 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         operator_kind = BASL_BINARY_OPERATOR_ADD;
 
         if (is_field_assignment) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_DUP, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
             status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_FIELD, operator_token->span);
             if (status != BASL_STATUS_OK) {
                 return status;
