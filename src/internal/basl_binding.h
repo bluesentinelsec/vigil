@@ -71,19 +71,19 @@ typedef struct basl_binding_scope_stack {
     size_t scope_depth;
 } basl_binding_scope_stack_t;
 
-basl_binding_type_t basl_binding_type_invalid(void);
-basl_binding_type_t basl_binding_type_primitive(basl_type_kind_t kind);
-basl_binding_type_t basl_binding_type_class(size_t class_index);
-basl_binding_type_t basl_binding_type_interface(size_t interface_index);
-int basl_binding_type_is_valid(basl_binding_type_t type);
-int basl_binding_type_equal(basl_binding_type_t left, basl_binding_type_t right);
+BASL_API basl_binding_type_t basl_binding_type_invalid(void);
+BASL_API basl_binding_type_t basl_binding_type_primitive(basl_type_kind_t kind);
+BASL_API basl_binding_type_t basl_binding_type_class(size_t class_index);
+BASL_API basl_binding_type_t basl_binding_type_interface(size_t interface_index);
+BASL_API int basl_binding_type_is_valid(basl_binding_type_t type);
+BASL_API int basl_binding_type_equal(basl_binding_type_t left, basl_binding_type_t right);
 
-void basl_binding_function_init(basl_binding_function_t *function);
-void basl_binding_function_free(
+BASL_API void basl_binding_function_init(basl_binding_function_t *function);
+BASL_API void basl_binding_function_free(
     basl_runtime_t *runtime,
     basl_binding_function_t *function
 );
-basl_status_t basl_binding_function_add_param(
+BASL_API basl_status_t basl_binding_function_add_param(
     basl_runtime_t *runtime,
     basl_binding_function_t *function,
     const char *name,
@@ -93,50 +93,50 @@ basl_status_t basl_binding_function_add_param(
     basl_error_t *error
 );
 
-void basl_binding_function_table_init(
+BASL_API void basl_binding_function_table_init(
     basl_binding_function_table_t *table,
     basl_runtime_t *runtime
 );
-void basl_binding_function_table_free(basl_binding_function_table_t *table);
-basl_status_t basl_binding_function_table_append(
+BASL_API void basl_binding_function_table_free(basl_binding_function_table_t *table);
+BASL_API basl_status_t basl_binding_function_table_append(
     basl_binding_function_table_t *table,
     basl_binding_function_t *function,
     size_t *out_index,
     basl_error_t *error
 );
-int basl_binding_function_table_find(
+BASL_API int basl_binding_function_table_find(
     const basl_binding_function_table_t *table,
     const char *name,
     size_t name_length,
     size_t *out_index,
     const basl_binding_function_t **out_function
 );
-const basl_binding_function_t *basl_binding_function_table_get(
+BASL_API const basl_binding_function_t *basl_binding_function_table_get(
     const basl_binding_function_table_t *table,
     size_t index
 );
-basl_binding_function_t *basl_binding_function_table_get_mutable(
+BASL_API basl_binding_function_t *basl_binding_function_table_get_mutable(
     basl_binding_function_table_t *table,
     size_t index
 );
 
-void basl_binding_scope_stack_init(
+BASL_API void basl_binding_scope_stack_init(
     basl_binding_scope_stack_t *stack,
     basl_runtime_t *runtime
 );
-void basl_binding_scope_stack_free(basl_binding_scope_stack_t *stack);
-void basl_binding_scope_stack_begin_scope(basl_binding_scope_stack_t *stack);
-void basl_binding_scope_stack_end_scope(
+BASL_API void basl_binding_scope_stack_free(basl_binding_scope_stack_t *stack);
+BASL_API void basl_binding_scope_stack_begin_scope(basl_binding_scope_stack_t *stack);
+BASL_API void basl_binding_scope_stack_end_scope(
     basl_binding_scope_stack_t *stack,
     size_t *out_popped_count
 );
-size_t basl_binding_scope_stack_depth(const basl_binding_scope_stack_t *stack);
-size_t basl_binding_scope_stack_count(const basl_binding_scope_stack_t *stack);
-size_t basl_binding_scope_stack_count_above_depth(
+BASL_API size_t basl_binding_scope_stack_depth(const basl_binding_scope_stack_t *stack);
+BASL_API size_t basl_binding_scope_stack_count(const basl_binding_scope_stack_t *stack);
+BASL_API size_t basl_binding_scope_stack_count_above_depth(
     const basl_binding_scope_stack_t *stack,
     size_t target_depth
 );
-basl_status_t basl_binding_scope_stack_declare_local(
+BASL_API basl_status_t basl_binding_scope_stack_declare_local(
     basl_binding_scope_stack_t *stack,
     const char *name,
     size_t name_length,
@@ -144,14 +144,14 @@ basl_status_t basl_binding_scope_stack_declare_local(
     size_t *out_index,
     basl_error_t *error
 );
-int basl_binding_scope_stack_find_local(
+BASL_API int basl_binding_scope_stack_find_local(
     const basl_binding_scope_stack_t *stack,
     const char *name,
     size_t name_length,
     size_t *out_index,
     basl_binding_type_t *out_type
 );
-const basl_binding_local_t *basl_binding_scope_stack_local_at(
+BASL_API const basl_binding_local_t *basl_binding_scope_stack_local_at(
     const basl_binding_scope_stack_t *stack,
     size_t index
 );

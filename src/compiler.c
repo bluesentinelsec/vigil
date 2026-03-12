@@ -3026,6 +3026,7 @@ static basl_status_t basl_program_validate_class_interface_conformance(
         memset(impl, 0, sizeof(*impl));
         impl->interface_index = decl->implemented_interfaces[i];
         impl->function_count = interface_decl->method_count;
+        decl->interface_impl_count += 1U;
         if (impl->function_count != 0U) {
             void *memory = NULL;
             status = basl_runtime_alloc(
@@ -3095,8 +3096,6 @@ static basl_status_t basl_program_validate_class_interface_conformance(
 
             impl->function_indices[j] = class_method->function_index;
         }
-
-        decl->interface_impl_count += 1U;
     }
 
     return BASL_STATUS_OK;
