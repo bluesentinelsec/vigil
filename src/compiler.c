@@ -187,6 +187,27 @@ typedef struct basl_statement_result {
     int guaranteed_return;
 } basl_statement_result_t;
 
+static int basl_parser_is_assignment_start(
+    const basl_parser_state_t *state
+);
+static basl_status_t basl_parser_parse_assignment_statement_internal(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result,
+    int expect_semicolon
+);
+static basl_status_t basl_parser_parse_expression_statement_internal(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result,
+    int expect_semicolon
+);
+static basl_status_t basl_parser_parse_variable_declaration(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+);
+static int basl_parser_is_variable_declaration_start(
+    const basl_parser_state_t *state
+);
+
 static void basl_parser_state_free(
     basl_parser_state_t *state
 ) {
@@ -7519,6 +7540,191 @@ cleanup_loop:
     return status;
 }
 
+static basl_status_t basl_parser_parse_for_statement(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+) {
+    basl_status_t status;
+    const basl_token_t *for_token;
+    basl_expression_result_t condition_result;
+    size_t condition_start;
+    size_t loop_start;
+    size_t exit_jump_offset;
+    size_t body_jump_offset;
+    size_t increment_start;
+    basl_loop_context_t *loop;
+    size_t i;
+    int has_condition;
+    int has_increment;
+    int loop_pushed;
+
+    basl_expression_result_clear(&condition_result);
+    body_jump_offset = 0U;
+    increment_start = 0U;
+    has_condition = 0;
+    has_increment = 0;
+    loop_pushed = 0;
+
+    status = basl_parser_expect(state, BASL_TOKEN_FOR, "expected 'for'", &for_token);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_expect(state, BASL_TOKEN_LPAREN, "expected '(' after 'for'", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    basl_parser_begin_scope(state);
+    if (basl_parser_match(state, BASL_TOKEN_SEMICOLON)) {
+    } else if (basl_parser_is_variable_declaration_start(state)) {
+        status = basl_parser_parse_variable_declaration(state, NULL);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    } else if (basl_parser_is_assignment_start(state)) {
+        status = basl_parser_parse_assignment_statement_internal(state, NULL, 1);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    } else {
+        status = basl_parser_parse_expression_statement_internal(state, NULL, 1);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    condition_start = basl_chunk_code_size(&state->chunk);
+    if (!basl_parser_check(state, BASL_TOKEN_SEMICOLON)) {
+        has_condition = 1;
+        status = basl_parser_parse_expression(state, &condition_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_bool_type(
+            state,
+            for_token->span,
+            condition_result.type,
+            "for condition must be bool"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+    status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after for condition", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    exit_jump_offset = 0U;
+    if (has_condition) {
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP_IF_FALSE,
+            for_token->span,
+            &exit_jump_offset
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    loop_start = condition_start;
+    if (!basl_parser_check(state, BASL_TOKEN_RPAREN)) {
+        has_increment = 1;
+        status = basl_parser_emit_jump(
+            state,
+            BASL_OPCODE_JUMP,
+            for_token->span,
+            &body_jump_offset
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        increment_start = basl_chunk_code_size(&state->chunk);
+        if (basl_parser_is_assignment_start(state)) {
+            status = basl_parser_parse_assignment_statement_internal(state, NULL, 0);
+        } else {
+            status = basl_parser_parse_expression_statement_internal(state, NULL, 0);
+        }
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+
+        status = basl_parser_emit_loop(state, condition_start, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        loop_start = increment_start;
+    }
+
+    status = basl_parser_expect(state, BASL_TOKEN_RPAREN, "expected ')' after for clauses", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (has_increment) {
+        status = basl_parser_patch_jump(state, body_jump_offset);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    status = basl_parser_push_loop(state, loop_start);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    loop_pushed = 1;
+
+    status = basl_parser_parse_statement(state, NULL);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup_loop;
+    }
+
+    status = basl_parser_emit_loop(state, loop_start, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup_loop;
+    }
+    if (has_condition) {
+        status = basl_parser_patch_jump(state, exit_jump_offset);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup_loop;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup_loop;
+        }
+    }
+
+    loop = basl_parser_current_loop(state);
+    if (loop != NULL) {
+        for (i = 0U; i < loop->break_count; ++i) {
+            status = basl_parser_patch_jump(
+                state,
+                loop->break_jumps[i].operand_offset
+            );
+            if (status != BASL_STATUS_OK) {
+                goto cleanup_loop;
+            }
+        }
+    }
+
+cleanup_loop:
+    if (loop_pushed) {
+        basl_parser_pop_loop(state);
+    }
+    if (status == BASL_STATUS_OK) {
+        status = basl_parser_end_scope(state);
+        if (status == BASL_STATUS_OK) {
+            basl_statement_result_set_guaranteed_return(out_result, 0);
+        }
+    }
+    return status;
+}
+
 static basl_status_t basl_parser_parse_break_statement(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
@@ -7634,6 +7840,39 @@ static basl_status_t basl_parser_parse_continue_statement(
     return BASL_STATUS_OK;
 }
 
+static int basl_parser_is_assignment_operator(
+    basl_token_kind_t kind
+) {
+    return kind == BASL_TOKEN_ASSIGN ||
+           kind == BASL_TOKEN_PLUS_ASSIGN ||
+           kind == BASL_TOKEN_MINUS_ASSIGN ||
+           kind == BASL_TOKEN_STAR_ASSIGN ||
+           kind == BASL_TOKEN_SLASH_ASSIGN ||
+           kind == BASL_TOKEN_PERCENT_ASSIGN ||
+           kind == BASL_TOKEN_PLUS_PLUS ||
+           kind == BASL_TOKEN_MINUS_MINUS;
+}
+
+static basl_status_t basl_parser_emit_i32_constant(
+    basl_parser_state_t *state,
+    int64_t value,
+    basl_source_span_t span
+) {
+    basl_status_t status;
+    basl_value_t constant;
+
+    basl_value_init_int(&constant, value);
+    status = basl_chunk_write_constant(
+        &state->chunk,
+        &constant,
+        span,
+        NULL,
+        state->program->error
+    );
+    basl_value_release(&constant);
+    return status;
+}
+
 static int basl_parser_is_assignment_start(
     const basl_parser_state_t *state
 ) {
@@ -7657,16 +7896,18 @@ static int basl_parser_is_assignment_start(
         token = basl_program_token_at(state->program, cursor);
     }
 
-    return token != NULL && token->kind == BASL_TOKEN_ASSIGN;
+    return token != NULL && basl_parser_is_assignment_operator(token->kind);
 }
 
-static basl_status_t basl_parser_parse_assignment_statement(
+static basl_status_t basl_parser_parse_assignment_statement_internal(
     basl_parser_state_t *state,
-    basl_statement_result_t *out_result
+    basl_statement_result_t *out_result,
+    int expect_semicolon
 ) {
     basl_status_t status;
     const basl_token_t *name_token;
     const basl_token_t *field_token;
+    const basl_token_t *operator_token;
     size_t local_index;
     size_t global_index;
     size_t field_index;
@@ -7764,7 +8005,8 @@ static basl_status_t basl_parser_parse_assignment_statement(
             }
             target_type = field->type;
 
-            if (basl_parser_check(state, BASL_TOKEN_ASSIGN)) {
+            operator_token = basl_parser_peek(state);
+            if (operator_token != NULL && basl_parser_is_assignment_operator(operator_token->kind)) {
                 break;
             }
             if (!basl_parser_match(state, BASL_TOKEN_DOT)) {
@@ -7781,33 +8023,147 @@ static basl_status_t basl_parser_parse_assignment_statement(
         }
     }
 
-    status = basl_parser_expect(state, BASL_TOKEN_ASSIGN, "expected '=' in assignment", NULL);
-    if (status != BASL_STATUS_OK) {
-        return status;
+    operator_token = basl_parser_peek(state);
+    if (operator_token == NULL || !basl_parser_is_assignment_operator(operator_token->kind)) {
+        return basl_parser_report(state, name_token->span, "expected assignment operator");
+    }
+    basl_parser_advance(state);
+
+    if (operator_token->kind == BASL_TOKEN_ASSIGN) {
+        status = basl_parser_parse_expression(state, &value_result);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_type(
+            state,
+            name_token->span,
+            value_result.type,
+            target_type,
+            is_field_assignment
+                ? "assigned expression type does not match field type"
+                : (is_global_assignment
+                       ? "assigned expression type does not match global variable type"
+                       : "assigned expression type does not match local variable type")
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    } else {
+        basl_opcode_t opcode;
+        basl_binary_operator_kind_t operator_kind;
+
+        opcode = BASL_OPCODE_ADD;
+        operator_kind = BASL_BINARY_OPERATOR_ADD;
+
+        if (is_field_assignment) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_FIELD, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_emit_u32(state, (uint32_t)field_index, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+        } else {
+            status = basl_parser_emit_opcode(
+                state,
+                is_global_assignment ? BASL_OPCODE_GET_GLOBAL : BASL_OPCODE_GET_LOCAL,
+                operator_token->span
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_emit_u32(
+                state,
+                (uint32_t)(is_global_assignment ? global_index : local_index),
+                operator_token->span
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+        }
+
+        if (
+            operator_token->kind == BASL_TOKEN_PLUS_PLUS ||
+            operator_token->kind == BASL_TOKEN_MINUS_MINUS
+        ) {
+            status = basl_parser_require_i32_operands(
+                state,
+                operator_token->span,
+                target_type,
+                basl_binding_type_primitive(BASL_TYPE_I32),
+                BASL_BINARY_OPERATOR_ADD,
+                "increment and decrement require an i32 target"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_emit_i32_constant(state, 1, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            opcode = operator_token->kind == BASL_TOKEN_PLUS_PLUS
+                ? BASL_OPCODE_ADD
+                : BASL_OPCODE_SUBTRACT;
+        } else {
+            status = basl_parser_parse_expression(state, &value_result);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            switch (operator_token->kind) {
+                case BASL_TOKEN_PLUS_ASSIGN:
+                    operator_kind = BASL_BINARY_OPERATOR_ADD;
+                    opcode = BASL_OPCODE_ADD;
+                    break;
+                case BASL_TOKEN_MINUS_ASSIGN:
+                    operator_kind = BASL_BINARY_OPERATOR_SUBTRACT;
+                    opcode = BASL_OPCODE_SUBTRACT;
+                    break;
+                case BASL_TOKEN_STAR_ASSIGN:
+                    operator_kind = BASL_BINARY_OPERATOR_MULTIPLY;
+                    opcode = BASL_OPCODE_MULTIPLY;
+                    break;
+                case BASL_TOKEN_SLASH_ASSIGN:
+                    operator_kind = BASL_BINARY_OPERATOR_DIVIDE;
+                    opcode = BASL_OPCODE_DIVIDE;
+                    break;
+                case BASL_TOKEN_PERCENT_ASSIGN:
+                    operator_kind = BASL_BINARY_OPERATOR_MODULO;
+                    opcode = BASL_OPCODE_MODULO;
+                    break;
+                default:
+                    return basl_parser_report(
+                        state,
+                        operator_token->span,
+                        "unsupported assignment operator"
+                    );
+            }
+
+            status = basl_parser_require_i32_operands(
+                state,
+                operator_token->span,
+                target_type,
+                value_result.type,
+                operator_kind,
+                "compound assignment requires i32 operands"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+        }
+
+        status = basl_parser_emit_opcode(state, opcode, operator_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
-    status = basl_parser_parse_expression(state, &value_result);
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-    status = basl_parser_require_type(
-        state,
-        name_token->span,
-        value_result.type,
-        target_type,
-        is_field_assignment
-            ? "assigned expression type does not match field type"
-            : (is_global_assignment
-                   ? "assigned expression type does not match global variable type"
-                   : "assigned expression type does not match local variable type")
-    );
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-
-    status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after assignment", NULL);
-    if (status != BASL_STATUS_OK) {
-        return status;
+    if (expect_semicolon) {
+        status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after assignment", NULL);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     if (is_field_assignment) {
@@ -7845,9 +8201,17 @@ static basl_status_t basl_parser_parse_assignment_statement(
     return BASL_STATUS_OK;
 }
 
-static basl_status_t basl_parser_parse_expression_statement(
+static basl_status_t basl_parser_parse_assignment_statement(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
+) {
+    return basl_parser_parse_assignment_statement_internal(state, out_result, 1);
+}
+
+static basl_status_t basl_parser_parse_expression_statement_internal(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result,
+    int expect_semicolon
 ) {
     basl_status_t status;
     basl_expression_result_t expression_result;
@@ -7861,9 +8225,11 @@ static basl_status_t basl_parser_parse_expression_statement(
     }
 
     last_token = basl_parser_previous(state);
-    status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after expression", NULL);
-    if (status != BASL_STATUS_OK) {
-        return status;
+    if (expect_semicolon) {
+        status = basl_parser_expect(state, BASL_TOKEN_SEMICOLON, "expected ';' after expression", NULL);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     status = basl_parser_emit_opcode(
@@ -7878,6 +8244,13 @@ static basl_status_t basl_parser_parse_expression_statement(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_expression_statement(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+) {
+    return basl_parser_parse_expression_statement_internal(state, out_result, 1);
+}
+
 static basl_status_t basl_parser_parse_statement(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
@@ -7887,6 +8260,9 @@ static basl_status_t basl_parser_parse_statement(
     }
     if (basl_parser_check(state, BASL_TOKEN_IF)) {
         return basl_parser_parse_if_statement(state, out_result);
+    }
+    if (basl_parser_check(state, BASL_TOKEN_FOR)) {
+        return basl_parser_parse_for_statement(state, out_result);
     }
     if (basl_parser_check(state, BASL_TOKEN_WHILE)) {
         return basl_parser_parse_while_statement(state, out_result);

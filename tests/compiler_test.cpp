@@ -264,6 +264,42 @@ TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i32 sum = 0;"
+            "    for (i32 i = 0; i < 5; i++) {"
+            "        sum += i;"
+            "    }"
+            "    return sum;"
+            "}"
+        ),
+        10
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i32 sum = 0;"
+            "    for (i32 i = 0; i < 6; i++) {"
+            "        if (i == 2) {"
+            "            continue;"
+            "        }"
+            "        if (i == 5) {"
+            "            break;"
+            "        }"
+            "        sum += i;"
+            "    }"
+            "    return sum;"
+            "}"
+        ),
+        8
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
     const TestSource sources[] = {
         {
@@ -633,6 +669,25 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
     };
 
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "class Counter {"
+            "    i32 value;"
+            "}"
+            "i32 total = 2;"
+            "fn main() -> i32 {"
+            "    Counter counter = Counter(3);"
+            "    total += 4;"
+            "    counter.value *= 2;"
+            "    counter.value--;"
+            "    return total + counter.value;"
+            "}"
+        ),
+        11
+    );
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
