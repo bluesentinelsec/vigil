@@ -757,14 +757,14 @@ TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/model.basl",
-            "class Counter {"
+            "pub class Counter {"
             "    i32 value;"
-            "    fn bump(i32 delta) -> i32 {"
+            "    pub fn bump(i32 delta) -> i32 {"
             "        self.value = self.value + delta;"
             "        return self.value;"
             "    }"
             "}"
-            "fn build(i32 value) -> Counter {"
+            "pub fn build(i32 value) -> Counter {"
             "    return Counter(value);"
             "}"
         },
@@ -772,7 +772,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
             "/project/main.basl",
             "import \"model\";"
             "fn main() -> i32 {"
-            "    Counter counter = build(8);"
+            "    model.Counter counter = model.build(8);"
             "    return counter.bump(3);"
             "}"
         }
@@ -850,8 +850,8 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
             "/project/model.basl",
             "pub const i32 OFFSET = 2;"
             "pub class Counter {"
-            "    i32 value;"
-            "    fn bump(i32 delta) -> i32 {"
+            "    pub i32 value;"
+            "    pub fn bump(i32 delta) -> i32 {"
             "        self.value = self.value + delta;"
             "        return self.value;"
             "    }"
@@ -1371,6 +1371,110 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
     };
 
     EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
+}
+
+TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    RegisterSource(
+        &registry,
+        "/project/model.basl",
+        "pub class Counter {"
+        "    i32 value;"
+        "    fn init(i32 value) -> void {"
+        "        self.value = value;"
+        "    }"
+        "    fn read() -> i32 {"
+        "        return self.value;"
+        "    }"
+        "}",
+        &error
+    );
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "import \"model\";"
+        "fn main() -> i32 {"
+        "    model.Counter counter = model.Counter(7);"
+        "    return counter.value;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "class field is not public"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    RegisterSource(
+        &registry,
+        "/project/model.basl",
+        "pub class Counter {"
+        "    pub i32 value;"
+        "    fn init(i32 value) -> void {"
+        "        self.value = value;"
+        "    }"
+        "    fn read() -> i32 {"
+        "        return self.value;"
+        "    }"
+        "}",
+        &error
+    );
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "import \"model\";"
+        "fn main() -> i32 {"
+        "    model.Counter counter = model.Counter(7);"
+        "    return counter.read();"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "class method is not public"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {

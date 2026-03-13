@@ -11558,6 +11558,7 @@ static basl_status_t basl_parser_lookup_field(
     const basl_class_field_t **out_field
 ) {
     const basl_class_decl_t *class_decl;
+    const basl_class_field_t *field;
     const char *field_name;
     size_t field_length;
 
@@ -11571,7 +11572,17 @@ static basl_status_t basl_parser_lookup_field(
 
     class_decl = &state->program->classes[receiver_type.object_index];
     field_name = basl_parser_token_text(state, field_token, &field_length);
-    if (basl_class_decl_find_field(class_decl, field_name, field_length, out_index, out_field)) {
+    field = NULL;
+    if (basl_class_decl_find_field(class_decl, field_name, field_length, out_index, &field)) {
+        if (
+            !field->is_public &&
+            class_decl->source_id != state->program->source->id
+        ) {
+            return basl_parser_report(state, field_token->span, "class field is not public");
+        }
+        if (out_field != NULL) {
+            *out_field = field;
+        }
         return BASL_STATUS_OK;
     }
 
@@ -11601,7 +11612,24 @@ static int basl_parser_find_field_by_name(
 
     class_decl = &state->program->classes[receiver_type.object_index];
     field_name = basl_parser_token_text(state, field_token, &field_length);
-    return basl_class_decl_find_field(class_decl, field_name, field_length, out_index, out_field);
+    if (!basl_class_decl_find_field(class_decl, field_name, field_length, out_index, out_field)) {
+        return 0;
+    }
+    if (
+        out_field != NULL &&
+        *out_field != NULL &&
+        !(*out_field)->is_public &&
+        class_decl->source_id != state->program->source->id
+    ) {
+        if (out_index != NULL) {
+            *out_index = 0U;
+        }
+        if (out_field != NULL) {
+            *out_field = NULL;
+        }
+        return 0;
+    }
+    return 1;
 }
 
 static int basl_parser_find_method_by_name(
@@ -13690,19 +13718,36 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
             }
             if (
                 basl_parser_check(state, BASL_TOKEN_LPAREN) &&
-                basl_parser_find_method_by_name(
-                    state,
-                    out_result->type,
-                    field_token,
-                    &method_index,
-                    &class_method
-                )
+                basl_parser_type_is_class(out_result->type)
             ) {
-                status = basl_parser_parse_method_call(state, field_token, class_method, out_result);
-                if (status != BASL_STATUS_OK) {
-                    return status;
+                const basl_class_decl_t *class_decl;
+
+                class_method = NULL;
+                if (basl_parser_find_method_by_name(
+                        state,
+                        out_result->type,
+                        field_token,
+                        &method_index,
+                        &class_method
+                    )) {
+                    class_decl = &state->program->classes[out_result->type.object_index];
+                    if (
+                        class_method != NULL &&
+                        !class_method->is_public &&
+                        class_decl->source_id != state->program->source->id
+                    ) {
+                        return basl_parser_report(
+                            state,
+                            field_token->span,
+                            "class method is not public"
+                        );
+                    }
+                    status = basl_parser_parse_method_call(state, field_token, class_method, out_result);
+                    if (status != BASL_STATUS_OK) {
+                        return status;
+                    }
+                    continue;
                 }
-                continue;
             }
             if (
                 basl_parser_check(state, BASL_TOKEN_LPAREN) &&
@@ -13726,6 +13771,19 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
                     return status;
                 }
                 continue;
+            }
+
+            if (
+                basl_parser_check(state, BASL_TOKEN_LPAREN) &&
+                basl_parser_type_is_class(out_result->type)
+            ) {
+                return basl_parser_report(state, field_token->span, "unknown class method");
+            }
+            if (
+                basl_parser_check(state, BASL_TOKEN_LPAREN) &&
+                basl_parser_type_is_interface(out_result->type)
+            ) {
+                return basl_parser_report(state, field_token->span, "unknown interface method");
             }
 
             if (
@@ -13785,18 +13843,6 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
                     continue;
                 }
                 return basl_parser_report(state, field_token->span, "unknown error method");
-            }
-            if (
-                basl_parser_check(state, BASL_TOKEN_LPAREN) &&
-                basl_parser_type_is_class(out_result->type)
-            ) {
-                return basl_parser_report(state, field_token->span, "unknown class method");
-            }
-            if (
-                basl_parser_check(state, BASL_TOKEN_LPAREN) &&
-                basl_parser_type_is_interface(out_result->type)
-            ) {
-                return basl_parser_report(state, field_token->span, "unknown interface method");
             }
 
             field = NULL;
