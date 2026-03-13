@@ -25,10 +25,11 @@ typedef enum basl_object_type {
     BASL_OBJECT_INVALID = 0,
     BASL_OBJECT_STRING = 1,
     BASL_OBJECT_FUNCTION = 2,
-    BASL_OBJECT_INSTANCE = 3,
-    BASL_OBJECT_ERROR = 4,
-    BASL_OBJECT_ARRAY = 5,
-    BASL_OBJECT_MAP = 6
+    BASL_OBJECT_CLOSURE = 3,
+    BASL_OBJECT_INSTANCE = 4,
+    BASL_OBJECT_ERROR = 5,
+    BASL_OBJECT_ARRAY = 6,
+    BASL_OBJECT_MAP = 7
 } basl_object_type_t;
 
 typedef struct basl_object basl_object_t;
@@ -135,6 +136,28 @@ BASL_API const char *basl_function_object_name(const basl_object_t *object);
 BASL_API size_t basl_function_object_arity(const basl_object_t *object);
 BASL_API size_t basl_function_object_return_count(const basl_object_t *object);
 BASL_API const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object);
+
+BASL_API basl_status_t basl_closure_object_new(
+    basl_runtime_t *runtime,
+    basl_object_t *function,
+    const basl_value_t *captures,
+    size_t capture_count,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API const basl_object_t *basl_closure_object_function(const basl_object_t *object);
+BASL_API size_t basl_closure_object_capture_count(const basl_object_t *object);
+BASL_API int basl_closure_object_get_capture(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_value
+);
+BASL_API basl_status_t basl_closure_object_set_capture(
+    basl_object_t *object,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+);
 
 BASL_API basl_status_t basl_instance_object_new(
     basl_runtime_t *runtime,

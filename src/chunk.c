@@ -470,6 +470,12 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "SET_GLOBAL";
         case BASL_OPCODE_GET_FUNCTION:
             return "GET_FUNCTION";
+        case BASL_OPCODE_NEW_CLOSURE:
+            return "NEW_CLOSURE";
+        case BASL_OPCODE_GET_CAPTURE:
+            return "GET_CAPTURE";
+        case BASL_OPCODE_SET_CAPTURE:
+            return "SET_CAPTURE";
         case BASL_OPCODE_JUMP:
             return "JUMP";
         case BASL_OPCODE_JUMP_IF_FALSE:
@@ -815,6 +821,44 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 5U;
+        } else if (opcode == BASL_OPCODE_NEW_CLOSURE) {
+            uint32_t function_index;
+            uint32_t capture_count;
+
+            if (offset + 8U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated closure instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            function_index = (uint32_t)chunk->code.data[offset + 1U];
+            function_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            function_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            function_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            capture_count = (uint32_t)chunk->code.data[offset + 5U];
+            capture_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            capture_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            capture_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+
+            written = snprintf(line, sizeof(line), " %u %u", function_index, capture_count);
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk closure operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 9U;
         } else if (
             opcode == BASL_OPCODE_CALL_INTERFACE ||
             opcode == BASL_OPCODE_DEFER_CALL_INTERFACE
@@ -953,6 +997,8 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_GET_GLOBAL ||
             opcode == BASL_OPCODE_SET_GLOBAL ||
             opcode == BASL_OPCODE_GET_FUNCTION ||
+            opcode == BASL_OPCODE_GET_CAPTURE ||
+            opcode == BASL_OPCODE_SET_CAPTURE ||
             opcode == BASL_OPCODE_JUMP ||
             opcode == BASL_OPCODE_JUMP_IF_FALSE ||
             opcode == BASL_OPCODE_LOOP ||

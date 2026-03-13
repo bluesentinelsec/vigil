@@ -8,6 +8,7 @@
 #include "basl/vm.h"
 
 typedef struct basl_vm_frame {
+    const basl_object_t *callable;
     const basl_object_t *function;
     const basl_chunk_t *chunk;
     size_t ip;
@@ -385,6 +386,7 @@ static basl_vm_frame_t *basl_vm_current_frame(basl_vm_t *vm) {
 
 static basl_status_t basl_vm_push_frame(
     basl_vm_t *vm,
+    const basl_object_t *callable,
     const basl_object_t *function,
     const basl_chunk_t *chunk,
     size_t base_slot,
@@ -409,6 +411,7 @@ static basl_status_t basl_vm_push_frame(
 
     frame = &vm->frames[vm->frame_count];
     memset(frame, 0, sizeof(*frame));
+    frame->callable = callable;
     frame->function = function;
     frame->chunk = chunk;
     frame->ip = 0U;
@@ -658,6 +661,7 @@ static basl_status_t basl_vm_invoke_call(
     return basl_vm_push_frame(
         vm,
         callee,
+        callee,
         basl_function_object_chunk(callee),
         base_slot,
         error
@@ -671,7 +675,9 @@ static basl_status_t basl_vm_invoke_value_call(
 ) {
     basl_value_t callee_value;
     basl_object_t *callee;
+    const basl_object_t *function;
     size_t callee_slot;
+    basl_status_t status;
 
     if (arg_count + 1U > vm->stack_count) {
         basl_error_set_literal(
@@ -688,7 +694,8 @@ static basl_status_t basl_vm_invoke_value_call(
     if (
         basl_value_kind(&callee_value) != BASL_VALUE_OBJECT ||
         callee == NULL ||
-        basl_object_type(callee) != BASL_OBJECT_FUNCTION
+        (basl_object_type(callee) != BASL_OBJECT_FUNCTION &&
+         basl_object_type(callee) != BASL_OBJECT_CLOSURE)
     ) {
         basl_value_release(&callee_value);
         basl_error_set_literal(
@@ -698,7 +705,7 @@ static basl_status_t basl_vm_invoke_value_call(
         );
         return BASL_STATUS_INVALID_ARGUMENT;
     }
-    if (basl_function_object_arity(callee) != arg_count) {
+    if (basl_callable_object_arity(callee) != arg_count) {
         basl_value_release(&callee_value);
         basl_error_set_literal(
             error,
@@ -709,29 +716,28 @@ static basl_status_t basl_vm_invoke_value_call(
     }
 
     basl_object_retain(callee);
+    function = basl_callable_object_function(callee);
     if (arg_count != 0U) {
         memmove(
             &vm->stack[callee_slot],
             &vm->stack[callee_slot + 1U],
             arg_count * sizeof(*vm->stack)
         );
+        vm->stack_count -= 1U;
+    } else {
+        vm->stack_count -= 1U;
     }
-    vm->stack_count -= 1U;
     basl_value_release(&callee_value);
-
-    {
-        basl_status_t status;
-
-        status = basl_vm_push_frame(
-            vm,
-            callee,
-            basl_function_object_chunk(callee),
-            callee_slot,
-            error
-        );
-        basl_object_release(&callee);
-        return status;
-    }
+    status = basl_vm_push_frame(
+        vm,
+        callee,
+        function,
+        basl_callable_object_chunk(callee),
+        callee_slot,
+        error
+    );
+    basl_object_release(&callee);
+    return status;
 }
 
 static basl_status_t basl_vm_invoke_interface_call(
@@ -800,6 +806,7 @@ static basl_status_t basl_vm_invoke_interface_call(
 
     return basl_vm_push_frame(
         vm,
+        callee,
         callee,
         basl_function_object_chunk(callee),
         base_slot,
@@ -1869,7 +1876,7 @@ basl_status_t basl_vm_execute(
 
     basl_vm_release_stack(vm);
     basl_vm_clear_frames(vm);
-    status = basl_vm_push_frame(vm, NULL, chunk, 0U, error);
+    status = basl_vm_push_frame(vm, NULL, NULL, chunk, 0U, error);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -1934,6 +1941,7 @@ basl_status_t basl_vm_execute_function(
         basl_vm_clear_frames(vm);
         status = basl_vm_push_frame(
             vm,
+            function,
             function,
             basl_function_object_chunk(function),
             0U,
@@ -2163,6 +2171,153 @@ basl_status_t basl_vm_execute_function(
 
                 status = basl_vm_push(vm, &value, error);
                 basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_NEW_CLOSURE: {
+                basl_object_t *closure;
+                const basl_object_t *callee;
+                size_t capture_count;
+                size_t function_index;
+                size_t base_slot;
+
+                status = basl_vm_read_u32(vm, &constant_index, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                function_index = (size_t)constant_index;
+                capture_count = (size_t)operand;
+
+                frame = basl_vm_current_frame(vm);
+                if (frame == NULL || frame->function == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "closure creation requires a function-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (capture_count > vm->stack_count) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "closure captures are missing from the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                callee = basl_function_object_sibling(frame->function, function_index);
+                if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "closure function index is invalid",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                base_slot = vm->stack_count - capture_count;
+                closure = NULL;
+                status = basl_closure_object_new(
+                    vm->runtime,
+                    (basl_object_t *)callee,
+                    capture_count == 0U ? NULL : vm->stack + base_slot,
+                    capture_count,
+                    &closure,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                basl_vm_unwind_stack_to(vm, base_slot);
+                basl_value_init_object(&value, &closure);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_GET_CAPTURE:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                frame = basl_vm_current_frame(vm);
+                if (
+                    frame == NULL ||
+                    frame->callable == NULL ||
+                    basl_object_type(frame->callable) != BASL_OBJECT_CLOSURE
+                ) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "capture read requires a closure-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (!basl_closure_object_get_capture(frame->callable, (size_t)operand, &value)) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "capture index out of range",
+                        error
+                    );
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_SET_CAPTURE:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                peeked = basl_vm_peek(vm, 0U);
+                if (peeked == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "capture assignment requires a value on the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+                frame = basl_vm_current_frame(vm);
+                if (
+                    frame == NULL ||
+                    frame->callable == NULL ||
+                    basl_object_type(frame->callable) != BASL_OBJECT_CLOSURE
+                ) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "capture assignment requires a closure-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+                status = basl_closure_object_set_capture(
+                    (basl_object_t *)frame->callable,
+                    (size_t)operand,
+                    peeked,
+                    error
+                );
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }

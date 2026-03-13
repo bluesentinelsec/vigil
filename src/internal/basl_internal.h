@@ -59,5 +59,9 @@ basl_status_t basl_function_object_set_global(
     const basl_value_t *value,
     basl_error_t *error
 );
+const basl_object_t *basl_callable_object_function(const basl_object_t *callable);
+size_t basl_callable_object_arity(const basl_object_t *callable);
+size_t basl_callable_object_return_count(const basl_object_t *callable);
+const basl_chunk_t *basl_callable_object_chunk(const basl_object_t *callable);
 
 #endif

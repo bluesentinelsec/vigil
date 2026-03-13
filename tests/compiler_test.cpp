@@ -210,6 +210,27 @@ TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i32 factor = 10;"
+            "    fn(i32) -> i32 scale = fn(i32 x) -> i32 {"
+            "        return x * factor;"
+            "    };"
+            "    factor = 20;"
+            "    fn helper(i32 x) -> i32 {"
+            "        return scale(x) + factor;"
+            "    }"
+            "    return helper(2) + fn() -> i32 {"
+            "        return 1;"
+            "    }();"
+            "}"
+        ),
+        41
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
     EXPECT_EQ(
         CompileAndRun(

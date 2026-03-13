@@ -34,6 +34,14 @@ typedef struct basl_binding_function_param {
     basl_source_span_t span;
 } basl_binding_function_param_t;
 
+typedef struct basl_binding_capture {
+    const char *name;
+    size_t name_length;
+    basl_binding_type_t type;
+    size_t source_local_index;
+    int source_is_capture;
+} basl_binding_capture_t;
+
 typedef struct basl_binding_function {
     const char *name;
     size_t name_length;
@@ -47,11 +55,15 @@ typedef struct basl_binding_function {
     basl_binding_function_param_t *params;
     size_t param_count;
     size_t param_capacity;
+    basl_binding_capture_t *captures;
+    size_t capture_count;
+    size_t capture_capacity;
     size_t body_start;
     size_t body_end;
     const basl_source_file_t *source;
     const basl_token_list_t *tokens;
     basl_object_t *object;
+    int is_local;
 } basl_binding_function_t;
 
 typedef struct basl_binding_function_table {

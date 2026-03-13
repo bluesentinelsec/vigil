@@ -387,6 +387,7 @@ void basl_binding_function_init(basl_binding_function_t *function) {
     memset(function, 0, sizeof(*function));
     function->return_type = basl_binding_type_invalid();
     function->owner_class_index = BASL_BINDING_INVALID_CLASS_INDEX;
+    function->is_local = 0;
 }
 
 void basl_binding_function_free(
@@ -404,6 +405,8 @@ void basl_binding_function_free(
     }
 
     memory = function->params;
+    basl_runtime_free(runtime, &memory);
+    memory = function->captures;
     basl_runtime_free(runtime, &memory);
     memory = function->return_types;
     basl_runtime_free(runtime, &memory);

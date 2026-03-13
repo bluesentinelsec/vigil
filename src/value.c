@@ -43,6 +43,13 @@ typedef struct basl_function_object {
     int owns_class_table;
 } basl_function_object_t;
 
+typedef struct basl_closure_object {
+    basl_object_t base;
+    basl_object_t *function;
+    basl_value_t *captures;
+    size_t capture_count;
+} basl_closure_object_t;
+
 typedef struct basl_runtime_interface_impl {
     size_t interface_index;
     size_t *function_indices;
@@ -92,6 +99,16 @@ static const basl_function_object_t *basl_function_object_cast(
     return (const basl_function_object_t *)object;
 }
 
+static const basl_closure_object_t *basl_closure_object_cast(
+    const basl_object_t *object
+) {
+    if (object == NULL || object->type != BASL_OBJECT_CLOSURE) {
+        return NULL;
+    }
+
+    return (const basl_closure_object_t *)object;
+}
+
 static const basl_error_object_t *basl_error_object_cast(
     const basl_object_t *object
 ) {
@@ -137,6 +154,7 @@ static void basl_object_destroy(basl_object_t *object) {
     void *memory;
     basl_string_object_t *string_object;
     basl_function_object_t *function_object;
+    basl_closure_object_t *closure_object;
     basl_instance_object_t *instance_object;
     basl_array_object_t *array_object;
 
@@ -205,6 +223,22 @@ static void basl_object_destroy(basl_object_t *object) {
                 }
 
                 memory = function_object->globals;
+                basl_runtime_free(runtime, &memory);
+            }
+            break;
+        case BASL_OBJECT_CLOSURE:
+            closure_object = (basl_closure_object_t *)object;
+            if (closure_object->function != NULL) {
+                basl_object_release(&closure_object->function);
+            }
+            if (closure_object->captures != NULL) {
+                size_t capture_index;
+
+                for (capture_index = 0U; capture_index < closure_object->capture_count; ++capture_index) {
+                    basl_value_release(&closure_object->captures[capture_index]);
+                }
+
+                memory = closure_object->captures;
                 basl_runtime_free(runtime, &memory);
             }
             break;
@@ -824,6 +858,144 @@ const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
     }
 
     return &function_object->chunk;
+}
+
+basl_status_t basl_closure_object_new(
+    basl_runtime_t *runtime,
+    basl_object_t *function,
+    const basl_value_t *captures,
+    size_t capture_count,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_closure_object_t *object;
+    void *memory;
+    size_t capture_index;
+
+    basl_error_clear(error);
+    if (runtime == NULL || function == NULL || out_object == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "closure object arguments are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (basl_object_type(function) != BASL_OBJECT_FUNCTION) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "closure function must be a function object"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (capture_count != 0U && captures == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "closure captures must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_object = NULL;
+    memory = NULL;
+    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    object = (basl_closure_object_t *)memory;
+    memset(object, 0, sizeof(*object));
+    basl_object_init(&object->base, runtime, BASL_OBJECT_CLOSURE);
+    basl_object_retain(function);
+    object->function = function;
+    object->capture_count = capture_count;
+
+    if (capture_count != 0U) {
+        memory = NULL;
+        status = basl_runtime_alloc(runtime, capture_count * sizeof(*object->captures), &memory, error);
+        if (status != BASL_STATUS_OK) {
+            basl_object_t *base = &object->base;
+
+            basl_object_release(&base);
+            return status;
+        }
+
+        object->captures = (basl_value_t *)memory;
+        for (capture_index = 0U; capture_index < capture_count; ++capture_index) {
+            object->captures[capture_index] = basl_value_copy(&captures[capture_index]);
+        }
+    }
+
+    *out_object = &object->base;
+    return BASL_STATUS_OK;
+}
+
+const basl_object_t *basl_closure_object_function(const basl_object_t *object) {
+    const basl_closure_object_t *closure_object = basl_closure_object_cast(object);
+
+    if (closure_object == NULL) {
+        return NULL;
+    }
+
+    return closure_object->function;
+}
+
+size_t basl_closure_object_capture_count(const basl_object_t *object) {
+    const basl_closure_object_t *closure_object = basl_closure_object_cast(object);
+
+    if (closure_object == NULL) {
+        return 0U;
+    }
+
+    return closure_object->capture_count;
+}
+
+int basl_closure_object_get_capture(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_value
+) {
+    const basl_closure_object_t *closure_object = basl_closure_object_cast(object);
+
+    if (closure_object == NULL || out_value == NULL || index >= closure_object->capture_count) {
+        return 0;
+    }
+
+    *out_value = basl_value_copy(&closure_object->captures[index]);
+    return 1;
+}
+
+basl_status_t basl_closure_object_set_capture(
+    basl_object_t *object,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+) {
+    basl_closure_object_t *closure_object = (basl_closure_object_t *)object;
+    basl_value_t copy;
+
+    basl_error_clear(error);
+    if (
+        closure_object == NULL ||
+        closure_object->base.type != BASL_OBJECT_CLOSURE ||
+        value == NULL ||
+        index >= closure_object->capture_count
+    ) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "closure capture arguments are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    copy = basl_value_copy(value);
+    basl_value_release(&closure_object->captures[index]);
+    closure_object->captures[index] = copy;
+    return BASL_STATUS_OK;
 }
 
 basl_status_t basl_instance_object_new(
@@ -1595,4 +1767,36 @@ basl_status_t basl_function_object_set_global(
     basl_value_release(&((basl_function_object_t *)function)->globals[index]);
     ((basl_function_object_t *)function)->globals[index] = copy;
     return BASL_STATUS_OK;
+}
+
+const basl_object_t *basl_callable_object_function(const basl_object_t *callable) {
+    if (callable == NULL) {
+        return NULL;
+    }
+    if (basl_object_type(callable) == BASL_OBJECT_FUNCTION) {
+        return callable;
+    }
+    if (basl_object_type(callable) == BASL_OBJECT_CLOSURE) {
+        return basl_closure_object_function(callable);
+    }
+
+    return NULL;
+}
+
+size_t basl_callable_object_arity(const basl_object_t *callable) {
+    const basl_object_t *function = basl_callable_object_function(callable);
+
+    return basl_function_object_arity(function);
+}
+
+size_t basl_callable_object_return_count(const basl_object_t *callable) {
+    const basl_object_t *function = basl_callable_object_function(callable);
+
+    return basl_function_object_return_count(function);
+}
+
+const basl_chunk_t *basl_callable_object_chunk(const basl_object_t *callable) {
+    const basl_object_t *function = basl_callable_object_function(callable);
+
+    return basl_function_object_chunk(function);
 }
