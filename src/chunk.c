@@ -498,6 +498,14 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "NEGATE";
         case BASL_OPCODE_NOT:
             return "NOT";
+        case BASL_OPCODE_BITWISE_NOT:
+            return "BITWISE_NOT";
+        case BASL_OPCODE_TO_I32:
+            return "TO_I32";
+        case BASL_OPCODE_TO_F64:
+            return "TO_F64";
+        case BASL_OPCODE_TO_STRING:
+            return "TO_STRING";
         case BASL_OPCODE_EQUAL:
             return "EQUAL";
         case BASL_OPCODE_GREATER:

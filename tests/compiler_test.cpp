@@ -164,6 +164,23 @@ TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    const f64 scaled = f64(4) / 2.0;"
+            "    const string label = string(5) + string(true);"
+            "    i32 truncated = i32(scaled + 3.8);"
+            "    if (label == \"5true\" && ~1 == -2) {"
+            "        return truncated;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        5
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     EXPECT_EQ(
         CompileAndRun(
@@ -2035,6 +2052,79 @@ TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "defer requires a call expression"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsAssignmentToConstLocal) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "const_assign.basl",
+        "fn main() -> i32 {"
+        "    const i32 value = 1;"
+        "    value = 2;"
+        "    return value;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "cannot assign to const local variable"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_conv.basl",
+        "fn main() -> i32 {"
+        "    bool ready = bool(1);"
+        "    return ready ? 1 : 0;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "bool(...) requires a bool argument"
     );
 
     basl_diagnostic_list_free(&diagnostics);

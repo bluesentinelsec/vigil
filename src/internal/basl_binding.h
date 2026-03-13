@@ -62,6 +62,7 @@ typedef struct basl_binding_local {
     size_t length;
     size_t depth;
     basl_binding_type_t type;
+    int is_const;
 } basl_binding_local_t;
 
 typedef struct basl_binding_scope_stack {
@@ -143,6 +144,7 @@ BASL_API basl_status_t basl_binding_scope_stack_declare_local(
     const char *name,
     size_t name_length,
     basl_binding_type_t type,
+    int is_const,
     size_t *out_index,
     basl_error_t *error
 );

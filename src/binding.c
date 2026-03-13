@@ -611,6 +611,7 @@ basl_status_t basl_binding_scope_stack_declare_local(
     const char *name,
     size_t name_length,
     basl_binding_type_t type,
+    int is_const,
     size_t *out_index,
     basl_error_t *error
 ) {
@@ -657,6 +658,7 @@ basl_status_t basl_binding_scope_stack_declare_local(
     local->length = name_length;
     local->depth = stack->scope_depth;
     local->type = type;
+    local->is_const = is_const != 0;
     if (out_index != NULL) {
         *out_index = stack->local_count;
     }

@@ -82,6 +82,8 @@ int basl_type_supports_unary_operator(
             return operand_type == BASL_TYPE_I32 || operand_type == BASL_TYPE_F64;
         case BASL_UNARY_OPERATOR_LOGICAL_NOT:
             return operand_type == BASL_TYPE_BOOL;
+        case BASL_UNARY_OPERATOR_BITWISE_NOT:
+            return operand_type == BASL_TYPE_I32;
         default:
             return 0;
     }

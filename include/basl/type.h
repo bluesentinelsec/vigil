@@ -22,7 +22,8 @@ typedef enum basl_type_kind {
 
 typedef enum basl_unary_operator_kind {
     BASL_UNARY_OPERATOR_NEGATE = 0,
-    BASL_UNARY_OPERATOR_LOGICAL_NOT = 1
+    BASL_UNARY_OPERATOR_LOGICAL_NOT = 1,
+    BASL_UNARY_OPERATOR_BITWISE_NOT = 2
 } basl_unary_operator_kind_t;
 
 typedef enum basl_binary_operator_kind {

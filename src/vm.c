@@ -1,4 +1,6 @@
+#include <math.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -1188,6 +1190,104 @@ static basl_status_t basl_vm_concat_strings(
     return status;
 }
 
+static basl_status_t basl_vm_stringify_value(
+    basl_vm_t *vm,
+    const basl_value_t *value,
+    basl_value_t *out_value,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_object_t *object;
+    const char *text;
+    char buffer[128];
+    int written;
+
+    if (vm == NULL || value == NULL || out_value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "vm string conversion arguments must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    object = NULL;
+    switch (basl_value_kind(value)) {
+        case BASL_VALUE_BOOL:
+            text = basl_value_as_bool(value) ? "true" : "false";
+            status = basl_string_object_new_cstr(vm->runtime, text, &object, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            break;
+        case BASL_VALUE_INT:
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%lld",
+                (long long)basl_value_as_int(value)
+            );
+            if (written < 0 || (size_t)written >= sizeof(buffer)) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format integer string conversion"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+            status = basl_string_object_new(vm->runtime, buffer, (size_t)written, &object, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            break;
+        case BASL_VALUE_FLOAT:
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%.17g",
+                basl_value_as_float(value)
+            );
+            if (written < 0 || (size_t)written >= sizeof(buffer)) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format float string conversion"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+            status = basl_string_object_new(vm->runtime, buffer, (size_t)written, &object, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            break;
+        case BASL_VALUE_OBJECT:
+            if (
+                basl_value_as_object(value) == NULL ||
+                basl_object_type(basl_value_as_object(value)) != BASL_OBJECT_STRING
+            ) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INVALID_ARGUMENT,
+                    "string conversion requires a primitive or string operand"
+                );
+                return BASL_STATUS_INVALID_ARGUMENT;
+            }
+            *out_value = basl_value_copy(value);
+            return BASL_STATUS_OK;
+        default:
+            basl_error_set_literal(
+                error,
+                BASL_STATUS_INVALID_ARGUMENT,
+                "string conversion requires a primitive or string operand"
+            );
+            return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    basl_value_init_object(out_value, &object);
+    basl_object_release(&object);
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_vm_fail_at_ip(
     basl_vm_t *vm,
     basl_status_t status,
@@ -2320,6 +2420,126 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_init_bool(&left, !basl_value_as_bool(&value));
                 basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_BITWISE_NOT:
+                value = basl_vm_pop_or_nil(vm);
+                if (basl_value_kind(&value) != BASL_VALUE_INT) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "bitwise not requires an integer operand",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_int(&left, ~basl_value_as_int(&value));
+                basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_I32:
+                value = basl_vm_pop_or_nil(vm);
+                if (basl_value_kind(&value) == BASL_VALUE_INT) {
+                    status = basl_vm_push(vm, &value, error);
+                    basl_value_release(&value);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                    break;
+                }
+                if (basl_value_kind(&value) != BASL_VALUE_FLOAT) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 conversion requires an int or float operand",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (
+                    !isfinite(basl_value_as_float(&value)) ||
+                    basl_value_as_float(&value) > (double)INT64_MAX ||
+                    basl_value_as_float(&value) < (double)INT64_MIN
+                ) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 conversion overflow or invalid value",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_int(&left, (int64_t)basl_value_as_float(&value));
+                basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_F64:
+                value = basl_vm_pop_or_nil(vm);
+                if (basl_value_kind(&value) == BASL_VALUE_FLOAT) {
+                    status = basl_vm_push(vm, &value, error);
+                    basl_value_release(&value);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                    break;
+                }
+                if (basl_value_kind(&value) != BASL_VALUE_INT) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "f64 conversion requires an int or float operand",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_float(&left, (double)basl_value_as_int(&value));
+                basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_STRING:
+                value = basl_vm_pop_or_nil(vm);
+                basl_value_init_nil(&left);
+                status = basl_vm_stringify_value(vm, &value, &left, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "string conversion requires a primitive or string operand",
+                        error
+                    );
+                    goto cleanup;
+                }
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {
                     basl_value_release(&left);

@@ -630,3 +630,66 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    basl_value_init_float(&constant, 5.9);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_I32, Span(8U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_BITWISE_NOT, Span(8U, 6U, 7U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(8U, 8U, 9U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), -6);
+    basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    basl_value_init_bool(&constant, true);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(9U, 0U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_STRING, Span(9U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(9U, 6U, 7U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_value_kind(&result), BASL_VALUE_OBJECT);
+    ASSERT_NE(basl_value_as_object(&result), nullptr);
+    EXPECT_EQ(basl_object_type(basl_value_as_object(&result)), BASL_OBJECT_STRING);
+    EXPECT_STREQ(basl_string_object_c_str(basl_value_as_object(&result)), "true");
+
+    basl_value_release(&result);
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}

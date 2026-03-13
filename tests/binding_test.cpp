@@ -103,6 +103,7 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
             "value",
             5U,
             basl_binding_type_primitive(BASL_TYPE_I32),
+            0,
             &index,
             &error
         ),
@@ -118,6 +119,7 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
             "value",
             5U,
             basl_binding_type_primitive(BASL_TYPE_BOOL),
+            1,
             &index,
             &error
         ),
@@ -137,6 +139,8 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
     EXPECT_TRUE(
         basl_binding_type_equal(local_type, basl_binding_type_primitive(BASL_TYPE_BOOL))
     );
+    ASSERT_NE(basl_binding_scope_stack_local_at(&stack, index), nullptr);
+    EXPECT_TRUE(basl_binding_scope_stack_local_at(&stack, index)->is_const);
 
     basl_binding_scope_stack_end_scope(&stack, &popped_count);
     EXPECT_EQ(popped_count, 1U);
@@ -159,6 +163,7 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
             "value",
             5U,
             basl_binding_type_primitive(BASL_TYPE_BOOL),
+            0,
             &index,
             &error
         ),

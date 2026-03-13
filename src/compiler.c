@@ -499,6 +499,20 @@ static int basl_parser_type_is_f64(
            type.object_kind == BASL_BINDING_OBJECT_NONE;
 }
 
+static int basl_parser_type_is_bool(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_BOOL &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
+static int basl_parser_type_is_string(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_STRING &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
 static int basl_parser_type_equal(
     basl_parser_type_t left,
     basl_parser_type_t right
@@ -7373,6 +7387,7 @@ static basl_status_t basl_parser_declare_local_symbol(
     basl_parser_state_t *state,
     const basl_token_t *name_token,
     basl_parser_type_t type,
+    int is_const,
     size_t *out_index
 ) {
     basl_status_t status;
@@ -7385,6 +7400,7 @@ static basl_status_t basl_parser_declare_local_symbol(
         name,
         name_length,
         type,
+        is_const,
         out_index,
         state->program->error
     );
@@ -7397,6 +7413,169 @@ static basl_status_t basl_parser_declare_local_symbol(
     }
 
     return status;
+}
+
+static basl_status_t basl_parser_parse_expression(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result
+);
+
+static int basl_parser_resolve_builtin_conversion_kind(
+    const basl_parser_state_t *state,
+    const basl_token_t *name_token,
+    basl_type_kind_t *out_kind
+) {
+    const char *name_text;
+    size_t name_length;
+    basl_type_kind_t kind;
+
+    if (out_kind != NULL) {
+        *out_kind = BASL_TYPE_INVALID;
+    }
+    if (state == NULL || name_token == NULL) {
+        return 0;
+    }
+
+    name_text = basl_parser_token_text(state, name_token, &name_length);
+    kind = basl_type_kind_from_name(name_text, name_length);
+    if (
+        kind != BASL_TYPE_I32 &&
+        kind != BASL_TYPE_F64 &&
+        kind != BASL_TYPE_STRING &&
+        kind != BASL_TYPE_BOOL
+    ) {
+        return 0;
+    }
+
+    if (out_kind != NULL) {
+        *out_kind = kind;
+    }
+    return 1;
+}
+
+static basl_status_t basl_parser_parse_builtin_conversion(
+    basl_parser_state_t *state,
+    const basl_token_t *name_token,
+    basl_type_kind_t target_kind,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t argument_result;
+    basl_opcode_t opcode;
+    int needs_opcode;
+
+    basl_expression_result_clear(&argument_result);
+    opcode = BASL_OPCODE_TO_STRING;
+    needs_opcode = 0;
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_LPAREN,
+        "expected '(' after conversion name",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_parse_expression(state, &argument_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (basl_parser_match(state, BASL_TOKEN_COMMA)) {
+        return basl_parser_report(
+            state,
+            name_token->span,
+            "built-in conversions accept exactly one argument"
+        );
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_RPAREN,
+        "expected ')' after conversion argument",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    switch (target_kind) {
+        case BASL_TYPE_I32:
+            if (basl_parser_type_is_i32(argument_result.type)) {
+                needs_opcode = 0;
+            } else if (basl_parser_type_is_f64(argument_result.type)) {
+                opcode = BASL_OPCODE_TO_I32;
+                needs_opcode = 1;
+            } else {
+                return basl_parser_report(
+                    state,
+                    name_token->span,
+                    "i32(...) requires an i32 or f64 argument"
+                );
+            }
+            break;
+        case BASL_TYPE_F64:
+            if (basl_parser_type_is_f64(argument_result.type)) {
+                needs_opcode = 0;
+            } else if (basl_parser_type_is_i32(argument_result.type)) {
+                opcode = BASL_OPCODE_TO_F64;
+                needs_opcode = 1;
+            } else {
+                return basl_parser_report(
+                    state,
+                    name_token->span,
+                    "f64(...) requires an i32 or f64 argument"
+                );
+            }
+            break;
+        case BASL_TYPE_STRING:
+            if (basl_parser_type_is_string(argument_result.type)) {
+                needs_opcode = 0;
+            } else if (
+                basl_parser_type_is_i32(argument_result.type) ||
+                basl_parser_type_is_f64(argument_result.type) ||
+                basl_parser_type_is_bool(argument_result.type)
+            ) {
+                opcode = BASL_OPCODE_TO_STRING;
+                needs_opcode = 1;
+            } else {
+                return basl_parser_report(
+                    state,
+                    name_token->span,
+                    "string(...) requires a string, i32, f64, or bool argument"
+                );
+            }
+            break;
+        case BASL_TYPE_BOOL:
+            if (!basl_parser_type_is_bool(argument_result.type)) {
+                return basl_parser_report(
+                    state,
+                    name_token->span,
+                    "bool(...) requires a bool argument"
+                );
+            }
+            needs_opcode = 0;
+            break;
+        default:
+            return basl_parser_report(
+                state,
+                name_token->span,
+                "unsupported built-in conversion"
+            );
+    }
+
+    if (needs_opcode) {
+        status = basl_parser_emit_opcode(state, opcode, name_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    basl_expression_result_set_type(
+        out_result,
+        basl_binding_type_primitive(target_kind)
+    );
+    return BASL_STATUS_OK;
 }
 
 static int basl_program_find_function_symbol(
@@ -8575,6 +8754,22 @@ static basl_status_t basl_parser_parse_primary_base(
                 return basl_parser_parse_qualified_symbol(state, token, out_result);
             }
             if (basl_parser_check(state, BASL_TOKEN_LPAREN)) {
+                basl_type_kind_t conversion_kind;
+
+                if (
+                    basl_parser_resolve_builtin_conversion_kind(
+                        state,
+                        token,
+                        &conversion_kind
+                    )
+                ) {
+                    return basl_parser_parse_builtin_conversion(
+                        state,
+                        token,
+                        conversion_kind,
+                        out_result
+                    );
+                }
                 if (basl_program_find_function_symbol(state->program, token, NULL, NULL)) {
                     return basl_parser_parse_call(state, token, out_result);
                 }
@@ -8768,7 +8963,8 @@ static basl_status_t basl_parser_parse_unary(
     operator_token = basl_parser_peek(state);
     if (operator_token != NULL &&
         (operator_token->kind == BASL_TOKEN_MINUS ||
-         operator_token->kind == BASL_TOKEN_BANG)) {
+         operator_token->kind == BASL_TOKEN_BANG ||
+         operator_token->kind == BASL_TOKEN_TILDE)) {
         basl_parser_advance(state);
         status = basl_parser_parse_unary(state, &operand_result);
         if (status != BASL_STATUS_OK) {
@@ -8790,18 +8986,36 @@ static basl_status_t basl_parser_parse_unary(
             return basl_parser_emit_opcode(state, BASL_OPCODE_NEGATE, operator_token->span);
         }
 
+        if (operator_token->kind == BASL_TOKEN_BANG) {
+            status = basl_parser_require_unary_operator(
+                state,
+                operator_token->span,
+                BASL_UNARY_OPERATOR_LOGICAL_NOT,
+                operand_result.type,
+                "logical '!' requires a bool operand"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_BOOL)
+            );
+            return basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_token->span);
+        }
+
         status = basl_parser_require_unary_operator(
             state,
             operator_token->span,
-            BASL_UNARY_OPERATOR_LOGICAL_NOT,
+            BASL_UNARY_OPERATOR_BITWISE_NOT,
             operand_result.type,
-            "logical '!' requires a bool operand"
+            "bitwise '~' requires an i32 operand"
         );
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        basl_expression_result_set_type(out_result, basl_binding_type_primitive(BASL_TYPE_BOOL));
-        return basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_token->span);
+        basl_expression_result_set_type(out_result, operand_result.type);
+        return basl_parser_emit_opcode(state, BASL_OPCODE_BITWISE_NOT, operator_token->span);
     }
 
     return basl_parser_parse_primary(state, out_result);
@@ -10752,9 +10966,11 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     basl_parser_type_t target_type;
     basl_expression_result_t value_result;
     const basl_class_field_t *field;
+    const basl_binding_local_t *local_decl;
     const basl_global_variable_t *global_decl;
     int is_field_assignment;
     int is_global_assignment;
+    int is_const_local;
 
     local_index = 0U;
     global_index = 0U;
@@ -10762,9 +10978,11 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     local_type = basl_binding_type_invalid();
     target_type = basl_binding_type_invalid();
     field = NULL;
+    local_decl = NULL;
     global_decl = NULL;
     is_field_assignment = 0;
     is_global_assignment = 0;
+    is_const_local = 0;
     basl_expression_result_clear(&value_result);
 
     status = basl_parser_expect(
@@ -10778,7 +10996,9 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     }
 
     if (basl_parser_find_local_symbol(state, name_token, &local_index)) {
-        local_type = basl_binding_scope_stack_local_at(&state->locals, local_index)->type;
+        local_decl = basl_binding_scope_stack_local_at(&state->locals, local_index);
+        local_type = local_decl->type;
+        is_const_local = local_decl->is_const;
     } else {
         const char *name_text;
         size_t name_length;
@@ -10858,6 +11078,14 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
                 return status;
             }
         }
+    }
+
+    if (is_const_local && !is_field_assignment) {
+        return basl_parser_report(
+            state,
+            name_token->span,
+            "cannot assign to const local variable"
+        );
     }
 
     operator_token = basl_parser_peek(state);
@@ -11204,7 +11432,93 @@ static basl_status_t basl_parser_parse_variable_declaration(
         return status;
     }
 
-    status = basl_parser_declare_local_symbol(state, name_token, declared_type, NULL);
+    status = basl_parser_declare_local_symbol(state, name_token, declared_type, 0, NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    basl_statement_result_set_guaranteed_return(out_result, 0);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_parser_parse_const_declaration(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+) {
+    basl_status_t status;
+    const basl_token_t *const_token;
+    const basl_token_t *name_token;
+    basl_parser_type_t declared_type;
+    basl_expression_result_t initializer_result;
+
+    basl_expression_result_clear(&initializer_result);
+    status = basl_parser_expect(state, BASL_TOKEN_CONST, "expected 'const'", &const_token);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_program_parse_type_reference(
+        state->program,
+        &state->current,
+        "unsupported local constant type",
+        &declared_type
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_program_require_non_void_type(
+        state->program,
+        basl_parser_previous(state) == NULL
+            ? const_token->span
+            : basl_parser_previous(state)->span,
+        declared_type,
+        "local constants cannot use type void"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_IDENTIFIER,
+        "expected local constant name",
+        &name_token
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_ASSIGN,
+        "constants must be initialized at declaration",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_parse_expression(state, &initializer_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_require_type(
+        state,
+        name_token->span,
+        initializer_result.type,
+        declared_type,
+        "initializer type does not match local constant type"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_SEMICOLON,
+        "expected ';' after local constant declaration",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_declare_local_symbol(state, name_token, declared_type, 1, NULL);
     if (status != BASL_STATUS_OK) {
         return status;
     }
@@ -11247,6 +11561,9 @@ static basl_status_t basl_parser_parse_declaration(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
 ) {
+    if (basl_parser_check(state, BASL_TOKEN_CONST)) {
+        return basl_parser_parse_const_declaration(state, out_result);
+    }
     if (basl_parser_is_variable_declaration_start(state)) {
         return basl_parser_parse_variable_declaration(state, out_result);
     }
@@ -11301,6 +11618,7 @@ static basl_status_t basl_compile_seed_parameter_symbols(
                 "self",
                 4U,
                 decl->params[i].type,
+                0,
                 NULL,
                 state->program->error
             );
@@ -11314,6 +11632,7 @@ static basl_status_t basl_compile_seed_parameter_symbols(
                 state,
                 &fake_name,
                 decl->params[i].type,
+                0,
                 NULL
             );
         }
