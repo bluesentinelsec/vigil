@@ -85,7 +85,7 @@ class SyntaxIntegrationTest(unittest.TestCase):
                         fn main() -> i32 {
                             i32 total = 0x10 + 0b11 + 0o7;
                             string letter = 'A';
-                            string newline = '\n';
+                            string newline = '\\n';
 
                             if (letter == "A" && newline.len() == 1) {
                                 return total;
