@@ -1934,6 +1934,18 @@ static basl_status_t basl_vm_make_ok_error_value(
     return basl_vm_make_error_value(vm, 0, "", 0U, out_value, error);
 }
 
+static basl_status_t basl_vm_make_bounds_error_value(
+    basl_vm_t *vm,
+    const char *message,
+    basl_value_t *out_value,
+    basl_error_t *error
+) {
+    size_t length;
+
+    length = message == NULL ? 0U : strlen(message);
+    return basl_vm_make_error_value(vm, 7, message == NULL ? "" : message, length, out_value, error);
+}
+
 static int basl_vm_find_substring(
     const char *text,
     size_t text_length,
@@ -2415,10 +2427,13 @@ basl_status_t basl_vm_execute_function(
     const basl_value_t *peeked;
     uint32_t constant_index;
     uint32_t operand;
+    basl_object_t *object;
     basl_vm_frame_t *frame;
     const uint8_t *code;
     size_t code_size;
     size_t local_index;
+
+    object = NULL;
 
     status = basl_vm_validate(vm, error);
     if (status != BASL_STATUS_OK) {
@@ -3321,6 +3336,601 @@ basl_status_t basl_vm_execute_function(
                 }
 
                 basl_value_release(&left);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_ARRAY_PUSH:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_ARRAY
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array push() requires an array receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                status = basl_array_object_append(
+                    basl_value_as_object(&left),
+                    &value,
+                    error
+                );
+                basl_value_release(&left);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_ARRAY_POP:
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_ARRAY
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array pop() requires an array receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (basl_array_object_pop(basl_value_as_object(&left), &value)) {
+                    basl_value_release(&right);
+                    basl_value_init_nil(&right);
+                    status = basl_vm_make_ok_error_value(vm, &right, error);
+                } else {
+                    status = basl_vm_make_bounds_error_value(
+                        vm,
+                        "array is empty",
+                        &value,
+                        error
+                    );
+                }
+                basl_value_release(&left);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status == BASL_STATUS_OK) {
+                    status = basl_vm_push(vm, &right, error);
+                }
+                basl_value_release(&right);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_ARRAY_GET_SAFE:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_ARRAY
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array get() requires an array receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (basl_value_kind(&right) != BASL_VALUE_INT || basl_value_as_int(&right) < 0) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array get() index must be a non-negative i32",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    basl_value_t item;
+                    int found;
+
+                    basl_value_init_nil(&item);
+                    found = basl_array_object_get(
+                        basl_value_as_object(&left),
+                        (size_t)basl_value_as_int(&right),
+                        &item
+                    );
+                    if (found) {
+                        basl_value_release(&value);
+                        value = item;
+                        status = basl_vm_make_ok_error_value(vm, &right, error);
+                    } else {
+                        status = basl_vm_make_bounds_error_value(
+                            vm,
+                            "array index is out of range",
+                            &right,
+                            error
+                        );
+                    }
+                    if (!found) {
+                        basl_value_release(&item);
+                    }
+                }
+                basl_value_release(&left);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status == BASL_STATUS_OK) {
+                    status = basl_vm_push(vm, &right, error);
+                }
+                basl_value_release(&right);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_ARRAY_SET_SAFE:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_ARRAY
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array set() requires an array receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (basl_value_kind(&right) != BASL_VALUE_INT || basl_value_as_int(&right) < 0) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array set() index must be a non-negative i32",
+                        error
+                    );
+                    goto cleanup;
+                }
+                status = basl_array_object_set(
+                    basl_value_as_object(&left),
+                    (size_t)basl_value_as_int(&right),
+                    &value,
+                    error
+                );
+                basl_value_release(&left);
+                basl_value_release(&right);
+                basl_value_release(&value);
+                if (status == BASL_STATUS_OK) {
+                    status = basl_vm_make_ok_error_value(vm, &value, error);
+                } else if (status == BASL_STATUS_INVALID_ARGUMENT) {
+                    status = basl_vm_make_bounds_error_value(
+                        vm,
+                        "array index is out of range",
+                        &value,
+                        error
+                    );
+                }
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_ARRAY_SLICE:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_ARRAY
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array slice() requires an array receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (
+                    basl_value_kind(&right) != BASL_VALUE_INT ||
+                    basl_value_kind(&value) != BASL_VALUE_INT ||
+                    basl_value_as_int(&right) < 0 ||
+                    basl_value_as_int(&value) < 0
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array slice() start and end must be non-negative i32 values",
+                        error
+                    );
+                    goto cleanup;
+                }
+                object = NULL;
+                status = basl_array_object_slice(
+                    basl_value_as_object(&left),
+                    (size_t)basl_value_as_int(&right),
+                    (size_t)basl_value_as_int(&value),
+                    &object,
+                    error
+                );
+                basl_value_release(&left);
+                basl_value_release(&right);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array slice range is out of bounds",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_object(&value, &object);
+                basl_object_release(&object);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_ARRAY_CONTAINS:
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_ARRAY
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "array contains() requires an array receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_bool(&value, 0);
+                {
+                    size_t item_count = basl_array_object_length(basl_value_as_object(&left));
+                    size_t item_index;
+                    basl_value_t item;
+
+                    for (item_index = 0U; item_index < item_count; item_index += 1U) {
+                        basl_value_init_nil(&item);
+                        if (!basl_array_object_get(
+                                basl_value_as_object(&left),
+                                item_index,
+                                &item
+                            )) {
+                            continue;
+                        }
+                        if (basl_vm_values_equal(&item, &right)) {
+                            basl_value_init_bool(&value, 1);
+                            basl_value_release(&item);
+                            break;
+                        }
+                        basl_value_release(&item);
+                    }
+                }
+                basl_value_release(&left);
+                basl_value_release(&right);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_MAP_GET_SAFE:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map get() requires a map receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    basl_value_t stored;
+                    int found;
+
+                    basl_value_init_nil(&stored);
+                    found = basl_map_object_get(basl_value_as_object(&left), &right, &stored);
+                    basl_value_release(&right);
+                    basl_value_init_bool(&right, found != 0);
+                    if (found) {
+                        basl_value_release(&value);
+                        value = stored;
+                    }
+                }
+                basl_value_release(&left);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status == BASL_STATUS_OK) {
+                    status = basl_vm_push(vm, &right, error);
+                }
+                basl_value_release(&right);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_MAP_SET_SAFE:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map set() requires a map receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                status = basl_map_object_set(
+                    basl_value_as_object(&left),
+                    &right,
+                    &value,
+                    error
+                );
+                basl_value_release(&left);
+                basl_value_release(&right);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_make_ok_error_value(vm, &value, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_MAP_REMOVE_SAFE:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map remove() requires a map receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    basl_value_t removed_value;
+                    int removed;
+
+                    basl_value_init_nil(&removed_value);
+                    removed = basl_map_object_remove(
+                        basl_value_as_object(&left),
+                        &right,
+                        &removed_value,
+                        error
+                    );
+                    basl_value_release(&right);
+                    basl_value_init_bool(&right, removed != 0);
+                    if (removed) {
+                        basl_value_release(&value);
+                        value = removed_value;
+                    } else {
+                        basl_value_release(&removed_value);
+                    }
+                }
+                basl_value_release(&left);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status == BASL_STATUS_OK) {
+                    status = basl_vm_push(vm, &right, error);
+                }
+                basl_value_release(&right);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_MAP_HAS:
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map has() requires a map receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    basl_value_t stored;
+                    int found;
+
+                    basl_value_init_nil(&stored);
+                    found = basl_map_object_get(basl_value_as_object(&left), &right, &stored);
+                    basl_value_release(&stored);
+                    basl_value_release(&right);
+                    basl_value_init_bool(&value, found != 0);
+                }
+                basl_value_release(&left);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_MAP_KEYS:
+            case BASL_OPCODE_MAP_VALUES:
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map method requires a map receiver",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    size_t item_count = basl_map_object_count(basl_value_as_object(&left));
+                    basl_value_t *items = NULL;
+                    size_t item_capacity = 0U;
+                    size_t item_index;
+
+                    status = basl_vm_grow_value_array(
+                        vm->runtime,
+                        &items,
+                        &item_capacity,
+                        item_count,
+                        error
+                    );
+                    for (
+                        item_index = 0U;
+                        status == BASL_STATUS_OK && item_index < item_count;
+                        item_index += 1U
+                    ) {
+                        basl_value_init_nil(&items[item_index]);
+                        if ((basl_opcode_t)code[frame->ip - 1U] == BASL_OPCODE_MAP_KEYS) {
+                            if (!basl_map_object_key_at(
+                                    basl_value_as_object(&left),
+                                    item_index,
+                                    &items[item_index]
+                                )) {
+                                status = BASL_STATUS_INTERNAL;
+                            }
+                        } else {
+                            if (!basl_map_object_value_at(
+                                    basl_value_as_object(&left),
+                                    item_index,
+                                    &items[item_index]
+                                )) {
+                                status = BASL_STATUS_INTERNAL;
+                            }
+                        }
+                    }
+                    if (status == BASL_STATUS_OK) {
+                        object = NULL;
+                        status = basl_array_object_new(
+                            vm->runtime,
+                            items,
+                            item_count,
+                            &object,
+                            error
+                        );
+                    }
+                    for (item_index = 0U; item_index < item_count; item_index += 1U) {
+                        basl_value_release(&items[item_index]);
+                    }
+                    basl_runtime_free(vm->runtime, (void **)&items);
+                    basl_value_release(&left);
+                    if (status != BASL_STATUS_OK) {
+                        if (status == BASL_STATUS_INTERNAL) {
+                            status = basl_vm_fail_at_ip(
+                                vm,
+                                BASL_STATUS_INTERNAL,
+                                "failed to enumerate map entries",
+                                error
+                            );
+                        }
+                        goto cleanup;
+                    }
+                    basl_value_init_object(&value, &object);
+                    basl_object_release(&object);
+                }
                 status = basl_vm_push(vm, &value, error);
                 basl_value_release(&value);
                 if (status != BASL_STATUS_OK) {

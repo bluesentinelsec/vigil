@@ -1059,6 +1059,81 @@ fn main() -> i32 {
     EXPECT_EQ(CompileAndRun(source), 19);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesArrayBuiltInMethods) {
+    const char *source = R"(
+fn main() -> i32 {
+    array<i32> nums = [1, 2];
+    nums.push(3);
+    i32 hit, err hit_err = nums.get(1);
+    err set_err = nums.set(0, 5);
+    array<i32> prefix = nums.slice(0, 2);
+    i32 popped, err pop_err = nums.pop();
+    i32 missing, err missing_err = nums.get(99);
+
+    if (nums.len() == 2 &&
+        hit == 2 &&
+        hit_err == ok &&
+        set_err == ok &&
+        prefix.contains(5) &&
+        prefix.contains(2) &&
+        popped == 3 &&
+        pop_err == ok &&
+        missing == 0 &&
+        missing_err != ok) {
+        return 23;
+    }
+
+    return 0;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 23);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesMapBuiltInMethods) {
+    const char *source = R"(
+fn main() -> i32 {
+    map<i32, string> labels = {1: "a", 2: "b"};
+    string first, bool found_first = labels.get(1);
+    err set_err = labels.set(3, "c");
+    string removed, bool removed_ok = labels.remove(2);
+    string missing, bool missing_ok = labels.get(99);
+    i32 key_sum = 0;
+    i32 value_hits = 0;
+
+    for key in labels.keys() {
+        key_sum += key;
+    }
+
+    for value in labels.values() {
+        if (value == "a" || value == "c") {
+            value_hits++;
+        }
+    }
+
+    if (labels.len() == 2 &&
+        first == "a" &&
+        found_first == true &&
+        set_err == ok &&
+        removed == "b" &&
+        removed_ok == true &&
+        missing == "" &&
+        missing_ok == false &&
+        labels.has(1) &&
+        labels.has(3) &&
+        !labels.has(2) &&
+        key_sum == 4 &&
+        value_hits == 2) {
+        return 29;
+    }
+
+    return 0;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 29);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
     const char *source = R"(
 class Counter {

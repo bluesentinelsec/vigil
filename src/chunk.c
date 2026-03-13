@@ -604,6 +604,30 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "STRING_BYTES";
         case BASL_OPCODE_STRING_CHAR_AT:
             return "STRING_CHAR_AT";
+        case BASL_OPCODE_ARRAY_PUSH:
+            return "ARRAY_PUSH";
+        case BASL_OPCODE_ARRAY_POP:
+            return "ARRAY_POP";
+        case BASL_OPCODE_ARRAY_GET_SAFE:
+            return "ARRAY_GET_SAFE";
+        case BASL_OPCODE_ARRAY_SET_SAFE:
+            return "ARRAY_SET_SAFE";
+        case BASL_OPCODE_ARRAY_SLICE:
+            return "ARRAY_SLICE";
+        case BASL_OPCODE_ARRAY_CONTAINS:
+            return "ARRAY_CONTAINS";
+        case BASL_OPCODE_MAP_GET_SAFE:
+            return "MAP_GET_SAFE";
+        case BASL_OPCODE_MAP_SET_SAFE:
+            return "MAP_SET_SAFE";
+        case BASL_OPCODE_MAP_REMOVE_SAFE:
+            return "MAP_REMOVE_SAFE";
+        case BASL_OPCODE_MAP_HAS:
+            return "MAP_HAS";
+        case BASL_OPCODE_MAP_KEYS:
+            return "MAP_KEYS";
+        case BASL_OPCODE_MAP_VALUES:
+            return "MAP_VALUES";
         default:
             return "UNKNOWN";
     }
@@ -1114,7 +1138,19 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_STRING_INDEX_OF ||
             opcode == BASL_OPCODE_STRING_SUBSTR ||
             opcode == BASL_OPCODE_STRING_BYTES ||
-            opcode == BASL_OPCODE_STRING_CHAR_AT
+            opcode == BASL_OPCODE_STRING_CHAR_AT ||
+            opcode == BASL_OPCODE_ARRAY_PUSH ||
+            opcode == BASL_OPCODE_ARRAY_POP ||
+            opcode == BASL_OPCODE_ARRAY_GET_SAFE ||
+            opcode == BASL_OPCODE_ARRAY_SET_SAFE ||
+            opcode == BASL_OPCODE_ARRAY_SLICE ||
+            opcode == BASL_OPCODE_ARRAY_CONTAINS ||
+            opcode == BASL_OPCODE_MAP_GET_SAFE ||
+            opcode == BASL_OPCODE_MAP_SET_SAFE ||
+            opcode == BASL_OPCODE_MAP_REMOVE_SAFE ||
+            opcode == BASL_OPCODE_MAP_HAS ||
+            opcode == BASL_OPCODE_MAP_KEYS ||
+            opcode == BASL_OPCODE_MAP_VALUES
         ) {
             offset += 1U;
         } else {

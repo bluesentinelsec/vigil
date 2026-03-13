@@ -198,10 +198,26 @@ BASL_API int basl_array_object_get(
     size_t index,
     basl_value_t *out_value
 );
+BASL_API basl_status_t basl_array_object_append(
+    basl_object_t *object,
+    const basl_value_t *value,
+    basl_error_t *error
+);
+BASL_API int basl_array_object_pop(
+    basl_object_t *object,
+    basl_value_t *out_value
+);
 BASL_API basl_status_t basl_array_object_set(
     basl_object_t *object,
     size_t index,
     const basl_value_t *value,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_array_object_slice(
+    const basl_object_t *object,
+    size_t start,
+    size_t end,
+    basl_object_t **out_object,
     basl_error_t *error
 );
 
@@ -230,6 +246,12 @@ BASL_API basl_status_t basl_map_object_set(
     basl_object_t *object,
     const basl_value_t *key,
     const basl_value_t *value,
+    basl_error_t *error
+);
+BASL_API int basl_map_object_remove(
+    basl_object_t *object,
+    const basl_value_t *key,
+    basl_value_t *out_value,
     basl_error_t *error
 );
 

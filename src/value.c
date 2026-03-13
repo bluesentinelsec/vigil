@@ -1256,6 +1256,102 @@ int basl_array_object_get(
     return 1;
 }
 
+basl_status_t basl_array_object_append(
+    basl_object_t *object,
+    const basl_value_t *value,
+    basl_error_t *error
+) {
+    basl_array_object_t *array_object;
+    basl_value_t copy;
+    void *memory;
+    basl_status_t status;
+
+    basl_error_clear(error);
+    array_object = (basl_array_object_t *)object;
+    if (array_object == NULL || array_object->base.type != BASL_OBJECT_ARRAY || value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "array object append arguments are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    memory = array_object->items;
+    if (array_object->item_count == 0U) {
+        status = basl_runtime_alloc(
+            array_object->base.runtime,
+            sizeof(*array_object->items),
+            &memory,
+            error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            array_object->base.runtime,
+            &memory,
+            (array_object->item_count + 1U) * sizeof(*array_object->items),
+            error
+        );
+    }
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    array_object->items = (basl_value_t *)memory;
+    copy = basl_value_copy(value);
+    array_object->items[array_object->item_count] = copy;
+    array_object->item_count += 1U;
+    return BASL_STATUS_OK;
+}
+
+int basl_array_object_pop(
+    basl_object_t *object,
+    basl_value_t *out_value
+) {
+    basl_array_object_t *array_object;
+    basl_error_t error;
+    size_t index;
+    void *memory;
+    basl_status_t status;
+
+    if (out_value == NULL) {
+        return 0;
+    }
+    basl_value_init_nil(out_value);
+    array_object = (basl_array_object_t *)object;
+    if (
+        array_object == NULL ||
+        array_object->base.type != BASL_OBJECT_ARRAY ||
+        array_object->item_count == 0U
+    ) {
+        return 0;
+    }
+
+    index = array_object->item_count - 1U;
+    *out_value = array_object->items[index];
+    basl_value_init_nil(&array_object->items[index]);
+    array_object->item_count = index;
+    if (index == 0U) {
+        memory = array_object->items;
+        basl_runtime_free(array_object->base.runtime, &memory);
+        array_object->items = NULL;
+        return 1;
+    }
+
+    memory = array_object->items;
+    basl_error_clear(&error);
+    status = basl_runtime_realloc(
+        array_object->base.runtime,
+        &memory,
+        index * sizeof(*array_object->items),
+        &error
+    );
+    if (status == BASL_STATUS_OK) {
+        array_object->items = (basl_value_t *)memory;
+    }
+    return 1;
+}
+
 basl_status_t basl_array_object_set(
     basl_object_t *object,
     size_t index,
@@ -1288,6 +1384,35 @@ basl_status_t basl_array_object_set(
     basl_value_release(&array_object->items[index]);
     array_object->items[index] = copy;
     return BASL_STATUS_OK;
+}
+
+basl_status_t basl_array_object_slice(
+    const basl_object_t *object,
+    size_t start,
+    size_t end,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    const basl_array_object_t *array_object;
+
+    basl_error_clear(error);
+    array_object = basl_array_object_cast(object);
+    if (array_object == NULL || out_object == NULL || start > end || end > array_object->item_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "array slice arguments are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    return basl_array_object_new(
+        array_object->base.runtime,
+        array_object->items + start,
+        end - start,
+        out_object,
+        error
+    );
 }
 
 basl_status_t basl_map_object_new(
@@ -1429,6 +1554,50 @@ basl_status_t basl_map_object_set(
     }
 
     return basl_map_set_value(&map_object->entries, key, value, error);
+}
+
+int basl_map_object_remove(
+    basl_object_t *object,
+    const basl_value_t *key,
+    basl_value_t *out_value,
+    basl_error_t *error
+) {
+    basl_map_object_t *map_object;
+    const basl_value_t *stored;
+    int removed;
+    basl_status_t status;
+
+    basl_error_clear(error);
+    if (out_value != NULL) {
+        basl_value_init_nil(out_value);
+    }
+    map_object = (basl_map_object_t *)object;
+    if (map_object == NULL || map_object->base.type != BASL_OBJECT_MAP || key == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "map object remove arguments are invalid"
+        );
+        return 0;
+    }
+
+    stored = basl_map_get_value(&map_object->entries, key);
+    if (stored == NULL) {
+        return 0;
+    }
+    if (out_value != NULL) {
+        *out_value = basl_value_copy(stored);
+    }
+
+    removed = 0;
+    status = basl_map_remove_value(&map_object->entries, key, &removed, error);
+    if (status != BASL_STATUS_OK || !removed) {
+        if (out_value != NULL) {
+            basl_value_release(out_value);
+        }
+        return 0;
+    }
+    return 1;
 }
 
 basl_status_t basl_function_object_attach_siblings(
