@@ -578,6 +578,32 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "DEFER_NEW_INSTANCE";
         case BASL_OPCODE_DEFER_CALL_INTERFACE:
             return "DEFER_CALL_INTERFACE";
+        case BASL_OPCODE_GET_STRING_SIZE:
+            return "GET_STRING_SIZE";
+        case BASL_OPCODE_STRING_CONTAINS:
+            return "STRING_CONTAINS";
+        case BASL_OPCODE_STRING_STARTS_WITH:
+            return "STRING_STARTS_WITH";
+        case BASL_OPCODE_STRING_ENDS_WITH:
+            return "STRING_ENDS_WITH";
+        case BASL_OPCODE_STRING_TRIM:
+            return "STRING_TRIM";
+        case BASL_OPCODE_STRING_TO_UPPER:
+            return "STRING_TO_UPPER";
+        case BASL_OPCODE_STRING_TO_LOWER:
+            return "STRING_TO_LOWER";
+        case BASL_OPCODE_STRING_REPLACE:
+            return "STRING_REPLACE";
+        case BASL_OPCODE_STRING_SPLIT:
+            return "STRING_SPLIT";
+        case BASL_OPCODE_STRING_INDEX_OF:
+            return "STRING_INDEX_OF";
+        case BASL_OPCODE_STRING_SUBSTR:
+            return "STRING_SUBSTR";
+        case BASL_OPCODE_STRING_BYTES:
+            return "STRING_BYTES";
+        case BASL_OPCODE_STRING_CHAR_AT:
+            return "STRING_CHAR_AT";
         default:
             return "UNKNOWN";
     }
@@ -1075,7 +1101,20 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_SET_INDEX ||
             opcode == BASL_OPCODE_GET_COLLECTION_SIZE ||
             opcode == BASL_OPCODE_GET_MAP_KEY_AT ||
-            opcode == BASL_OPCODE_GET_MAP_VALUE_AT
+            opcode == BASL_OPCODE_GET_MAP_VALUE_AT ||
+            opcode == BASL_OPCODE_GET_STRING_SIZE ||
+            opcode == BASL_OPCODE_STRING_CONTAINS ||
+            opcode == BASL_OPCODE_STRING_STARTS_WITH ||
+            opcode == BASL_OPCODE_STRING_ENDS_WITH ||
+            opcode == BASL_OPCODE_STRING_TRIM ||
+            opcode == BASL_OPCODE_STRING_TO_UPPER ||
+            opcode == BASL_OPCODE_STRING_TO_LOWER ||
+            opcode == BASL_OPCODE_STRING_REPLACE ||
+            opcode == BASL_OPCODE_STRING_SPLIT ||
+            opcode == BASL_OPCODE_STRING_INDEX_OF ||
+            opcode == BASL_OPCODE_STRING_SUBSTR ||
+            opcode == BASL_OPCODE_STRING_BYTES ||
+            opcode == BASL_OPCODE_STRING_CHAR_AT
         ) {
             offset += 1U;
         } else {

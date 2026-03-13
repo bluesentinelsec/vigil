@@ -1007,6 +1007,58 @@ fn main() -> i32 {
     EXPECT_EQ(CompileAndRun(sources, sizeof(sources) / sizeof(sources[0]), "main.basl"), 15);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
+    const char *source = R"(
+fn main() -> i32 {
+    string value = "  basl vm  ";
+    string trimmed = value.trim();
+    array<string> parts = "a,b,c".split(",");
+    array<u8> bytes = "AZ".bytes();
+    i32 split_hits = 0;
+    i32 byte_sum = 0;
+    i32 index, bool found = value.index_of("asl");
+    string sub, err sub_err = trimmed.substr(0, 4);
+    string ch, err ch_err = value.char_at(2);
+    string missing, err missing_err = trimmed.char_at(99);
+
+    for part in parts {
+        if (part == "b" || part == "c") {
+            split_hits++;
+        }
+    }
+
+    for byte in bytes {
+        byte_sum += i32(byte);
+    }
+
+    if (value.len() == 11 &&
+        value.contains("sl") &&
+        value.starts_with("  b") &&
+        value.ends_with("  ") &&
+        trimmed == "basl vm" &&
+        trimmed.to_upper() == "BASL VM" &&
+        trimmed.to_lower() == "basl vm" &&
+        value.replace("vm", "bytecode") == "  basl bytecode  " &&
+        index == 3 &&
+        found == true &&
+        sub == "basl" &&
+        sub_err == ok &&
+        ch == "b" &&
+        ch_err == ok &&
+        missing == "" &&
+        missing_err != ok &&
+        split_hits == 2 &&
+        byte_sum == 155) {
+        return 19;
+    }
+
+    return 0;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 19);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
     const char *source = R"(
 class Counter {

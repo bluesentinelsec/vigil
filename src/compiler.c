@@ -240,6 +240,7 @@ typedef struct basl_expression_result {
     basl_parser_type_t type;
     const basl_parser_type_t *types;
     size_t type_count;
+    basl_parser_type_t owned_types[2];
 } basl_expression_result_t;
 
 typedef struct basl_constant_result {
@@ -386,6 +387,8 @@ static void basl_expression_result_clear(
     result->type = basl_binding_type_invalid();
     result->types = NULL;
     result->type_count = 0U;
+    result->owned_types[0] = basl_binding_type_invalid();
+    result->owned_types[1] = basl_binding_type_invalid();
 }
 
 static void basl_expression_result_set_type(
@@ -399,6 +402,8 @@ static void basl_expression_result_set_type(
     result->type = type;
     result->types = NULL;
     result->type_count = basl_binding_type_is_valid(type) ? 1U : 0U;
+    result->owned_types[0] = basl_binding_type_invalid();
+    result->owned_types[1] = basl_binding_type_invalid();
 }
 
 static void basl_expression_result_set_return_types(
@@ -414,6 +419,24 @@ static void basl_expression_result_set_return_types(
     result->type = first_type;
     result->types = types;
     result->type_count = type_count;
+    result->owned_types[0] = basl_binding_type_invalid();
+    result->owned_types[1] = basl_binding_type_invalid();
+}
+
+static void basl_expression_result_set_pair(
+    basl_expression_result_t *result,
+    basl_parser_type_t first_type,
+    basl_parser_type_t second_type
+) {
+    if (result == NULL) {
+        return;
+    }
+
+    result->type = first_type;
+    result->owned_types[0] = first_type;
+    result->owned_types[1] = second_type;
+    result->types = result->owned_types;
+    result->type_count = 2U;
 }
 
 static void basl_expression_result_copy(
@@ -430,6 +453,13 @@ static void basl_expression_result_copy(
         source->types,
         source->type_count
     );
+    if (source->types == source->owned_types && source->type_count == 2U) {
+        basl_expression_result_set_pair(
+            result,
+            source->owned_types[0],
+            source->owned_types[1]
+        );
+    }
 }
 
 static basl_status_t basl_parser_require_scalar_expression(
@@ -12660,6 +12690,352 @@ static basl_status_t basl_parser_parse_interface_method_call(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_string_method_call(
+    basl_parser_state_t *state,
+    const basl_token_t *method_token,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t arg_result;
+    basl_parser_type_t array_type;
+    const char *method_name;
+    size_t method_length;
+
+    basl_expression_result_clear(&arg_result);
+    array_type = basl_binding_type_invalid();
+    method_name = basl_parser_token_text(state, method_token, &method_length);
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_LPAREN,
+        "expected '(' after string method name",
+        NULL
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (basl_program_names_equal(method_name, method_length, "len", 3U)) {
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_RPAREN,
+            "string len() does not accept arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_STRING_SIZE, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_type(out_result, basl_binding_type_primitive(BASL_TYPE_I32));
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_program_names_equal(method_name, method_length, "trim", 4U) ||
+        basl_program_names_equal(method_name, method_length, "to_upper", 8U) ||
+        basl_program_names_equal(method_name, method_length, "to_lower", 8U) ||
+        basl_program_names_equal(method_name, method_length, "bytes", 5U)) {
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_RPAREN,
+            "string method does not accept arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (basl_program_names_equal(method_name, method_length, "trim", 4U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_TRIM, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_STRING)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "to_upper", 8U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_TO_UPPER, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_STRING)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "to_lower", 8U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_TO_LOWER, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_STRING)
+            );
+            return BASL_STATUS_OK;
+        }
+        status = basl_program_intern_array_type(
+            (basl_program_state_t *)state->program,
+            basl_binding_type_primitive(BASL_TYPE_U8),
+            &array_type
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_BYTES, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_type(out_result, array_type);
+        return BASL_STATUS_OK;
+    }
+
+    status = basl_parser_parse_expression(state, &arg_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_require_scalar_expression(
+        state,
+        method_token->span,
+        &arg_result,
+        "string method arguments must be single values"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (basl_program_names_equal(method_name, method_length, "contains", 8U) ||
+        basl_program_names_equal(method_name, method_length, "starts_with", 11U) ||
+        basl_program_names_equal(method_name, method_length, "ends_with", 9U) ||
+        basl_program_names_equal(method_name, method_length, "index_of", 8U) ||
+        basl_program_names_equal(method_name, method_length, "split", 5U)) {
+        status = basl_parser_require_type(
+            state,
+            method_token->span,
+            arg_result.type,
+            basl_binding_type_primitive(BASL_TYPE_STRING),
+            "string method argument must be string"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_RPAREN,
+            "expected ')' after string method arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (basl_program_names_equal(method_name, method_length, "contains", 8U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_CONTAINS, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_BOOL)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "starts_with", 11U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_STARTS_WITH, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_BOOL)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "ends_with", 9U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_ENDS_WITH, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_BOOL)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "split", 5U)) {
+            status = basl_program_intern_array_type(
+                (basl_program_state_t *)state->program,
+                basl_binding_type_primitive(BASL_TYPE_STRING),
+                &array_type
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_SPLIT, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(out_result, array_type);
+            return BASL_STATUS_OK;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_INDEX_OF, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_pair(
+            out_result,
+            basl_binding_type_primitive(BASL_TYPE_I32),
+            basl_binding_type_primitive(BASL_TYPE_BOOL)
+        );
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_program_names_equal(method_name, method_length, "replace", 7U)) {
+        basl_expression_result_t second_arg;
+
+        basl_expression_result_clear(&second_arg);
+        status = basl_parser_require_type(
+            state,
+            method_token->span,
+            arg_result.type,
+            basl_binding_type_primitive(BASL_TYPE_STRING),
+            "string replace() arguments must be strings"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_COMMA,
+            "string replace() expects two arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_parse_expression(state, &second_arg);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_scalar_expression(
+            state,
+            method_token->span,
+            &second_arg,
+            "string method arguments must be single values"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_type(
+            state,
+            method_token->span,
+            second_arg.type,
+            basl_binding_type_primitive(BASL_TYPE_STRING),
+            "string replace() arguments must be strings"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_RPAREN,
+            "expected ')' after string method arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_REPLACE, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_type(out_result, basl_binding_type_primitive(BASL_TYPE_STRING));
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_program_names_equal(method_name, method_length, "substr", 6U) ||
+        basl_program_names_equal(method_name, method_length, "char_at", 7U)) {
+        basl_expression_result_t second_arg;
+
+        basl_expression_result_clear(&second_arg);
+        status = basl_parser_require_type(
+            state,
+            method_token->span,
+            arg_result.type,
+            basl_binding_type_primitive(BASL_TYPE_I32),
+            "string index arguments must be i32"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (basl_program_names_equal(method_name, method_length, "substr", 6U)) {
+            status = basl_parser_expect(
+                state,
+                BASL_TOKEN_COMMA,
+                "string substr() expects two arguments",
+                NULL
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_parse_expression(state, &second_arg);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_require_scalar_expression(
+                state,
+                method_token->span,
+                &second_arg,
+                "string method arguments must be single values"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_require_type(
+                state,
+                method_token->span,
+                second_arg.type,
+                basl_binding_type_primitive(BASL_TYPE_I32),
+                "string index arguments must be i32"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+        }
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_RPAREN,
+            "expected ')' after string method arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(
+            state,
+            basl_program_names_equal(method_name, method_length, "substr", 6U)
+                ? BASL_OPCODE_STRING_SUBSTR
+                : BASL_OPCODE_STRING_CHAR_AT,
+            method_token->span
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_pair(
+            out_result,
+            basl_binding_type_primitive(BASL_TYPE_STRING),
+            basl_binding_type_primitive(BASL_TYPE_ERR)
+        );
+        return BASL_STATUS_OK;
+    }
+
+    return basl_parser_report(state, method_token->span, "unknown string method");
+}
+
 static basl_status_t basl_parser_parse_postfix_suffixes(
     basl_parser_state_t *state,
     basl_expression_result_t *out_result
@@ -12749,6 +13125,16 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
                     return status;
                 }
                 basl_expression_result_set_type(out_result, field->type);
+                continue;
+            }
+            if (
+                basl_parser_check(state, BASL_TOKEN_LPAREN) &&
+                basl_parser_type_is_string(out_result->type)
+            ) {
+                status = basl_parser_parse_string_method_call(state, field_token, out_result);
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
                 continue;
             }
             if (
