@@ -12,9 +12,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def resolve_basl_command() -> list[str]:
+    configured_bin = os.environ.get("BASL_BIN")
     native_bin = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
     wasm_bin = REPO_ROOT / "build" / "basl.js"
 
+    if configured_bin:
+        return [configured_bin]
     if native_bin.exists():
         return [str(native_bin)]
     if wasm_bin.exists():

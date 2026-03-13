@@ -111,5 +111,9 @@ if(BASL_BUILD_TESTS)
             NAME BaslSyntaxIntegrationTest
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
         )
+        set_tests_properties(
+            BaslSyntaxIntegrationTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
     endif()
 endif()
