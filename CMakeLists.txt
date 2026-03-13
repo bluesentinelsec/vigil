@@ -106,8 +106,10 @@ if(BASL_BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(basl_tests)
 
-    add_test(
-        NAME BaslSyntaxIntegrationTest
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
-    )
+    if (NOT EMSCRIPTEN)
+        add_test(
+            NAME BaslSyntaxIntegrationTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
+        )
+    endif()
 endif()
