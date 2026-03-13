@@ -745,6 +745,20 @@ static int basl_parser_type_is_map(
            type.object_index != BASL_BINDING_INVALID_CLASS_INDEX;
 }
 
+static int basl_parser_type_supports_map_key(
+    basl_parser_type_t type
+) {
+    return (type.kind == BASL_TYPE_STRING &&
+            type.object_kind == BASL_BINDING_OBJECT_NONE) ||
+           (type.kind == BASL_TYPE_BOOL &&
+            type.object_kind == BASL_BINDING_OBJECT_NONE) ||
+           (type.kind == BASL_TYPE_I32 &&
+            type.object_kind == BASL_BINDING_OBJECT_NONE) ||
+           (type.kind == BASL_TYPE_I32 &&
+            type.object_kind == BASL_BINDING_OBJECT_ENUM &&
+            type.object_index != BASL_BINDING_INVALID_CLASS_INDEX);
+}
+
 static int basl_parser_type_is_function(
     basl_parser_type_t type
 ) {
@@ -4570,8 +4584,12 @@ static basl_status_t basl_program_parse_type_reference(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        if (!basl_parser_type_is_string(key_type)) {
-            return basl_compile_report(program, token->span, "map keys must use type string");
+        if (!basl_parser_type_supports_map_key(key_type)) {
+            return basl_compile_report(
+                program,
+                token->span,
+                "map keys must use type i32, bool, string, or enum"
+            );
         }
         next_token = basl_program_token_at(program, *cursor);
         if (next_token == NULL || next_token->kind != BASL_TOKEN_COMMA) {
@@ -11323,7 +11341,7 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
                     basl_parser_previous(state)->span,
                     index_result.type,
                     basl_program_map_type_key(state->program, out_result->type),
-                    "map index must be string"
+                    "map index must match map key type"
                 );
                 if (status != BASL_STATUS_OK) {
                     return status;
@@ -12072,12 +12090,14 @@ static basl_status_t basl_parser_parse_primary_base(
             {
                 basl_expression_result_t key_result;
                 basl_expression_result_t value_result;
+                basl_parser_type_t key_type;
                 basl_parser_type_t map_type;
                 basl_parser_type_t value_type;
                 size_t pair_count;
 
                 basl_expression_result_clear(&key_result);
                 basl_expression_result_clear(&value_result);
+                key_type = basl_binding_type_invalid();
                 map_type = basl_binding_type_invalid();
                 value_type = basl_binding_type_invalid();
                 pair_count = 0U;
@@ -12108,17 +12128,30 @@ static basl_status_t basl_parser_parse_primary_base(
                     if (status != BASL_STATUS_OK) {
                         return status;
                     }
-                    status = basl_parser_require_type(
-                        state,
-                        basl_parser_previous(state) == NULL
-                            ? token->span
-                            : basl_parser_previous(state)->span,
-                        key_result.type,
-                        basl_binding_type_primitive(BASL_TYPE_STRING),
-                        "map literal keys must be strings"
-                    );
-                    if (status != BASL_STATUS_OK) {
-                        return status;
+                    if (pair_count == 0U) {
+                        if (!basl_parser_type_supports_map_key(key_result.type)) {
+                            return basl_parser_report(
+                                state,
+                                basl_parser_previous(state) == NULL
+                                    ? token->span
+                                    : basl_parser_previous(state)->span,
+                                "map literal keys must use type i32, bool, string, or enum"
+                            );
+                        }
+                        key_type = key_result.type;
+                    } else {
+                        status = basl_parser_require_type(
+                            state,
+                            basl_parser_previous(state) == NULL
+                                ? token->span
+                                : basl_parser_previous(state)->span,
+                            key_result.type,
+                            key_type,
+                            "map literal keys must have matching types"
+                        );
+                        if (status != BASL_STATUS_OK) {
+                            return status;
+                        }
                     }
                     status = basl_parser_expect(
                         state,
@@ -12177,7 +12210,7 @@ static basl_status_t basl_parser_parse_primary_base(
                 }
                 status = basl_program_intern_map_type(
                     (basl_program_state_t *)state->program,
-                    basl_binding_type_primitive(BASL_TYPE_STRING),
+                    key_type,
                     value_type,
                     &map_type
                 );
@@ -15593,7 +15626,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
                     name_token->span,
                     index_result.type,
                     basl_program_map_type_key(state->program, target_type),
-                    "map index must be string"
+                    "map index must match map key type"
                 );
                 if (status != BASL_STATUS_OK) {
                     return status;

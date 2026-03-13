@@ -209,8 +209,7 @@ BASL_API basl_status_t basl_map_object_new(
 BASL_API size_t basl_map_object_count(const basl_object_t *object);
 BASL_API int basl_map_object_get(
     const basl_object_t *object,
-    const char *key,
-    size_t key_length,
+    const basl_value_t *key,
     basl_value_t *out_value
 );
 BASL_API int basl_map_object_key_at(
@@ -225,8 +224,7 @@ BASL_API int basl_map_object_value_at(
 );
 BASL_API basl_status_t basl_map_object_set(
     basl_object_t *object,
-    const char *key,
-    size_t key_length,
+    const basl_value_t *key,
     const basl_value_t *value,
     basl_error_t *error
 );

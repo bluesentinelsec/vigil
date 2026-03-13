@@ -76,6 +76,38 @@ TEST(BaslMapTest, SetAndGetImmediateValue) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslMapTest, SupportsIntegerAndBoolKeys) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_map_t map;
+    basl_value_t int_key;
+    basl_value_t bool_key;
+    basl_value_t value;
+    const basl_value_t *stored;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_map_init(&map, runtime);
+
+    basl_value_init_int(&int_key, 7);
+    basl_value_init_bool(&bool_key, true);
+    basl_value_init_int(&value, 42);
+    ASSERT_EQ(basl_map_set_value(&map, &int_key, &value, &error), BASL_STATUS_OK);
+    basl_value_init_int(&value, 99);
+    ASSERT_EQ(basl_map_set_value(&map, &bool_key, &value, &error), BASL_STATUS_OK);
+
+    stored = basl_map_get_value(&map, &int_key);
+    ASSERT_NE(stored, nullptr);
+    EXPECT_EQ(basl_value_as_int(stored), 42);
+    stored = basl_map_get_value(&map, &bool_key);
+    ASSERT_NE(stored, nullptr);
+    EXPECT_EQ(basl_value_as_int(stored), 99);
+    EXPECT_TRUE(basl_map_contains_value(&map, &int_key));
+    EXPECT_TRUE(basl_map_contains_value(&map, &bool_key));
+
+    basl_map_free(&map);
+    basl_runtime_close(&runtime);
+}
+
 TEST(BaslMapTest, OverwriteReleasesPreviousObjectValue) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
@@ -261,6 +293,7 @@ TEST(BaslMapTest, UsesRuntimeAllocatorHooks) {
 TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
     basl_map_t map;
     basl_value_t value;
+    basl_value_t key;
     basl_error_t error = {};
     int removed;
 
@@ -291,4 +324,18 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, nullptr);
     EXPECT_EQ(std::strcmp(error.value, "map runtime must not be null"), 0);
+
+    basl_runtime_t *runtime = nullptr;
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_map_init(&map, runtime);
+    basl_value_init_float(&key, 1.5);
+    EXPECT_EQ(
+        basl_map_set_value(&map, &key, &value, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(std::strcmp(error.value, "map key must be i32, bool, or string"), 0);
+    basl_map_free(&map);
+    basl_runtime_close(&runtime);
 }

@@ -377,16 +377,17 @@ TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     EXPECT_EQ(basl_object_type(map_object), BASL_OBJECT_MAP);
     EXPECT_EQ(basl_map_object_count(map_object), 0U);
 
+    basl_value_init_int(&items[0], 1);
     basl_value_init_int(&value, 11);
     ASSERT_EQ(
-        basl_map_object_set(map_object, "score", 5U, &value, &error),
+        basl_map_object_set(map_object, &items[0], &value, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&value);
     EXPECT_EQ(basl_map_object_count(map_object), 1U);
 
     basl_value_init_nil(&value);
-    ASSERT_TRUE(basl_map_object_get(map_object, "score", 5U, &value));
+    ASSERT_TRUE(basl_map_object_get(map_object, &items[0], &value));
     EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_INT);
     EXPECT_EQ(basl_value_as_int(&value), 11);
     basl_value_release(&value);

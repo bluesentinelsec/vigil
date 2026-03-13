@@ -27,6 +27,12 @@ BASL_API void basl_map_init(
 BASL_API void basl_map_clear(basl_map_t *map);
 BASL_API void basl_map_free(basl_map_t *map);
 BASL_API size_t basl_map_count(const basl_map_t *map);
+BASL_API basl_status_t basl_map_set_value(
+    basl_map_t *map,
+    const basl_value_t *key,
+    const basl_value_t *value,
+    basl_error_t *error
+);
 BASL_API basl_status_t basl_map_set(
     basl_map_t *map,
     const char *key,
@@ -49,6 +55,10 @@ BASL_API const basl_value_t *basl_map_get(
     const char *key,
     size_t key_length
 );
+BASL_API const basl_value_t *basl_map_get_value(
+    const basl_map_t *map,
+    const basl_value_t *key
+);
 /*
  * Returns a pointer into the map's internal storage. Any later mutating map
  * operation may invalidate the returned pointer.
@@ -61,6 +71,10 @@ BASL_API int basl_map_contains(
     const basl_map_t *map,
     const char *key,
     size_t key_length
+);
+BASL_API int basl_map_contains_value(
+    const basl_map_t *map,
+    const basl_value_t *key
 );
 BASL_API int basl_map_contains_cstr(
     const basl_map_t *map,
@@ -77,6 +91,18 @@ BASL_API int basl_map_entry_at(
     const char **out_key,
     size_t *out_key_length,
     const basl_value_t **out_value
+);
+BASL_API int basl_map_entry_value_at(
+    const basl_map_t *map,
+    size_t index,
+    const basl_value_t **out_key,
+    const basl_value_t **out_value
+);
+BASL_API basl_status_t basl_map_remove_value(
+    basl_map_t *map,
+    const basl_value_t *key,
+    int *out_removed,
+    basl_error_t *error
 );
 BASL_API basl_status_t basl_map_remove(
     basl_map_t *map,

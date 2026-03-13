@@ -2237,13 +2237,14 @@ TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignme
         CompileAndRun(
             "fn main() -> i32 {"
             "    array<i32> nums = [1, 2, 3];"
-            "    map<string, i32> scores = {\"left\": 4, \"right\": 5};"
-            "    nums[1] = nums[0] + scores[\"right\"];"
-            "    scores[\"left\"] = nums[1] + 1;"
-            "    return scores[\"left\"];"
+            "    map<i32, i32> scores = {1: 4, 2: 5};"
+            "    map<bool, i32> flags = {true: 3, false: 1};"
+            "    nums[1] = nums[0] + scores[2];"
+            "    scores[1] = nums[1] + flags[true];"
+            "    return scores[1];"
             "}"
         ),
-        7
+        9
     );
 }
 
@@ -2385,7 +2386,27 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "map index must be string"
+        "map index must match map key type"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "bad_map_key_type.basl",
+        "fn main() -> i32 {"
+        "    map<f64, i32> scores = {1.5: 1};"
+        "    return 0;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "map keys must use type i32, bool, string, or enum"
     );
 
     basl_diagnostic_list_clear(&diagnostics);

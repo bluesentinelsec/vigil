@@ -1319,8 +1319,7 @@ size_t basl_map_object_count(const basl_object_t *object) {
 
 int basl_map_object_get(
     const basl_object_t *object,
-    const char *key,
-    size_t key_length,
+    const basl_value_t *key,
     basl_value_t *out_value
 ) {
     const basl_map_object_t *map_object;
@@ -1331,7 +1330,7 @@ int basl_map_object_get(
         return 0;
     }
 
-    stored = basl_map_get(&map_object->entries, key, key_length);
+    stored = basl_map_get_value(&map_object->entries, key);
     if (stored == NULL) {
         return 0;
     }
@@ -1346,11 +1345,8 @@ int basl_map_object_key_at(
     basl_value_t *out_key
 ) {
     const basl_map_object_t *map_object;
-    const char *key;
-    size_t key_length;
+    const basl_value_t *stored_key;
     const basl_value_t *stored_value;
-    basl_object_t *string_object;
-    basl_error_t error = {0};
 
     if (out_key == NULL) {
         return 0;
@@ -1361,26 +1357,13 @@ int basl_map_object_key_at(
         return 0;
     }
 
-    key = NULL;
-    key_length = 0U;
+    stored_key = NULL;
     stored_value = NULL;
-    if (!basl_map_entry_at(&map_object->entries, index, &key, &key_length, &stored_value)) {
+    if (!basl_map_entry_value_at(&map_object->entries, index, &stored_key, &stored_value)) {
         return 0;
     }
 
-    string_object = NULL;
-    if (
-        basl_string_object_new(
-            map_object->base.runtime,
-            key,
-            key_length,
-            &string_object,
-            &error
-        ) != BASL_STATUS_OK
-    ) {
-        return 0;
-    }
-    basl_value_init_object(out_key, &string_object);
+    *out_key = basl_value_copy(stored_key);
     return 1;
 }
 
@@ -1390,8 +1373,7 @@ int basl_map_object_value_at(
     basl_value_t *out_value
 ) {
     const basl_map_object_t *map_object;
-    const char *key;
-    size_t key_length;
+    const basl_value_t *stored_key;
     const basl_value_t *stored_value;
 
     map_object = basl_map_object_cast(object);
@@ -1399,10 +1381,9 @@ int basl_map_object_value_at(
         return 0;
     }
 
-    key = NULL;
-    key_length = 0U;
+    stored_key = NULL;
     stored_value = NULL;
-    if (!basl_map_entry_at(&map_object->entries, index, &key, &key_length, &stored_value)) {
+    if (!basl_map_entry_value_at(&map_object->entries, index, &stored_key, &stored_value)) {
         return 0;
     }
 
@@ -1412,8 +1393,7 @@ int basl_map_object_value_at(
 
 basl_status_t basl_map_object_set(
     basl_object_t *object,
-    const char *key,
-    size_t key_length,
+    const basl_value_t *key,
     const basl_value_t *value,
     basl_error_t *error
 ) {
@@ -1430,7 +1410,7 @@ basl_status_t basl_map_object_set(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_map_set(&map_object->entries, key, key_length, value, error);
+    return basl_map_set_value(&map_object->entries, key, value, error);
 }
 
 basl_status_t basl_function_object_attach_siblings(
