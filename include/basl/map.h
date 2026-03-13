@@ -66,6 +66,18 @@ BASL_API int basl_map_contains_cstr(
     const basl_map_t *map,
     const char *key
 );
+/*
+ * Iterates occupied entries by stable slot order. The returned key and value
+ * point into the map's internal storage and are invalidated by later
+ * mutations.
+ */
+BASL_API int basl_map_entry_at(
+    const basl_map_t *map,
+    size_t index,
+    const char **out_key,
+    size_t *out_key_length,
+    const basl_value_t **out_value
+);
 BASL_API basl_status_t basl_map_remove(
     basl_map_t *map,
     const char *key,

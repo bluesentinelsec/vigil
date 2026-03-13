@@ -434,6 +434,56 @@ int basl_map_contains_cstr(
     return basl_map_get_cstr(map, key) != NULL;
 }
 
+int basl_map_entry_at(
+    const basl_map_t *map,
+    size_t index,
+    const char **out_key,
+    size_t *out_key_length,
+    const basl_value_t **out_value
+) {
+    const basl_map_entry_t *entries;
+    size_t entry_index;
+    size_t seen;
+
+    if (out_key != NULL) {
+        *out_key = NULL;
+    }
+    if (out_key_length != NULL) {
+        *out_key_length = 0U;
+    }
+    if (out_value != NULL) {
+        *out_value = NULL;
+    }
+
+    if (
+        map == NULL ||
+        out_key == NULL ||
+        out_key_length == NULL ||
+        out_value == NULL ||
+        index >= map->count ||
+        map->entries == NULL
+    ) {
+        return 0;
+    }
+
+    entries = basl_map_const_entries(map);
+    seen = 0U;
+    for (entry_index = 0U; entry_index < map->capacity; entry_index += 1U) {
+        if (entries[entry_index].state != BASL_MAP_ENTRY_OCCUPIED) {
+            continue;
+        }
+        if (seen == index) {
+            *out_key = basl_string_c_str(&entries[entry_index].key);
+            *out_key_length = basl_string_length(&entries[entry_index].key);
+            *out_value = &entries[entry_index].value;
+            return 1;
+        }
+        seen += 1U;
+    }
+
+    return 0;
+}
+
 basl_status_t basl_map_remove(
     basl_map_t *map,
     const char *key,

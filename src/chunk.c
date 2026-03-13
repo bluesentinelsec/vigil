@@ -534,6 +534,12 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "GET_INDEX";
         case BASL_OPCODE_SET_INDEX:
             return "SET_INDEX";
+        case BASL_OPCODE_GET_COLLECTION_SIZE:
+            return "GET_COLLECTION_SIZE";
+        case BASL_OPCODE_GET_MAP_KEY_AT:
+            return "GET_MAP_KEY_AT";
+        case BASL_OPCODE_GET_MAP_VALUE_AT:
+            return "GET_MAP_VALUE_AT";
         case BASL_OPCODE_CALL_INTERFACE:
             return "CALL_INTERFACE";
         case BASL_OPCODE_DEFER_CALL:
@@ -955,6 +961,14 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 5U;
+        } else if (
+            opcode == BASL_OPCODE_GET_INDEX ||
+            opcode == BASL_OPCODE_SET_INDEX ||
+            opcode == BASL_OPCODE_GET_COLLECTION_SIZE ||
+            opcode == BASL_OPCODE_GET_MAP_KEY_AT ||
+            opcode == BASL_OPCODE_GET_MAP_VALUE_AT
+        ) {
+            offset += 1U;
         } else {
             offset += 1U;
         }

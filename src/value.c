@@ -1168,6 +1168,76 @@ int basl_map_object_get(
     return 1;
 }
 
+int basl_map_object_key_at(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_key
+) {
+    const basl_map_object_t *map_object;
+    const char *key;
+    size_t key_length;
+    const basl_value_t *stored_value;
+    basl_object_t *string_object;
+    basl_error_t error = {0};
+
+    if (out_key == NULL) {
+        return 0;
+    }
+    basl_value_init_nil(out_key);
+    map_object = basl_map_object_cast(object);
+    if (map_object == NULL) {
+        return 0;
+    }
+
+    key = NULL;
+    key_length = 0U;
+    stored_value = NULL;
+    if (!basl_map_entry_at(&map_object->entries, index, &key, &key_length, &stored_value)) {
+        return 0;
+    }
+
+    string_object = NULL;
+    if (
+        basl_string_object_new(
+            map_object->base.runtime,
+            key,
+            key_length,
+            &string_object,
+            &error
+        ) != BASL_STATUS_OK
+    ) {
+        return 0;
+    }
+    basl_value_init_object(out_key, &string_object);
+    return 1;
+}
+
+int basl_map_object_value_at(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_value
+) {
+    const basl_map_object_t *map_object;
+    const char *key;
+    size_t key_length;
+    const basl_value_t *stored_value;
+
+    map_object = basl_map_object_cast(object);
+    if (map_object == NULL || out_value == NULL) {
+        return 0;
+    }
+
+    key = NULL;
+    key_length = 0U;
+    stored_value = NULL;
+    if (!basl_map_entry_at(&map_object->entries, index, &key, &key_length, &stored_value)) {
+        return 0;
+    }
+
+    *out_value = basl_value_copy(stored_value);
+    return 1;
+}
+
 basl_status_t basl_map_object_set(
     basl_object_t *object,
     const char *key,

@@ -2467,6 +2467,171 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 break;
+            case BASL_OPCODE_GET_COLLECTION_SIZE:
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL
+                ) {
+                    basl_value_release(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "collection size requires an array or map",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                if (basl_object_type(basl_value_as_object(&left)) == BASL_OBJECT_ARRAY) {
+                    basl_value_init_int(
+                        &value,
+                        (int64_t)basl_array_object_length(basl_value_as_object(&left))
+                    );
+                } else if (basl_object_type(basl_value_as_object(&left)) == BASL_OBJECT_MAP) {
+                    basl_value_init_int(
+                        &value,
+                        (int64_t)basl_map_object_count(basl_value_as_object(&left))
+                    );
+                } else {
+                    basl_value_release(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "collection size requires an array or map",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                basl_value_release(&left);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_GET_MAP_KEY_AT:
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map iteration requires a map object",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (
+                    basl_value_kind(&right) != BASL_VALUE_INT ||
+                    basl_value_as_int(&right) < 0
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map iteration index must be a non-negative i32",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (
+                    !basl_map_object_key_at(
+                        basl_value_as_object(&left),
+                        (size_t)basl_value_as_int(&right),
+                        &value
+                    )
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map iteration index is out of range",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                basl_value_release(&left);
+                basl_value_release(&right);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_GET_MAP_VALUE_AT:
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_MAP
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map iteration requires a map object",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (
+                    basl_value_kind(&right) != BASL_VALUE_INT ||
+                    basl_value_as_int(&right) < 0
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map iteration index must be a non-negative i32",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (
+                    !basl_map_object_value_at(
+                        basl_value_as_object(&left),
+                        (size_t)basl_value_as_int(&right),
+                        &value
+                    )
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "map iteration index is out of range",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                basl_value_release(&left);
+                basl_value_release(&right);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
             case BASL_OPCODE_SET_INDEX:
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);

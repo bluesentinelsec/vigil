@@ -190,6 +190,16 @@ BASL_API int basl_map_object_get(
     size_t key_length,
     basl_value_t *out_value
 );
+BASL_API int basl_map_object_key_at(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_key
+);
+BASL_API int basl_map_object_value_at(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_value
+);
 BASL_API basl_status_t basl_map_object_set(
     basl_object_t *object,
     const char *key,

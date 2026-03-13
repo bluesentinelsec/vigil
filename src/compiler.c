@@ -279,6 +279,11 @@ static basl_status_t basl_parser_parse_switch_statement(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
 );
+static basl_status_t basl_parser_emit_i32_constant(
+    basl_parser_state_t *state,
+    int64_t value,
+    basl_source_span_t span
+);
 
 static void basl_parser_state_free(
     basl_parser_state_t *state
@@ -12488,12 +12493,12 @@ cleanup_loop:
     return status;
 }
 
-static basl_status_t basl_parser_parse_for_statement(
+static basl_status_t basl_parser_parse_c_for_statement(
     basl_parser_state_t *state,
+    const basl_token_t *for_token,
     basl_statement_result_t *out_result
 ) {
     basl_status_t status;
-    const basl_token_t *for_token;
     basl_expression_result_t condition_result;
     size_t condition_start;
     size_t loop_start;
@@ -12507,17 +12512,12 @@ static basl_status_t basl_parser_parse_for_statement(
     int loop_pushed;
 
     basl_expression_result_clear(&condition_result);
-    for_token = NULL;
     body_jump_offset = 0U;
     increment_start = 0U;
     has_condition = 0;
     has_increment = 0;
     loop_pushed = 0;
 
-    status = basl_parser_expect(state, BASL_TOKEN_FOR, "expected 'for'", &for_token);
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
     status = basl_parser_expect(state, BASL_TOKEN_LPAREN, "expected '(' after 'for'", NULL);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -12681,6 +12681,393 @@ cleanup_loop:
         }
     }
     return status;
+}
+
+static basl_status_t basl_parser_bind_inferred_target(
+    basl_parser_state_t *state,
+    const basl_token_t *name_token,
+    basl_parser_type_t type
+) {
+    if (basl_parser_token_is_discard_identifier(state, name_token)) {
+        return basl_binding_scope_stack_declare_hidden_local(
+            &state->locals,
+            type,
+            0,
+            NULL,
+            state->program->error
+        );
+    }
+
+    return basl_parser_declare_local_symbol(state, name_token, type, 0, NULL);
+}
+
+static basl_status_t basl_parser_parse_for_in_statement(
+    basl_parser_state_t *state,
+    const basl_token_t *for_token,
+    basl_statement_result_t *out_result
+) {
+    basl_status_t status;
+    const basl_token_t *first_name;
+    const basl_token_t *second_name;
+    basl_expression_result_t iterable_result;
+    basl_parser_type_t iterable_type;
+    basl_parser_type_t element_type;
+    basl_parser_type_t key_type;
+    basl_parser_type_t value_type;
+    size_t collection_slot;
+    size_t index_slot;
+    size_t condition_start;
+    size_t exit_jump_offset;
+    size_t body_jump_offset;
+    size_t increment_start;
+    basl_loop_context_t *loop;
+    size_t i;
+    int loop_pushed;
+    int iteration_scope_begun;
+
+    first_name = NULL;
+    second_name = NULL;
+    collection_slot = 0U;
+    index_slot = 0U;
+    exit_jump_offset = 0U;
+    body_jump_offset = 0U;
+    increment_start = 0U;
+    loop_pushed = 0;
+    iteration_scope_begun = 0;
+    basl_expression_result_clear(&iterable_result);
+    iterable_type = basl_binding_type_invalid();
+    element_type = basl_binding_type_invalid();
+    key_type = basl_binding_type_invalid();
+    value_type = basl_binding_type_invalid();
+
+    status = basl_parser_expect(
+        state,
+        BASL_TOKEN_IDENTIFIER,
+        "expected loop binding name after 'for'",
+        &first_name
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (basl_parser_match(state, BASL_TOKEN_COMMA)) {
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_IDENTIFIER,
+            "expected second loop binding name after ','",
+            &second_name
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+    status = basl_parser_expect(state, BASL_TOKEN_IN, "expected 'in' after loop bindings", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_parse_expression(state, &iterable_result);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_require_scalar_expression(
+        state,
+        for_token->span,
+        &iterable_result,
+        "for-in iterable must be a single array or map value"
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    iterable_type = iterable_result.type;
+    if (basl_parser_type_is_array(iterable_type)) {
+        if (second_name != NULL) {
+            return basl_parser_report(
+                state,
+                second_name->span,
+                "for-in over arrays requires a single loop binding"
+            );
+        }
+        element_type = basl_program_array_type_element(state->program, iterable_type);
+    } else if (basl_parser_type_is_map(iterable_type)) {
+        if (second_name == NULL) {
+            return basl_parser_report(
+                state,
+                first_name->span,
+                "for-in over maps requires key and value bindings"
+            );
+        }
+        key_type = basl_program_map_type_key(state->program, iterable_type);
+        value_type = basl_program_map_type_value(state->program, iterable_type);
+    } else {
+        return basl_parser_report(
+            state,
+            for_token->span,
+            "for-in requires an array or map iterable"
+        );
+    }
+
+    basl_parser_begin_scope(state);
+
+    status = basl_binding_scope_stack_declare_hidden_local(
+        &state->locals,
+        iterable_type,
+        0,
+        &collection_slot,
+        state->program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_emit_i32_constant(state, 0, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_binding_scope_stack_declare_hidden_local(
+        &state->locals,
+        basl_binding_type_primitive(BASL_TYPE_I32),
+        0,
+        &index_slot,
+        state->program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    condition_start = basl_chunk_code_size(&state->chunk);
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_COLLECTION_SIZE, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_jump(
+        state,
+        BASL_OPCODE_JUMP_IF_FALSE,
+        for_token->span,
+        &exit_jump_offset
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_jump(state, BASL_OPCODE_JUMP, for_token->span, &body_jump_offset);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    increment_start = basl_chunk_code_size(&state->chunk);
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_i32_constant(state, 1, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_ADD, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_SET_LOCAL, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_emit_loop(state, condition_start, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = basl_parser_patch_jump(state, body_jump_offset);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    status = basl_parser_push_loop(state, increment_start);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    loop_pushed = 1;
+
+    basl_parser_begin_scope(state);
+    iteration_scope_begun = 1;
+    if (basl_parser_type_is_array(iterable_type)) {
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_INDEX, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_bind_inferred_target(state, first_name, element_type);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    } else {
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_MAP_KEY_AT, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_bind_inferred_target(state, first_name, key_type);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_LOCAL, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_MAP_VALUE_AT, for_token->span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_bind_inferred_target(state, second_name, value_type);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+    status = basl_parser_parse_statement(state, NULL);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+
+    status = basl_parser_end_scope(state);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    iteration_scope_begun = 0;
+
+    status = basl_parser_emit_loop(state, increment_start, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_patch_jump(state, exit_jump_offset);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, for_token->span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+
+    loop = basl_parser_current_loop(state);
+    if (loop != NULL) {
+        for (i = 0U; i < loop->break_count; ++i) {
+            status = basl_parser_patch_jump(state, loop->break_jumps[i].operand_offset);
+            if (status != BASL_STATUS_OK) {
+                goto cleanup;
+            }
+        }
+    }
+
+cleanup:
+    if (iteration_scope_begun) {
+        (void)basl_parser_end_scope(state);
+    }
+    if (loop_pushed) {
+        basl_parser_pop_loop(state);
+    }
+    if (status == BASL_STATUS_OK) {
+        status = basl_parser_end_scope(state);
+        if (status == BASL_STATUS_OK) {
+            basl_statement_result_set_guaranteed_return(out_result, 0);
+        }
+    }
+    return status;
+}
+
+static basl_status_t basl_parser_parse_for_statement(
+    basl_parser_state_t *state,
+    basl_statement_result_t *out_result
+) {
+    basl_status_t status;
+    const basl_token_t *for_token;
+
+    for_token = NULL;
+    status = basl_parser_expect(state, BASL_TOKEN_FOR, "expected 'for'", &for_token);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    if (basl_parser_check(state, BASL_TOKEN_LPAREN)) {
+        return basl_parser_parse_c_for_statement(state, for_token, out_result);
+    }
+
+    return basl_parser_parse_for_in_statement(state, for_token, out_result);
 }
 
 static basl_status_t basl_parser_parse_switch_case_contents(
