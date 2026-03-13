@@ -181,6 +181,35 @@ TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "class Holder {"
+            "    fn(i32, i32) -> i32 op;"
+            "}"
+            "fn add(i32 a, i32 b) -> i32 {"
+            "    return a + b;"
+            "}"
+            "fn mul(i32 a, i32 b) -> i32 {"
+            "    return a * b;"
+            "}"
+            "fn apply(fn(i32, i32) -> i32 op, i32 left, i32 right) -> i32 {"
+            "    return op(left, right);"
+            "}"
+            "fn main() -> i32 {"
+            "    fn any_cb = add;"
+            "    fn(i32, i32) -> i32 op = add;"
+            "    Holder holder = Holder(mul);"
+            "    if (any_cb == op) {"
+            "        return apply(op, 2, 3) + holder.op(2, 4);"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        13
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
     EXPECT_EQ(
         CompileAndRun(
@@ -2393,6 +2422,66 @@ TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "bool(...) requires a bool argument"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_any_call.basl",
+        "fn add(i32 a, i32 b) -> i32 {"
+        "    return a + b;"
+        "}"
+        "fn main() -> i32 {"
+        "    fn op = add;"
+        "    return op(1, 2);"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "indirect calls require a concrete function signature"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "bad_function_assign.basl",
+        "fn log_name(string name) -> void {}"
+        "fn main() -> i32 {"
+        "    fn(i32, i32) -> i32 op = log_name;"
+        "    return 0;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "initializer type does not match local variable type"
     );
 
     basl_diagnostic_list_free(&diagnostics);

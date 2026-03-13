@@ -78,6 +78,15 @@ basl_binding_type_t basl_binding_type_map(size_t map_index) {
     return type;
 }
 
+basl_binding_type_t basl_binding_type_function(size_t function_type_index) {
+    basl_binding_type_t type;
+
+    type.kind = BASL_TYPE_OBJECT;
+    type.object_kind = BASL_BINDING_OBJECT_FUNCTION;
+    type.object_index = function_type_index;
+    return type;
+}
+
 int basl_binding_type_is_valid(basl_binding_type_t type) {
     if (type.object_kind == BASL_BINDING_OBJECT_ENUM) {
         return type.kind == BASL_TYPE_I32 &&

@@ -23,8 +23,9 @@ typedef struct basl_vm_frame {
 
 typedef enum basl_vm_defer_kind {
     BASL_VM_DEFER_CALL = 0,
-    BASL_VM_DEFER_NEW_INSTANCE = 1,
-    BASL_VM_DEFER_CALL_INTERFACE = 2
+    BASL_VM_DEFER_CALL_VALUE = 1,
+    BASL_VM_DEFER_NEW_INSTANCE = 2,
+    BASL_VM_DEFER_CALL_INTERFACE = 3
 } basl_vm_defer_kind_t;
 
 typedef struct basl_vm_defer_action {
@@ -663,6 +664,76 @@ static basl_status_t basl_vm_invoke_call(
     );
 }
 
+static basl_status_t basl_vm_invoke_value_call(
+    basl_vm_t *vm,
+    size_t arg_count,
+    basl_error_t *error
+) {
+    basl_value_t callee_value;
+    basl_object_t *callee;
+    size_t callee_slot;
+
+    if (arg_count + 1U > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "call arguments are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    callee_slot = vm->stack_count - (arg_count + 1U);
+    callee_value = vm->stack[callee_slot];
+    callee = basl_value_as_object(&callee_value);
+    if (
+        basl_value_kind(&callee_value) != BASL_VALUE_OBJECT ||
+        callee == NULL ||
+        basl_object_type(callee) != BASL_OBJECT_FUNCTION
+    ) {
+        basl_value_release(&callee_value);
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "call target is not a function"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (basl_function_object_arity(callee) != arg_count) {
+        basl_value_release(&callee_value);
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "call arity does not match function signature"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    basl_object_retain(callee);
+    if (arg_count != 0U) {
+        memmove(
+            &vm->stack[callee_slot],
+            &vm->stack[callee_slot + 1U],
+            arg_count * sizeof(*vm->stack)
+        );
+    }
+    vm->stack_count -= 1U;
+    basl_value_release(&callee_value);
+
+    {
+        basl_status_t status;
+
+        status = basl_vm_push_frame(
+            vm,
+            callee,
+            basl_function_object_chunk(callee),
+            callee_slot,
+            error
+        );
+        basl_object_release(&callee);
+        return status;
+    }
+}
+
 static basl_status_t basl_vm_invoke_interface_call(
     basl_vm_t *vm,
     basl_vm_frame_t *frame,
@@ -998,6 +1069,12 @@ static basl_status_t basl_vm_execute_next_defer(
                 (size_t)action.arg_count,
                 error
             );
+            if (status == BASL_STATUS_OK && out_pushed_frame != NULL) {
+                *out_pushed_frame = 1;
+            }
+            break;
+        case BASL_VM_DEFER_CALL_VALUE:
+            status = basl_vm_invoke_value_call(vm, (size_t)action.arg_count, error);
             if (status == BASL_STATUS_OK && out_pushed_frame != NULL) {
                 *out_pushed_frame = 1;
             }
@@ -2048,6 +2125,48 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 break;
+            case BASL_OPCODE_GET_FUNCTION:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                frame = basl_vm_current_frame(vm);
+                if (frame == NULL || frame->function == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "function reference requires a function-backed frame",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                {
+                    const basl_object_t *callee;
+                    basl_object_t *retained;
+
+                    callee = basl_function_object_sibling(frame->function, (size_t)operand);
+                    if (callee == NULL || basl_object_type(callee) != BASL_OBJECT_FUNCTION) {
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INTERNAL,
+                            "function index out of range",
+                            error
+                        );
+                        goto cleanup;
+                    }
+                    retained = (basl_object_t *)callee;
+                    basl_object_retain(retained);
+                    basl_value_init_object(&value, &retained);
+                }
+
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
             case BASL_OPCODE_CALL: {
                 status = basl_vm_read_u32(vm, &constant_index, error);
                 if (status != BASL_STATUS_OK) {
@@ -2071,6 +2190,16 @@ basl_status_t basl_vm_execute_function(
                 }
                 break;
             }
+            case BASL_OPCODE_CALL_VALUE:
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                status = basl_vm_invoke_value_call(vm, (size_t)operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
             case BASL_OPCODE_CALL_INTERFACE: {
                 size_t interface_index;
                 size_t method_index;
@@ -2208,6 +2337,29 @@ basl_status_t basl_vm_execute_function(
                     0U,
                     arg_count,
                     (size_t)arg_count,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_DEFER_CALL_VALUE: {
+                uint32_t arg_count;
+
+                status = basl_vm_read_u32(vm, &arg_count, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                frame = basl_vm_current_frame(vm);
+                status = basl_vm_schedule_defer(
+                    vm,
+                    frame,
+                    BASL_VM_DEFER_CALL_VALUE,
+                    0U,
+                    0U,
+                    arg_count,
+                    (size_t)arg_count + 1U,
                     error
                 );
                 if (status != BASL_STATUS_OK) {

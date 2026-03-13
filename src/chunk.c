@@ -468,6 +468,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "GET_GLOBAL";
         case BASL_OPCODE_SET_GLOBAL:
             return "SET_GLOBAL";
+        case BASL_OPCODE_GET_FUNCTION:
+            return "GET_FUNCTION";
         case BASL_OPCODE_JUMP:
             return "JUMP";
         case BASL_OPCODE_JUMP_IF_FALSE:
@@ -520,6 +522,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "LESS";
         case BASL_OPCODE_CALL:
             return "CALL";
+        case BASL_OPCODE_CALL_VALUE:
+            return "CALL_VALUE";
         case BASL_OPCODE_NEW_INSTANCE:
             return "NEW_INSTANCE";
         case BASL_OPCODE_GET_FIELD:
@@ -544,6 +548,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "CALL_INTERFACE";
         case BASL_OPCODE_DEFER_CALL:
             return "DEFER_CALL";
+        case BASL_OPCODE_DEFER_CALL_VALUE:
+            return "DEFER_CALL_VALUE";
         case BASL_OPCODE_DEFER_NEW_INSTANCE:
             return "DEFER_NEW_INSTANCE";
         case BASL_OPCODE_DEFER_CALL_INTERFACE:
@@ -728,7 +734,10 @@ basl_status_t basl_chunk_disassemble(
             return status;
         }
 
-        if (opcode == BASL_OPCODE_CALL || opcode == BASL_OPCODE_DEFER_CALL) {
+        if (
+            opcode == BASL_OPCODE_CALL ||
+            opcode == BASL_OPCODE_DEFER_CALL
+        ) {
             uint32_t function_index;
             uint32_t arg_count;
 
@@ -772,6 +781,40 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 9U;
+        } else if (
+            opcode == BASL_OPCODE_CALL_VALUE ||
+            opcode == BASL_OPCODE_DEFER_CALL_VALUE
+        ) {
+            if (offset + 4U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated indirect call instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            operand = (uint32_t)chunk->code.data[offset + 1U];
+            operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+
+            written = snprintf(line, sizeof(line), " %u", operand);
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk indirect call operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 5U;
         } else if (
             opcode == BASL_OPCODE_CALL_INTERFACE ||
             opcode == BASL_OPCODE_DEFER_CALL_INTERFACE
@@ -909,6 +952,7 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_SET_LOCAL ||
             opcode == BASL_OPCODE_GET_GLOBAL ||
             opcode == BASL_OPCODE_SET_GLOBAL ||
+            opcode == BASL_OPCODE_GET_FUNCTION ||
             opcode == BASL_OPCODE_JUMP ||
             opcode == BASL_OPCODE_JUMP_IF_FALSE ||
             opcode == BASL_OPCODE_LOOP ||

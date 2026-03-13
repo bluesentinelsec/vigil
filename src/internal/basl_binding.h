@@ -16,7 +16,8 @@ typedef enum basl_binding_object_kind {
     BASL_BINDING_OBJECT_INTERFACE = 2,
     BASL_BINDING_OBJECT_ENUM = 3,
     BASL_BINDING_OBJECT_ARRAY = 4,
-    BASL_BINDING_OBJECT_MAP = 5
+    BASL_BINDING_OBJECT_MAP = 5,
+    BASL_BINDING_OBJECT_FUNCTION = 6
 } basl_binding_object_kind_t;
 
 typedef struct basl_binding_type {
@@ -85,6 +86,7 @@ BASL_API basl_binding_type_t basl_binding_type_interface(size_t interface_index)
 BASL_API basl_binding_type_t basl_binding_type_enum(size_t enum_index);
 BASL_API basl_binding_type_t basl_binding_type_array(size_t array_index);
 BASL_API basl_binding_type_t basl_binding_type_map(size_t map_index);
+BASL_API basl_binding_type_t basl_binding_type_function(size_t function_type_index);
 BASL_API int basl_binding_type_is_valid(basl_binding_type_t type);
 BASL_API int basl_binding_type_equal(basl_binding_type_t left, basl_binding_type_t right);
 
