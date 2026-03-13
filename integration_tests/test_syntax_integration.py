@@ -9,7 +9,18 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BASL_BIN = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
+
+
+def resolve_basl_command() -> list[str]:
+    native_bin = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
+    wasm_bin = REPO_ROOT / "build" / "basl.js"
+
+    if native_bin.exists():
+        return [str(native_bin)]
+    if wasm_bin.exists():
+        return [os.environ.get("EMSDK_NODE", "node"), str(wasm_bin)]
+
+    raise FileNotFoundError("could not locate BASL CLI executable in build output")
 
 
 def write_sources(root: Path, sources: dict[str, str]) -> None:
@@ -21,7 +32,7 @@ def write_sources(root: Path, sources: dict[str, str]) -> None:
 
 def run_basl(root: Path, entrypoint: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(BASL_BIN), str(root / entrypoint)],
+        [*resolve_basl_command(), str(root / entrypoint)],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
