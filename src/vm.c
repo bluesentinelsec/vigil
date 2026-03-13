@@ -1632,6 +1632,88 @@ static basl_status_t basl_vm_stringify_value(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_vm_format_f64_value(
+    basl_vm_t *vm,
+    const basl_value_t *value,
+    uint32_t precision,
+    basl_value_t *out_value,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    char format[32];
+    int written;
+    int length;
+    void *memory;
+    char *buffer;
+    basl_object_t *object;
+
+    if (vm == NULL || value == NULL || out_value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "f64 format arguments must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (basl_value_kind(value) != BASL_VALUE_FLOAT) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "f64 formatting requires an f64 operand"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    written = snprintf(format, sizeof(format), "%%.%uf", (unsigned int)precision);
+    if (written < 0 || (size_t)written >= sizeof(format)) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "failed to build float format specifier"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    length = snprintf(NULL, 0, format, basl_value_as_float(value));
+    if (length < 0) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "failed to measure formatted float output"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    object = NULL;
+    memory = NULL;
+    status = basl_runtime_alloc(vm->runtime, (size_t)length + 1U, &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    buffer = (char *)memory;
+    written = snprintf(buffer, (size_t)length + 1U, format, basl_value_as_float(value));
+    if (written != length) {
+        basl_runtime_free(vm->runtime, &memory);
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "failed to write formatted float output"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    status = basl_string_object_new(vm->runtime, buffer, (size_t)length, &object, error);
+    basl_runtime_free(vm->runtime, &memory);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    basl_value_init_object(out_value, &object);
+    basl_object_release(&object);
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_vm_fail_at_ip(
     basl_vm_t *vm,
     basl_status_t status,
@@ -3521,6 +3603,30 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
+                break;
+            case BASL_OPCODE_FORMAT_F64:
+                if ((status = basl_vm_read_u32(vm, &operand, error)) != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                value = basl_vm_pop_or_nil(vm);
+                basl_value_init_nil(&left);
+                status = basl_vm_format_f64_value(vm, &value, operand, &left, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "f64 formatting requires an f64 operand",
+                        error
+                    );
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
                 break;
             case BASL_OPCODE_NEW_ERROR:
                 right = basl_vm_pop_or_nil(vm);

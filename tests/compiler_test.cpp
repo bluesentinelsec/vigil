@@ -1165,6 +1165,24 @@ TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    string name = \"Alice\";"
+            "    i32 age = 30;"
+            "    f64 pi = 3.14159;"
+            "    string msg = f\"Name: {name}, Age: {age}, Next: {age + 1}, pi={pi:.2f}, braces={{ok}}\";"
+            "    if (msg == \"Name: Alice, Age: 30, Next: 31, pi=3.14, braces={ok}\") {"
+            "        return 1;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        1
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
     const TestSource sources[] = {
         {
@@ -2660,23 +2678,6 @@ TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
     EXPECT_STREQ(
         basl_string_c_str(&diagnostic->message),
         "expected top-level function 'main'"
-    );
-
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
-        &registry,
-        "fstring.basl",
-        "fn main() -> i32 { return f\"hi\"; }",
-        &error
-    );
-    EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
-    );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "f-strings are not yet supported"
     );
 
     basl_diagnostic_list_free(&diagnostics);

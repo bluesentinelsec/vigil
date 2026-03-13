@@ -514,6 +514,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "TO_F64";
         case BASL_OPCODE_TO_STRING:
             return "TO_STRING";
+        case BASL_OPCODE_FORMAT_F64:
+            return "FORMAT_F64";
         case BASL_OPCODE_NEW_ERROR:
             return "NEW_ERROR";
         case BASL_OPCODE_GET_ERROR_KIND:
@@ -1002,6 +1004,7 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_JUMP ||
             opcode == BASL_OPCODE_JUMP_IF_FALSE ||
             opcode == BASL_OPCODE_LOOP ||
+            opcode == BASL_OPCODE_FORMAT_F64 ||
             opcode == BASL_OPCODE_GET_FIELD ||
             opcode == BASL_OPCODE_SET_FIELD
         ) {
