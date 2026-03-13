@@ -510,6 +510,14 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "BITWISE_NOT";
         case BASL_OPCODE_TO_I32:
             return "TO_I32";
+        case BASL_OPCODE_TO_I64:
+            return "TO_I64";
+        case BASL_OPCODE_TO_U8:
+            return "TO_U8";
+        case BASL_OPCODE_TO_U32:
+            return "TO_U32";
+        case BASL_OPCODE_TO_U64:
+            return "TO_U64";
         case BASL_OPCODE_TO_F64:
             return "TO_F64";
         case BASL_OPCODE_TO_STRING:

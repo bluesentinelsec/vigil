@@ -687,8 +687,71 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     ASSERT_NE(basl_value_as_object(&result), nullptr);
     EXPECT_EQ(basl_object_type(basl_value_as_object(&result)), BASL_OBJECT_STRING);
     EXPECT_STREQ(basl_string_object_c_str(basl_value_as_object(&result)), "true");
-
     basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    basl_value_init_float(&constant, 255.9);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 5U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_U8, Span(10U, 6U, 7U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(10U, 8U, 9U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), 255);
+    basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    basl_value_init_int(&constant, 42);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 2U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_I64, Span(11U, 3U, 4U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(11U, 5U, 6U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), 42);
+    basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    basl_value_init_float(&constant, -1.0);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 4U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_U32, Span(12U, 5U, 6U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(12U, 7U, 8U), &error),
+        BASL_STATUS_OK
+    );
+
+    EXPECT_EQ(
+        basl_vm_execute(vm, &chunk, &result, &error),
+        BASL_STATUS_INVALID_ARGUMENT
+    );
+    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, nullptr);
+    EXPECT_EQ(std::strcmp(error.value, "u32 conversion overflow or invalid value"), 0);
+
     basl_chunk_free(&chunk);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);

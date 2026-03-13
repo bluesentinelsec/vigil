@@ -1,4 +1,6 @@
 #include <errno.h>
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -310,6 +312,17 @@ static basl_status_t basl_program_require_non_void_type(
 );
 static basl_status_t basl_parser_emit_i32_constant(
     basl_parser_state_t *state,
+    int64_t value,
+    basl_source_span_t span
+);
+static basl_status_t basl_parser_emit_integer_cast(
+    basl_parser_state_t *state,
+    basl_parser_type_t target_type,
+    basl_source_span_t span
+);
+static basl_status_t basl_parser_emit_integer_constant(
+    basl_parser_state_t *state,
+    basl_parser_type_t target_type,
     int64_t value,
     basl_source_span_t span
 );
@@ -776,7 +789,11 @@ static int basl_parser_type_supports_map_key(
             type.object_kind == BASL_BINDING_OBJECT_NONE) ||
            (type.kind == BASL_TYPE_BOOL &&
             type.object_kind == BASL_BINDING_OBJECT_NONE) ||
-           (type.kind == BASL_TYPE_I32 &&
+           ((type.kind == BASL_TYPE_I32 ||
+             type.kind == BASL_TYPE_I64 ||
+             type.kind == BASL_TYPE_U8 ||
+             type.kind == BASL_TYPE_U32 ||
+             type.kind == BASL_TYPE_U64) &&
             type.object_kind == BASL_BINDING_OBJECT_NONE) ||
            (type.kind == BASL_TYPE_I32 &&
             type.object_kind == BASL_BINDING_OBJECT_ENUM &&
@@ -803,6 +820,50 @@ static int basl_parser_type_is_i32(
 ) {
     return type.kind == BASL_TYPE_I32 &&
            type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
+static int basl_parser_type_is_i64(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_I64 &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
+static int basl_parser_type_is_u8(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_U8 &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
+static int basl_parser_type_is_u32(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_U32 &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
+static int basl_parser_type_is_u64(
+    basl_parser_type_t type
+) {
+    return type.kind == BASL_TYPE_U64 &&
+           type.object_kind == BASL_BINDING_OBJECT_NONE;
+}
+
+static int basl_parser_type_is_integer(
+    basl_parser_type_t type
+) {
+    return basl_parser_type_is_i32(type) ||
+           basl_parser_type_is_i64(type) ||
+           basl_parser_type_is_u8(type) ||
+           basl_parser_type_is_u32(type) ||
+           basl_parser_type_is_u64(type);
+}
+
+static int basl_parser_type_is_signed_integer(
+    basl_parser_type_t type
+) {
+    return basl_parser_type_is_i32(type) || basl_parser_type_is_i64(type);
 }
 
 static int basl_parser_type_is_f64(
@@ -4796,7 +4857,7 @@ static basl_status_t basl_parser_parse_fstring_literal(
         if (format_start == SIZE_MAX) {
             if (!basl_parser_type_is_string(expression_result.type)) {
                 if (
-                    !basl_parser_type_is_i32(expression_result.type) &&
+                    !basl_parser_type_is_integer(expression_result.type) &&
                     !basl_parser_type_is_f64(expression_result.type) &&
                     !basl_parser_type_is_bool(expression_result.type)
                 ) {
@@ -4804,7 +4865,7 @@ static basl_status_t basl_parser_parse_fstring_literal(
                     return basl_parser_report(
                         state,
                         token->span,
-                        "f-string interpolation requires a string, i32, f64, or bool value"
+                        "f-string interpolation requires a string, integer, f64, or bool value"
                     );
                 }
                 status = basl_parser_emit_opcode(state, BASL_OPCODE_TO_STRING, token->span);
@@ -4907,6 +4968,10 @@ static basl_status_t basl_program_parse_type_name(
     type_kind = basl_type_kind_from_name(text, length);
     if (
         type_kind == BASL_TYPE_I32 ||
+        type_kind == BASL_TYPE_I64 ||
+        type_kind == BASL_TYPE_U8 ||
+        type_kind == BASL_TYPE_U32 ||
+        type_kind == BASL_TYPE_U64 ||
         type_kind == BASL_TYPE_F64 ||
         type_kind == BASL_TYPE_BOOL ||
         type_kind == BASL_TYPE_STRING ||
@@ -5192,7 +5257,7 @@ static basl_status_t basl_program_parse_type_reference(
             return basl_compile_report(
                 program,
                 token->span,
-                "map keys must use type i32, bool, string, or enum"
+                "map keys must use an integer, bool, string, or enum type"
             );
         }
         next_token = basl_program_token_at(program, *cursor);
@@ -5313,6 +5378,10 @@ static basl_status_t basl_program_parse_primitive_type_reference(
     }
     if (
         out_type->kind == BASL_TYPE_I32 ||
+        out_type->kind == BASL_TYPE_I64 ||
+        out_type->kind == BASL_TYPE_U8 ||
+        out_type->kind == BASL_TYPE_U32 ||
+        out_type->kind == BASL_TYPE_U64 ||
         out_type->kind == BASL_TYPE_F64 ||
         out_type->kind == BASL_TYPE_BOOL ||
         out_type->kind == BASL_TYPE_STRING
@@ -5993,6 +6062,13 @@ static basl_status_t basl_program_parse_constant_int(
     if (errno != 0 || end == buffer || *end != '\0') {
         return basl_compile_report(program, token->span, "invalid integer literal");
     }
+    if (parsed < (long long)INT32_MIN || parsed > (long long)INT32_MAX) {
+        return basl_compile_report(
+            program,
+            token->span,
+            "integer literal is out of range for i32"
+        );
+    }
 
     basl_value_init_int(out_value, (int64_t)parsed);
     return BASL_STATUS_OK;
@@ -6027,6 +6103,323 @@ static basl_status_t basl_program_parse_constant_float(
 
     basl_value_init_float(out_value, parsed);
     return BASL_STATUS_OK;
+}
+
+static int basl_program_integer_type_bounds(
+    basl_type_kind_t kind,
+    int64_t *out_minimum,
+    int64_t *out_maximum
+) {
+    int64_t minimum_value;
+    int64_t maximum_value;
+
+    switch (kind) {
+        case BASL_TYPE_I32:
+            minimum_value = (int64_t)INT32_MIN;
+            maximum_value = (int64_t)INT32_MAX;
+            break;
+        case BASL_TYPE_I64:
+            minimum_value = INT64_MIN;
+            maximum_value = INT64_MAX;
+            break;
+        case BASL_TYPE_U8:
+            minimum_value = 0;
+            maximum_value = (int64_t)UINT8_MAX;
+            break;
+        case BASL_TYPE_U32:
+            minimum_value = 0;
+            maximum_value = (int64_t)UINT32_MAX;
+            break;
+        case BASL_TYPE_U64:
+            minimum_value = 0;
+            maximum_value = INT64_MAX;
+            break;
+        default:
+            return 0;
+    }
+
+    if (out_minimum != NULL) {
+        *out_minimum = minimum_value;
+    }
+    if (out_maximum != NULL) {
+        *out_maximum = maximum_value;
+    }
+    return 1;
+}
+
+static basl_status_t basl_program_validate_integer_value_for_type(
+    basl_program_state_t *program,
+    basl_source_span_t span,
+    basl_parser_type_t target_type,
+    int64_t integer_value
+) {
+    int64_t minimum_value;
+    int64_t maximum_value;
+
+    if (!basl_parser_type_is_integer(target_type)) {
+        return BASL_STATUS_OK;
+    }
+    if (
+        !basl_program_integer_type_bounds(
+            target_type.kind,
+            &minimum_value,
+            &maximum_value
+        )
+    ) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (integer_value < minimum_value || integer_value > maximum_value) {
+        return basl_compile_report(
+            program,
+            span,
+            "integer arithmetic overflow or invalid operation"
+        );
+    }
+
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_convert_constant_to_integer(
+    basl_program_state_t *program,
+    basl_source_span_t span,
+    basl_type_kind_t target_kind,
+    const basl_constant_result_t *argument,
+    basl_constant_result_t *out_result
+) {
+    int64_t minimum_value;
+    int64_t maximum_value;
+    int64_t integer_value;
+    double float_value;
+
+    if (
+        program == NULL ||
+        argument == NULL ||
+        out_result == NULL ||
+        !basl_program_integer_type_bounds(target_kind, &minimum_value, &maximum_value)
+    ) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (basl_parser_type_equal(argument->type, basl_binding_type_primitive(target_kind))) {
+        out_result->type = basl_binding_type_primitive(target_kind);
+        out_result->value = basl_value_copy(&argument->value);
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_parser_type_is_integer(argument->type)) {
+        integer_value = basl_value_as_int(&argument->value);
+        if (integer_value < minimum_value || integer_value > maximum_value) {
+            return basl_compile_report(program, span, "integer conversion overflow or invalid value");
+        }
+        basl_value_init_int(&out_result->value, integer_value);
+        out_result->type = basl_binding_type_primitive(target_kind);
+        return BASL_STATUS_OK;
+    }
+
+    if (!basl_parser_type_is_f64(argument->type)) {
+        return basl_compile_report(
+            program,
+            span,
+            "integer conversions require an integer or f64 argument"
+        );
+    }
+
+    float_value = basl_value_as_float(&argument->value);
+    if (!isfinite(float_value) ||
+        float_value < (double)INT64_MIN ||
+        float_value > (double)INT64_MAX) {
+        return basl_compile_report(program, span, "integer conversion overflow or invalid value");
+    }
+
+    integer_value = (int64_t)float_value;
+    if (integer_value < minimum_value || integer_value > maximum_value) {
+        return basl_compile_report(program, span, "integer conversion overflow or invalid value");
+    }
+
+    basl_value_init_int(&out_result->value, integer_value);
+    out_result->type = basl_binding_type_primitive(target_kind);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_convert_constant_to_string(
+    basl_program_state_t *program,
+    basl_source_span_t span,
+    const basl_constant_result_t *argument,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_object_t *object;
+    const char *text;
+    char buffer[128];
+    int written;
+
+    if (program == NULL || argument == NULL || out_result == NULL) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (basl_parser_type_is_string(argument->type)) {
+        out_result->type = basl_binding_type_primitive(BASL_TYPE_STRING);
+        out_result->value = basl_value_copy(&argument->value);
+        return BASL_STATUS_OK;
+    }
+
+    object = NULL;
+    if (basl_parser_type_is_bool(argument->type)) {
+        text = basl_value_as_bool(&argument->value) ? "true" : "false";
+        status = basl_string_object_new_cstr(
+            program->registry->runtime,
+            text,
+            &object,
+            program->error
+        );
+    } else if (basl_parser_type_is_integer(argument->type)) {
+        written = snprintf(buffer, sizeof(buffer), "%lld", (long long)basl_value_as_int(&argument->value));
+        if (written < 0 || (size_t)written >= sizeof(buffer)) {
+            return basl_compile_report(program, span, "failed to format integer constant");
+        }
+        status = basl_string_object_new(
+            program->registry->runtime,
+            buffer,
+            (size_t)written,
+            &object,
+            program->error
+        );
+    } else if (basl_parser_type_is_f64(argument->type)) {
+        written = snprintf(buffer, sizeof(buffer), "%.17g", basl_value_as_float(&argument->value));
+        if (written < 0 || (size_t)written >= sizeof(buffer)) {
+            return basl_compile_report(program, span, "failed to format float constant");
+        }
+        status = basl_string_object_new(
+            program->registry->runtime,
+            buffer,
+            (size_t)written,
+            &object,
+            program->error
+        );
+    } else {
+        return basl_compile_report(
+            program,
+            span,
+            "string(...) requires a string, integer, f64, or bool argument"
+        );
+    }
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    basl_value_init_object(&out_result->value, &object);
+    basl_object_release(&object);
+    out_result->type = basl_binding_type_primitive(BASL_TYPE_STRING);
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_parse_constant_builtin_conversion(
+    basl_program_state_t *program,
+    size_t *cursor,
+    const basl_token_t *name_token,
+    basl_type_kind_t target_kind,
+    basl_constant_result_t *out_result
+) {
+    basl_status_t status;
+    basl_constant_result_t argument;
+    const basl_token_t *token;
+
+    basl_constant_result_clear(&argument);
+    token = basl_program_cursor_peek(program, *cursor);
+    if (token == NULL || token->kind != BASL_TOKEN_LPAREN) {
+        return basl_compile_report(program, name_token->span, "expected '(' after conversion name");
+    }
+    basl_program_cursor_advance(program, cursor);
+
+    status = basl_program_parse_constant_expression(program, cursor, &argument);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (
+        basl_program_cursor_peek(program, *cursor) != NULL &&
+        basl_program_cursor_peek(program, *cursor)->kind == BASL_TOKEN_COMMA
+    ) {
+        basl_constant_result_release(&argument);
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "built-in conversions accept exactly one argument"
+        );
+    }
+    token = basl_program_cursor_peek(program, *cursor);
+    if (token == NULL || token->kind != BASL_TOKEN_RPAREN) {
+        basl_constant_result_release(&argument);
+        return basl_compile_report(
+            program,
+            name_token->span,
+            "expected ')' after conversion argument"
+        );
+    }
+    basl_program_cursor_advance(program, cursor);
+
+    switch (target_kind) {
+        case BASL_TYPE_I32:
+        case BASL_TYPE_I64:
+        case BASL_TYPE_U8:
+        case BASL_TYPE_U32:
+        case BASL_TYPE_U64:
+            status = basl_program_convert_constant_to_integer(
+                program,
+                name_token->span,
+                target_kind,
+                &argument,
+                out_result
+            );
+            break;
+        case BASL_TYPE_F64:
+            if (basl_parser_type_is_f64(argument.type)) {
+                out_result->type = basl_binding_type_primitive(BASL_TYPE_F64);
+                out_result->value = basl_value_copy(&argument.value);
+                status = BASL_STATUS_OK;
+            } else if (basl_parser_type_is_integer(argument.type)) {
+                basl_value_init_float(&out_result->value, (double)basl_value_as_int(&argument.value));
+                out_result->type = basl_binding_type_primitive(BASL_TYPE_F64);
+                status = BASL_STATUS_OK;
+            } else {
+                status = basl_compile_report(
+                    program,
+                    name_token->span,
+                    "f64(...) requires an integer or f64 argument"
+                );
+            }
+            break;
+        case BASL_TYPE_STRING:
+            status = basl_program_convert_constant_to_string(
+                program,
+                name_token->span,
+                &argument,
+                out_result
+            );
+            break;
+        case BASL_TYPE_BOOL:
+            if (!basl_parser_type_is_bool(argument.type)) {
+                status = basl_compile_report(
+                    program,
+                    name_token->span,
+                    "bool(...) requires a bool argument"
+                );
+            } else {
+                out_result->type = basl_binding_type_primitive(BASL_TYPE_BOOL);
+                out_result->value = basl_value_copy(&argument.value);
+                status = BASL_STATUS_OK;
+            }
+            break;
+        default:
+            status = basl_compile_report(
+                program,
+                name_token->span,
+                "unsupported built-in conversion"
+            );
+            break;
+    }
+
+    basl_constant_result_release(&argument);
+    return status;
 }
 
 static basl_status_t basl_program_parse_constant_primary(
@@ -6102,6 +6495,32 @@ static basl_status_t basl_program_parse_constant_primary(
         case BASL_TOKEN_IDENTIFIER:
             basl_program_cursor_advance(program, cursor);
             name_text = basl_program_token_text(program, token, &name_length);
+            if (
+                basl_program_cursor_peek(program, *cursor) != NULL &&
+                basl_program_cursor_peek(program, *cursor)->kind == BASL_TOKEN_LPAREN
+            ) {
+                basl_type_kind_t conversion_kind;
+
+                conversion_kind = basl_type_kind_from_name(name_text, name_length);
+                if (
+                    conversion_kind == BASL_TYPE_I32 ||
+                    conversion_kind == BASL_TYPE_I64 ||
+                    conversion_kind == BASL_TYPE_U8 ||
+                    conversion_kind == BASL_TYPE_U32 ||
+                    conversion_kind == BASL_TYPE_U64 ||
+                    conversion_kind == BASL_TYPE_F64 ||
+                    conversion_kind == BASL_TYPE_STRING ||
+                    conversion_kind == BASL_TYPE_BOOL
+                ) {
+                    return basl_program_parse_constant_builtin_conversion(
+                        program,
+                        cursor,
+                        token,
+                        conversion_kind,
+                        out_result
+                    );
+                }
+            }
             enum_member = NULL;
             enum_index = 0U;
             if (
@@ -6284,7 +6703,10 @@ static basl_status_t basl_program_parse_constant_unary(
         }
 
         if (token->kind == BASL_TOKEN_MINUS) {
-            if (basl_parser_type_is_i32(operand.type)) {
+            if (basl_parser_type_is_signed_integer(operand.type)) {
+                basl_parser_type_t integer_type;
+
+                integer_type = operand.type;
                 status = basl_program_checked_negate(
                     basl_value_as_int(&operand.value),
                     &integer_result
@@ -6297,8 +6719,17 @@ static basl_status_t basl_program_parse_constant_unary(
                         "integer arithmetic overflow or invalid operation"
                     );
                 }
+                status = basl_program_validate_integer_value_for_type(
+                    program,
+                    token->span,
+                    integer_type,
+                    integer_result
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
                 basl_value_init_int(&out_result->value, integer_result);
-                out_result->type = basl_binding_type_primitive(BASL_TYPE_I32);
+                out_result->type = integer_type;
                 return BASL_STATUS_OK;
             }
             if (!basl_parser_type_is_f64(operand.type)) {
@@ -6306,7 +6737,7 @@ static basl_status_t basl_program_parse_constant_unary(
                 return basl_compile_report(
                     program,
                     token->span,
-                    "unary '-' requires an i32 or f64 operand"
+                    "unary '-' requires a signed integer or f64 operand"
                 );
             }
             float_result = -basl_value_as_float(&operand.value);
@@ -6370,7 +6801,8 @@ static basl_status_t basl_program_parse_constant_factor(
             basl_constant_result_release(&left);
             return status;
         }
-        if (basl_parser_type_is_i32(left.type) && basl_parser_type_is_i32(right.type)) {
+        if (basl_parser_type_is_integer(left.type) &&
+            basl_parser_type_equal(left.type, right.type)) {
             switch (token->kind) {
                 case BASL_TOKEN_STAR:
                     status = basl_program_checked_multiply(
@@ -6403,10 +6835,25 @@ static basl_status_t basl_program_parse_constant_factor(
                     "integer arithmetic overflow or invalid operation"
                 );
             }
+            status = basl_program_validate_integer_value_for_type(
+                program,
+                token->span,
+                left.type,
+                integer_result
+            );
+            if (status != BASL_STATUS_OK) {
+                basl_constant_result_release(&left);
+                basl_constant_result_release(&right);
+                return status;
+            }
 
-            basl_constant_result_release(&left);
-            basl_value_init_int(&left.value, integer_result);
-            left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+            {
+                basl_parser_type_t integer_type = left.type;
+
+                basl_constant_result_release(&left);
+                basl_value_init_int(&left.value, integer_result);
+                left.type = integer_type;
+            }
             basl_constant_result_release(&right);
             continue;
         }
@@ -6438,8 +6885,8 @@ static basl_status_t basl_program_parse_constant_factor(
                 program,
                 token->span,
                 token->kind == BASL_TOKEN_PERCENT
-                    ? "modulo requires i32 operands"
-                    : "arithmetic operators require matching i32 or f64 operands"
+                    ? "modulo requires matching integer operands"
+                    : "arithmetic operators require matching integer or f64 operands"
             );
         }
     }
@@ -6500,7 +6947,8 @@ static basl_status_t basl_program_parse_constant_term(
             basl_constant_result_release(&right);
             continue;
         }
-        if (basl_parser_type_is_i32(left.type) && basl_parser_type_is_i32(right.type)) {
+        if (basl_parser_type_is_integer(left.type) &&
+            basl_parser_type_equal(left.type, right.type)) {
             if (token->kind == BASL_TOKEN_PLUS) {
                 status = basl_program_checked_add(
                     basl_value_as_int(&left.value),
@@ -6523,10 +6971,25 @@ static basl_status_t basl_program_parse_constant_term(
                     "integer arithmetic overflow or invalid operation"
                 );
             }
+            status = basl_program_validate_integer_value_for_type(
+                program,
+                token->span,
+                left.type,
+                integer_result
+            );
+            if (status != BASL_STATUS_OK) {
+                basl_constant_result_release(&left);
+                basl_constant_result_release(&right);
+                return status;
+            }
 
-            basl_constant_result_release(&left);
-            basl_value_init_int(&left.value, integer_result);
-            left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+            {
+                basl_parser_type_t integer_type = left.type;
+
+                basl_constant_result_release(&left);
+                basl_value_init_int(&left.value, integer_result);
+                left.type = integer_type;
+            }
             basl_constant_result_release(&right);
             continue;
         }
@@ -6547,8 +7010,8 @@ static basl_status_t basl_program_parse_constant_term(
                 program,
                 token->span,
                 token->kind == BASL_TOKEN_PLUS
-                    ? "'+' requires matching i32, f64, or string operands"
-                    : "arithmetic operators require matching i32 or f64 operands"
+                    ? "'+' requires matching integer, f64, or string operands"
+                    : "arithmetic operators require matching integer or f64 operands"
             );
         }
     }
@@ -6589,13 +7052,15 @@ static basl_status_t basl_program_parse_constant_shift(
             basl_constant_result_release(&left);
             return status;
         }
-        if (
-            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
-            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
-        ) {
+        if (!basl_parser_type_is_integer(left.type) ||
+            !basl_parser_type_equal(left.type, right.type)) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
-            return basl_compile_report(program, token->span, "shift operators require i32 operands");
+            return basl_compile_report(
+                program,
+                token->span,
+                "shift operators require matching integer operands"
+            );
         }
 
         if (token->kind == BASL_TOKEN_SHIFT_LEFT) {
@@ -6620,10 +7085,25 @@ static basl_status_t basl_program_parse_constant_shift(
                 "integer arithmetic overflow or invalid operation"
             );
         }
+        status = basl_program_validate_integer_value_for_type(
+            program,
+            token->span,
+            left.type,
+            integer_result
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return status;
+        }
 
-        basl_constant_result_release(&left);
-        basl_value_init_int(&left.value, integer_result);
-        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        {
+            basl_parser_type_t integer_type = left.type;
+
+            basl_constant_result_release(&left);
+            basl_value_init_int(&left.value, integer_result);
+            left.type = integer_type;
+        }
         basl_constant_result_release(&right);
     }
 }
@@ -6666,7 +7146,8 @@ static basl_status_t basl_program_parse_constant_comparison(
             return status;
         }
         if (
-            (!basl_parser_type_is_i32(left.type) || !basl_parser_type_is_i32(right.type)) &&
+            (!basl_parser_type_is_integer(left.type) ||
+             !basl_parser_type_equal(left.type, right.type)) &&
             (!basl_parser_type_is_f64(left.type) || !basl_parser_type_is_f64(right.type))
         ) {
             basl_constant_result_release(&left);
@@ -6674,11 +7155,11 @@ static basl_status_t basl_program_parse_constant_comparison(
             return basl_compile_report(
                 program,
                 token->span,
-                "comparison operators require matching i32 or f64 operands"
+                "comparison operators require matching integer or f64 operands"
             );
         }
 
-        if (basl_parser_type_is_i32(left.type)) {
+        if (basl_parser_type_is_integer(left.type)) {
             switch (token->kind) {
                 case BASL_TOKEN_GREATER:
                     comparison_result =
@@ -6811,23 +7292,36 @@ static basl_status_t basl_program_parse_constant_bitwise_and(
             basl_constant_result_release(&left);
             return status;
         }
-        if (
-            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
-            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
-        ) {
+        if (!basl_parser_type_is_integer(left.type) ||
+            !basl_parser_type_equal(left.type, right.type)) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
             return basl_compile_report(
                 program,
                 token->span,
-                "bitwise operators require i32 operands"
+                "bitwise operators require matching integer operands"
             );
         }
 
         integer_result = basl_value_as_int(&left.value) & basl_value_as_int(&right.value);
-        basl_constant_result_release(&left);
-        basl_value_init_int(&left.value, integer_result);
-        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_program_validate_integer_value_for_type(
+            program,
+            token->span,
+            left.type,
+            integer_result
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return status;
+        }
+        {
+            basl_parser_type_t integer_type = left.type;
+
+            basl_constant_result_release(&left);
+            basl_value_init_int(&left.value, integer_result);
+            left.type = integer_type;
+        }
         basl_constant_result_release(&right);
     }
 }
@@ -6863,23 +7357,36 @@ static basl_status_t basl_program_parse_constant_bitwise_xor(
             basl_constant_result_release(&left);
             return status;
         }
-        if (
-            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
-            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
-        ) {
+        if (!basl_parser_type_is_integer(left.type) ||
+            !basl_parser_type_equal(left.type, right.type)) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
             return basl_compile_report(
                 program,
                 token->span,
-                "bitwise operators require i32 operands"
+                "bitwise operators require matching integer operands"
             );
         }
 
         integer_result = basl_value_as_int(&left.value) ^ basl_value_as_int(&right.value);
-        basl_constant_result_release(&left);
-        basl_value_init_int(&left.value, integer_result);
-        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_program_validate_integer_value_for_type(
+            program,
+            token->span,
+            left.type,
+            integer_result
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return status;
+        }
+        {
+            basl_parser_type_t integer_type = left.type;
+
+            basl_constant_result_release(&left);
+            basl_value_init_int(&left.value, integer_result);
+            left.type = integer_type;
+        }
         basl_constant_result_release(&right);
     }
 }
@@ -6915,23 +7422,36 @@ static basl_status_t basl_program_parse_constant_bitwise_or(
             basl_constant_result_release(&left);
             return status;
         }
-        if (
-            !basl_parser_type_equal(left.type, basl_binding_type_primitive(BASL_TYPE_I32)) ||
-            !basl_parser_type_equal(right.type, basl_binding_type_primitive(BASL_TYPE_I32))
-        ) {
+        if (!basl_parser_type_is_integer(left.type) ||
+            !basl_parser_type_equal(left.type, right.type)) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
             return basl_compile_report(
                 program,
                 token->span,
-                "bitwise operators require i32 operands"
+                "bitwise operators require matching integer operands"
             );
         }
 
         integer_result = basl_value_as_int(&left.value) | basl_value_as_int(&right.value);
-        basl_constant_result_release(&left);
-        basl_value_init_int(&left.value, integer_result);
-        left.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_program_validate_integer_value_for_type(
+            program,
+            token->span,
+            left.type,
+            integer_result
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_constant_result_release(&left);
+            basl_constant_result_release(&right);
+            return status;
+        }
+        {
+            basl_parser_type_t integer_type = left.type;
+
+            basl_constant_result_release(&left);
+            basl_value_init_int(&left.value, integer_result);
+            left.type = integer_type;
+        }
         basl_constant_result_release(&right);
     }
 }
@@ -7329,7 +7849,7 @@ static basl_status_t basl_program_parse_constant_declaration(
     status = basl_program_parse_primitive_type_reference(
         program,
         cursor,
-        "only i32 and bool global constant types are supported",
+        "global constants must use a primitive value type",
         &declared_type
     );
     if (status != BASL_STATUS_OK) {
@@ -9216,6 +9736,9 @@ static basl_status_t basl_parser_parse_int_literal(
     if (errno != 0 || end == buffer || *end != '\0') {
         return basl_parser_report(state, token->span, "invalid integer literal");
     }
+    if (parsed < (long long)INT32_MIN || parsed > (long long)INT32_MAX) {
+        return basl_parser_report(state, token->span, "integer literal is out of range for i32");
+    }
 
     basl_value_init_int(out_value, (int64_t)parsed);
     return BASL_STATUS_OK;
@@ -10260,6 +10783,10 @@ static int basl_parser_resolve_builtin_conversion_kind(
     kind = basl_type_kind_from_name(name_text, name_length);
     if (
         kind != BASL_TYPE_I32 &&
+        kind != BASL_TYPE_I64 &&
+        kind != BASL_TYPE_U8 &&
+        kind != BASL_TYPE_U32 &&
+        kind != BASL_TYPE_U64 &&
         kind != BASL_TYPE_F64 &&
         kind != BASL_TYPE_STRING &&
         kind != BASL_TYPE_BOOL
@@ -10321,30 +10848,31 @@ static basl_status_t basl_parser_parse_builtin_conversion(
 
     switch (target_kind) {
         case BASL_TYPE_I32:
-            if (basl_parser_type_is_i32(argument_result.type)) {
-                needs_opcode = 0;
-            } else if (basl_parser_type_is_f64(argument_result.type)) {
-                opcode = BASL_OPCODE_TO_I32;
-                needs_opcode = 1;
-            } else {
-                return basl_parser_report(
-                    state,
-                    name_token->span,
-                    "i32(...) requires an i32 or f64 argument"
-                );
-            }
-            break;
+            opcode = BASL_OPCODE_TO_I32;
+            goto integer_conversion;
+        case BASL_TYPE_I64:
+            opcode = BASL_OPCODE_TO_I64;
+            goto integer_conversion;
+        case BASL_TYPE_U8:
+            opcode = BASL_OPCODE_TO_U8;
+            goto integer_conversion;
+        case BASL_TYPE_U32:
+            opcode = BASL_OPCODE_TO_U32;
+            goto integer_conversion;
+        case BASL_TYPE_U64:
+            opcode = BASL_OPCODE_TO_U64;
+            goto integer_conversion;
         case BASL_TYPE_F64:
             if (basl_parser_type_is_f64(argument_result.type)) {
                 needs_opcode = 0;
-            } else if (basl_parser_type_is_i32(argument_result.type)) {
+            } else if (basl_parser_type_is_integer(argument_result.type)) {
                 opcode = BASL_OPCODE_TO_F64;
                 needs_opcode = 1;
             } else {
                 return basl_parser_report(
                     state,
                     name_token->span,
-                    "f64(...) requires an i32 or f64 argument"
+                    "f64(...) requires an integer or f64 argument"
                 );
             }
             break;
@@ -10352,7 +10880,7 @@ static basl_status_t basl_parser_parse_builtin_conversion(
             if (basl_parser_type_is_string(argument_result.type)) {
                 needs_opcode = 0;
             } else if (
-                basl_parser_type_is_i32(argument_result.type) ||
+                basl_parser_type_is_integer(argument_result.type) ||
                 basl_parser_type_is_f64(argument_result.type) ||
                 basl_parser_type_is_bool(argument_result.type)
             ) {
@@ -10362,7 +10890,7 @@ static basl_status_t basl_parser_parse_builtin_conversion(
                 return basl_parser_report(
                     state,
                     name_token->span,
-                    "string(...) requires a string, i32, f64, or bool argument"
+                    "string(...) requires a string, integer, f64, or bool argument"
                 );
             }
             break;
@@ -10382,6 +10910,35 @@ static basl_status_t basl_parser_parse_builtin_conversion(
                 name_token->span,
                 "unsupported built-in conversion"
             );
+    }
+
+integer_conversion:
+    if (
+        target_kind == BASL_TYPE_I32 ||
+        target_kind == BASL_TYPE_I64 ||
+        target_kind == BASL_TYPE_U8 ||
+        target_kind == BASL_TYPE_U32 ||
+        target_kind == BASL_TYPE_U64
+    ) {
+        if (
+            basl_parser_type_equal(
+                argument_result.type,
+                basl_binding_type_primitive(target_kind)
+            )
+        ) {
+            needs_opcode = 0;
+        } else if (
+            basl_parser_type_is_integer(argument_result.type) ||
+            basl_parser_type_is_f64(argument_result.type)
+        ) {
+            needs_opcode = 1;
+        } else {
+            return basl_parser_report(
+                state,
+                name_token->span,
+                "integer conversions require an integer or f64 argument"
+            );
+        }
     }
 
     if (needs_opcode) {
@@ -12739,7 +13296,7 @@ static basl_status_t basl_parser_parse_primary_base(
                                 basl_parser_previous(state) == NULL
                                     ? token->span
                                     : basl_parser_previous(state)->span,
-                                "map literal keys must use type i32, bool, string, or enum"
+                                "map literal keys must use an integer, bool, string, or enum type"
                             );
                         }
                         key_type = key_result.type;
@@ -12978,13 +13535,17 @@ static basl_status_t basl_parser_parse_unary(
                 operator_token->span,
                 BASL_UNARY_OPERATOR_NEGATE,
                 operand_result.type,
-                "unary '-' requires an i32 or f64 operand"
+                "unary '-' requires a signed integer or f64 operand"
             );
             if (status != BASL_STATUS_OK) {
                 return status;
             }
             basl_expression_result_set_type(out_result, operand_result.type);
-            return basl_parser_emit_opcode(state, BASL_OPCODE_NEGATE, operator_token->span);
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_NEGATE, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            return basl_parser_emit_integer_cast(state, operand_result.type, operator_token->span);
         }
 
         if (operator_token->kind == BASL_TOKEN_BANG) {
@@ -13010,13 +13571,17 @@ static basl_status_t basl_parser_parse_unary(
             operator_token->span,
             BASL_UNARY_OPERATOR_BITWISE_NOT,
             operand_result.type,
-            "bitwise '~' requires an i32 operand"
+            "bitwise '~' requires a signed integer operand"
         );
         if (status != BASL_STATUS_OK) {
             return status;
         }
         basl_expression_result_set_type(out_result, operand_result.type);
-        return basl_parser_emit_opcode(state, BASL_OPCODE_BITWISE_NOT, operator_token->span);
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_BITWISE_NOT, operator_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        return basl_parser_emit_integer_cast(state, operand_result.type, operator_token->span);
     }
 
     return basl_parser_parse_primary(state, out_result);
@@ -13081,7 +13646,7 @@ static basl_status_t basl_parser_parse_factor(
                 left_result.type,
                 right_result.type,
                 BASL_BINARY_OPERATOR_MODULO,
-                "modulo requires i32 operands"
+                "modulo requires matching integer operands"
             );
         } else if (
             !basl_parser_type_supports_binary_operator(
@@ -13095,7 +13660,7 @@ static basl_status_t basl_parser_parse_factor(
             status = basl_parser_report(
                 state,
                 operator_span,
-                "arithmetic operators require matching i32 or f64 operands"
+                "arithmetic operators require matching integer or f64 operands"
             );
         } else {
             status = BASL_STATUS_OK;
@@ -13114,9 +13679,10 @@ static basl_status_t basl_parser_parse_factor(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        left_result.type = operator_kind == BASL_TOKEN_PERCENT
-            ? basl_binding_type_primitive(BASL_TYPE_I32)
-            : left_result.type;
+        status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     basl_expression_result_copy(out_result, &left_result);
@@ -13186,8 +13752,8 @@ static basl_status_t basl_parser_parse_term(
                 state,
                 operator_span,
                 operator_kind == BASL_TOKEN_PLUS
-                    ? "'+' requires matching i32, f64, or string operands"
-                    : "arithmetic operators require matching i32 or f64 operands"
+                    ? "'+' requires matching integer, f64, or string operands"
+                    : "arithmetic operators require matching integer or f64 operands"
             );
         }
 
@@ -13207,6 +13773,11 @@ static basl_status_t basl_parser_parse_term(
             )
         ) {
             left_result.type = basl_binding_type_primitive(BASL_TYPE_STRING);
+        } else {
+            status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
         }
     }
 
@@ -13272,7 +13843,7 @@ static basl_status_t basl_parser_parse_shift(
             operator_kind == BASL_TOKEN_SHIFT_LEFT
                 ? BASL_BINARY_OPERATOR_SHIFT_LEFT
                 : BASL_BINARY_OPERATOR_SHIFT_RIGHT,
-            "shift operators require i32 operands"
+            "shift operators require matching integer operands"
         );
         if (status != BASL_STATUS_OK) {
             return status;
@@ -13288,7 +13859,10 @@ static basl_status_t basl_parser_parse_shift(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     basl_expression_result_copy(out_result, &left_result);
@@ -13365,7 +13939,7 @@ static basl_status_t basl_parser_parse_comparison(
             status = basl_parser_report(
                 state,
                 operator_span,
-                "comparison operators require matching i32 or f64 operands"
+                "comparison operators require matching integer or f64 operands"
             );
         } else {
             status = BASL_STATUS_OK;
@@ -13532,7 +14106,7 @@ static basl_status_t basl_parser_parse_bitwise_and(
             left_result.type,
             right_result.type,
             BASL_BINARY_OPERATOR_BITWISE_AND,
-            "bitwise operators require i32 operands"
+            "bitwise operators require matching integer operands"
         );
         if (status != BASL_STATUS_OK) {
             return status;
@@ -13542,7 +14116,10 @@ static basl_status_t basl_parser_parse_bitwise_and(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     basl_expression_result_copy(out_result, &left_result);
@@ -13596,7 +14173,7 @@ static basl_status_t basl_parser_parse_bitwise_xor(
             left_result.type,
             right_result.type,
             BASL_BINARY_OPERATOR_BITWISE_XOR,
-            "bitwise operators require i32 operands"
+            "bitwise operators require matching integer operands"
         );
         if (status != BASL_STATUS_OK) {
             return status;
@@ -13606,7 +14183,10 @@ static basl_status_t basl_parser_parse_bitwise_xor(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     basl_expression_result_copy(out_result, &left_result);
@@ -13660,7 +14240,7 @@ static basl_status_t basl_parser_parse_bitwise_or(
             left_result.type,
             right_result.type,
             BASL_BINARY_OPERATOR_BITWISE_OR,
-            "bitwise operators require i32 operands"
+            "bitwise operators require matching integer operands"
         );
         if (status != BASL_STATUS_OK) {
             return status;
@@ -13670,7 +14250,10 @@ static basl_status_t basl_parser_parse_bitwise_or(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        left_result.type = basl_binding_type_primitive(BASL_TYPE_I32);
+        status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
     }
 
     basl_expression_result_copy(out_result, &left_result);
@@ -15331,10 +15914,7 @@ static basl_status_t basl_parser_parse_switch_statement(
         goto cleanup;
     }
     if (
-        !basl_parser_type_equal(
-            switch_result.type,
-            basl_binding_type_primitive(BASL_TYPE_I32)
-        ) &&
+        !basl_parser_type_is_integer(switch_result.type) &&
         !basl_parser_type_equal(
             switch_result.type,
             basl_binding_type_primitive(BASL_TYPE_BOOL)
@@ -15344,7 +15924,7 @@ static basl_status_t basl_parser_parse_switch_statement(
         status = basl_parser_report(
             state,
             switch_token->span,
-            "switch expression must be i32, bool, or enum"
+            "switch expression must be an integer, bool, or enum"
         );
         goto cleanup;
     }
@@ -15776,6 +16356,48 @@ static basl_status_t basl_parser_emit_f64_constant(
     );
     basl_value_release(&constant);
     return status;
+}
+
+static basl_status_t basl_parser_emit_integer_cast(
+    basl_parser_state_t *state,
+    basl_parser_type_t target_type,
+    basl_source_span_t span
+) {
+    basl_opcode_t opcode;
+
+    if (!basl_parser_type_is_integer(target_type)) {
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_parser_type_is_i32(target_type)) {
+        opcode = BASL_OPCODE_TO_I32;
+    } else if (basl_parser_type_is_i64(target_type)) {
+        opcode = BASL_OPCODE_TO_I64;
+    } else if (basl_parser_type_is_u8(target_type)) {
+        opcode = BASL_OPCODE_TO_U8;
+    } else if (basl_parser_type_is_u32(target_type)) {
+        opcode = BASL_OPCODE_TO_U32;
+    } else {
+        opcode = BASL_OPCODE_TO_U64;
+    }
+
+    return basl_parser_emit_opcode(state, opcode, span);
+}
+
+static basl_status_t basl_parser_emit_integer_constant(
+    basl_parser_state_t *state,
+    basl_parser_type_t target_type,
+    int64_t value,
+    basl_source_span_t span
+) {
+    basl_status_t status;
+
+    status = basl_parser_emit_i32_constant(state, value, span);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    return basl_parser_emit_integer_cast(state, target_type, span);
 }
 
 static int basl_parser_skip_bracketed_suffix(
@@ -16365,15 +16987,20 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
             operator_token->kind == BASL_TOKEN_PLUS_PLUS ||
             operator_token->kind == BASL_TOKEN_MINUS_MINUS
         ) {
-            if (basl_parser_type_is_i32(target_type)) {
-                status = basl_parser_emit_i32_constant(state, 1, operator_token->span);
+            if (basl_parser_type_is_integer(target_type)) {
+                status = basl_parser_emit_integer_constant(
+                    state,
+                    target_type,
+                    1,
+                    operator_token->span
+                );
             } else if (basl_parser_type_is_f64(target_type)) {
                 status = basl_parser_emit_f64_constant(state, 1.0, operator_token->span);
             } else {
                 status = basl_parser_report(
                     state,
                     operator_token->span,
-                    "increment and decrement require an i32 or f64 target"
+                    "increment and decrement require an integer or f64 target"
                 );
             }
             if (status != BASL_STATUS_OK) {
@@ -16437,10 +17064,10 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
                     state,
                     operator_token->span,
                     operator_kind == BASL_BINARY_OPERATOR_ADD
-                        ? "compound assignment requires matching i32, f64, or string operands"
+                        ? "compound assignment requires matching integer, f64, or string operands"
                         : (operator_kind == BASL_BINARY_OPERATOR_MODULO
-                               ? "compound assignment modulo requires i32 operands"
-                               : "compound assignment requires matching i32 or f64 operands")
+                               ? "compound assignment modulo requires matching integer operands"
+                               : "compound assignment requires matching integer or f64 operands")
                 );
             } else {
                 status = BASL_STATUS_OK;
@@ -16451,6 +17078,10 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         }
 
         status = basl_parser_emit_opcode(state, opcode, operator_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_integer_cast(state, target_type, operator_token->span);
         if (status != BASL_STATUS_OK) {
             return status;
         }

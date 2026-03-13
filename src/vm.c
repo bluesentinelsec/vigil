@@ -1714,6 +1714,84 @@ static basl_status_t basl_vm_format_f64_value(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_vm_push_checked_integer(
+    basl_vm_t *vm,
+    int64_t integer_value,
+    int64_t minimum_value,
+    int64_t maximum_value,
+    const char *error_message,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_value_t value;
+
+    if (integer_value < minimum_value || integer_value > maximum_value) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, error_message);
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    basl_value_init_int(&value, integer_value);
+    status = basl_vm_push(vm, &value, error);
+    basl_value_release(&value);
+    return status;
+}
+
+static basl_status_t basl_vm_convert_to_integer_type(
+    basl_vm_t *vm,
+    const basl_value_t *value,
+    int64_t minimum_value,
+    int64_t maximum_value,
+    const char *operand_error,
+    const char *range_error,
+    basl_error_t *error
+) {
+    int64_t integer_value;
+
+    if (vm == NULL || value == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "integer conversion arguments must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (basl_value_kind(value) == BASL_VALUE_INT) {
+        return basl_vm_push_checked_integer(
+            vm,
+            basl_value_as_int(value),
+            minimum_value,
+            maximum_value,
+            range_error,
+            error
+        );
+    }
+
+    if (basl_value_kind(value) != BASL_VALUE_FLOAT) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, operand_error);
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (
+        !isfinite(basl_value_as_float(value)) ||
+        basl_value_as_float(value) > (double)INT64_MAX ||
+        basl_value_as_float(value) < (double)INT64_MIN
+    ) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, range_error);
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    integer_value = (int64_t)basl_value_as_float(value);
+    return basl_vm_push_checked_integer(
+        vm,
+        integer_value,
+        minimum_value,
+        maximum_value,
+        range_error,
+        error
+    );
+}
+
 static basl_status_t basl_vm_fail_at_ip(
     basl_vm_t *vm,
     basl_status_t status,
@@ -3508,47 +3586,117 @@ basl_status_t basl_vm_execute_function(
                 break;
             case BASL_OPCODE_TO_I32:
                 value = basl_vm_pop_or_nil(vm);
-                if (basl_value_kind(&value) == BASL_VALUE_INT) {
-                    status = basl_vm_push(vm, &value, error);
-                    basl_value_release(&value);
-                    if (status != BASL_STATUS_OK) {
-                        goto cleanup;
-                    }
-                    frame->ip += 1U;
-                    break;
-                }
-                if (basl_value_kind(&value) != BASL_VALUE_FLOAT) {
-                    basl_value_release(&value);
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INVALID_ARGUMENT,
-                        "i32 conversion requires an int or float operand",
-                        error
-                    );
-                    goto cleanup;
-                }
-                if (
-                    !isfinite(basl_value_as_float(&value)) ||
-                    basl_value_as_float(&value) > (double)INT64_MAX ||
-                    basl_value_as_float(&value) < (double)INT64_MIN
-                ) {
-                    basl_value_release(&value);
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INVALID_ARGUMENT,
-                        "i32 conversion overflow or invalid value",
-                        error
-                    );
-                    goto cleanup;
-                }
-                basl_value_init_int(&left, (int64_t)basl_value_as_float(&value));
+                status = basl_vm_convert_to_integer_type(
+                    vm,
+                    &value,
+                    (int64_t)INT32_MIN,
+                    (int64_t)INT32_MAX,
+                    "i32 conversion requires an int or float operand",
+                    "i32 conversion overflow or invalid value",
+                    error
+                );
                 basl_value_release(&value);
-                status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {
-                    basl_value_release(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        error->value,
+                        error
+                    );
                     goto cleanup;
                 }
-                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_I64:
+                value = basl_vm_pop_or_nil(vm);
+                status = basl_vm_convert_to_integer_type(
+                    vm,
+                    &value,
+                    INT64_MIN,
+                    INT64_MAX,
+                    "i64 conversion requires an int or float operand",
+                    "i64 conversion overflow or invalid value",
+                    error
+                );
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        error->value,
+                        error
+                    );
+                    goto cleanup;
+                }
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_U8:
+                value = basl_vm_pop_or_nil(vm);
+                status = basl_vm_convert_to_integer_type(
+                    vm,
+                    &value,
+                    0,
+                    (int64_t)UINT8_MAX,
+                    "u8 conversion requires an int or float operand",
+                    "u8 conversion overflow or invalid value",
+                    error
+                );
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        error->value,
+                        error
+                    );
+                    goto cleanup;
+                }
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_U32:
+                value = basl_vm_pop_or_nil(vm);
+                status = basl_vm_convert_to_integer_type(
+                    vm,
+                    &value,
+                    0,
+                    (int64_t)UINT32_MAX,
+                    "u32 conversion requires an int or float operand",
+                    "u32 conversion overflow or invalid value",
+                    error
+                );
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        error->value,
+                        error
+                    );
+                    goto cleanup;
+                }
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_TO_U64:
+                value = basl_vm_pop_or_nil(vm);
+                status = basl_vm_convert_to_integer_type(
+                    vm,
+                    &value,
+                    0,
+                    INT64_MAX,
+                    "u64 conversion requires an int or float operand",
+                    "u64 conversion overflow or invalid value",
+                    error
+                );
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        error->value,
+                        error
+                    );
+                    goto cleanup;
+                }
                 frame->ip += 1U;
                 break;
             case BASL_OPCODE_TO_F64:

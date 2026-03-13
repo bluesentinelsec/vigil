@@ -181,6 +181,32 @@ TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "const u8 LIMIT = u8(12);"
+            "fn double_i64(i64 value) -> i64 {"
+            "    return value * i64(2);"
+            "}"
+            "fn bump_u8(u8 value) -> u8 {"
+            "    value += u8(5);"
+            "    return value;"
+            "}"
+            "fn main() -> i32 {"
+            "    i64 total = double_i64(i64(20));"
+            "    u8 small = bump_u8(LIMIT);"
+            "    u32 count = u32(100000) + u32(25);"
+            "    u64 large = u64(2000000000) + u64(5);"
+            "    if (total == i64(40) && small == u8(17) && count == u32(100025) && large == u64(2000000005)) {"
+            "        return 9;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        9
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
     EXPECT_EQ(
         CompileAndRun(
@@ -1726,7 +1752,40 @@ TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic) {
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "'+' requires matching i32, f64, or string operands"
+        "'+' requires matching integer, f64, or string operands"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsOutOfRangeDefaultI32Literals) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "large_literal.basl",
+        "fn main() -> i32 { i32 value = 3000000000; return value; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "integer literal is out of range for i32"
     );
 
     basl_diagnostic_list_free(&diagnostics);
@@ -2424,7 +2483,7 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "map keys must use type i32, bool, string, or enum"
+        "map keys must use an integer, bool, string, or enum type"
     );
 
     basl_diagnostic_list_clear(&diagnostics);
