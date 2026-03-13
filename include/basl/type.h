@@ -12,11 +12,12 @@ extern "C" {
 typedef enum basl_type_kind {
     BASL_TYPE_INVALID = 0,
     BASL_TYPE_I32 = 1,
-    BASL_TYPE_BOOL = 2,
-    BASL_TYPE_STRING = 3,
-    BASL_TYPE_VOID = 4,
-    BASL_TYPE_NIL = 5,
-    BASL_TYPE_OBJECT = 6
+    BASL_TYPE_F64 = 2,
+    BASL_TYPE_BOOL = 3,
+    BASL_TYPE_STRING = 4,
+    BASL_TYPE_VOID = 5,
+    BASL_TYPE_NIL = 6,
+    BASL_TYPE_OBJECT = 7
 } basl_type_kind_t;
 
 typedef enum basl_unary_operator_kind {

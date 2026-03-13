@@ -352,6 +352,52 @@ TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslVmTest, SupportsFloatArithmeticAndNegation) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    basl_value_init_float(&constant, 1.5);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(7U, 0U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_init_float(&constant, 2.0);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(7U, 4U, 7U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_ADD, Span(7U, 8U, 9U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEGATE, Span(7U, 10U, 11U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(7U, 12U, 13U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_FLOAT);
+    EXPECT_DOUBLE_EQ(basl_value_as_float(&result), -3.5);
+
+    basl_value_release(&result);
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
+
 TEST(BaslVmTest, RejectsMissingArguments) {
     basl_runtime_t *runtime = nullptr;
     basl_vm_t *vm = nullptr;

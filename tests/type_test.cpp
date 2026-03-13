@@ -7,6 +7,7 @@ extern "C" {
 TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_INVALID), "invalid");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_I32), "i32");
+    EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_F64), "f64");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_BOOL), "bool");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_STRING), "string");
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_VOID), "void");
@@ -14,6 +15,7 @@ TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_OBJECT), "object");
 
     EXPECT_EQ(basl_type_kind_from_name("i32", 3U), BASL_TYPE_I32);
+    EXPECT_EQ(basl_type_kind_from_name("f64", 3U), BASL_TYPE_F64);
     EXPECT_EQ(basl_type_kind_from_name("bool", 4U), BASL_TYPE_BOOL);
     EXPECT_EQ(basl_type_kind_from_name("string", 6U), BASL_TYPE_STRING);
     EXPECT_EQ(basl_type_kind_from_name("void", 4U), BASL_TYPE_VOID);
@@ -22,6 +24,7 @@ TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
 
 TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes) {
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_I32, BASL_TYPE_I32));
+    EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_F64, BASL_TYPE_F64));
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_BOOL, BASL_TYPE_BOOL));
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_STRING, BASL_TYPE_STRING));
     EXPECT_TRUE(basl_type_is_assignable(BASL_TYPE_OBJECT, BASL_TYPE_OBJECT));
@@ -33,6 +36,9 @@ TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes) {
 TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
     EXPECT_TRUE(
         basl_type_supports_unary_operator(BASL_UNARY_OPERATOR_NEGATE, BASL_TYPE_I32)
+    );
+    EXPECT_TRUE(
+        basl_type_supports_unary_operator(BASL_UNARY_OPERATOR_NEGATE, BASL_TYPE_F64)
     );
     EXPECT_FALSE(
         basl_type_supports_unary_operator(BASL_UNARY_OPERATOR_NEGATE, BASL_TYPE_BOOL)
@@ -52,6 +58,13 @@ TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
             BASL_BINARY_OPERATOR_ADD,
             BASL_TYPE_I32,
             BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_ADD,
+            BASL_TYPE_F64,
+            BASL_TYPE_F64
         )
     );
     EXPECT_FALSE(
@@ -94,6 +107,13 @@ TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
             BASL_BINARY_OPERATOR_SHIFT_LEFT,
             BASL_TYPE_I32,
             BASL_TYPE_I32
+        )
+    );
+    EXPECT_TRUE(
+        basl_type_supports_binary_operator(
+            BASL_BINARY_OPERATOR_GREATER,
+            BASL_TYPE_F64,
+            BASL_TYPE_F64
         )
     );
     EXPECT_FALSE(

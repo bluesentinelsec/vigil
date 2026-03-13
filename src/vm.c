@@ -2067,6 +2067,58 @@ basl_status_t basl_vm_execute_function(
                             basl_value_release(&right);
                             goto cleanup;
                         }
+                    } else if (
+                        basl_value_kind(&left) == BASL_VALUE_FLOAT &&
+                        basl_value_kind(&right) == BASL_VALUE_FLOAT
+                    ) {
+                        switch ((basl_opcode_t)code[frame->ip]) {
+                            case BASL_OPCODE_ADD:
+                                basl_value_init_float(
+                                    &value,
+                                    basl_value_as_float(&left) + basl_value_as_float(&right)
+                                );
+                                break;
+                            case BASL_OPCODE_SUBTRACT:
+                                basl_value_init_float(
+                                    &value,
+                                    basl_value_as_float(&left) - basl_value_as_float(&right)
+                                );
+                                break;
+                            case BASL_OPCODE_MULTIPLY:
+                                basl_value_init_float(
+                                    &value,
+                                    basl_value_as_float(&left) * basl_value_as_float(&right)
+                                );
+                                break;
+                            case BASL_OPCODE_DIVIDE:
+                                basl_value_init_float(
+                                    &value,
+                                    basl_value_as_float(&left) / basl_value_as_float(&right)
+                                );
+                                break;
+                            case BASL_OPCODE_GREATER:
+                                basl_value_init_bool(
+                                    &value,
+                                    basl_value_as_float(&left) > basl_value_as_float(&right)
+                                );
+                                break;
+                            case BASL_OPCODE_LESS:
+                                basl_value_init_bool(
+                                    &value,
+                                    basl_value_as_float(&left) < basl_value_as_float(&right)
+                                );
+                                break;
+                            default:
+                                basl_value_release(&left);
+                                basl_value_release(&right);
+                                status = basl_vm_fail_at_ip(
+                                    vm,
+                                    BASL_STATUS_INVALID_ARGUMENT,
+                                    "float operands are not supported for this opcode",
+                                    error
+                                );
+                                goto cleanup;
+                        }
                     } else {
                         if (
                             basl_value_kind(&left) != BASL_VALUE_INT ||
@@ -2206,12 +2258,26 @@ basl_status_t basl_vm_execute_function(
                 break;
             case BASL_OPCODE_NEGATE:
                 value = basl_vm_pop_or_nil(vm);
+                if (basl_value_kind(&value) == BASL_VALUE_FLOAT) {
+                    basl_value_t negated;
+
+                    basl_value_init_float(&negated, -basl_value_as_float(&value));
+                    basl_value_release(&value);
+                    status = basl_vm_push(vm, &negated, error);
+                    if (status != BASL_STATUS_OK) {
+                        basl_value_release(&negated);
+                        goto cleanup;
+                    }
+                    basl_value_release(&negated);
+                    frame->ip += 1U;
+                    break;
+                }
                 if (basl_value_kind(&value) != BASL_VALUE_INT) {
                     basl_value_release(&value);
                     status = basl_vm_fail_at_ip(
                         vm,
                         BASL_STATUS_INVALID_ARGUMENT,
-                        "negation requires an integer operand",
+                        "negation requires an integer or float operand",
                         error
                     );
                     goto cleanup;

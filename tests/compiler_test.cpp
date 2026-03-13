@@ -144,6 +144,26 @@ TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn scale(f64 value) -> f64 {"
+            "    value *= 2.0;"
+            "    value++;"
+            "    return value;"
+            "}"
+            "fn main() -> i32 {"
+            "    f64 total = scale(2.5);"
+            "    if (total == 6.0 && total >= 5.5) {"
+            "        return 6;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        6
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     EXPECT_EQ(
         CompileAndRun(
@@ -502,6 +522,32 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
             "    Counter counter = Counter(5);"
             "    counter.bump(2);"
             "    return counter.read();"
+            "}"
+        ),
+        7
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "f64 scale = 1.5;"
+            "class Counter {"
+            "    f64 value;"
+            "    fn init(f64 value) -> void {"
+            "        self.value = value * scale;"
+            "    }"
+            "    fn grow(f64 delta) -> void {"
+            "        self.value += delta;"
+            "    }"
+            "}"
+            "fn main() -> i32 {"
+            "    Counter counter = Counter(4.0);"
+            "    counter.grow(1.0);"
+            "    if (counter.value > 6.5) {"
+            "        return 7;"
+            "    }"
+            "    return 0;"
             "}"
         ),
         7
@@ -1476,7 +1522,40 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressio
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "float expressions are not yet supported"
+        "main entrypoint must return an i32 expression"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "mixed_numeric.basl",
+        "fn main() -> i32 { f64 x = 1.0 + 2; return 0; }",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "'+' requires matching i32, f64, or string operands"
     );
 
     basl_diagnostic_list_free(&diagnostics);

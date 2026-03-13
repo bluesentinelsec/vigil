@@ -12,6 +12,8 @@ const char *basl_type_kind_name(basl_type_kind_t kind) {
     switch (kind) {
         case BASL_TYPE_I32:
             return "i32";
+        case BASL_TYPE_F64:
+            return "f64";
         case BASL_TYPE_BOOL:
             return "bool";
         case BASL_TYPE_STRING:
@@ -38,6 +40,10 @@ basl_type_kind_t basl_type_kind_from_name(const char *text, size_t length) {
 
     if (length == 3U && memcmp(text, "i32", 3U) == 0) {
         return BASL_TYPE_I32;
+    }
+
+    if (length == 3U && memcmp(text, "f64", 3U) == 0) {
+        return BASL_TYPE_F64;
     }
 
     if (length == 4U && memcmp(text, "bool", 4U) == 0) {
@@ -73,7 +79,7 @@ int basl_type_supports_unary_operator(
 
     switch (operator_kind) {
         case BASL_UNARY_OPERATOR_NEGATE:
-            return operand_type == BASL_TYPE_I32;
+            return operand_type == BASL_TYPE_I32 || operand_type == BASL_TYPE_F64;
         case BASL_UNARY_OPERATOR_LOGICAL_NOT:
             return operand_type == BASL_TYPE_BOOL;
         default:
@@ -93,10 +99,13 @@ int basl_type_supports_binary_operator(
     switch (operator_kind) {
         case BASL_BINARY_OPERATOR_ADD:
             return (left_type == BASL_TYPE_I32 && right_type == BASL_TYPE_I32) ||
+                   (left_type == BASL_TYPE_F64 && right_type == BASL_TYPE_F64) ||
                    (left_type == BASL_TYPE_STRING && right_type == BASL_TYPE_STRING);
         case BASL_BINARY_OPERATOR_SUBTRACT:
         case BASL_BINARY_OPERATOR_MULTIPLY:
         case BASL_BINARY_OPERATOR_DIVIDE:
+            return (left_type == BASL_TYPE_I32 && right_type == BASL_TYPE_I32) ||
+                   (left_type == BASL_TYPE_F64 && right_type == BASL_TYPE_F64);
         case BASL_BINARY_OPERATOR_MODULO:
         case BASL_BINARY_OPERATOR_BITWISE_AND:
         case BASL_BINARY_OPERATOR_BITWISE_OR:
@@ -107,7 +116,8 @@ int basl_type_supports_binary_operator(
         case BASL_BINARY_OPERATOR_GREATER_EQUAL:
         case BASL_BINARY_OPERATOR_LESS:
         case BASL_BINARY_OPERATOR_LESS_EQUAL:
-            return left_type == BASL_TYPE_I32 && right_type == BASL_TYPE_I32;
+            return (left_type == BASL_TYPE_I32 && right_type == BASL_TYPE_I32) ||
+                   (left_type == BASL_TYPE_F64 && right_type == BASL_TYPE_F64);
         case BASL_BINARY_OPERATOR_EQUAL:
         case BASL_BINARY_OPERATOR_NOT_EQUAL:
             return basl_type_kinds_match(left_type, right_type);
