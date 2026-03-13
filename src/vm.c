@@ -786,6 +786,117 @@ static basl_status_t basl_vm_invoke_new_instance(
     return status;
 }
 
+static basl_status_t basl_vm_invoke_new_array(
+    basl_vm_t *vm,
+    size_t type_index,
+    size_t item_count,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_object_t *array_object;
+    basl_value_t value;
+    size_t base_slot;
+
+    (void)type_index;
+    if (item_count > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "array elements are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    base_slot = vm->stack_count - item_count;
+    array_object = NULL;
+    status = basl_array_object_new(
+        vm->runtime,
+        base_slot == vm->stack_count ? NULL : vm->stack + base_slot,
+        item_count,
+        &array_object,
+        error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    basl_vm_unwind_stack_to(vm, base_slot);
+    basl_value_init_object(&value, &array_object);
+    status = basl_vm_push(vm, &value, error);
+    basl_value_release(&value);
+    return status;
+}
+
+static basl_status_t basl_vm_invoke_new_map(
+    basl_vm_t *vm,
+    size_t type_index,
+    size_t pair_count,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_object_t *map_object;
+    const basl_value_t *key_value;
+    const basl_value_t *entry_value;
+    const basl_object_t *key_object;
+    basl_value_t value;
+    size_t base_slot;
+    size_t pair_index;
+
+    (void)type_index;
+    if (pair_count > SIZE_MAX / 2U || pair_count * 2U > vm->stack_count) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INTERNAL,
+            "map entries are missing from the stack"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    base_slot = vm->stack_count - (pair_count * 2U);
+    map_object = NULL;
+    status = basl_map_object_new(vm->runtime, &map_object, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    for (pair_index = 0U; pair_index < pair_count; pair_index += 1U) {
+        key_value = &vm->stack[base_slot + (pair_index * 2U)];
+        entry_value = &vm->stack[base_slot + (pair_index * 2U) + 1U];
+        key_object = basl_value_as_object(key_value);
+        if (
+            basl_value_kind(key_value) != BASL_VALUE_OBJECT ||
+            key_object == NULL ||
+            basl_object_type(key_object) != BASL_OBJECT_STRING
+        ) {
+            basl_object_release(&map_object);
+            basl_error_set_literal(
+                error,
+                BASL_STATUS_INVALID_ARGUMENT,
+                "map keys must be strings"
+            );
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+
+        status = basl_map_object_set(
+            map_object,
+            basl_string_object_c_str(key_object),
+            basl_string_object_length(key_object),
+            entry_value,
+            error
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_object_release(&map_object);
+            return status;
+        }
+    }
+
+    basl_vm_unwind_stack_to(vm, base_slot);
+    basl_value_init_object(&value, &map_object);
+    status = basl_vm_push(vm, &value, error);
+    basl_value_release(&value);
+    return status;
+}
+
 static basl_status_t basl_vm_schedule_defer(
     basl_vm_t *vm,
     basl_vm_frame_t *frame,
@@ -2023,6 +2134,60 @@ basl_status_t basl_vm_execute_function(
                 }
                 break;
             }
+            case BASL_OPCODE_NEW_ARRAY: {
+                size_t type_index;
+                size_t item_count;
+
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                type_index = (size_t)operand;
+
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                item_count = (size_t)operand;
+                status = basl_vm_invoke_new_array(
+                    vm,
+                    type_index,
+                    item_count,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
+            case BASL_OPCODE_NEW_MAP: {
+                size_t type_index;
+                size_t pair_count;
+
+                status = basl_vm_read_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                type_index = (size_t)operand;
+
+                status = basl_vm_read_raw_u32(vm, &operand, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+
+                pair_count = (size_t)operand;
+                status = basl_vm_invoke_new_map(
+                    vm,
+                    type_index,
+                    pair_count,
+                    error
+                );
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            }
             case BASL_OPCODE_DEFER_CALL: {
                 uint32_t arg_count;
 
@@ -2187,6 +2352,210 @@ basl_status_t basl_vm_execute_function(
                 );
                 basl_value_release(&left);
                 basl_value_release(&right);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_GET_INDEX:
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "index access requires an array or map",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                if (basl_object_type(basl_value_as_object(&left)) == BASL_OBJECT_ARRAY) {
+                    if (
+                        basl_value_kind(&right) != BASL_VALUE_INT ||
+                        basl_value_as_int(&right) < 0
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "array index must be a non-negative i32",
+                            error
+                        );
+                        goto cleanup;
+                    }
+
+                    if (
+                        !basl_array_object_get(
+                            basl_value_as_object(&left),
+                            (size_t)basl_value_as_int(&right),
+                            &value
+                        )
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "array index is out of range",
+                            error
+                        );
+                        goto cleanup;
+                    }
+                } else if (basl_object_type(basl_value_as_object(&left)) == BASL_OBJECT_MAP) {
+                    const basl_object_t *key_object;
+
+                    key_object = basl_value_as_object(&right);
+                    if (
+                        basl_value_kind(&right) != BASL_VALUE_OBJECT ||
+                        key_object == NULL ||
+                        basl_object_type(key_object) != BASL_OBJECT_STRING
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "map index must be a string",
+                            error
+                        );
+                        goto cleanup;
+                    }
+
+                    if (
+                        !basl_map_object_get(
+                            basl_value_as_object(&left),
+                            basl_string_object_c_str(key_object),
+                            basl_string_object_length(key_object),
+                            &value
+                        )
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "map key is not present",
+                            error
+                        );
+                        goto cleanup;
+                    }
+                } else {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "index access requires an array or map",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                basl_value_release(&left);
+                basl_value_release(&right);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                break;
+            case BASL_OPCODE_SET_INDEX:
+                frame->ip += 1U;
+                value = basl_vm_pop_or_nil(vm);
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "indexed assignment requires an array or map",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                if (basl_object_type(basl_value_as_object(&left)) == BASL_OBJECT_ARRAY) {
+                    if (
+                        basl_value_kind(&right) != BASL_VALUE_INT ||
+                        basl_value_as_int(&right) < 0
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        basl_value_release(&value);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "array index must be a non-negative i32",
+                            error
+                        );
+                        goto cleanup;
+                    }
+
+                    status = basl_array_object_set(
+                        basl_value_as_object(&left),
+                        (size_t)basl_value_as_int(&right),
+                        &value,
+                        error
+                    );
+                } else if (basl_object_type(basl_value_as_object(&left)) == BASL_OBJECT_MAP) {
+                    const basl_object_t *key_object;
+
+                    key_object = basl_value_as_object(&right);
+                    if (
+                        basl_value_kind(&right) != BASL_VALUE_OBJECT ||
+                        key_object == NULL ||
+                        basl_object_type(key_object) != BASL_OBJECT_STRING
+                    ) {
+                        basl_value_release(&left);
+                        basl_value_release(&right);
+                        basl_value_release(&value);
+                        status = basl_vm_fail_at_ip(
+                            vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "map index must be a string",
+                            error
+                        );
+                        goto cleanup;
+                    }
+
+                    status = basl_map_object_set(
+                        basl_value_as_object(&left),
+                        basl_string_object_c_str(key_object),
+                        basl_string_object_length(key_object),
+                        &value,
+                        error
+                    );
+                } else {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "indexed assignment requires an array or map",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                basl_value_release(&left);
+                basl_value_release(&right);
+                basl_value_release(&value);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }

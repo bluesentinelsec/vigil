@@ -2182,6 +2182,98 @@ TEST(BaslCompilerTest, RejectsAssignmentToConstLocal) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    array<i32> nums = [1, 2, 3];"
+            "    map<string, i32> scores = {\"left\": 4, \"right\": 5};"
+            "    nums[1] = nums[0] + scores[\"right\"];"
+            "    scores[\"left\"] = nums[1] + 1;"
+            "    return scores[\"left\"];"
+            "}"
+        ),
+        7
+    );
+}
+
+TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignment) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_array_index.basl",
+        "fn main() -> i32 {"
+        "    array<i32> nums = [1, 2];"
+        "    return nums[\"zero\"];"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "array index must be i32"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "bad_map_index.basl",
+        "fn main() -> i32 {"
+        "    map<string, i32> scores = {\"a\": 1};"
+        "    return scores[0];"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "map index must be string"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "bad_index_compound.basl",
+        "fn main() -> i32 {"
+        "    array<i32> nums = [1, 2];"
+        "    nums[0] += 1;"
+        "    return nums[0];"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "compound indexed assignment is not yet supported"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
 TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};

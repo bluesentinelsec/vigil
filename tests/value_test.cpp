@@ -333,3 +333,67 @@ TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields) {
     basl_object_release(&instance);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_object_t *array_object = nullptr;
+    basl_object_t *map_object = nullptr;
+    basl_value_t items[2];
+    basl_value_t value;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_value_init_int(&items[0], 3);
+    basl_value_init_int(&items[1], 7);
+
+    ASSERT_EQ(
+        basl_array_object_new(runtime, items, 2U, &array_object, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_NE(array_object, nullptr);
+    EXPECT_EQ(basl_object_type(array_object), BASL_OBJECT_ARRAY);
+    EXPECT_EQ(basl_array_object_length(array_object), 2U);
+
+    basl_value_init_nil(&value);
+    ASSERT_TRUE(basl_array_object_get(array_object, 1U, &value));
+    EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&value), 7);
+    basl_value_release(&value);
+
+    basl_value_init_int(&value, 9);
+    ASSERT_EQ(
+        basl_array_object_set(array_object, 0U, &value, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&value);
+
+    basl_value_init_nil(&value);
+    ASSERT_TRUE(basl_array_object_get(array_object, 0U, &value));
+    EXPECT_EQ(basl_value_as_int(&value), 9);
+    basl_value_release(&value);
+
+    ASSERT_EQ(basl_map_object_new(runtime, &map_object, &error), BASL_STATUS_OK);
+    ASSERT_NE(map_object, nullptr);
+    EXPECT_EQ(basl_object_type(map_object), BASL_OBJECT_MAP);
+    EXPECT_EQ(basl_map_object_count(map_object), 0U);
+
+    basl_value_init_int(&value, 11);
+    ASSERT_EQ(
+        basl_map_object_set(map_object, "score", 5U, &value, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&value);
+    EXPECT_EQ(basl_map_object_count(map_object), 1U);
+
+    basl_value_init_nil(&value);
+    ASSERT_TRUE(basl_map_object_get(map_object, "score", 5U, &value));
+    EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&value), 11);
+    basl_value_release(&value);
+
+    basl_value_release(&items[0]);
+    basl_value_release(&items[1]);
+    basl_object_release(&array_object);
+    basl_object_release(&map_object);
+    basl_runtime_close(&runtime);
+}

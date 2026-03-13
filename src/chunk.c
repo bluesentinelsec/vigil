@@ -526,6 +526,14 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "GET_FIELD";
         case BASL_OPCODE_SET_FIELD:
             return "SET_FIELD";
+        case BASL_OPCODE_NEW_ARRAY:
+            return "NEW_ARRAY";
+        case BASL_OPCODE_NEW_MAP:
+            return "NEW_MAP";
+        case BASL_OPCODE_GET_INDEX:
+            return "GET_INDEX";
+        case BASL_OPCODE_SET_INDEX:
+            return "SET_INDEX";
         case BASL_OPCODE_CALL_INTERFACE:
             return "CALL_INTERFACE";
         case BASL_OPCODE_DEFER_CALL:
@@ -813,35 +821,47 @@ basl_status_t basl_chunk_disassemble(
             offset += 13U;
         } else if (
             opcode == BASL_OPCODE_NEW_INSTANCE ||
+            opcode == BASL_OPCODE_NEW_ARRAY ||
+            opcode == BASL_OPCODE_NEW_MAP ||
             opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
         ) {
-            uint32_t class_index;
-            uint32_t field_count;
+            uint32_t first_operand;
+            uint32_t second_operand;
 
             if (offset + 8U >= chunk->code.length) {
                 basl_error_set_literal(
                     error,
                     BASL_STATUS_INTERNAL,
-                    "truncated constructor instruction"
+                    opcode == BASL_OPCODE_NEW_INSTANCE ||
+                            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+                        ? "truncated constructor instruction"
+                        : "truncated collection instruction"
                 );
                 return BASL_STATUS_INTERNAL;
             }
 
-            class_index = (uint32_t)chunk->code.data[offset + 1U];
-            class_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            class_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            class_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-            field_count = (uint32_t)chunk->code.data[offset + 5U];
-            field_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
-            field_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
-            field_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+            first_operand = (uint32_t)chunk->code.data[offset + 1U];
+            first_operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            first_operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            first_operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            second_operand = (uint32_t)chunk->code.data[offset + 5U];
+            second_operand |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            second_operand |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            second_operand |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
 
-            written = snprintf(line, sizeof(line), " %u %u", class_index, field_count);
+            if (opcode == BASL_OPCODE_NEW_ARRAY || opcode == BASL_OPCODE_NEW_MAP) {
+                written = snprintf(line, sizeof(line), " %u %u", first_operand, second_operand);
+            } else {
+                written = snprintf(line, sizeof(line), " %u %u", first_operand, second_operand);
+            }
             if (written < 0) {
                 basl_error_set_literal(
                     error,
                     BASL_STATUS_INTERNAL,
-                    "failed to format chunk constructor operand"
+                    opcode == BASL_OPCODE_NEW_INSTANCE ||
+                            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+                        ? "failed to format chunk constructor operand"
+                        : "failed to format chunk collection operand"
                 );
                 return BASL_STATUS_INTERNAL;
             }

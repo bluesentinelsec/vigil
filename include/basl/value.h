@@ -26,7 +26,9 @@ typedef enum basl_object_type {
     BASL_OBJECT_STRING = 1,
     BASL_OBJECT_FUNCTION = 2,
     BASL_OBJECT_INSTANCE = 3,
-    BASL_OBJECT_ERROR = 4
+    BASL_OBJECT_ERROR = 4,
+    BASL_OBJECT_ARRAY = 5,
+    BASL_OBJECT_MAP = 6
 } basl_object_type_t;
 
 typedef struct basl_object basl_object_t;
@@ -152,6 +154,46 @@ BASL_API int basl_instance_object_get_field(
 BASL_API basl_status_t basl_instance_object_set_field(
     basl_object_t *object,
     size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+);
+
+BASL_API basl_status_t basl_array_object_new(
+    basl_runtime_t *runtime,
+    const basl_value_t *items,
+    size_t item_count,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API size_t basl_array_object_length(const basl_object_t *object);
+BASL_API int basl_array_object_get(
+    const basl_object_t *object,
+    size_t index,
+    basl_value_t *out_value
+);
+BASL_API basl_status_t basl_array_object_set(
+    basl_object_t *object,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+);
+
+BASL_API basl_status_t basl_map_object_new(
+    basl_runtime_t *runtime,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API size_t basl_map_object_count(const basl_object_t *object);
+BASL_API int basl_map_object_get(
+    const basl_object_t *object,
+    const char *key,
+    size_t key_length,
+    basl_value_t *out_value
+);
+BASL_API basl_status_t basl_map_object_set(
+    basl_object_t *object,
+    const char *key,
+    size_t key_length,
     const basl_value_t *value,
     basl_error_t *error
 );

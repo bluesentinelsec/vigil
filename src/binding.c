@@ -60,6 +60,24 @@ basl_binding_type_t basl_binding_type_enum(size_t enum_index) {
     return type;
 }
 
+basl_binding_type_t basl_binding_type_array(size_t array_index) {
+    basl_binding_type_t type;
+
+    type.kind = BASL_TYPE_OBJECT;
+    type.object_kind = BASL_BINDING_OBJECT_ARRAY;
+    type.object_index = array_index;
+    return type;
+}
+
+basl_binding_type_t basl_binding_type_map(size_t map_index) {
+    basl_binding_type_t type;
+
+    type.kind = BASL_TYPE_OBJECT;
+    type.object_kind = BASL_BINDING_OBJECT_MAP;
+    type.object_index = map_index;
+    return type;
+}
+
 int basl_binding_type_is_valid(basl_binding_type_t type) {
     if (type.object_kind == BASL_BINDING_OBJECT_ENUM) {
         return type.kind == BASL_TYPE_I32 &&
@@ -68,6 +86,7 @@ int basl_binding_type_is_valid(basl_binding_type_t type) {
 
     if (type.kind == BASL_TYPE_OBJECT) {
         return type.object_kind != BASL_BINDING_OBJECT_NONE &&
+               type.object_kind != BASL_BINDING_OBJECT_ENUM &&
                type.object_index != BASL_BINDING_INVALID_CLASS_INDEX;
     }
 

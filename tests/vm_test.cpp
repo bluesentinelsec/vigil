@@ -780,3 +780,97 @@ TEST(BaslVmTest, SupportsErrorOpcodes) {
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_object_t *key_object = nullptr;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    basl_value_init_int(&constant, 4);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 1U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_init_int(&constant, 6);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 2U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEW_ARRAY, Span(12U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(basl_chunk_write_u32(&chunk, 0U, Span(12U, 6U, 7U), &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_chunk_write_u32(&chunk, 2U, Span(12U, 8U, 9U), &error), BASL_STATUS_OK);
+    basl_value_init_int(&constant, 1);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 10U, 11U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_GET_INDEX, Span(12U, 12U, 13U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(12U, 14U, 15U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), 6);
+    basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    ASSERT_EQ(basl_string_object_new_cstr(runtime, "answer", &key_object, &error), BASL_STATUS_OK);
+    basl_value_init_object(&constant, &key_object);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 6U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&constant);
+    basl_value_init_int(&constant, 9);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 7U, 8U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEW_MAP, Span(13U, 9U, 10U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(basl_chunk_write_u32(&chunk, 0U, Span(13U, 11U, 12U), &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_chunk_write_u32(&chunk, 1U, Span(13U, 13U, 14U), &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_string_object_new_cstr(runtime, "answer", &key_object, &error), BASL_STATUS_OK);
+    basl_value_init_object(&constant, &key_object);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 15U, 21U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&constant);
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_GET_INDEX, Span(13U, 22U, 23U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(13U, 24U, 25U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), 9);
+
+    basl_value_release(&result);
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
