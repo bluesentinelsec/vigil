@@ -65,6 +65,7 @@ target_compile_features(basl_cli PRIVATE c_std_11)
 if(BASL_BUILD_TESTS)
     include(CTest)
     include(FetchContent)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     find_package(GTest CONFIG QUIET)
     if(NOT GTest_FOUND)
@@ -104,4 +105,9 @@ if(BASL_BUILD_TESTS)
 
     include(GoogleTest)
     gtest_discover_tests(basl_tests)
+
+    add_test(
+        NAME BaslSyntaxIntegrationTest
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
+    )
 endif()

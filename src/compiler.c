@@ -6054,147 +6054,139 @@ static int basl_program_parse_optional_pub(
     return 0;
 }
 
-static int basl_program_is_global_variable_declaration_start(
+static int basl_program_skip_type_reference_syntax(
     const basl_program_state_t *program,
-    size_t cursor
+    size_t *cursor
 ) {
     const basl_token_t *token;
-    const basl_token_t *name_token;
-    const basl_token_t *assign_token;
-    size_t lookahead;
 
-    token = basl_program_token_at(program, cursor);
+    token = basl_program_token_at(program, *cursor);
     if (token == NULL) {
         return 0;
     }
 
-    lookahead = cursor;
     if (token->kind == BASL_TOKEN_FN) {
-        size_t depth;
+        *cursor += 1U;
+        token = basl_program_token_at(program, *cursor);
+        if (token == NULL) {
+            return 0;
+        }
+        if (token->kind != BASL_TOKEN_LPAREN) {
+            return 1;
+        }
 
-        lookahead += 1U;
-        token = basl_program_token_at(program, lookahead);
+        *cursor += 1U;
+        token = basl_program_token_at(program, *cursor);
+        if (token == NULL) {
+            return 0;
+        }
+        if (token->kind != BASL_TOKEN_RPAREN) {
+            while (1) {
+                if (!basl_program_skip_type_reference_syntax(program, cursor)) {
+                    return 0;
+                }
+                token = basl_program_token_at(program, *cursor);
+                if (token == NULL || token->kind != BASL_TOKEN_COMMA) {
+                    break;
+                }
+                *cursor += 1U;
+            }
+        }
+
+        token = basl_program_token_at(program, *cursor);
+        if (token == NULL || token->kind != BASL_TOKEN_RPAREN) {
+            return 0;
+        }
+        *cursor += 1U;
+
+        token = basl_program_token_at(program, *cursor);
+        if (token == NULL || token->kind != BASL_TOKEN_ARROW) {
+            return 1;
+        }
+        *cursor += 1U;
+
+        token = basl_program_token_at(program, *cursor);
         if (token == NULL) {
             return 0;
         }
         if (token->kind == BASL_TOKEN_LPAREN) {
-            depth = 1U;
-            lookahead += 1U;
-            while (depth > 0U) {
-                token = basl_program_token_at(program, lookahead);
-                if (token == NULL) {
-                    return 0;
-                }
-                if (token->kind == BASL_TOKEN_LPAREN) {
-                    depth += 1U;
-                } else if (token->kind == BASL_TOKEN_RPAREN) {
-                    depth -= 1U;
-                }
-                lookahead += 1U;
-            }
-
-            token = basl_program_token_at(program, lookahead);
-            if (token != NULL && token->kind == BASL_TOKEN_ARROW) {
-                lookahead += 1U;
-                token = basl_program_token_at(program, lookahead);
-                if (token == NULL) {
-                    return 0;
-                }
-                if (token->kind == BASL_TOKEN_LPAREN) {
-                    depth = 1U;
-                    lookahead += 1U;
-                    while (depth > 0U) {
-                        token = basl_program_token_at(program, lookahead);
-                        if (token == NULL) {
-                            return 0;
-                        }
-                        if (token->kind == BASL_TOKEN_LPAREN) {
-                            depth += 1U;
-                        } else if (token->kind == BASL_TOKEN_RPAREN) {
-                            depth -= 1U;
-                        }
-                        lookahead += 1U;
-                    }
-                } else {
-                    while (1) {
-                        token = basl_program_token_at(program, lookahead);
-                        if (token == NULL) {
-                            return 0;
-                        }
-                        if (token->kind == BASL_TOKEN_LESS) {
-                            depth = 1U;
-                            lookahead += 1U;
-                            while (depth > 0U) {
-                                token = basl_program_token_at(program, lookahead);
-                                if (token == NULL) {
-                                    return 0;
-                                }
-                                if (token->kind == BASL_TOKEN_LESS) {
-                                    depth += 1U;
-                                } else if (token->kind == BASL_TOKEN_GREATER) {
-                                    depth -= 1U;
-                                } else if (token->kind == BASL_TOKEN_SHIFT_RIGHT) {
-                                    if (depth < 2U) {
-                                        return 0;
-                                    }
-                                    depth -= 2U;
-                                }
-                                lookahead += 1U;
-                            }
-                            break;
-                        }
-                        if (
-                            token->kind != BASL_TOKEN_IDENTIFIER &&
-                            token->kind != BASL_TOKEN_DOT
-                        ) {
-                            break;
-                        }
-                        lookahead += 1U;
-                    }
-                }
-            }
-        }
-    } else if (token->kind == BASL_TOKEN_IDENTIFIER) {
-        while (1) {
-            lookahead += 1U;
-            token = basl_program_token_at(program, lookahead);
+            *cursor += 1U;
+            token = basl_program_token_at(program, *cursor);
             if (token == NULL) {
                 return 0;
             }
-            if (token->kind == BASL_TOKEN_DOT) {
-                lookahead += 1U;
-                token = basl_program_token_at(program, lookahead);
-                if (token == NULL || token->kind != BASL_TOKEN_IDENTIFIER) {
-                    return 0;
-                }
-                continue;
-            }
-            if (token->kind == BASL_TOKEN_LESS) {
-                size_t depth = 1U;
-
-                lookahead += 1U;
-                while (depth > 0U) {
-                    token = basl_program_token_at(program, lookahead);
-                    if (token == NULL) {
+            if (token->kind != BASL_TOKEN_RPAREN) {
+                while (1) {
+                    if (!basl_program_skip_type_reference_syntax(program, cursor)) {
                         return 0;
                     }
-                    if (token->kind == BASL_TOKEN_LESS) {
-                        depth += 1U;
-                    } else if (token->kind == BASL_TOKEN_GREATER) {
-                        depth -= 1U;
-                    } else if (token->kind == BASL_TOKEN_SHIFT_RIGHT) {
-                        if (depth < 2U) {
-                            return 0;
-                        }
-                        depth -= 2U;
+                    token = basl_program_token_at(program, *cursor);
+                    if (token == NULL || token->kind != BASL_TOKEN_COMMA) {
+                        break;
                     }
-                    lookahead += 1U;
+                    *cursor += 1U;
                 }
-                break;
             }
-            break;
+
+            token = basl_program_token_at(program, *cursor);
+            if (token == NULL || token->kind != BASL_TOKEN_RPAREN) {
+                return 0;
+            }
+            *cursor += 1U;
+            return 1;
         }
-    } else {
+
+        return basl_program_skip_type_reference_syntax(program, cursor);
+    }
+
+    if (token->kind != BASL_TOKEN_IDENTIFIER) {
+        return 0;
+    }
+    *cursor += 1U;
+
+    token = basl_program_token_at(program, *cursor);
+    if (token != NULL && token->kind == BASL_TOKEN_DOT) {
+        *cursor += 1U;
+        token = basl_program_token_at(program, *cursor);
+        if (token == NULL || token->kind != BASL_TOKEN_IDENTIFIER) {
+            return 0;
+        }
+        *cursor += 1U;
+    }
+
+    token = basl_program_token_at(program, *cursor);
+    if (token != NULL && token->kind == BASL_TOKEN_LESS) {
+        *cursor += 1U;
+        if (!basl_program_skip_type_reference_syntax(program, cursor)) {
+            return 0;
+        }
+        token = basl_program_token_at(program, *cursor);
+        if (token != NULL && token->kind == BASL_TOKEN_COMMA) {
+            *cursor += 1U;
+            if (!basl_program_skip_type_reference_syntax(program, cursor)) {
+                return 0;
+            }
+            token = basl_program_token_at(program, *cursor);
+        }
+        if (token == NULL || token->kind != BASL_TOKEN_GREATER) {
+            return 0;
+        }
+        *cursor += 1U;
+    }
+
+    return 1;
+}
+
+static int basl_program_is_global_variable_declaration_start(
+    const basl_program_state_t *program,
+    size_t cursor
+) {
+    const basl_token_t *name_token;
+    const basl_token_t *assign_token;
+    size_t lookahead;
+
+    lookahead = cursor;
+    if (!basl_program_skip_type_reference_syntax(program, &lookahead)) {
         return 0;
     }
 
@@ -6212,6 +6204,49 @@ static basl_status_t basl_program_parse_constant_expression(
     basl_constant_result_t *out_result
 );
 
+static int basl_parse_integer_literal_text(
+    const char *text,
+    size_t length,
+    unsigned long long *out_value
+) {
+    char buffer[128];
+    char *digits;
+    char *end;
+    int base;
+    unsigned long long parsed;
+
+    if (text == NULL || out_value == NULL || length == 0U || length >= sizeof(buffer)) {
+        return 0;
+    }
+
+    memcpy(buffer, text, length);
+    buffer[length] = '\0';
+
+    digits = buffer;
+    base = 0;
+    if (length > 2U && buffer[0] == '0') {
+        if (buffer[1] == 'b' || buffer[1] == 'B') {
+            digits = buffer + 2;
+            base = 2;
+        } else if (buffer[1] == 'o' || buffer[1] == 'O') {
+            digits = buffer + 2;
+            base = 8;
+        }
+    }
+    if (*digits == '\0') {
+        return 0;
+    }
+
+    errno = 0;
+    parsed = strtoull(digits, &end, base);
+    if (errno != 0 || end == digits || *end != '\0') {
+        return 0;
+    }
+
+    *out_value = parsed;
+    return 1;
+}
+
 static basl_status_t basl_program_parse_constant_int(
     basl_program_state_t *program,
     const basl_token_t *token,
@@ -6219,23 +6254,13 @@ static basl_status_t basl_program_parse_constant_int(
 ) {
     const char *text;
     size_t length;
-    char buffer[128];
-    char *end;
     unsigned long long parsed;
 
     text = basl_program_token_text(program, token, &length);
     if (text == NULL || length == 0U) {
         return basl_compile_report(program, token->span, "invalid integer literal");
     }
-    if (length >= sizeof(buffer)) {
-        return basl_compile_report(program, token->span, "integer literal is too long");
-    }
-
-    memcpy(buffer, text, length);
-    buffer[length] = '\0';
-    errno = 0;
-    parsed = strtoull(buffer, &end, 0);
-    if (errno != 0 || end == buffer || *end != '\0') {
+    if (!basl_parse_integer_literal_text(text, length, &parsed)) {
         return basl_compile_report(program, token->span, "invalid integer literal");
     }
 
@@ -10531,23 +10556,13 @@ static basl_status_t basl_parser_parse_int_literal(
 ) {
     const char *text;
     size_t length;
-    char buffer[128];
-    char *end;
     unsigned long long parsed;
 
     text = basl_parser_token_text(state, token, &length);
     if (text == NULL || length == 0U) {
         return basl_parser_report(state, token->span, "invalid integer literal");
     }
-    if (length >= sizeof(buffer)) {
-        return basl_parser_report(state, token->span, "integer literal is too long");
-    }
-
-    memcpy(buffer, text, length);
-    buffer[length] = '\0';
-    errno = 0;
-    parsed = strtoull(buffer, &end, 0);
-    if (errno != 0 || end == buffer || *end != '\0') {
+    if (!basl_parse_integer_literal_text(text, length, &parsed)) {
         return basl_parser_report(state, token->span, "invalid integer literal");
     }
     if (parsed <= (unsigned long long)INT64_MAX) {
@@ -14769,7 +14784,18 @@ static basl_status_t basl_parser_parse_primary_base(
             }
             if (
                 basl_parser_check(state, BASL_TOKEN_DOT) &&
-                !local_found
+                !local_found &&
+                (
+                    basl_program_names_equal(name_text, name_length, "err", 3U) ||
+                    basl_program_find_enum_in_source(
+                        state->program,
+                        state->program->source == NULL ? 0U : state->program->source->id,
+                        name_text,
+                        name_length,
+                        &enum_index,
+                        NULL
+                    )
+                )
             ) {
                 basl_parser_advance(state);
                 {
