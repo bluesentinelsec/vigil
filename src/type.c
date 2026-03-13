@@ -18,6 +18,8 @@ const char *basl_type_kind_name(basl_type_kind_t kind) {
             return "bool";
         case BASL_TYPE_STRING:
             return "string";
+        case BASL_TYPE_ERR:
+            return "err";
         case BASL_TYPE_VOID:
             return "void";
         case BASL_TYPE_NIL:
@@ -52,6 +54,10 @@ basl_type_kind_t basl_type_kind_from_name(const char *text, size_t length) {
 
     if (length == 6U && memcmp(text, "string", 6U) == 0) {
         return BASL_TYPE_STRING;
+    }
+
+    if (length == 3U && memcmp(text, "err", 3U) == 0) {
+        return BASL_TYPE_ERR;
     }
 
     if (length == 4U && memcmp(text, "void", 4U) == 0) {

@@ -693,3 +693,90 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
 }
+
+TEST(BaslVmTest, SupportsErrorOpcodes) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_object_t *object = nullptr;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    ASSERT_EQ(basl_string_object_new_cstr(runtime, "boom", &object, &error), BASL_STATUS_OK);
+    basl_value_init_object(&constant, &object);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 4U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&constant);
+    basl_value_init_int(&constant, 9);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(10U, 5U, 6U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEW_ERROR, Span(10U, 7U, 8U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_GET_ERROR_KIND, Span(10U, 9U, 10U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(10U, 11U, 12U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    EXPECT_EQ(basl_value_as_int(&result), 9);
+    basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    ASSERT_EQ(basl_string_object_new_cstr(runtime, "boom", &object, &error), BASL_STATUS_OK);
+    basl_value_init_object(&constant, &object);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 4U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_release(&constant);
+    basl_value_init_int(&constant, 9);
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(11U, 5U, 6U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEW_ERROR, Span(11U, 7U, 8U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(
+            &chunk,
+            BASL_OPCODE_GET_ERROR_MESSAGE,
+            Span(11U, 9U, 10U),
+            &error
+        ),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(11U, 11U, 12U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_value_kind(&result), BASL_VALUE_OBJECT);
+    ASSERT_NE(basl_value_as_object(&result), nullptr);
+    EXPECT_EQ(basl_object_type(basl_value_as_object(&result)), BASL_OBJECT_STRING);
+    EXPECT_STREQ(basl_string_object_c_str(basl_value_as_object(&result)), "boom");
+
+    basl_value_release(&result);
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}

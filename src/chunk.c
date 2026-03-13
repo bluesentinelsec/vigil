@@ -506,6 +506,12 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "TO_F64";
         case BASL_OPCODE_TO_STRING:
             return "TO_STRING";
+        case BASL_OPCODE_NEW_ERROR:
+            return "NEW_ERROR";
+        case BASL_OPCODE_GET_ERROR_KIND:
+            return "GET_ERROR_KIND";
+        case BASL_OPCODE_GET_ERROR_MESSAGE:
+            return "GET_ERROR_MESSAGE";
         case BASL_OPCODE_EQUAL:
             return "EQUAL";
         case BASL_OPCODE_GREATER:

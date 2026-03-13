@@ -1121,6 +1121,21 @@ static int basl_vm_values_equal(
                        right_text != NULL &&
                        memcmp(left_text, right_text, left_length) == 0;
             }
+            if (
+                basl_object_type(left_object) == BASL_OBJECT_ERROR &&
+                basl_object_type(right_object) == BASL_OBJECT_ERROR
+            ) {
+                size_t left_length = basl_error_object_message_length(left_object);
+                size_t right_length = basl_error_object_message_length(right_object);
+                const char *left_text = basl_error_object_message(left_object);
+                const char *right_text = basl_error_object_message(right_object);
+
+                return basl_error_object_kind(left_object) == basl_error_object_kind(right_object) &&
+                       left_length == right_length &&
+                       left_text != NULL &&
+                       right_text != NULL &&
+                       memcmp(left_text, right_text, left_length) == 0;
+            }
             return 0;
         default:
             return 0;
@@ -2539,6 +2554,127 @@ basl_status_t basl_vm_execute_function(
                         error
                     );
                     goto cleanup;
+                }
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_NEW_ERROR:
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&left) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&left) == NULL ||
+                    basl_object_type(basl_value_as_object(&left)) != BASL_OBJECT_STRING
+                ) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "error construction requires string message and i32 kind",
+                        error
+                    );
+                    goto cleanup;
+                }
+                if (basl_value_kind(&right) != BASL_VALUE_INT) {
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "error construction requires string message and i32 kind",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    basl_object_t *error_object = NULL;
+
+                    status = basl_error_object_new(
+                        vm->runtime,
+                        basl_string_object_c_str(basl_value_as_object(&left)),
+                        basl_string_object_length(basl_value_as_object(&left)),
+                        basl_value_as_int(&right),
+                        &error_object,
+                        error
+                    );
+                    basl_value_release(&left);
+                    basl_value_release(&right);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                    basl_value_init_object(&value, &error_object);
+                }
+                status = basl_vm_push(vm, &value, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&value);
+                    goto cleanup;
+                }
+                basl_value_release(&value);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_GET_ERROR_KIND:
+                value = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&value) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&value) == NULL ||
+                    basl_object_type(basl_value_as_object(&value)) != BASL_OBJECT_ERROR
+                ) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "error kind access requires an err value",
+                        error
+                    );
+                    goto cleanup;
+                }
+                basl_value_init_int(&left, basl_error_object_kind(basl_value_as_object(&value)));
+                basl_value_release(&value);
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    basl_value_release(&left);
+                    goto cleanup;
+                }
+                basl_value_release(&left);
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_GET_ERROR_MESSAGE:
+                value = basl_vm_pop_or_nil(vm);
+                if (
+                    basl_value_kind(&value) != BASL_VALUE_OBJECT ||
+                    basl_value_as_object(&value) == NULL ||
+                    basl_object_type(basl_value_as_object(&value)) != BASL_OBJECT_ERROR
+                ) {
+                    basl_value_release(&value);
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "error message access requires an err value",
+                        error
+                    );
+                    goto cleanup;
+                }
+                {
+                    basl_object_t *string_object = NULL;
+
+                    status = basl_string_object_new(
+                        vm->runtime,
+                        basl_error_object_message(basl_value_as_object(&value)),
+                        basl_error_object_message_length(basl_value_as_object(&value)),
+                        &string_object,
+                        error
+                    );
+                    basl_value_release(&value);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                    basl_value_init_object(&left, &string_object);
                 }
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {

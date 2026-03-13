@@ -18,6 +18,12 @@ typedef struct basl_string_object {
     basl_string_t value;
 } basl_string_object_t;
 
+typedef struct basl_error_object {
+    basl_object_t base;
+    basl_string_t message;
+    int64_t kind;
+} basl_error_object_t;
+
 typedef struct basl_function_object {
     basl_object_t base;
     basl_string_t name;
@@ -73,6 +79,16 @@ static const basl_function_object_t *basl_function_object_cast(
     return (const basl_function_object_t *)object;
 }
 
+static const basl_error_object_t *basl_error_object_cast(
+    const basl_object_t *object
+) {
+    if (object == NULL || object->type != BASL_OBJECT_ERROR) {
+        return NULL;
+    }
+
+    return (const basl_error_object_t *)object;
+}
+
 static const basl_instance_object_t *basl_instance_object_cast(
     const basl_object_t *object
 ) {
@@ -99,6 +115,9 @@ static void basl_object_destroy(basl_object_t *object) {
         case BASL_OBJECT_STRING:
             string_object = (basl_string_object_t *)object;
             basl_string_free(&string_object->value);
+            break;
+        case BASL_OBJECT_ERROR:
+            basl_string_free(&((basl_error_object_t *)object)->message);
             break;
         case BASL_OBJECT_FUNCTION:
             function_object = (basl_function_object_t *)object;
@@ -431,6 +450,87 @@ basl_status_t basl_string_object_new(
     return BASL_STATUS_OK;
 }
 
+basl_status_t basl_error_object_new(
+    basl_runtime_t *runtime,
+    const char *message,
+    size_t length,
+    int64_t kind,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_error_object_t *object;
+    void *memory;
+
+    basl_error_clear(error);
+
+    if (runtime == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "runtime must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (message == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "error object message must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (out_object == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "out_object must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_object = NULL;
+    memory = NULL;
+    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    object = (basl_error_object_t *)memory;
+    memset(object, 0, sizeof(*object));
+    basl_object_init(&object->base, runtime, BASL_OBJECT_ERROR);
+    basl_string_init(&object->message, runtime);
+    status = basl_string_assign(&object->message, message, length, error);
+    if (status != BASL_STATUS_OK) {
+        basl_object_t *base = &object->base;
+
+        basl_object_release(&base);
+        return status;
+    }
+    object->kind = kind;
+    *out_object = &object->base;
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_error_object_new_cstr(
+    basl_runtime_t *runtime,
+    const char *message,
+    int64_t kind,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    if (message == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "error object message must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    return basl_error_object_new(runtime, message, strlen(message), kind, out_object, error);
+}
+
 basl_status_t basl_string_object_new_cstr(
     basl_runtime_t *runtime,
     const char *value,
@@ -475,6 +575,36 @@ size_t basl_string_object_length(const basl_object_t *object) {
     }
 
     return basl_string_length(&string_object->value);
+}
+
+const char *basl_error_object_message(const basl_object_t *object) {
+    const basl_error_object_t *error_object = basl_error_object_cast(object);
+
+    if (error_object == NULL) {
+        return NULL;
+    }
+
+    return basl_string_c_str(&error_object->message);
+}
+
+size_t basl_error_object_message_length(const basl_object_t *object) {
+    const basl_error_object_t *error_object = basl_error_object_cast(object);
+
+    if (error_object == NULL) {
+        return 0U;
+    }
+
+    return basl_string_length(&error_object->message);
+}
+
+int64_t basl_error_object_kind(const basl_object_t *object) {
+    const basl_error_object_t *error_object = basl_error_object_cast(object);
+
+    if (error_object == NULL) {
+        return 0;
+    }
+
+    return error_object->kind;
 }
 
 basl_status_t basl_function_object_new(

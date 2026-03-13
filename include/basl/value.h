@@ -25,7 +25,8 @@ typedef enum basl_object_type {
     BASL_OBJECT_INVALID = 0,
     BASL_OBJECT_STRING = 1,
     BASL_OBJECT_FUNCTION = 2,
-    BASL_OBJECT_INSTANCE = 3
+    BASL_OBJECT_INSTANCE = 3,
+    BASL_OBJECT_ERROR = 4
 } basl_object_type_t;
 
 typedef struct basl_object basl_object_t;
@@ -89,6 +90,25 @@ BASL_API basl_status_t basl_string_object_new_cstr(
 );
 BASL_API const char *basl_string_object_c_str(const basl_object_t *object);
 BASL_API size_t basl_string_object_length(const basl_object_t *object);
+
+BASL_API basl_status_t basl_error_object_new(
+    basl_runtime_t *runtime,
+    const char *message,
+    size_t length,
+    int64_t kind,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_error_object_new_cstr(
+    basl_runtime_t *runtime,
+    const char *message,
+    int64_t kind,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+BASL_API const char *basl_error_object_message(const basl_object_t *object);
+BASL_API size_t basl_error_object_message_length(const basl_object_t *object);
+BASL_API int64_t basl_error_object_kind(const basl_object_t *object);
 
 BASL_API basl_status_t basl_function_object_new(
     basl_runtime_t *runtime,

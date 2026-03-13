@@ -181,6 +181,39 @@ TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn fail(bool bad) -> err {"
+            "    if (bad) {"
+            "        return err(\"boom\", err.arg);"
+            "    }"
+            "    return ok;"
+            "}"
+            "fn main() -> i32 {"
+            "    err first = fail(false);"
+            "    err second = fail(true);"
+            "    if (first != ok) {"
+            "        return 0;"
+            "    }"
+            "    if (second == ok) {"
+            "        return 0;"
+            "    }"
+            "    if (second.kind() == err.arg && second.message() == \"boom\") {"
+            "        switch (second.kind()) {"
+            "            case err.arg:"
+            "                return 7;"
+            "            default:"
+            "                return 0;"
+            "        }"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        7
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     EXPECT_EQ(
         CompileAndRun(
@@ -2125,6 +2158,62 @@ TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "bool(...) requires a bool argument"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_err_ctor.basl",
+        "fn main() -> i32 {"
+        "    err e = err(1, err.arg);"
+        "    return 0;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "err(...) message must be a string"
+    );
+
+    basl_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(
+        &registry,
+        "bad_err_method.basl",
+        "fn main() -> i32 {"
+        "    err e = ok;"
+        "    return e.code();"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "unknown error method"
     );
 
     basl_diagnostic_list_free(&diagnostics);
