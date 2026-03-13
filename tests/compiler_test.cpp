@@ -1375,6 +1375,26 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/lib.basl",
+            "pub i32 counter = 3;"
+        },
+        {
+            "/project/main.basl",
+            "import \"lib\";"
+            "fn main() -> i32 {"
+            "    lib.counter += 2;"
+            "    lib.counter++;"
+            "    return lib.counter;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 6);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
     EXPECT_EQ(
         CompileAndRun(
@@ -1721,6 +1741,50 @@ TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "module member is not public"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsAssignmentToImportedConstants) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    RegisterSource(
+        &registry,
+        "/project/lib.basl",
+        "pub const i32 LIMIT = 3;",
+        &error
+    );
+    source_id = RegisterSource(
+        &registry,
+        "/project/main.basl",
+        "import \"lib\";"
+        "fn main() -> i32 {"
+        "    lib.LIMIT = 4;"
+        "    return 0;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "cannot assign to module constant"
     );
 
     basl_diagnostic_list_free(&diagnostics);

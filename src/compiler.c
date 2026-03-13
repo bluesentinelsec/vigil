@@ -18319,6 +18319,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     size_t capture_index;
     size_t global_index;
     size_t field_index;
+    basl_source_id_t import_source_id;
     basl_parser_type_t local_type;
     basl_parser_type_t target_type;
     basl_expression_result_t value_result;
@@ -18326,6 +18327,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     const basl_class_field_t *field;
     const basl_binding_local_t *local_decl;
     const basl_global_variable_t *global_decl;
+    const basl_token_t *target_token;
     int is_field_assignment;
     int is_index_assignment;
     int is_global_assignment;
@@ -18338,11 +18340,13 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     capture_index = 0U;
     global_index = 0U;
     field_index = 0U;
+    import_source_id = 0U;
     local_type = basl_binding_type_invalid();
     target_type = basl_binding_type_invalid();
     field = NULL;
     local_decl = NULL;
     global_decl = NULL;
+    target_token = NULL;
     is_field_assignment = 0;
     is_index_assignment = 0;
     is_global_assignment = 0;
@@ -18362,6 +18366,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     if (status != BASL_STATUS_OK) {
         return status;
     }
+    target_token = name_token;
 
     status = basl_parser_resolve_local_symbol(
         state,
@@ -18390,6 +18395,182 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
 
         name_text = basl_parser_token_text(state, name_token, &name_length);
         if (
+            basl_parser_check(state, BASL_TOKEN_DOT) &&
+            basl_program_resolve_import_alias(
+                state->program,
+                name_text,
+                name_length,
+                &import_source_id
+            )
+        ) {
+            const basl_token_t *member_token;
+            const basl_global_constant_t *constant_decl;
+            const basl_function_decl_t *function_decl;
+            const basl_class_decl_t *class_decl;
+            const basl_interface_decl_t *interface_decl;
+            const basl_enum_decl_t *enum_decl;
+            const char *member_text;
+            size_t member_length;
+            size_t object_index;
+            size_t function_index;
+
+            constant_decl = NULL;
+            function_decl = NULL;
+            class_decl = NULL;
+            interface_decl = NULL;
+            enum_decl = NULL;
+            object_index = 0U;
+            function_index = 0U;
+
+            basl_parser_advance(state);
+            status = basl_parser_expect(
+                state,
+                BASL_TOKEN_IDENTIFIER,
+                "expected module member name after '.'",
+                &member_token
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            target_token = member_token;
+            member_text = basl_parser_token_text(state, member_token, &member_length);
+
+            if (
+                basl_program_find_global_in_source(
+                    state->program,
+                    import_source_id,
+                    member_text,
+                    member_length,
+                    &global_index,
+                    &global_decl
+                )
+            ) {
+                if (!basl_program_is_global_public(global_decl)) {
+                    return basl_parser_report(
+                        state,
+                        member_token->span,
+                        "module member is not public"
+                    );
+                }
+                is_global_assignment = 1;
+                local_type = global_decl->type;
+            } else if (
+                basl_program_find_constant_in_source(
+                    state->program,
+                    import_source_id,
+                    member_text,
+                    member_length,
+                    &constant_decl
+                )
+            ) {
+                if (!basl_program_is_constant_public(constant_decl)) {
+                    return basl_parser_report(
+                        state,
+                        member_token->span,
+                        "module member is not public"
+                    );
+                }
+                return basl_parser_report(
+                    state,
+                    member_token->span,
+                    "cannot assign to module constant"
+                );
+            } else if (
+                basl_program_find_top_level_function_name_in_source(
+                    state->program,
+                    import_source_id,
+                    member_text,
+                    member_length,
+                    &function_index,
+                    &function_decl
+                )
+            ) {
+                if (!basl_program_is_function_public(function_decl)) {
+                    return basl_parser_report(
+                        state,
+                        member_token->span,
+                        "module member is not public"
+                    );
+                }
+                return basl_parser_report(
+                    state,
+                    member_token->span,
+                    "module member is not assignable"
+                );
+            } else if (
+                basl_program_find_class_in_source(
+                    state->program,
+                    import_source_id,
+                    member_text,
+                    member_length,
+                    &object_index,
+                    &class_decl
+                )
+            ) {
+                if (!basl_program_is_class_public(class_decl)) {
+                    return basl_parser_report(
+                        state,
+                        member_token->span,
+                        "module member is not public"
+                    );
+                }
+                return basl_parser_report(
+                    state,
+                    member_token->span,
+                    "module member is not assignable"
+                );
+            } else if (
+                basl_program_find_interface_in_source(
+                    state->program,
+                    import_source_id,
+                    member_text,
+                    member_length,
+                    &object_index,
+                    &interface_decl
+                )
+            ) {
+                if (!basl_program_is_interface_public(interface_decl)) {
+                    return basl_parser_report(
+                        state,
+                        member_token->span,
+                        "module member is not public"
+                    );
+                }
+                return basl_parser_report(
+                    state,
+                    member_token->span,
+                    "module member is not assignable"
+                );
+            } else if (
+                basl_program_find_enum_in_source(
+                    state->program,
+                    import_source_id,
+                    member_text,
+                    member_length,
+                    &object_index,
+                    &enum_decl
+                )
+            ) {
+                if (!basl_program_is_enum_public(enum_decl)) {
+                    return basl_parser_report(
+                        state,
+                        member_token->span,
+                        "module member is not public"
+                    );
+                }
+                return basl_parser_report(
+                    state,
+                    member_token->span,
+                    "module member is not assignable"
+                );
+            } else {
+                return basl_parser_report(
+                    state,
+                    member_token->span,
+                    "unknown module member"
+                );
+            }
+        } else if (
             !basl_program_find_global_in_source(
                 state->program,
                 state->program->source == NULL ? 0U : state->program->source->id,
@@ -18401,8 +18582,10 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         ) {
             return basl_parser_report(state, name_token->span, "unknown local variable");
         }
-        is_global_assignment = 1;
-        local_type = global_decl->type;
+        if (!is_global_assignment) {
+            is_global_assignment = 1;
+            local_type = global_decl->type;
+        }
     }
 
     target_type = local_type;
@@ -18564,14 +18747,14 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
     if (is_const_local && !is_field_assignment && !is_index_assignment) {
         return basl_parser_report(
             state,
-            name_token->span,
+            target_token->span,
             "cannot assign to const local variable"
         );
     }
 
     operator_token = basl_parser_peek(state);
     if (operator_token == NULL || !basl_parser_is_assignment_operator(operator_token->kind)) {
-        return basl_parser_report(state, name_token->span, "expected assignment operator");
+        return basl_parser_report(state, target_token->span, "expected assignment operator");
     }
     basl_parser_advance(state);
 
@@ -18591,7 +18774,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         }
         status = basl_parser_require_type(
             state,
-            name_token->span,
+            target_token->span,
             value_result.type,
             target_type,
             is_index_assignment
@@ -18789,7 +18972,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
             is_global_assignment
                 ? BASL_OPCODE_SET_GLOBAL
                 : (is_capture_local ? BASL_OPCODE_SET_CAPTURE : BASL_OPCODE_SET_LOCAL),
-            name_token->span
+            target_token->span
         );
         if (status != BASL_STATUS_OK) {
             return status;
@@ -18799,12 +18982,12 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
             (uint32_t)(is_global_assignment
                            ? global_index
                            : (is_capture_local ? capture_index : local_index)),
-            name_token->span
+            target_token->span
         );
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, name_token->span);
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, target_token->span);
         if (status != BASL_STATUS_OK) {
             return status;
         }
