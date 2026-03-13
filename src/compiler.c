@@ -9125,21 +9125,25 @@ static basl_status_t basl_parser_parse_primary_base(
         case BASL_TOKEN_CHAR_LITERAL:
             basl_parser_advance(state);
             {
-                basl_value_t value;
+                basl_value_t string_value;
 
-                basl_value_init_nil(&value);
-                status = basl_program_parse_string_literal_value(state->program, token, &value);
+                basl_value_init_nil(&string_value);
+                status = basl_program_parse_string_literal_value(
+                    state->program,
+                    token,
+                    &string_value
+                );
                 if (status != BASL_STATUS_OK) {
                     return status;
                 }
                 status = basl_chunk_write_constant(
                     &state->chunk,
-                    &value,
+                    &string_value,
                     token->span,
                     NULL,
                     state->program->error
                 );
-                basl_value_release(&value);
+                basl_value_release(&string_value);
                 if (status != BASL_STATUS_OK) {
                     return status;
                 }
@@ -9152,21 +9156,21 @@ static basl_status_t basl_parser_parse_primary_base(
         case BASL_TOKEN_FLOAT_LITERAL:
             basl_parser_advance(state);
             {
-                basl_value_t value;
+                basl_value_t float_value;
 
-                basl_value_init_nil(&value);
-                status = basl_parser_parse_float_literal(state, token, &value);
+                basl_value_init_nil(&float_value);
+                status = basl_parser_parse_float_literal(state, token, &float_value);
                 if (status != BASL_STATUS_OK) {
                     return status;
                 }
                 status = basl_chunk_write_constant(
                     &state->chunk,
-                    &value,
+                    &float_value,
                     token->span,
                     NULL,
                     state->program->error
                 );
-                basl_value_release(&value);
+                basl_value_release(&float_value);
                 if (status != BASL_STATUS_OK) {
                     return status;
                 }
@@ -10463,6 +10467,7 @@ static basl_status_t basl_parser_parse_for_statement(
     int loop_pushed;
 
     basl_expression_result_clear(&condition_result);
+    for_token = NULL;
     body_jump_offset = 0U;
     increment_start = 0U;
     has_condition = 0;
