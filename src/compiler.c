@@ -7184,8 +7184,8 @@ static basl_status_t basl_program_parse_constant_factor(
     basl_constant_result_t left;
     basl_constant_result_t right;
     const basl_token_t *token;
-    int64_t integer_result;
-    uint64_t uinteger_result;
+    int64_t integer_result = 0;
+    uint64_t uinteger_result = 0U;
     double float_result;
 
     basl_constant_result_clear(&left);
@@ -7345,8 +7345,8 @@ static basl_status_t basl_program_parse_constant_term(
     basl_constant_result_t left;
     basl_constant_result_t right;
     const basl_token_t *token;
-    int64_t integer_result;
-    uint64_t uinteger_result;
+    int64_t integer_result = 0;
+    uint64_t uinteger_result = 0U;
     double float_result;
 
     basl_constant_result_clear(&left);
@@ -7493,8 +7493,8 @@ static basl_status_t basl_program_parse_constant_shift(
     basl_constant_result_t left;
     basl_constant_result_t right;
     const basl_token_t *token;
-    int64_t integer_result;
-    uint64_t uinteger_result;
+    int64_t integer_result = 0;
+    uint64_t uinteger_result = 0U;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7781,8 +7781,8 @@ static basl_status_t basl_program_parse_constant_bitwise_and(
     basl_constant_result_t left;
     basl_constant_result_t right;
     const basl_token_t *token;
-    int64_t integer_result;
-    uint64_t uinteger_result;
+    int64_t integer_result = 0;
+    uint64_t uinteger_result = 0U;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7857,8 +7857,8 @@ static basl_status_t basl_program_parse_constant_bitwise_xor(
     basl_constant_result_t left;
     basl_constant_result_t right;
     const basl_token_t *token;
-    int64_t integer_result;
-    uint64_t uinteger_result;
+    int64_t integer_result = 0;
+    uint64_t uinteger_result = 0U;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7933,8 +7933,8 @@ static basl_status_t basl_program_parse_constant_bitwise_or(
     basl_constant_result_t left;
     basl_constant_result_t right;
     const basl_token_t *token;
-    int64_t integer_result;
-    uint64_t uinteger_result;
+    int64_t integer_result = 0;
+    uint64_t uinteger_result = 0U;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);

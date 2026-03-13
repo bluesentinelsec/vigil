@@ -4191,6 +4191,7 @@ basl_status_t basl_vm_execute_function(
                             }
                         }
                         if (status == BASL_STATUS_OK) {
+                            basl_value_release(&right);
                             status = basl_vm_new_string_value(
                                 vm,
                                 basl_string_c_str(&built),
@@ -4385,6 +4386,7 @@ basl_status_t basl_vm_execute_function(
                         &index
                     );
                     basl_value_init_int(&value, found ? (int64_t)index : -1);
+                    basl_value_release(&right);
                     basl_value_init_bool(&right, found);
                 }
                 basl_value_release(&left);
