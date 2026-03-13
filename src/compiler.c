@@ -65,6 +65,7 @@ typedef struct basl_class_decl {
     basl_class_interface_impl_t *interface_impls;
     size_t interface_impl_count;
     size_t interface_impl_capacity;
+    size_t constructor_function_index;
 } basl_class_decl_t;
 
 typedef struct basl_interface_decl {
@@ -5518,6 +5519,86 @@ static basl_status_t basl_program_validate_class_interface_conformance(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_program_synthesize_class_constructor(
+    basl_program_state_t *program,
+    basl_class_decl_t *decl
+) {
+    basl_status_t status;
+    const basl_class_method_t *init_method;
+    const basl_function_decl_t *init_decl;
+    basl_function_decl_t *ctor_decl;
+    size_t class_index;
+    size_t ctor_index;
+    size_t param_index;
+
+    init_method = NULL;
+    init_decl = NULL;
+    class_index = (size_t)(decl - program->classes);
+    if (!basl_class_decl_find_method(decl, "init", 4U, NULL, &init_method)) {
+        return BASL_STATUS_OK;
+    }
+
+    init_decl = basl_binding_function_table_get(&program->functions, init_method->function_index);
+    if (init_decl == NULL) {
+        basl_error_set_literal(
+            program->error,
+            BASL_STATUS_INTERNAL,
+            "class init declaration is missing"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+    if (!basl_parser_type_is_void(init_decl->return_type)) {
+        return basl_compile_report(program, init_method->name_span, "init methods must return void");
+    }
+
+    status = basl_program_grow_functions(program, program->functions.count + 1U);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    ctor_index = program->functions.count;
+    ctor_decl = &program->functions.functions[ctor_index];
+    basl_binding_function_init(ctor_decl);
+    ctor_decl->name = decl->name;
+    ctor_decl->name_length = decl->name_length;
+    ctor_decl->name_span = decl->name_span;
+    ctor_decl->is_public = decl->is_public;
+    ctor_decl->return_type = basl_binding_type_class(class_index);
+    ctor_decl->source = program->source;
+    ctor_decl->tokens = program->tokens;
+
+    init_decl = basl_binding_function_table_get(&program->functions, init_method->function_index);
+    if (init_decl == NULL) {
+        basl_binding_function_free(program->registry->runtime, ctor_decl);
+        basl_error_set_literal(
+            program->error,
+            BASL_STATUS_INTERNAL,
+            "class init declaration is missing"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    for (param_index = 1U; param_index < init_decl->param_count; param_index += 1U) {
+        status = basl_binding_function_add_param(
+            program->registry->runtime,
+            ctor_decl,
+            init_decl->params[param_index].name,
+            init_decl->params[param_index].length,
+            init_decl->params[param_index].span,
+            init_decl->params[param_index].type,
+            program->error
+        );
+        if (status != BASL_STATUS_OK) {
+            basl_binding_function_free(program->registry->runtime, ctor_decl);
+            return status;
+        }
+    }
+
+    decl->constructor_function_index = ctor_index;
+    program->functions.count += 1U;
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_program_parse_class_declaration(
     basl_program_state_t *program,
     size_t *cursor,
@@ -5591,6 +5672,7 @@ static basl_status_t basl_program_parse_class_declaration(
     class_index = program->class_count;
     decl = &program->classes[program->class_count];
     memset(decl, 0, sizeof(*decl));
+    decl->constructor_function_index = (size_t)-1;
     decl->source_id = program->source->id;
     decl->name = name_text;
     decl->name_length = name_length;
@@ -5922,7 +6004,12 @@ static basl_status_t basl_program_parse_class_declaration(
         decl->field_count += 1U;
     }
 
-    return basl_program_validate_class_interface_conformance(program, decl);
+    status = basl_program_validate_class_interface_conformance(program, decl);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    return basl_program_synthesize_class_constructor(program, decl);
 }
 
 static basl_status_t basl_program_parse_declarations(
@@ -6301,7 +6388,6 @@ static basl_status_t basl_program_parse_source(
         basl_token_list_free(&tokens);
         return status;
     }
-
     status = basl_program_add_module(
         program,
         source_id,
@@ -6314,7 +6400,6 @@ static basl_status_t basl_program_parse_source(
         basl_token_list_free(&tokens);
         return status;
     }
-
     previous_source = program->source;
     previous_tokens = program->tokens;
     basl_program_set_module_context(program, source, &program->modules[module_index].tokens);
@@ -11065,6 +11150,132 @@ restore:
     return status;
 }
 
+static basl_status_t basl_compile_synthetic_constructor(
+    basl_program_state_t *program,
+    size_t function_index,
+    size_t class_index,
+    size_t init_function_index
+) {
+    basl_status_t status;
+    basl_parser_state_t state;
+    basl_function_decl_t *decl;
+    const basl_class_decl_t *class_decl;
+    basl_object_t *object;
+    size_t field_index;
+    size_t param_index;
+    uint32_t init_arg_count;
+
+    decl = &program->functions.functions[function_index];
+    if (class_index >= program->class_count || init_function_index >= program->functions.count) {
+        basl_error_set_literal(
+            program->error,
+            BASL_STATUS_INTERNAL,
+            "synthetic constructor metadata is invalid"
+        );
+        return BASL_STATUS_INTERNAL;
+    }
+
+    class_decl = &program->classes[class_index];
+    if (decl->param_count > UINT32_MAX - 1U) {
+        basl_error_set_literal(
+            program->error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "constructor arity overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+    init_arg_count = (uint32_t)(decl->param_count + 1U);
+
+    memset(&state, 0, sizeof(state));
+    state.program = program;
+    state.function_index = function_index;
+    state.expected_return_type = decl->return_type;
+    basl_chunk_init(&state.chunk, program->registry->runtime);
+    basl_binding_scope_stack_init(&state.locals, program->registry->runtime);
+
+    for (field_index = 0U; field_index < class_decl->field_count; field_index += 1U) {
+        status = basl_parser_emit_opcode(&state, BASL_OPCODE_NIL, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+    status = basl_parser_emit_opcode(&state, BASL_OPCODE_NEW_INSTANCE, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_u32(&state, (uint32_t)class_index, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_u32(&state, (uint32_t)class_decl->field_count, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_opcode(&state, BASL_OPCODE_DUP, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+
+    for (param_index = 0U; param_index < decl->param_count; param_index += 1U) {
+        status = basl_parser_emit_opcode(&state, BASL_OPCODE_GET_LOCAL, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+        status = basl_parser_emit_u32(&state, (uint32_t)param_index, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            goto cleanup;
+        }
+    }
+
+    status = basl_parser_emit_opcode(&state, BASL_OPCODE_CALL, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_u32(
+        &state,
+        (uint32_t)init_function_index,
+        decl->name_span
+    );
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_u32(&state, init_arg_count, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_opcode(&state, BASL_OPCODE_POP, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+    status = basl_parser_emit_opcode(&state, BASL_OPCODE_RETURN, decl->name_span);
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+
+    object = NULL;
+    status = basl_function_object_new(
+        program->registry->runtime,
+        decl->name,
+        decl->name_length,
+        decl->param_count,
+        &state.chunk,
+        &object,
+        program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        goto cleanup;
+    }
+
+    basl_parser_state_free(&state);
+    decl->object = object;
+    return BASL_STATUS_OK;
+
+cleanup:
+    basl_chunk_free(&state.chunk);
+    basl_parser_state_free(&state);
+    return status;
+}
+
 static basl_status_t basl_compile_require_function_returns(
     basl_program_state_t *program,
     const basl_function_decl_t *decl,
@@ -11096,8 +11307,34 @@ static basl_status_t basl_compile_function(
     basl_function_decl_t *decl;
     basl_object_t *object;
     basl_statement_result_t body_result;
+    size_t class_index;
 
     decl = &program->functions.functions[function_index];
+    for (class_index = 0U; class_index < program->class_count; class_index += 1U) {
+        const basl_class_decl_t *class_decl;
+        const basl_class_method_t *init_method;
+
+        class_decl = &program->classes[class_index];
+        if (class_decl->constructor_function_index != function_index) {
+            continue;
+        }
+        init_method = NULL;
+        if (!basl_class_decl_find_method(class_decl, "init", 4U, NULL, &init_method) ||
+            init_method == NULL) {
+            basl_error_set_literal(
+                program->error,
+                BASL_STATUS_INTERNAL,
+                "class init declaration is missing"
+            );
+            return BASL_STATUS_INTERNAL;
+        }
+        return basl_compile_synthetic_constructor(
+            program,
+            function_index,
+            class_index,
+            init_method->function_index
+        );
+    }
     memset(&state, 0, sizeof(state));
     basl_program_set_module_context(program, decl->source, decl->tokens);
     state.program = program;

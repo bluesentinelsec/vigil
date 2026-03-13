@@ -24,7 +24,6 @@ typedef struct basl_binding_type {
 } basl_binding_type_t;
 
 #define BASL_BINDING_INVALID_CLASS_INDEX ((size_t)-1)
-
 typedef struct basl_binding_function_param {
     const char *name;
     size_t length;

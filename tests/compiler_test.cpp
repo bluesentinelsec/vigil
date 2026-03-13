@@ -508,6 +508,26 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "class Counter {"
+            "    i32 value;"
+            "    i32 doubled;"
+            "    fn init(i32 value) -> void {"
+            "        self.value = value;"
+            "        self.doubled = value * 2;"
+            "    }"
+            "}"
+            "fn main() -> i32 {"
+            "    Counter counter = Counter(5);"
+            "    return counter.value + counter.doubled;"
+            "}"
+        ),
+        15
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
     const TestSource sources[] = {
         {
@@ -534,6 +554,30 @@ TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
     };
 
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 11);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/models.basl",
+            "pub class Counter {"
+            "    pub i32 value;"
+            "    fn init(i32 value) -> void {"
+            "        self.value = value + 1;"
+            "    }"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"models\";"
+            "fn main() -> i32 {"
+            "    models.Counter counter = models.Counter(6);"
+            "    return counter.value;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
@@ -854,6 +898,33 @@ fn main() -> i32 {
     EXPECT_EQ(CompileAndRun(source), 8);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesDeferredInitConstructors) {
+    const char *source = R"(
+i32 state = 0;
+
+class Counter {
+    i32 value;
+
+    fn init(i32 value) -> void {
+        self.value = value;
+        state = state * 10 + value;
+    }
+}
+
+fn run() -> void {
+    defer Counter(2);
+    defer Counter(3);
+}
+
+fn main() -> i32 {
+    run();
+    return state;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 32);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
     const TestSource sources[] = {
         {
@@ -1140,6 +1211,48 @@ TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "class does not implement required interface method"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsNonVoidInitMethods) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_init.basl",
+        "class Counter {"
+        "    fn init(i32 value) -> i32 {"
+        "        return value;"
+        "    }"
+        "}"
+        "fn main() -> i32 {"
+        "    Counter(1);"
+        "    return 0;"
+        "}",
+        &error
+    );
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "init methods must return void"
     );
 
     basl_diagnostic_list_free(&diagnostics);
