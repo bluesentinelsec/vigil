@@ -5063,6 +5063,38 @@ static basl_status_t basl_program_parse_type_name(
     return basl_compile_report(program, token->span, unsupported_message);
 }
 
+/* Track whether a '>>' token was split and the second '>' is pending. */
+static int basl_type_close_pending = 0;
+
+/* Consume a closing '>' in a generic type context.  When the lexer has
+   produced a '>>' (SHIFT_RIGHT) token, consume the whole token and set
+   a pending flag so the outer type parser's next close-check succeeds
+   without consuming another token. */
+static int basl_program_consume_type_close(
+    const basl_program_state_t *program,
+    size_t *cursor
+) {
+    const basl_token_t *t;
+    if (basl_type_close_pending) {
+        basl_type_close_pending = 0;
+        return 1;
+    }
+    t = basl_program_token_at(program, *cursor);
+    if (t == NULL) {
+        return 0;
+    }
+    if (t->kind == BASL_TOKEN_GREATER) {
+        *cursor += 1U;
+        return 1;
+    }
+    if (t->kind == BASL_TOKEN_SHIFT_RIGHT) {
+        *cursor += 1U;
+        basl_type_close_pending = 1;
+        return 1;
+    }
+    return 0;
+}
+
 static basl_status_t basl_program_parse_type_reference(
     const basl_program_state_t *program,
     size_t *cursor,
@@ -5288,15 +5320,14 @@ static basl_status_t basl_program_parse_type_reference(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != BASL_TOKEN_GREATER) {
+        if (!basl_program_consume_type_close(program, cursor)) {
+            next_token = basl_program_token_at(program, *cursor);
             return basl_compile_report(
                 program,
                 next_token == NULL ? token->span : next_token->span,
                 "expected '>' after array element type"
             );
         }
-        *cursor += 1U;
         return basl_program_intern_array_type((basl_program_state_t *)program, element_type, out_type);
     }
     if (
@@ -5341,15 +5372,14 @@ static basl_status_t basl_program_parse_type_reference(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != BASL_TOKEN_GREATER) {
+        if (!basl_program_consume_type_close(program, cursor)) {
+            next_token = basl_program_token_at(program, *cursor);
             return basl_compile_report(
                 program,
                 next_token == NULL ? token->span : next_token->span,
                 "expected '>' after map value type"
             );
         }
-        *cursor += 1U;
         return basl_program_intern_map_type((basl_program_state_t *)program, key_type, value_type, out_type);
     }
 
@@ -6168,10 +6198,9 @@ static int basl_program_skip_type_reference_syntax(
             }
             token = basl_program_token_at(program, *cursor);
         }
-        if (token == NULL || token->kind != BASL_TOKEN_GREATER) {
+        if (!basl_program_consume_type_close(program, cursor)) {
             return 0;
         }
-        *cursor += 1U;
     }
 
     return 1;
@@ -18484,11 +18513,9 @@ static int basl_parser_skip_type_reference_tokens(
         if (!basl_parser_skip_type_reference_tokens(program, cursor)) {
             return 0;
         }
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != BASL_TOKEN_GREATER) {
+        if (!basl_program_consume_type_close(program, cursor)) {
             return 0;
         }
-        *cursor += 1U;
         return 1;
     }
     if (
@@ -18508,11 +18535,9 @@ static int basl_parser_skip_type_reference_tokens(
         if (!basl_parser_skip_type_reference_tokens(program, cursor)) {
             return 0;
         }
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != BASL_TOKEN_GREATER) {
+        if (!basl_program_consume_type_close(program, cursor)) {
             return 0;
         }
-        *cursor += 1U;
         return 1;
     }
 
