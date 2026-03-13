@@ -357,16 +357,15 @@ class DocsConformanceTest(unittest.TestCase):
 
                     for (i32 j = 0; j < 100; j++) {
                         if (j == 2) { break; }
-                        total += 100;
+                        total += 50;
                     }
 
                     return total;
                 }
             """})
-            # 0+1+2+4=7, +30 while, +60 for-in array, +3 for-in map, +200 break loop = 300
-            # exit codes are modulo 256 → 44
+            # 0+1+2+4=7, +30 while, +60 for-in array, +3 for-in map, +100 break loop = 200
             result = run_basl(root, "main.basl")
-            self.assertEqual(result.returncode, 44, msg=result.stderr)
+            self.assertEqual(result.returncode, 200, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- switch and enum --
