@@ -468,6 +468,8 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "POP";
         case BASL_OPCODE_DUP:
             return "DUP";
+        case BASL_OPCODE_DUP_TWO:
+            return "DUP_TWO";
         case BASL_OPCODE_GET_LOCAL:
             return "GET_LOCAL";
         case BASL_OPCODE_SET_LOCAL:

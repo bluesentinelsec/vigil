@@ -2424,6 +2424,7 @@ basl_status_t basl_vm_execute_function(
     int64_t integer_result = 0;
     uint64_t uinteger_result = 0U;
     const basl_value_t *constant;
+    const basl_value_t *left_peek;
     const basl_value_t *peeked;
     uint32_t constant_index;
     uint32_t operand;
@@ -2537,6 +2538,34 @@ basl_status_t basl_vm_execute_function(
                         "dup requires a value on the stack",
                         error
                     );
+                    goto cleanup;
+                }
+
+                value = basl_value_copy(peeked);
+                status = basl_vm_push(vm, &value, error);
+                basl_value_release(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                frame->ip += 1U;
+                break;
+            case BASL_OPCODE_DUP_TWO:
+                left_peek = basl_vm_peek(vm, 1U);
+                peeked = basl_vm_peek(vm, 0U);
+                if (left_peek == NULL || peeked == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm,
+                        BASL_STATUS_INTERNAL,
+                        "dup_two requires two values on the stack",
+                        error
+                    );
+                    goto cleanup;
+                }
+
+                left = basl_value_copy(left_peek);
+                status = basl_vm_push(vm, &left, error);
+                basl_value_release(&left);
+                if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
 

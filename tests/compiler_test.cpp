@@ -2724,7 +2724,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignme
             "    map<i32, i32> scores = {1: 4, 2: 5};"
             "    map<bool, i32> flags = {true: 3, false: 1};"
             "    nums[1] = nums[0] + scores[2];"
+            "    nums[2] += scores[1];"
+            "    nums[2]--;"
             "    scores[1] = nums[1] + flags[true];"
+            "    scores[2] *= nums[0];"
             "    return scores[1];"
             "}"
         ),
@@ -2822,7 +2825,7 @@ TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
     basl_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignment) {
+TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     basl_source_registry_t registry;
@@ -2896,10 +2899,10 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     basl_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(
         &registry,
-        "bad_index_compound.basl",
+        "bad_index_compound_type.basl",
         "fn main() -> i32 {"
         "    array<i32> nums = [1, 2];"
-        "    nums[0] += 1;"
+        "    nums[0] += \"x\";"
         "    return nums[0];"
         "}",
         &error
@@ -2911,7 +2914,7 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "compound indexed assignment is not yet supported"
+        "compound assignment requires matching integer, f64, or string operands"
     );
 
     basl_diagnostic_list_free(&diagnostics);

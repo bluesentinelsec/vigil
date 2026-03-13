@@ -6059,31 +6059,151 @@ static int basl_program_is_global_variable_declaration_start(
     size_t cursor
 ) {
     const basl_token_t *token;
-    const basl_token_t *next_token;
-    const basl_token_t *third_token;
-    const basl_token_t *fourth_token;
+    const basl_token_t *name_token;
+    const basl_token_t *assign_token;
+    size_t lookahead;
 
     token = basl_program_token_at(program, cursor);
-    next_token = basl_program_token_at(program, cursor + 1U);
-    if (
-        token != NULL &&
-        next_token != NULL &&
-        token->kind == BASL_TOKEN_IDENTIFIER &&
-        next_token->kind == BASL_TOKEN_IDENTIFIER
-    ) {
-        return 1;
+    if (token == NULL) {
+        return 0;
     }
 
-    third_token = basl_program_token_at(program, cursor + 2U);
-    fourth_token = basl_program_token_at(program, cursor + 3U);
-    return token != NULL &&
-           next_token != NULL &&
-           third_token != NULL &&
-           fourth_token != NULL &&
-           token->kind == BASL_TOKEN_IDENTIFIER &&
-           next_token->kind == BASL_TOKEN_DOT &&
-           third_token->kind == BASL_TOKEN_IDENTIFIER &&
-           fourth_token->kind == BASL_TOKEN_IDENTIFIER;
+    lookahead = cursor;
+    if (token->kind == BASL_TOKEN_FN) {
+        size_t depth;
+
+        lookahead += 1U;
+        token = basl_program_token_at(program, lookahead);
+        if (token == NULL) {
+            return 0;
+        }
+        if (token->kind == BASL_TOKEN_LPAREN) {
+            depth = 1U;
+            lookahead += 1U;
+            while (depth > 0U) {
+                token = basl_program_token_at(program, lookahead);
+                if (token == NULL) {
+                    return 0;
+                }
+                if (token->kind == BASL_TOKEN_LPAREN) {
+                    depth += 1U;
+                } else if (token->kind == BASL_TOKEN_RPAREN) {
+                    depth -= 1U;
+                }
+                lookahead += 1U;
+            }
+
+            token = basl_program_token_at(program, lookahead);
+            if (token != NULL && token->kind == BASL_TOKEN_ARROW) {
+                lookahead += 1U;
+                token = basl_program_token_at(program, lookahead);
+                if (token == NULL) {
+                    return 0;
+                }
+                if (token->kind == BASL_TOKEN_LPAREN) {
+                    depth = 1U;
+                    lookahead += 1U;
+                    while (depth > 0U) {
+                        token = basl_program_token_at(program, lookahead);
+                        if (token == NULL) {
+                            return 0;
+                        }
+                        if (token->kind == BASL_TOKEN_LPAREN) {
+                            depth += 1U;
+                        } else if (token->kind == BASL_TOKEN_RPAREN) {
+                            depth -= 1U;
+                        }
+                        lookahead += 1U;
+                    }
+                } else {
+                    while (1) {
+                        token = basl_program_token_at(program, lookahead);
+                        if (token == NULL) {
+                            return 0;
+                        }
+                        if (token->kind == BASL_TOKEN_LESS) {
+                            depth = 1U;
+                            lookahead += 1U;
+                            while (depth > 0U) {
+                                token = basl_program_token_at(program, lookahead);
+                                if (token == NULL) {
+                                    return 0;
+                                }
+                                if (token->kind == BASL_TOKEN_LESS) {
+                                    depth += 1U;
+                                } else if (token->kind == BASL_TOKEN_GREATER) {
+                                    depth -= 1U;
+                                } else if (token->kind == BASL_TOKEN_SHIFT_RIGHT) {
+                                    if (depth < 2U) {
+                                        return 0;
+                                    }
+                                    depth -= 2U;
+                                }
+                                lookahead += 1U;
+                            }
+                            break;
+                        }
+                        if (
+                            token->kind != BASL_TOKEN_IDENTIFIER &&
+                            token->kind != BASL_TOKEN_DOT
+                        ) {
+                            break;
+                        }
+                        lookahead += 1U;
+                    }
+                }
+            }
+        }
+    } else if (token->kind == BASL_TOKEN_IDENTIFIER) {
+        while (1) {
+            lookahead += 1U;
+            token = basl_program_token_at(program, lookahead);
+            if (token == NULL) {
+                return 0;
+            }
+            if (token->kind == BASL_TOKEN_DOT) {
+                lookahead += 1U;
+                token = basl_program_token_at(program, lookahead);
+                if (token == NULL || token->kind != BASL_TOKEN_IDENTIFIER) {
+                    return 0;
+                }
+                continue;
+            }
+            if (token->kind == BASL_TOKEN_LESS) {
+                size_t depth = 1U;
+
+                lookahead += 1U;
+                while (depth > 0U) {
+                    token = basl_program_token_at(program, lookahead);
+                    if (token == NULL) {
+                        return 0;
+                    }
+                    if (token->kind == BASL_TOKEN_LESS) {
+                        depth += 1U;
+                    } else if (token->kind == BASL_TOKEN_GREATER) {
+                        depth -= 1U;
+                    } else if (token->kind == BASL_TOKEN_SHIFT_RIGHT) {
+                        if (depth < 2U) {
+                            return 0;
+                        }
+                        depth -= 2U;
+                    }
+                    lookahead += 1U;
+                }
+                break;
+            }
+            break;
+        }
+    } else {
+        return 0;
+    }
+
+    name_token = basl_program_token_at(program, lookahead);
+    assign_token = basl_program_token_at(program, lookahead + 1U);
+    return name_token != NULL &&
+           assign_token != NULL &&
+           name_token->kind == BASL_TOKEN_IDENTIFIER &&
+           assign_token->kind == BASL_TOKEN_ASSIGN;
 }
 
 static basl_status_t basl_program_parse_constant_expression(
@@ -12480,7 +12600,18 @@ static basl_status_t basl_parser_parse_qualified_symbol(
     }
 
     member_name = basl_parser_token_text(state, member_token, &member_name_length);
-    if (basl_parser_match(state, BASL_TOKEN_DOT)) {
+    if (
+        basl_parser_check(state, BASL_TOKEN_DOT) &&
+        basl_program_find_enum_in_source(
+            state->program,
+            source_id,
+            member_name,
+            member_name_length,
+            &enum_index,
+            NULL
+        )
+    ) {
+        basl_parser_advance(state);
         enum_member_token = basl_parser_peek(state);
         if (enum_member_token == NULL || enum_member_token->kind != BASL_TOKEN_IDENTIFIER) {
             return basl_parser_report(state, member_token->span, "unknown enum member");
@@ -18897,14 +19028,6 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         basl_opcode_t opcode;
         basl_binary_operator_kind_t operator_kind;
 
-        if (is_index_assignment) {
-            return basl_parser_report(
-                state,
-                operator_token->span,
-                "compound indexed assignment is not yet supported"
-            );
-        }
-
         opcode = BASL_OPCODE_ADD;
         operator_kind = BASL_BINARY_OPERATOR_ADD;
 
@@ -18918,6 +19041,15 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
                 return status;
             }
             status = basl_parser_emit_u32(state, (uint32_t)field_index, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+        } else if (is_index_assignment) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_DUP_TWO, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_GET_INDEX, operator_token->span);
             if (status != BASL_STATUS_OK) {
                 return status;
             }
