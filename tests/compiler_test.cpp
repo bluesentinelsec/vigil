@@ -1760,37 +1760,22 @@ TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic) {
     basl_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsOutOfRangeDefaultI32Literals) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
-    basl_source_id_t source_id;
-
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
-
-    source_id = RegisterSource(
-        &registry,
-        "large_literal.basl",
-        "fn main() -> i32 { i32 value = 3000000000; return value; }",
-        &error
-    );
+TEST(BaslCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        CompileAndRun(
+            "fn main() -> i32 {"
+            "    i64 signed_large = 3000000000;"
+            "    u64 huge = 9223372036854775808;"
+            "    u64 max = 18446744073709551615;"
+            "    u64 previous = max - u64(1);"
+            "    if (signed_large == i64(3000000000) && huge > u64(9223372036854775807) && previous < max) {"
+            "        return 11;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        11
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "integer literal is out of range for i32"
-    );
-
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
 }
 
 TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {

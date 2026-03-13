@@ -866,6 +866,14 @@ static int basl_parser_type_is_signed_integer(
     return basl_parser_type_is_i32(type) || basl_parser_type_is_i64(type);
 }
 
+static int basl_parser_type_is_unsigned_integer(
+    basl_parser_type_t type
+) {
+    return basl_parser_type_is_u8(type) ||
+           basl_parser_type_is_u32(type) ||
+           basl_parser_type_is_u64(type);
+}
+
 static int basl_parser_type_is_f64(
     basl_parser_type_t type
 ) {
@@ -4078,6 +4086,97 @@ static basl_status_t basl_program_checked_shift_right(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_program_checked_uadd(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (UINT64_MAX - left < right) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left + right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_usubtract(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (left < right) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left - right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_umultiply(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (left != 0U && right > UINT64_MAX / left) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left * right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_udivide(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (right == 0U) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left / right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_umodulo(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (right == 0U) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left % right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_ushift_left(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (right >= 64U) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left << (uint32_t)right;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_program_checked_ushift_right(
+    uint64_t left,
+    uint64_t right,
+    uint64_t *out_result
+) {
+    if (right >= 64U) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_result = left >> (uint32_t)right;
+    return BASL_STATUS_OK;
+}
+
 static int basl_program_values_equal(
     const basl_value_t *left,
     const basl_value_t *right
@@ -4100,6 +4199,8 @@ static int basl_program_values_equal(
             return left->as.boolean == right->as.boolean;
         case BASL_VALUE_INT:
             return left->as.integer == right->as.integer;
+        case BASL_VALUE_UINT:
+            return left->as.uinteger == right->as.uinteger;
         case BASL_VALUE_FLOAT:
             return left->as.number == right->as.number;
         case BASL_VALUE_OBJECT:
@@ -6045,7 +6146,7 @@ static basl_status_t basl_program_parse_constant_int(
     size_t length;
     char buffer[128];
     char *end;
-    long long parsed;
+    unsigned long long parsed;
 
     text = basl_program_token_text(program, token, &length);
     if (text == NULL || length == 0U) {
@@ -6058,19 +6159,16 @@ static basl_status_t basl_program_parse_constant_int(
     memcpy(buffer, text, length);
     buffer[length] = '\0';
     errno = 0;
-    parsed = strtoll(buffer, &end, 0);
+    parsed = strtoull(buffer, &end, 0);
     if (errno != 0 || end == buffer || *end != '\0') {
         return basl_compile_report(program, token->span, "invalid integer literal");
     }
-    if (parsed < (long long)INT32_MIN || parsed > (long long)INT32_MAX) {
-        return basl_compile_report(
-            program,
-            token->span,
-            "integer literal is out of range for i32"
-        );
-    }
 
-    basl_value_init_int(out_value, (int64_t)parsed);
+    if (parsed <= (unsigned long long)INT64_MAX) {
+        basl_value_init_int(out_value, (int64_t)parsed);
+    } else {
+        basl_value_init_uint(out_value, (uint64_t)parsed);
+    }
     return BASL_STATUS_OK;
 }
 
@@ -6105,7 +6203,7 @@ static basl_status_t basl_program_parse_constant_float(
     return BASL_STATUS_OK;
 }
 
-static int basl_program_integer_type_bounds(
+static int basl_program_integer_type_signed_bounds(
     basl_type_kind_t kind,
     int64_t *out_minimum,
     int64_t *out_maximum
@@ -6122,18 +6220,6 @@ static int basl_program_integer_type_bounds(
             minimum_value = INT64_MIN;
             maximum_value = INT64_MAX;
             break;
-        case BASL_TYPE_U8:
-            minimum_value = 0;
-            maximum_value = (int64_t)UINT8_MAX;
-            break;
-        case BASL_TYPE_U32:
-            minimum_value = 0;
-            maximum_value = (int64_t)UINT32_MAX;
-            break;
-        case BASL_TYPE_U64:
-            minimum_value = 0;
-            maximum_value = INT64_MAX;
-            break;
         default:
             return 0;
     }
@@ -6147,28 +6233,121 @@ static int basl_program_integer_type_bounds(
     return 1;
 }
 
+static int basl_program_integer_type_unsigned_max(
+    basl_type_kind_t kind,
+    uint64_t *out_maximum
+) {
+    uint64_t maximum_value;
+
+    switch (kind) {
+        case BASL_TYPE_U8:
+            maximum_value = (uint64_t)UINT8_MAX;
+            break;
+        case BASL_TYPE_U32:
+            maximum_value = (uint64_t)UINT32_MAX;
+            break;
+        case BASL_TYPE_U64:
+            maximum_value = UINT64_MAX;
+            break;
+        default:
+            return 0;
+    }
+
+    if (out_maximum != NULL) {
+        *out_maximum = maximum_value;
+    }
+    return 1;
+}
+
+static basl_parser_type_t basl_program_integer_literal_type(
+    const basl_value_t *value
+) {
+    if (value == NULL) {
+        return basl_binding_type_invalid();
+    }
+    if (basl_value_kind(value) == BASL_VALUE_UINT) {
+        return basl_binding_type_primitive(BASL_TYPE_U64);
+    }
+    if (
+        basl_value_kind(value) == BASL_VALUE_INT &&
+        basl_value_as_int(value) > (int64_t)INT32_MAX
+    ) {
+        return basl_binding_type_primitive(BASL_TYPE_I64);
+    }
+    return basl_binding_type_primitive(BASL_TYPE_I32);
+}
+
 static basl_status_t basl_program_validate_integer_value_for_type(
     basl_program_state_t *program,
     basl_source_span_t span,
     basl_parser_type_t target_type,
-    int64_t integer_value
+    const basl_value_t *value
 ) {
     int64_t minimum_value;
     int64_t maximum_value;
+    uint64_t maximum_unsigned;
 
-    if (!basl_parser_type_is_integer(target_type)) {
+    if (!basl_parser_type_is_integer(target_type) || value == NULL) {
         return BASL_STATUS_OK;
     }
+
+    if (basl_parser_type_is_signed_integer(target_type)) {
+        if (basl_value_kind(value) == BASL_VALUE_UINT) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer arithmetic overflow or invalid operation"
+            );
+        }
+        if (
+            !basl_program_integer_type_signed_bounds(
+                target_type.kind,
+                &minimum_value,
+                &maximum_value
+            )
+        ) {
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+        if (
+            basl_value_as_int(value) < minimum_value ||
+            basl_value_as_int(value) > maximum_value
+        ) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer arithmetic overflow or invalid operation"
+            );
+        }
+        return BASL_STATUS_OK;
+    }
+
     if (
-        !basl_program_integer_type_bounds(
+        !basl_program_integer_type_unsigned_max(
             target_type.kind,
-            &minimum_value,
-            &maximum_value
+            &maximum_unsigned
         )
     ) {
         return BASL_STATUS_INVALID_ARGUMENT;
     }
-    if (integer_value < minimum_value || integer_value > maximum_value) {
+    if (basl_value_kind(value) == BASL_VALUE_INT) {
+        if (basl_value_as_int(value) < 0) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer arithmetic overflow or invalid operation"
+            );
+        }
+        if ((uint64_t)basl_value_as_int(value) > maximum_unsigned) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer arithmetic overflow or invalid operation"
+            );
+        }
+        return BASL_STATUS_OK;
+    }
+    if (basl_value_kind(value) != BASL_VALUE_UINT ||
+        basl_value_as_uint(value) > maximum_unsigned) {
         return basl_compile_report(
             program,
             span,
@@ -6188,14 +6367,13 @@ static basl_status_t basl_program_convert_constant_to_integer(
 ) {
     int64_t minimum_value;
     int64_t maximum_value;
-    int64_t integer_value;
+    uint64_t maximum_unsigned;
     double float_value;
 
     if (
         program == NULL ||
         argument == NULL ||
-        out_result == NULL ||
-        !basl_program_integer_type_bounds(target_kind, &minimum_value, &maximum_value)
+        out_result == NULL
     ) {
         return BASL_STATUS_INVALID_ARGUMENT;
     }
@@ -6207,12 +6385,73 @@ static basl_status_t basl_program_convert_constant_to_integer(
     }
 
     if (basl_parser_type_is_integer(argument->type)) {
-        integer_value = basl_value_as_int(&argument->value);
-        if (integer_value < minimum_value || integer_value > maximum_value) {
-            return basl_compile_report(program, span, "integer conversion overflow or invalid value");
-        }
-        basl_value_init_int(&out_result->value, integer_value);
         out_result->type = basl_binding_type_primitive(target_kind);
+        if (basl_parser_type_is_signed_integer(out_result->type)) {
+            if (
+                !basl_program_integer_type_signed_bounds(
+                    target_kind,
+                    &minimum_value,
+                    &maximum_value
+                )
+            ) {
+                return BASL_STATUS_INVALID_ARGUMENT;
+            }
+            if (basl_value_kind(&argument->value) == BASL_VALUE_UINT) {
+                if (basl_value_as_uint(&argument->value) > (uint64_t)maximum_value) {
+                    return basl_compile_report(
+                        program,
+                        span,
+                        "integer conversion overflow or invalid value"
+                    );
+                }
+                basl_value_init_int(
+                    &out_result->value,
+                    (int64_t)basl_value_as_uint(&argument->value)
+                );
+            } else {
+                if (basl_value_as_int(&argument->value) < minimum_value ||
+                    basl_value_as_int(&argument->value) > maximum_value) {
+                    return basl_compile_report(
+                        program,
+                        span,
+                        "integer conversion overflow or invalid value"
+                    );
+                }
+                basl_value_init_int(&out_result->value, basl_value_as_int(&argument->value));
+            }
+        } else {
+            if (
+                !basl_program_integer_type_unsigned_max(
+                    target_kind,
+                    &maximum_unsigned
+                )
+            ) {
+                return BASL_STATUS_INVALID_ARGUMENT;
+            }
+            if (basl_value_kind(&argument->value) == BASL_VALUE_INT) {
+                if (basl_value_as_int(&argument->value) < 0 ||
+                    (uint64_t)basl_value_as_int(&argument->value) > maximum_unsigned) {
+                    return basl_compile_report(
+                        program,
+                        span,
+                        "integer conversion overflow or invalid value"
+                    );
+                }
+                basl_value_init_uint(
+                    &out_result->value,
+                    (uint64_t)basl_value_as_int(&argument->value)
+                );
+            } else {
+                if (basl_value_as_uint(&argument->value) > maximum_unsigned) {
+                    return basl_compile_report(
+                        program,
+                        span,
+                        "integer conversion overflow or invalid value"
+                    );
+                }
+                basl_value_init_uint(&out_result->value, basl_value_as_uint(&argument->value));
+            }
+        }
         return BASL_STATUS_OK;
     }
 
@@ -6225,19 +6464,67 @@ static basl_status_t basl_program_convert_constant_to_integer(
     }
 
     float_value = basl_value_as_float(&argument->value);
-    if (!isfinite(float_value) ||
-        float_value < (double)INT64_MIN ||
-        float_value > (double)INT64_MAX) {
-        return basl_compile_report(program, span, "integer conversion overflow or invalid value");
-    }
-
-    integer_value = (int64_t)float_value;
-    if (integer_value < minimum_value || integer_value > maximum_value) {
-        return basl_compile_report(program, span, "integer conversion overflow or invalid value");
-    }
-
-    basl_value_init_int(&out_result->value, integer_value);
     out_result->type = basl_binding_type_primitive(target_kind);
+    if (basl_parser_type_is_signed_integer(out_result->type)) {
+        int64_t integer_value;
+
+        if (
+            !basl_program_integer_type_signed_bounds(
+                target_kind,
+                &minimum_value,
+                &maximum_value
+            )
+        ) {
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+        if (!isfinite(float_value) ||
+            float_value < (double)INT64_MIN ||
+            float_value > (double)INT64_MAX) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer conversion overflow or invalid value"
+            );
+        }
+
+        integer_value = (int64_t)float_value;
+        if (integer_value < minimum_value || integer_value > maximum_value) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer conversion overflow or invalid value"
+            );
+        }
+        basl_value_init_int(&out_result->value, integer_value);
+    } else {
+        uint64_t integer_value;
+
+        if (
+            !basl_program_integer_type_unsigned_max(
+                target_kind,
+                &maximum_unsigned
+            )
+        ) {
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+        if (!isfinite(float_value) || float_value < 0.0 || float_value > (double)UINT64_MAX) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer conversion overflow or invalid value"
+            );
+        }
+
+        integer_value = (uint64_t)float_value;
+        if (integer_value > maximum_unsigned) {
+            return basl_compile_report(
+                program,
+                span,
+                "integer conversion overflow or invalid value"
+            );
+        }
+        basl_value_init_uint(&out_result->value, integer_value);
+    }
     return BASL_STATUS_OK;
 }
 
@@ -6273,7 +6560,21 @@ static basl_status_t basl_program_convert_constant_to_string(
             program->error
         );
     } else if (basl_parser_type_is_integer(argument->type)) {
-        written = snprintf(buffer, sizeof(buffer), "%lld", (long long)basl_value_as_int(&argument->value));
+        if (basl_value_kind(&argument->value) == BASL_VALUE_UINT) {
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%llu",
+                (unsigned long long)basl_value_as_uint(&argument->value)
+            );
+        } else {
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%lld",
+                (long long)basl_value_as_int(&argument->value)
+            );
+        }
         if (written < 0 || (size_t)written >= sizeof(buffer)) {
             return basl_compile_report(program, span, "failed to format integer constant");
         }
@@ -6377,7 +6678,17 @@ static basl_status_t basl_program_parse_constant_builtin_conversion(
                 out_result->value = basl_value_copy(&argument.value);
                 status = BASL_STATUS_OK;
             } else if (basl_parser_type_is_integer(argument.type)) {
-                basl_value_init_float(&out_result->value, (double)basl_value_as_int(&argument.value));
+                if (basl_value_kind(&argument.value) == BASL_VALUE_UINT) {
+                    basl_value_init_float(
+                        &out_result->value,
+                        (double)basl_value_as_uint(&argument.value)
+                    );
+                } else {
+                    basl_value_init_float(
+                        &out_result->value,
+                        (double)basl_value_as_int(&argument.value)
+                    );
+                }
                 out_result->type = basl_binding_type_primitive(BASL_TYPE_F64);
                 status = BASL_STATUS_OK;
             } else {
@@ -6458,7 +6769,7 @@ static basl_status_t basl_program_parse_constant_primary(
             if (status != BASL_STATUS_OK) {
                 return status;
             }
-            out_result->type = basl_binding_type_primitive(BASL_TYPE_I32);
+            out_result->type = basl_program_integer_literal_type(&out_result->value);
             return BASL_STATUS_OK;
         case BASL_TOKEN_FLOAT_LITERAL:
             basl_program_cursor_advance(program, cursor);
@@ -6723,7 +7034,7 @@ static basl_status_t basl_program_parse_constant_unary(
                     program,
                     token->span,
                     integer_type,
-                    integer_result
+                    &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
                 );
                 if (status != BASL_STATUS_OK) {
                     return status;
@@ -6774,6 +7085,7 @@ static basl_status_t basl_program_parse_constant_factor(
     basl_constant_result_t right;
     const basl_token_t *token;
     int64_t integer_result;
+    uint64_t uinteger_result;
     double float_result;
 
     basl_constant_result_clear(&left);
@@ -6803,28 +7115,54 @@ static basl_status_t basl_program_parse_constant_factor(
         }
         if (basl_parser_type_is_integer(left.type) &&
             basl_parser_type_equal(left.type, right.type)) {
-            switch (token->kind) {
-                case BASL_TOKEN_STAR:
-                    status = basl_program_checked_multiply(
-                        basl_value_as_int(&left.value),
-                        basl_value_as_int(&right.value),
-                        &integer_result
-                    );
-                    break;
-                case BASL_TOKEN_SLASH:
-                    status = basl_program_checked_divide(
-                        basl_value_as_int(&left.value),
-                        basl_value_as_int(&right.value),
-                        &integer_result
-                    );
-                    break;
-                default:
-                    status = basl_program_checked_modulo(
-                        basl_value_as_int(&left.value),
-                        basl_value_as_int(&right.value),
-                        &integer_result
-                    );
-                    break;
+            if (basl_parser_type_is_unsigned_integer(left.type)) {
+                switch (token->kind) {
+                    case BASL_TOKEN_STAR:
+                        status = basl_program_checked_umultiply(
+                            basl_value_as_uint(&left.value),
+                            basl_value_as_uint(&right.value),
+                            &uinteger_result
+                        );
+                        break;
+                    case BASL_TOKEN_SLASH:
+                        status = basl_program_checked_udivide(
+                            basl_value_as_uint(&left.value),
+                            basl_value_as_uint(&right.value),
+                            &uinteger_result
+                        );
+                        break;
+                    default:
+                        status = basl_program_checked_umodulo(
+                            basl_value_as_uint(&left.value),
+                            basl_value_as_uint(&right.value),
+                            &uinteger_result
+                        );
+                        break;
+                }
+            } else {
+                switch (token->kind) {
+                    case BASL_TOKEN_STAR:
+                        status = basl_program_checked_multiply(
+                            basl_value_as_int(&left.value),
+                            basl_value_as_int(&right.value),
+                            &integer_result
+                        );
+                        break;
+                    case BASL_TOKEN_SLASH:
+                        status = basl_program_checked_divide(
+                            basl_value_as_int(&left.value),
+                            basl_value_as_int(&right.value),
+                            &integer_result
+                        );
+                        break;
+                    default:
+                        status = basl_program_checked_modulo(
+                            basl_value_as_int(&left.value),
+                            basl_value_as_int(&right.value),
+                            &integer_result
+                        );
+                        break;
+                }
             }
             if (status != BASL_STATUS_OK) {
                 basl_constant_result_release(&left);
@@ -6839,7 +7177,9 @@ static basl_status_t basl_program_parse_constant_factor(
                 program,
                 token->span,
                 left.type,
-                integer_result
+                basl_parser_type_is_unsigned_integer(left.type)
+                    ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
+                    : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
             );
             if (status != BASL_STATUS_OK) {
                 basl_constant_result_release(&left);
@@ -6851,7 +7191,11 @@ static basl_status_t basl_program_parse_constant_factor(
                 basl_parser_type_t integer_type = left.type;
 
                 basl_constant_result_release(&left);
-                basl_value_init_int(&left.value, integer_result);
+                if (basl_parser_type_is_unsigned_integer(integer_type)) {
+                    basl_value_init_uint(&left.value, uinteger_result);
+                } else {
+                    basl_value_init_int(&left.value, integer_result);
+                }
                 left.type = integer_type;
             }
             basl_constant_result_release(&right);
@@ -6902,6 +7246,7 @@ static basl_status_t basl_program_parse_constant_term(
     basl_constant_result_t right;
     const basl_token_t *token;
     int64_t integer_result;
+    uint64_t uinteger_result;
     double float_result;
 
     basl_constant_result_clear(&left);
@@ -6949,18 +7294,34 @@ static basl_status_t basl_program_parse_constant_term(
         }
         if (basl_parser_type_is_integer(left.type) &&
             basl_parser_type_equal(left.type, right.type)) {
-            if (token->kind == BASL_TOKEN_PLUS) {
-                status = basl_program_checked_add(
-                    basl_value_as_int(&left.value),
-                    basl_value_as_int(&right.value),
-                    &integer_result
-                );
+            if (basl_parser_type_is_unsigned_integer(left.type)) {
+                if (token->kind == BASL_TOKEN_PLUS) {
+                    status = basl_program_checked_uadd(
+                        basl_value_as_uint(&left.value),
+                        basl_value_as_uint(&right.value),
+                        &uinteger_result
+                    );
+                } else {
+                    status = basl_program_checked_usubtract(
+                        basl_value_as_uint(&left.value),
+                        basl_value_as_uint(&right.value),
+                        &uinteger_result
+                    );
+                }
             } else {
-                status = basl_program_checked_subtract(
-                    basl_value_as_int(&left.value),
-                    basl_value_as_int(&right.value),
-                    &integer_result
-                );
+                if (token->kind == BASL_TOKEN_PLUS) {
+                    status = basl_program_checked_add(
+                        basl_value_as_int(&left.value),
+                        basl_value_as_int(&right.value),
+                        &integer_result
+                    );
+                } else {
+                    status = basl_program_checked_subtract(
+                        basl_value_as_int(&left.value),
+                        basl_value_as_int(&right.value),
+                        &integer_result
+                    );
+                }
             }
             if (status != BASL_STATUS_OK) {
                 basl_constant_result_release(&left);
@@ -6975,7 +7336,9 @@ static basl_status_t basl_program_parse_constant_term(
                 program,
                 token->span,
                 left.type,
-                integer_result
+                basl_parser_type_is_unsigned_integer(left.type)
+                    ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
+                    : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
             );
             if (status != BASL_STATUS_OK) {
                 basl_constant_result_release(&left);
@@ -6987,7 +7350,11 @@ static basl_status_t basl_program_parse_constant_term(
                 basl_parser_type_t integer_type = left.type;
 
                 basl_constant_result_release(&left);
-                basl_value_init_int(&left.value, integer_result);
+                if (basl_parser_type_is_unsigned_integer(integer_type)) {
+                    basl_value_init_uint(&left.value, uinteger_result);
+                } else {
+                    basl_value_init_int(&left.value, integer_result);
+                }
                 left.type = integer_type;
             }
             basl_constant_result_release(&right);
@@ -7027,6 +7394,7 @@ static basl_status_t basl_program_parse_constant_shift(
     basl_constant_result_t right;
     const basl_token_t *token;
     int64_t integer_result;
+    uint64_t uinteger_result;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7063,18 +7431,34 @@ static basl_status_t basl_program_parse_constant_shift(
             );
         }
 
-        if (token->kind == BASL_TOKEN_SHIFT_LEFT) {
-            status = basl_program_checked_shift_left(
-                basl_value_as_int(&left.value),
-                basl_value_as_int(&right.value),
-                &integer_result
-            );
+        if (basl_parser_type_is_unsigned_integer(left.type)) {
+            if (token->kind == BASL_TOKEN_SHIFT_LEFT) {
+                status = basl_program_checked_ushift_left(
+                    basl_value_as_uint(&left.value),
+                    basl_value_as_uint(&right.value),
+                    &uinteger_result
+                );
+            } else {
+                status = basl_program_checked_ushift_right(
+                    basl_value_as_uint(&left.value),
+                    basl_value_as_uint(&right.value),
+                    &uinteger_result
+                );
+            }
         } else {
-            status = basl_program_checked_shift_right(
-                basl_value_as_int(&left.value),
-                basl_value_as_int(&right.value),
-                &integer_result
-            );
+            if (token->kind == BASL_TOKEN_SHIFT_LEFT) {
+                status = basl_program_checked_shift_left(
+                    basl_value_as_int(&left.value),
+                    basl_value_as_int(&right.value),
+                    &integer_result
+                );
+            } else {
+                status = basl_program_checked_shift_right(
+                    basl_value_as_int(&left.value),
+                    basl_value_as_int(&right.value),
+                    &integer_result
+                );
+            }
         }
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -7089,7 +7473,9 @@ static basl_status_t basl_program_parse_constant_shift(
             program,
             token->span,
             left.type,
-            integer_result
+            basl_parser_type_is_unsigned_integer(left.type)
+                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
+                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -7101,7 +7487,11 @@ static basl_status_t basl_program_parse_constant_shift(
             basl_parser_type_t integer_type = left.type;
 
             basl_constant_result_release(&left);
-            basl_value_init_int(&left.value, integer_result);
+            if (basl_parser_type_is_unsigned_integer(integer_type)) {
+                basl_value_init_uint(&left.value, uinteger_result);
+            } else {
+                basl_value_init_int(&left.value, integer_result);
+            }
             left.type = integer_type;
         }
         basl_constant_result_release(&right);
@@ -7160,23 +7550,44 @@ static basl_status_t basl_program_parse_constant_comparison(
         }
 
         if (basl_parser_type_is_integer(left.type)) {
-            switch (token->kind) {
-                case BASL_TOKEN_GREATER:
-                    comparison_result =
-                        basl_value_as_int(&left.value) > basl_value_as_int(&right.value);
-                    break;
-                case BASL_TOKEN_GREATER_EQUAL:
-                    comparison_result =
-                        basl_value_as_int(&left.value) >= basl_value_as_int(&right.value);
-                    break;
-                case BASL_TOKEN_LESS:
-                    comparison_result =
-                        basl_value_as_int(&left.value) < basl_value_as_int(&right.value);
-                    break;
-                default:
-                    comparison_result =
-                        basl_value_as_int(&left.value) <= basl_value_as_int(&right.value);
-                    break;
+            if (basl_parser_type_is_unsigned_integer(left.type)) {
+                switch (token->kind) {
+                    case BASL_TOKEN_GREATER:
+                        comparison_result =
+                            basl_value_as_uint(&left.value) > basl_value_as_uint(&right.value);
+                        break;
+                    case BASL_TOKEN_GREATER_EQUAL:
+                        comparison_result =
+                            basl_value_as_uint(&left.value) >= basl_value_as_uint(&right.value);
+                        break;
+                    case BASL_TOKEN_LESS:
+                        comparison_result =
+                            basl_value_as_uint(&left.value) < basl_value_as_uint(&right.value);
+                        break;
+                    default:
+                        comparison_result =
+                            basl_value_as_uint(&left.value) <= basl_value_as_uint(&right.value);
+                        break;
+                }
+            } else {
+                switch (token->kind) {
+                    case BASL_TOKEN_GREATER:
+                        comparison_result =
+                            basl_value_as_int(&left.value) > basl_value_as_int(&right.value);
+                        break;
+                    case BASL_TOKEN_GREATER_EQUAL:
+                        comparison_result =
+                            basl_value_as_int(&left.value) >= basl_value_as_int(&right.value);
+                        break;
+                    case BASL_TOKEN_LESS:
+                        comparison_result =
+                            basl_value_as_int(&left.value) < basl_value_as_int(&right.value);
+                        break;
+                    default:
+                        comparison_result =
+                            basl_value_as_int(&left.value) <= basl_value_as_int(&right.value);
+                        break;
+                }
             }
         } else {
             switch (token->kind) {
@@ -7271,6 +7682,7 @@ static basl_status_t basl_program_parse_constant_bitwise_and(
     basl_constant_result_t right;
     const basl_token_t *token;
     int64_t integer_result;
+    uint64_t uinteger_result;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7303,12 +7715,18 @@ static basl_status_t basl_program_parse_constant_bitwise_and(
             );
         }
 
-        integer_result = basl_value_as_int(&left.value) & basl_value_as_int(&right.value);
+        if (basl_parser_type_is_unsigned_integer(left.type)) {
+            uinteger_result = basl_value_as_uint(&left.value) & basl_value_as_uint(&right.value);
+        } else {
+            integer_result = basl_value_as_int(&left.value) & basl_value_as_int(&right.value);
+        }
         status = basl_program_validate_integer_value_for_type(
             program,
             token->span,
             left.type,
-            integer_result
+            basl_parser_type_is_unsigned_integer(left.type)
+                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
+                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -7319,7 +7737,11 @@ static basl_status_t basl_program_parse_constant_bitwise_and(
             basl_parser_type_t integer_type = left.type;
 
             basl_constant_result_release(&left);
-            basl_value_init_int(&left.value, integer_result);
+            if (basl_parser_type_is_unsigned_integer(integer_type)) {
+                basl_value_init_uint(&left.value, uinteger_result);
+            } else {
+                basl_value_init_int(&left.value, integer_result);
+            }
             left.type = integer_type;
         }
         basl_constant_result_release(&right);
@@ -7336,6 +7758,7 @@ static basl_status_t basl_program_parse_constant_bitwise_xor(
     basl_constant_result_t right;
     const basl_token_t *token;
     int64_t integer_result;
+    uint64_t uinteger_result;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7368,12 +7791,18 @@ static basl_status_t basl_program_parse_constant_bitwise_xor(
             );
         }
 
-        integer_result = basl_value_as_int(&left.value) ^ basl_value_as_int(&right.value);
+        if (basl_parser_type_is_unsigned_integer(left.type)) {
+            uinteger_result = basl_value_as_uint(&left.value) ^ basl_value_as_uint(&right.value);
+        } else {
+            integer_result = basl_value_as_int(&left.value) ^ basl_value_as_int(&right.value);
+        }
         status = basl_program_validate_integer_value_for_type(
             program,
             token->span,
             left.type,
-            integer_result
+            basl_parser_type_is_unsigned_integer(left.type)
+                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
+                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -7384,7 +7813,11 @@ static basl_status_t basl_program_parse_constant_bitwise_xor(
             basl_parser_type_t integer_type = left.type;
 
             basl_constant_result_release(&left);
-            basl_value_init_int(&left.value, integer_result);
+            if (basl_parser_type_is_unsigned_integer(integer_type)) {
+                basl_value_init_uint(&left.value, uinteger_result);
+            } else {
+                basl_value_init_int(&left.value, integer_result);
+            }
             left.type = integer_type;
         }
         basl_constant_result_release(&right);
@@ -7401,6 +7834,7 @@ static basl_status_t basl_program_parse_constant_bitwise_or(
     basl_constant_result_t right;
     const basl_token_t *token;
     int64_t integer_result;
+    uint64_t uinteger_result;
 
     basl_constant_result_clear(&left);
     basl_constant_result_clear(&right);
@@ -7433,12 +7867,18 @@ static basl_status_t basl_program_parse_constant_bitwise_or(
             );
         }
 
-        integer_result = basl_value_as_int(&left.value) | basl_value_as_int(&right.value);
+        if (basl_parser_type_is_unsigned_integer(left.type)) {
+            uinteger_result = basl_value_as_uint(&left.value) | basl_value_as_uint(&right.value);
+        } else {
+            integer_result = basl_value_as_int(&left.value) | basl_value_as_int(&right.value);
+        }
         status = basl_program_validate_integer_value_for_type(
             program,
             token->span,
             left.type,
-            integer_result
+            basl_parser_type_is_unsigned_integer(left.type)
+                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
+                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -7449,7 +7889,11 @@ static basl_status_t basl_program_parse_constant_bitwise_or(
             basl_parser_type_t integer_type = left.type;
 
             basl_constant_result_release(&left);
-            basl_value_init_int(&left.value, integer_result);
+            if (basl_parser_type_is_unsigned_integer(integer_type)) {
+                basl_value_init_uint(&left.value, uinteger_result);
+            } else {
+                basl_value_init_int(&left.value, integer_result);
+            }
             left.type = integer_type;
         }
         basl_constant_result_release(&right);
@@ -9713,13 +10157,14 @@ static const char *basl_parser_token_text(
 static basl_status_t basl_parser_parse_int_literal(
     basl_parser_state_t *state,
     const basl_token_t *token,
-    basl_value_t *out_value
+    basl_value_t *out_value,
+    basl_parser_type_t *out_type
 ) {
     const char *text;
     size_t length;
     char buffer[128];
     char *end;
-    long long parsed;
+    unsigned long long parsed;
 
     text = basl_parser_token_text(state, token, &length);
     if (text == NULL || length == 0U) {
@@ -9732,15 +10177,18 @@ static basl_status_t basl_parser_parse_int_literal(
     memcpy(buffer, text, length);
     buffer[length] = '\0';
     errno = 0;
-    parsed = strtoll(buffer, &end, 0);
+    parsed = strtoull(buffer, &end, 0);
     if (errno != 0 || end == buffer || *end != '\0') {
         return basl_parser_report(state, token->span, "invalid integer literal");
     }
-    if (parsed < (long long)INT32_MIN || parsed > (long long)INT32_MAX) {
-        return basl_parser_report(state, token->span, "integer literal is out of range for i32");
+    if (parsed <= (unsigned long long)INT64_MAX) {
+        basl_value_init_int(out_value, (int64_t)parsed);
+    } else {
+        basl_value_init_uint(out_value, (uint64_t)parsed);
     }
-
-    basl_value_init_int(out_value, (int64_t)parsed);
+    if (out_type != NULL) {
+        *out_type = basl_program_integer_literal_type(out_value);
+    }
     return BASL_STATUS_OK;
 }
 
@@ -12855,7 +13303,7 @@ static basl_status_t basl_parser_parse_primary_base(
     switch (token->kind) {
         case BASL_TOKEN_INT_LITERAL:
             basl_parser_advance(state);
-            status = basl_parser_parse_int_literal(state, token, &value);
+            status = basl_parser_parse_int_literal(state, token, &value, &local_type);
             if (status != BASL_STATUS_OK) {
                 return status;
             }
@@ -12870,7 +13318,7 @@ static basl_status_t basl_parser_parse_primary_base(
             if (status != BASL_STATUS_OK) {
                 return status;
             }
-            basl_expression_result_set_type(out_result, basl_binding_type_primitive(BASL_TYPE_I32));
+            basl_expression_result_set_type(out_result, local_type);
             return BASL_STATUS_OK;
         case BASL_TOKEN_TRUE:
             basl_parser_advance(state);

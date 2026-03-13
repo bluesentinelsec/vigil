@@ -325,6 +325,16 @@ void basl_value_init_int(basl_value_t *value, int64_t integer) {
     value->as.integer = integer;
 }
 
+void basl_value_init_uint(basl_value_t *value, uint64_t integer) {
+    if (value == NULL) {
+        return;
+    }
+
+    basl_value_init_nil(value);
+    value->kind = BASL_VALUE_UINT;
+    value->as.uinteger = integer;
+}
+
 void basl_value_init_float(basl_value_t *value, double number) {
     if (value == NULL) {
         return;
@@ -410,6 +420,14 @@ int64_t basl_value_as_int(const basl_value_t *value) {
     }
 
     return value->as.integer;
+}
+
+uint64_t basl_value_as_uint(const basl_value_t *value) {
+    if (value == NULL || value->kind != BASL_VALUE_UINT) {
+        return 0U;
+    }
+
+    return value->as.uinteger;
 }
 
 double basl_value_as_float(const basl_value_t *value) {

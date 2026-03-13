@@ -49,6 +49,7 @@ static int basl_map_key_value_is_supported(const basl_value_t *key) {
     switch (basl_value_kind(key)) {
         case BASL_VALUE_BOOL:
         case BASL_VALUE_INT:
+        case BASL_VALUE_UINT:
             return 1;
         case BASL_VALUE_OBJECT:
             object = basl_value_as_object(key);
@@ -70,6 +71,8 @@ static uint64_t basl_map_hash_value(const basl_value_t *key) {
             return basl_map_mix_u64(basl_value_as_bool(key) ? UINT64_C(1) : UINT64_C(0));
         case BASL_VALUE_INT:
             return basl_map_mix_u64((uint64_t)basl_value_as_int(key));
+        case BASL_VALUE_UINT:
+            return basl_map_mix_u64(basl_value_as_uint(key));
         case BASL_VALUE_OBJECT:
             object = basl_value_as_object(key);
             return basl_map_hash_bytes(
@@ -101,6 +104,8 @@ static int basl_map_key_values_equal(
             return basl_value_as_bool(left) == basl_value_as_bool(right);
         case BASL_VALUE_INT:
             return basl_value_as_int(left) == basl_value_as_int(right);
+        case BASL_VALUE_UINT:
+            return basl_value_as_uint(left) == basl_value_as_uint(right);
         case BASL_VALUE_OBJECT:
             left_object = basl_value_as_object(left);
             right_object = basl_value_as_object(right);
@@ -548,7 +553,7 @@ basl_status_t basl_map_set_value(
         basl_error_set_literal(
             error,
             BASL_STATUS_INVALID_ARGUMENT,
-            "map key must be i32, bool, or string"
+            "map key must be an integer, bool, or string"
         );
         return BASL_STATUS_INVALID_ARGUMENT;
     }
@@ -838,7 +843,7 @@ basl_status_t basl_map_remove_value(
         basl_error_set_literal(
             error,
             BASL_STATUS_INVALID_ARGUMENT,
-            "map key must be i32, bool, or string"
+            "map key must be an integer, bool, or string"
         );
         return BASL_STATUS_INVALID_ARGUMENT;
     }

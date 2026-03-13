@@ -301,6 +301,14 @@ static basl_status_t basl_chunk_append_value(
                 (long long)basl_value_as_int(value)
             );
             break;
+        case BASL_VALUE_UINT:
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%llu",
+                (unsigned long long)basl_value_as_uint(value)
+            );
+            break;
         case BASL_VALUE_FLOAT:
             written = snprintf(
                 buffer,

@@ -17,8 +17,9 @@ typedef enum basl_value_kind {
     BASL_VALUE_NIL = 0,
     BASL_VALUE_BOOL = 1,
     BASL_VALUE_INT = 2,
-    BASL_VALUE_FLOAT = 3,
-    BASL_VALUE_OBJECT = 4
+    BASL_VALUE_UINT = 3,
+    BASL_VALUE_FLOAT = 4,
+    BASL_VALUE_OBJECT = 5
 } basl_value_kind_t;
 
 typedef enum basl_object_type {
@@ -40,6 +41,7 @@ typedef struct basl_value {
     union {
         bool boolean;
         int64_t integer;
+        uint64_t uinteger;
         double number;
         basl_object_t *object;
     } as;
@@ -48,6 +50,7 @@ typedef struct basl_value {
 BASL_API void basl_value_init_nil(basl_value_t *value);
 BASL_API void basl_value_init_bool(basl_value_t *value, bool boolean);
 BASL_API void basl_value_init_int(basl_value_t *value, int64_t integer);
+BASL_API void basl_value_init_uint(basl_value_t *value, uint64_t integer);
 BASL_API void basl_value_init_float(basl_value_t *value, double number);
 /*
  * Transfers one owned object reference into the value and clears *object.
@@ -62,6 +65,7 @@ BASL_API void basl_value_release(basl_value_t *value);
 BASL_API basl_value_kind_t basl_value_kind(const basl_value_t *value);
 BASL_API bool basl_value_as_bool(const basl_value_t *value);
 BASL_API int64_t basl_value_as_int(const basl_value_t *value);
+BASL_API uint64_t basl_value_as_uint(const basl_value_t *value);
 BASL_API double basl_value_as_float(const basl_value_t *value);
 BASL_API basl_object_t *basl_value_as_object(const basl_value_t *value);
 

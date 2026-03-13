@@ -76,11 +76,12 @@ TEST(BaslMapTest, SetAndGetImmediateValue) {
     basl_runtime_close(&runtime);
 }
 
-TEST(BaslMapTest, SupportsIntegerAndBoolKeys) {
+TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys) {
     basl_runtime_t *runtime = nullptr;
     basl_error_t error = {};
     basl_map_t map;
     basl_value_t int_key;
+    basl_value_t uint_key;
     basl_value_t bool_key;
     basl_value_t value;
     const basl_value_t *stored;
@@ -89,19 +90,26 @@ TEST(BaslMapTest, SupportsIntegerAndBoolKeys) {
     basl_map_init(&map, runtime);
 
     basl_value_init_int(&int_key, 7);
+    basl_value_init_uint(&uint_key, UINT64_C(9223372036854775808));
     basl_value_init_bool(&bool_key, true);
     basl_value_init_int(&value, 42);
     ASSERT_EQ(basl_map_set_value(&map, &int_key, &value, &error), BASL_STATUS_OK);
+    basl_value_init_int(&value, 77);
+    ASSERT_EQ(basl_map_set_value(&map, &uint_key, &value, &error), BASL_STATUS_OK);
     basl_value_init_int(&value, 99);
     ASSERT_EQ(basl_map_set_value(&map, &bool_key, &value, &error), BASL_STATUS_OK);
 
     stored = basl_map_get_value(&map, &int_key);
     ASSERT_NE(stored, nullptr);
     EXPECT_EQ(basl_value_as_int(stored), 42);
+    stored = basl_map_get_value(&map, &uint_key);
+    ASSERT_NE(stored, nullptr);
+    EXPECT_EQ(basl_value_as_int(stored), 77);
     stored = basl_map_get_value(&map, &bool_key);
     ASSERT_NE(stored, nullptr);
     EXPECT_EQ(basl_value_as_int(stored), 99);
     EXPECT_TRUE(basl_map_contains_value(&map, &int_key));
+    EXPECT_TRUE(basl_map_contains_value(&map, &uint_key));
     EXPECT_TRUE(basl_map_contains_value(&map, &bool_key));
 
     basl_map_free(&map);
@@ -335,7 +343,7 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "map key must be i32, bool, or string"), 0);
+    EXPECT_EQ(std::strcmp(error.value, "map key must be an integer, bool, or string"), 0);
     basl_map_free(&map);
     basl_runtime_close(&runtime);
 }

@@ -705,8 +705,8 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     );
 
     ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
-    EXPECT_EQ(basl_value_as_int(&result), 255);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_UINT);
+    EXPECT_EQ(basl_value_as_uint(&result), UINT64_C(255));
     basl_value_release(&result);
 
     basl_chunk_clear(&chunk);
@@ -752,6 +752,68 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     ASSERT_NE(error.value, nullptr);
     EXPECT_EQ(std::strcmp(error.value, "u32 conversion overflow or invalid value"), 0);
 
+    basl_chunk_free(&chunk);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_chunk_t chunk;
+    basl_value_t constant;
+    basl_value_t result;
+    basl_error_t error = {};
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_chunk_init(&chunk, runtime);
+    basl_value_init_nil(&result);
+
+    basl_value_init_uint(&constant, UINT64_C(9223372036854775808));
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    basl_value_init_uint(&constant, UINT64_C(2));
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 4U, 5U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_ADD, Span(13U, 6U, 7U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(13U, 8U, 9U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_UINT);
+    EXPECT_EQ(basl_value_as_uint(&result), UINT64_C(9223372036854775810));
+    basl_value_release(&result);
+
+    basl_chunk_clear(&chunk);
+    basl_value_init_uint(&constant, UINT64_C(9223372036854775808));
+    ASSERT_EQ(
+        basl_chunk_write_constant(&chunk, &constant, Span(14U, 0U, 3U), nullptr, &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_F64, Span(14U, 4U, 5U), &error),
+        BASL_STATUS_OK
+    );
+    ASSERT_EQ(
+        basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(14U, 6U, 7U), &error),
+        BASL_STATUS_OK
+    );
+
+    ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_FLOAT);
+    EXPECT_DOUBLE_EQ(basl_value_as_float(&result), 9223372036854775808.0);
+
+    basl_value_release(&result);
     basl_chunk_free(&chunk);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
