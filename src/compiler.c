@@ -4429,18 +4429,14 @@ static basl_status_t basl_program_parse_type_reference(
         ) {
             return basl_compile_report(program, token->span, "array types require an element type");
         }
-        {
-            basl_status_t status;
-
-            status = basl_program_parse_type_reference(
-                program,
-                cursor,
-                unsupported_message,
-                &element_type
-            );
-            if (status != BASL_STATUS_OK) {
-                return status;
-            }
+        status = basl_program_parse_type_reference(
+            program,
+            cursor,
+            unsupported_message,
+            &element_type
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
         next_token = basl_program_token_at(program, *cursor);
         if (next_token == NULL || next_token->kind != BASL_TOKEN_GREATER) {
@@ -4459,41 +4455,37 @@ static basl_status_t basl_program_parse_type_reference(
         basl_program_names_equal(name_text, name_length, "map", 3U)
     ) {
         *cursor += 2U;
-        {
-            basl_status_t status;
-
-            key_type = basl_binding_type_invalid();
-            value_type = basl_binding_type_invalid();
-            status = basl_program_parse_type_reference(
+        key_type = basl_binding_type_invalid();
+        value_type = basl_binding_type_invalid();
+        status = basl_program_parse_type_reference(
+            program,
+            cursor,
+            unsupported_message,
+            &key_type
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        if (!basl_parser_type_is_string(key_type)) {
+            return basl_compile_report(program, token->span, "map keys must use type string");
+        }
+        next_token = basl_program_token_at(program, *cursor);
+        if (next_token == NULL || next_token->kind != BASL_TOKEN_COMMA) {
+            return basl_compile_report(
                 program,
-                cursor,
-                unsupported_message,
-                &key_type
+                next_token == NULL ? token->span : next_token->span,
+                "expected ',' after map key type"
             );
-            if (status != BASL_STATUS_OK) {
-                return status;
-            }
-            if (!basl_parser_type_is_string(key_type)) {
-                return basl_compile_report(program, token->span, "map keys must use type string");
-            }
-            next_token = basl_program_token_at(program, *cursor);
-            if (next_token == NULL || next_token->kind != BASL_TOKEN_COMMA) {
-                return basl_compile_report(
-                    program,
-                    next_token == NULL ? token->span : next_token->span,
-                    "expected ',' after map key type"
-                );
-            }
-            *cursor += 1U;
-            status = basl_program_parse_type_reference(
-                program,
-                cursor,
-                unsupported_message,
-                &value_type
-            );
-            if (status != BASL_STATUS_OK) {
-                return status;
-            }
+        }
+        *cursor += 1U;
+        status = basl_program_parse_type_reference(
+            program,
+            cursor,
+            unsupported_message,
+            &value_type
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
         }
         next_token = basl_program_token_at(program, *cursor);
         if (next_token == NULL || next_token->kind != BASL_TOKEN_GREATER) {
@@ -4508,8 +4500,6 @@ static basl_status_t basl_program_parse_type_reference(
     }
 
     if (next_token == NULL || next_token->kind != BASL_TOKEN_DOT) {
-        basl_status_t status;
-
         status = basl_program_parse_type_name(program, token, unsupported_message, out_type);
         if (status != BASL_STATUS_OK) {
             return status;
