@@ -104,15 +104,14 @@ fn add(i32 a, i32 b) -> i32 { return a + b; }
 fn log_name(string name) -> void {}
 
 fn main() -> i32 {
-    fn any_cb = worker;
     fn(i32, i32) -> i32 op = add;
     fn(string) handler = log_name;
     return 0;
 }
 ```
 
-- Bare `fn` accepts any callable.
 - `fn(...) -> ...` enforces parameter and return shape.
+- Indirect calls require a concrete function signature.
 
 ### Module-Qualified Types
 
@@ -628,13 +627,24 @@ enum HttpStatus {
 }
 ```
 
-Use enum members with dot syntax:
+Use enum members with dot syntax and the enum's own type:
 
 ```c
-i32 c = Color.Red;
+Color c = Color.Red;
 ```
 
-Enum values are `i32`-backed and work naturally in `switch`.
+Enum values are `i32`-backed internally and work naturally in `switch`:
+
+```c
+switch (c) {
+    case Color.Red:
+        // ...
+    case Color.Green:
+        // ...
+    default:
+        // ...
+}
+```
 
 ## Common Built-In Collection and String Methods
 
