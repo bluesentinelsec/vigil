@@ -149,6 +149,7 @@ static basl_token_kind_t basl_lexer_keyword_kind(
             if (memcmp(text, "as", 2U) == 0) return BASL_TOKEN_AS;
             if (memcmp(text, "fn", 2U) == 0) return BASL_TOKEN_FN;
             if (memcmp(text, "if", 2U) == 0) return BASL_TOKEN_IF;
+            if (memcmp(text, "in", 2U) == 0) return BASL_TOKEN_IN;
             break;
         case 3U:
             if (memcmp(text, "for", 3U) == 0) return BASL_TOKEN_FOR;
@@ -156,6 +157,7 @@ static basl_token_kind_t basl_lexer_keyword_kind(
             if (memcmp(text, "pub", 3U) == 0) return BASL_TOKEN_PUB;
             break;
         case 4U:
+            if (memcmp(text, "case", 4U) == 0) return BASL_TOKEN_CASE;
             if (memcmp(text, "else", 4U) == 0) return BASL_TOKEN_ELSE;
             if (memcmp(text, "enum", 4U) == 0) return BASL_TOKEN_ENUM;
             if (memcmp(text, "true", 4U) == 0) return BASL_TOKEN_TRUE;
@@ -164,12 +166,18 @@ static basl_token_kind_t basl_lexer_keyword_kind(
             if (memcmp(text, "break", 5U) == 0) return BASL_TOKEN_BREAK;
             if (memcmp(text, "class", 5U) == 0) return BASL_TOKEN_CLASS;
             if (memcmp(text, "const", 5U) == 0) return BASL_TOKEN_CONST;
+            if (memcmp(text, "defer", 5U) == 0) return BASL_TOKEN_DEFER;
             if (memcmp(text, "false", 5U) == 0) return BASL_TOKEN_FALSE;
+            if (memcmp(text, "guard", 5U) == 0) return BASL_TOKEN_GUARD;
             if (memcmp(text, "while", 5U) == 0) return BASL_TOKEN_WHILE;
             break;
         case 6U:
             if (memcmp(text, "import", 6U) == 0) return BASL_TOKEN_IMPORT;
             if (memcmp(text, "return", 6U) == 0) return BASL_TOKEN_RETURN;
+            if (memcmp(text, "switch", 6U) == 0) return BASL_TOKEN_SWITCH;
+            break;
+        case 7U:
+            if (memcmp(text, "default", 7U) == 0) return BASL_TOKEN_DEFAULT;
             break;
         case 8U:
             if (memcmp(text, "continue", 8U) == 0) return BASL_TOKEN_CONTINUE;

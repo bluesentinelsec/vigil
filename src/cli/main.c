@@ -51,6 +51,21 @@ static FILE *basl_open_file(const char *path, const char *mode) {
 #endif
 }
 
+static void basl_set_cli_error(
+    basl_error_t *error,
+    basl_status_t type,
+    const char *message
+) {
+    if (error == NULL) {
+        return;
+    }
+
+    basl_error_clear(error);
+    error->type = type;
+    error->value = message;
+    error->length = message == NULL ? 0U : strlen(message);
+}
+
 static int basl_print_diagnostics(
     const basl_source_registry_t *registry,
     const basl_diagnostic_list_t *diagnostics
@@ -165,6 +180,140 @@ static char *basl_read_file(const char *path, size_t *out_length) {
     return buffer;
 }
 
+static int basl_path_has_basl_extension(const char *path, size_t length) {
+    return path != NULL &&
+           length >= 5U &&
+           memcmp(path + length - 5U, ".basl", 5U) == 0;
+}
+
+static int basl_path_is_absolute(const char *path, size_t length) {
+    if (path == NULL || length == 0U) {
+        return 0;
+    }
+
+    if (path[0] == '/' || path[0] == '\\') {
+        return 1;
+    }
+
+    return length >= 2U &&
+           ((path[0] >= 'A' && path[0] <= 'Z') ||
+            (path[0] >= 'a' && path[0] <= 'z')) &&
+           path[1] == ':';
+}
+
+static int basl_registry_find_source_path(
+    const basl_source_registry_t *registry,
+    const char *path,
+    basl_source_id_t *out_source_id
+) {
+    size_t index;
+
+    if (out_source_id != NULL) {
+        *out_source_id = 0U;
+    }
+    if (registry == NULL || path == NULL) {
+        return 0;
+    }
+
+    for (index = 1U; index <= basl_source_registry_count(registry); index += 1U) {
+        const basl_source_file_t *source;
+
+        source = basl_source_registry_get(registry, (basl_source_id_t)index);
+        if (source == NULL) {
+            continue;
+        }
+        if (strcmp(basl_string_c_str(&source->path), path) == 0) {
+            if (out_source_id != NULL) {
+                *out_source_id = source->id;
+            }
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static const char *basl_source_token_text(
+    const basl_source_file_t *source,
+    const basl_token_t *token,
+    size_t *out_length
+) {
+    size_t length;
+
+    if (out_length != NULL) {
+        *out_length = 0U;
+    }
+    if (source == NULL || token == NULL) {
+        return NULL;
+    }
+
+    length = token->span.end_offset - token->span.start_offset;
+    if (out_length != NULL) {
+        *out_length = length;
+    }
+    return basl_string_c_str(&source->text) + token->span.start_offset;
+}
+
+static basl_status_t basl_resolve_import_path(
+    basl_runtime_t *runtime,
+    const char *base_path,
+    const char *import_text,
+    size_t import_length,
+    basl_string_t *out_path,
+    basl_error_t *error
+) {
+    size_t base_length;
+    size_t prefix_length;
+
+    basl_string_clear(out_path);
+    if (
+        runtime == NULL ||
+        base_path == NULL ||
+        import_text == NULL ||
+        out_path == NULL
+    ) {
+        basl_set_cli_error(error, BASL_STATUS_INVALID_ARGUMENT, "import path inputs must not be null");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (basl_path_is_absolute(import_text, import_length)) {
+        return basl_string_assign(out_path, import_text, import_length, error);
+    }
+
+    base_length = strlen(base_path);
+    prefix_length = base_length;
+    while (prefix_length > 0U) {
+        char current = base_path[prefix_length - 1U];
+
+        if (current == '/' || current == '\\') {
+            break;
+        }
+        prefix_length -= 1U;
+    }
+
+    if (prefix_length != 0U) {
+        if (basl_string_assign(out_path, base_path, prefix_length, error) != BASL_STATUS_OK) {
+            return error->type;
+        }
+        if (basl_string_append(out_path, import_text, import_length, error) != BASL_STATUS_OK) {
+            return error->type;
+        }
+    } else if (
+        basl_string_assign(out_path, import_text, import_length, error) != BASL_STATUS_OK
+    ) {
+        return error->type;
+    }
+
+    if (!basl_path_has_basl_extension(basl_string_c_str(out_path), basl_string_length(out_path))) {
+        if (basl_string_append_cstr(out_path, ".basl", error) != BASL_STATUS_OK) {
+            return error->type;
+        }
+    }
+
+    (void)runtime;
+    return BASL_STATUS_OK;
+}
+
 static int basl_parse_mode(
     int argc,
     char **argv,
@@ -203,6 +352,156 @@ static int basl_register_script_source(
                out_source_id,
                error
            ) == BASL_STATUS_OK;
+}
+
+static int basl_register_source_tree(
+    basl_source_registry_t *registry,
+    const char *path,
+    basl_source_id_t *out_source_id,
+    basl_error_t *error
+) {
+    basl_runtime_t *runtime;
+    basl_source_id_t source_id;
+    char *file_text;
+    size_t file_length;
+    const basl_source_file_t *source;
+    basl_token_list_t tokens;
+    basl_diagnostic_list_t diagnostics;
+    const basl_token_t *token;
+    size_t cursor;
+    size_t brace_depth;
+
+    runtime = registry == NULL ? NULL : registry->runtime;
+    source_id = 0U;
+    if (basl_registry_find_source_path(registry, path, &source_id)) {
+        if (out_source_id != NULL) {
+            *out_source_id = source_id;
+        }
+        basl_error_clear(error);
+        return 1;
+    }
+
+    file_text = basl_read_file(path, &file_length);
+    if (file_text == NULL) {
+        basl_set_cli_error(error, BASL_STATUS_INVALID_ARGUMENT, "failed to read imported source");
+        return 0;
+    }
+
+    if (
+        !basl_register_script_source(
+            registry,
+            path,
+            file_text,
+            file_length,
+            &source_id,
+            error
+        )
+    ) {
+        free(file_text);
+        return 0;
+    }
+    free(file_text);
+
+    if (out_source_id != NULL) {
+        *out_source_id = source_id;
+    }
+
+    source = basl_source_registry_get(registry, source_id);
+    if (source == NULL) {
+        basl_set_cli_error(error, BASL_STATUS_INVALID_ARGUMENT, "registered source was not found");
+        return 0;
+    }
+
+    basl_token_list_init(&tokens, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+    if (basl_lex_source(registry, source_id, &tokens, &diagnostics, error) != BASL_STATUS_OK) {
+        basl_error_clear(error);
+        basl_token_list_free(&tokens);
+        basl_diagnostic_list_free(&diagnostics);
+        return 1;
+    }
+
+    cursor = 0U;
+    brace_depth = 0U;
+    while (1) {
+        token = basl_token_list_get(&tokens, cursor);
+        if (token == NULL || token->kind == BASL_TOKEN_EOF) {
+            break;
+        }
+
+        if (token->kind == BASL_TOKEN_LBRACE) {
+            brace_depth += 1U;
+            cursor += 1U;
+            continue;
+        }
+        if (token->kind == BASL_TOKEN_RBRACE) {
+            if (brace_depth != 0U) {
+                brace_depth -= 1U;
+            }
+            cursor += 1U;
+            continue;
+        }
+
+        if (brace_depth == 0U && token->kind == BASL_TOKEN_IMPORT) {
+            const basl_token_t *path_token;
+            basl_string_t import_path;
+            const char *import_text;
+            size_t import_length;
+
+            cursor += 1U;
+            path_token = basl_token_list_get(&tokens, cursor);
+            if (
+                path_token == NULL ||
+                (path_token->kind != BASL_TOKEN_STRING_LITERAL &&
+                 path_token->kind != BASL_TOKEN_RAW_STRING_LITERAL)
+            ) {
+                break;
+            }
+
+            import_text = basl_source_token_text(source, path_token, &import_length);
+            if (import_text == NULL || import_length < 2U) {
+                break;
+            }
+
+            basl_string_init(&import_path, runtime);
+            if (
+                basl_resolve_import_path(
+                    runtime,
+                    basl_string_c_str(&source->path),
+                    import_text + 1U,
+                    import_length - 2U,
+                    &import_path,
+                    error
+                ) != BASL_STATUS_OK
+            ) {
+                basl_string_free(&import_path);
+                basl_token_list_free(&tokens);
+                basl_diagnostic_list_free(&diagnostics);
+                return 0;
+            }
+            if (
+                !basl_register_source_tree(
+                    registry,
+                    basl_string_c_str(&import_path),
+                    NULL,
+                    error
+                )
+            ) {
+                basl_string_free(&import_path);
+                basl_token_list_free(&tokens);
+                basl_diagnostic_list_free(&diagnostics);
+                return 0;
+            }
+            basl_string_free(&import_path);
+        }
+
+        cursor += 1U;
+    }
+
+    basl_token_list_free(&tokens);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_error_clear(error);
+    return 1;
 }
 
 static int basl_check_script(
@@ -282,8 +581,6 @@ int main(int argc, char **argv) {
     basl_diagnostic_list_t diagnostics;
     basl_value_t result;
     basl_source_id_t source_id = 0U;
-    char *file_text = NULL;
-    size_t file_length = 0U;
     int exit_code = 0;
 
     if (!basl_parse_mode(argc, argv, &mode, &script_path)) {
@@ -292,15 +589,8 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    file_text = basl_read_file(script_path, &file_length);
-    if (file_text == NULL) {
-        fprintf(stderr, "failed to read script: %s\n", script_path);
-        return 1;
-    }
-
     if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
-        free(file_text);
         return 1;
     }
 
@@ -316,7 +606,6 @@ int main(int argc, char **argv) {
             basl_error_message(&error)
         );
         basl_runtime_close(&runtime);
-        free(file_text);
         return 1;
     }
 
@@ -325,11 +614,9 @@ int main(int argc, char **argv) {
     basl_value_init_nil(&result);
 
     if (
-        !basl_register_script_source(
+        !basl_register_source_tree(
             &registry,
             script_path,
-            file_text,
-            file_length,
             &source_id,
             &error
         )
@@ -372,6 +659,5 @@ cleanup:
     basl_source_registry_free(&registry);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
-    free(file_text);
     return exit_code;
 }

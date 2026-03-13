@@ -21,6 +21,7 @@ endif()
 add_library(basl ${BASL_LIBRARY_TYPE}
     src/allocator.c
     src/array.c
+    src/binding.c
     src/checker.c
     src/chunk.c
     src/compiler.c
@@ -64,6 +65,7 @@ target_compile_features(basl_cli PRIVATE c_std_11)
 if(BASL_BUILD_TESTS)
     include(CTest)
     include(FetchContent)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     find_package(GTest CONFIG QUIET)
     if(NOT GTest_FOUND)
@@ -78,6 +80,7 @@ if(BASL_BUILD_TESTS)
 
     add_executable(basl_tests
         tests/array_test.cpp
+        tests/binding_test.cpp
         tests/checker_test.cpp
         tests/chunk_test.cpp
         tests/compiler_test.cpp
@@ -97,8 +100,20 @@ if(BASL_BUILD_TESTS)
     )
 
     target_link_libraries(basl_tests PRIVATE basl GTest::gtest_main)
+    target_include_directories(basl_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(basl_tests PRIVATE cxx_std_17)
 
     include(GoogleTest)
     gtest_discover_tests(basl_tests)
+
+    if (NOT EMSCRIPTEN)
+        add_test(
+            NAME BaslSyntaxIntegrationTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
+        )
+        set_tests_properties(
+            BaslSyntaxIntegrationTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
+    endif()
 endif()

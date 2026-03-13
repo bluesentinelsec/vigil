@@ -301,6 +301,14 @@ static basl_status_t basl_chunk_append_value(
                 (long long)basl_value_as_int(value)
             );
             break;
+        case BASL_VALUE_UINT:
+            written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%llu",
+                (unsigned long long)basl_value_as_uint(value)
+            );
+            break;
         case BASL_VALUE_FLOAT:
             written = snprintf(
                 buffer,
@@ -458,10 +466,26 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "RETURN";
         case BASL_OPCODE_POP:
             return "POP";
+        case BASL_OPCODE_DUP:
+            return "DUP";
+        case BASL_OPCODE_DUP_TWO:
+            return "DUP_TWO";
         case BASL_OPCODE_GET_LOCAL:
             return "GET_LOCAL";
         case BASL_OPCODE_SET_LOCAL:
             return "SET_LOCAL";
+        case BASL_OPCODE_GET_GLOBAL:
+            return "GET_GLOBAL";
+        case BASL_OPCODE_SET_GLOBAL:
+            return "SET_GLOBAL";
+        case BASL_OPCODE_GET_FUNCTION:
+            return "GET_FUNCTION";
+        case BASL_OPCODE_NEW_CLOSURE:
+            return "NEW_CLOSURE";
+        case BASL_OPCODE_GET_CAPTURE:
+            return "GET_CAPTURE";
+        case BASL_OPCODE_SET_CAPTURE:
+            return "SET_CAPTURE";
         case BASL_OPCODE_JUMP:
             return "JUMP";
         case BASL_OPCODE_JUMP_IF_FALSE:
@@ -478,10 +502,44 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "DIVIDE";
         case BASL_OPCODE_MODULO:
             return "MODULO";
+        case BASL_OPCODE_BITWISE_AND:
+            return "BITWISE_AND";
+        case BASL_OPCODE_BITWISE_OR:
+            return "BITWISE_OR";
+        case BASL_OPCODE_BITWISE_XOR:
+            return "BITWISE_XOR";
+        case BASL_OPCODE_SHIFT_LEFT:
+            return "SHIFT_LEFT";
+        case BASL_OPCODE_SHIFT_RIGHT:
+            return "SHIFT_RIGHT";
         case BASL_OPCODE_NEGATE:
             return "NEGATE";
         case BASL_OPCODE_NOT:
             return "NOT";
+        case BASL_OPCODE_BITWISE_NOT:
+            return "BITWISE_NOT";
+        case BASL_OPCODE_TO_I32:
+            return "TO_I32";
+        case BASL_OPCODE_TO_I64:
+            return "TO_I64";
+        case BASL_OPCODE_TO_U8:
+            return "TO_U8";
+        case BASL_OPCODE_TO_U32:
+            return "TO_U32";
+        case BASL_OPCODE_TO_U64:
+            return "TO_U64";
+        case BASL_OPCODE_TO_F64:
+            return "TO_F64";
+        case BASL_OPCODE_TO_STRING:
+            return "TO_STRING";
+        case BASL_OPCODE_FORMAT_F64:
+            return "FORMAT_F64";
+        case BASL_OPCODE_NEW_ERROR:
+            return "NEW_ERROR";
+        case BASL_OPCODE_GET_ERROR_KIND:
+            return "GET_ERROR_KIND";
+        case BASL_OPCODE_GET_ERROR_MESSAGE:
+            return "GET_ERROR_MESSAGE";
         case BASL_OPCODE_EQUAL:
             return "EQUAL";
         case BASL_OPCODE_GREATER:
@@ -490,6 +548,88 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
             return "LESS";
         case BASL_OPCODE_CALL:
             return "CALL";
+        case BASL_OPCODE_CALL_VALUE:
+            return "CALL_VALUE";
+        case BASL_OPCODE_NEW_INSTANCE:
+            return "NEW_INSTANCE";
+        case BASL_OPCODE_GET_FIELD:
+            return "GET_FIELD";
+        case BASL_OPCODE_SET_FIELD:
+            return "SET_FIELD";
+        case BASL_OPCODE_NEW_ARRAY:
+            return "NEW_ARRAY";
+        case BASL_OPCODE_NEW_MAP:
+            return "NEW_MAP";
+        case BASL_OPCODE_GET_INDEX:
+            return "GET_INDEX";
+        case BASL_OPCODE_SET_INDEX:
+            return "SET_INDEX";
+        case BASL_OPCODE_GET_COLLECTION_SIZE:
+            return "GET_COLLECTION_SIZE";
+        case BASL_OPCODE_GET_MAP_KEY_AT:
+            return "GET_MAP_KEY_AT";
+        case BASL_OPCODE_GET_MAP_VALUE_AT:
+            return "GET_MAP_VALUE_AT";
+        case BASL_OPCODE_CALL_INTERFACE:
+            return "CALL_INTERFACE";
+        case BASL_OPCODE_DEFER_CALL:
+            return "DEFER_CALL";
+        case BASL_OPCODE_DEFER_CALL_VALUE:
+            return "DEFER_CALL_VALUE";
+        case BASL_OPCODE_DEFER_NEW_INSTANCE:
+            return "DEFER_NEW_INSTANCE";
+        case BASL_OPCODE_DEFER_CALL_INTERFACE:
+            return "DEFER_CALL_INTERFACE";
+        case BASL_OPCODE_GET_STRING_SIZE:
+            return "GET_STRING_SIZE";
+        case BASL_OPCODE_STRING_CONTAINS:
+            return "STRING_CONTAINS";
+        case BASL_OPCODE_STRING_STARTS_WITH:
+            return "STRING_STARTS_WITH";
+        case BASL_OPCODE_STRING_ENDS_WITH:
+            return "STRING_ENDS_WITH";
+        case BASL_OPCODE_STRING_TRIM:
+            return "STRING_TRIM";
+        case BASL_OPCODE_STRING_TO_UPPER:
+            return "STRING_TO_UPPER";
+        case BASL_OPCODE_STRING_TO_LOWER:
+            return "STRING_TO_LOWER";
+        case BASL_OPCODE_STRING_REPLACE:
+            return "STRING_REPLACE";
+        case BASL_OPCODE_STRING_SPLIT:
+            return "STRING_SPLIT";
+        case BASL_OPCODE_STRING_INDEX_OF:
+            return "STRING_INDEX_OF";
+        case BASL_OPCODE_STRING_SUBSTR:
+            return "STRING_SUBSTR";
+        case BASL_OPCODE_STRING_BYTES:
+            return "STRING_BYTES";
+        case BASL_OPCODE_STRING_CHAR_AT:
+            return "STRING_CHAR_AT";
+        case BASL_OPCODE_ARRAY_PUSH:
+            return "ARRAY_PUSH";
+        case BASL_OPCODE_ARRAY_POP:
+            return "ARRAY_POP";
+        case BASL_OPCODE_ARRAY_GET_SAFE:
+            return "ARRAY_GET_SAFE";
+        case BASL_OPCODE_ARRAY_SET_SAFE:
+            return "ARRAY_SET_SAFE";
+        case BASL_OPCODE_ARRAY_SLICE:
+            return "ARRAY_SLICE";
+        case BASL_OPCODE_ARRAY_CONTAINS:
+            return "ARRAY_CONTAINS";
+        case BASL_OPCODE_MAP_GET_SAFE:
+            return "MAP_GET_SAFE";
+        case BASL_OPCODE_MAP_SET_SAFE:
+            return "MAP_SET_SAFE";
+        case BASL_OPCODE_MAP_REMOVE_SAFE:
+            return "MAP_REMOVE_SAFE";
+        case BASL_OPCODE_MAP_HAS:
+            return "MAP_HAS";
+        case BASL_OPCODE_MAP_KEYS:
+            return "MAP_KEYS";
+        case BASL_OPCODE_MAP_VALUES:
+            return "MAP_VALUES";
         default:
             return "UNKNOWN";
     }
@@ -670,7 +810,10 @@ basl_status_t basl_chunk_disassemble(
             return status;
         }
 
-        if (opcode == BASL_OPCODE_CALL) {
+        if (
+            opcode == BASL_OPCODE_CALL ||
+            opcode == BASL_OPCODE_DEFER_CALL
+        ) {
             uint32_t function_index;
             uint32_t arg_count;
 
@@ -715,12 +858,223 @@ basl_status_t basl_chunk_disassemble(
 
             offset += 9U;
         } else if (
+            opcode == BASL_OPCODE_CALL_VALUE ||
+            opcode == BASL_OPCODE_DEFER_CALL_VALUE
+        ) {
+            if (offset + 4U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated indirect call instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            operand = (uint32_t)chunk->code.data[offset + 1U];
+            operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+
+            written = snprintf(line, sizeof(line), " %u", operand);
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk indirect call operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 5U;
+        } else if (opcode == BASL_OPCODE_NEW_CLOSURE) {
+            uint32_t function_index;
+            uint32_t capture_count;
+
+            if (offset + 8U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated closure instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            function_index = (uint32_t)chunk->code.data[offset + 1U];
+            function_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            function_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            function_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            capture_count = (uint32_t)chunk->code.data[offset + 5U];
+            capture_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            capture_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            capture_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+
+            written = snprintf(line, sizeof(line), " %u %u", function_index, capture_count);
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk closure operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 9U;
+        } else if (
+            opcode == BASL_OPCODE_CALL_INTERFACE ||
+            opcode == BASL_OPCODE_DEFER_CALL_INTERFACE
+        ) {
+            uint32_t interface_index;
+            uint32_t method_index;
+            uint32_t arg_count;
+
+            if (offset + 12U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "truncated interface call instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            interface_index = (uint32_t)chunk->code.data[offset + 1U];
+            interface_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            interface_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            interface_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            method_index = (uint32_t)chunk->code.data[offset + 5U];
+            method_index |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            method_index |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            method_index |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+            arg_count = (uint32_t)chunk->code.data[offset + 9U];
+            arg_count |= (uint32_t)chunk->code.data[offset + 10U] << 8U;
+            arg_count |= (uint32_t)chunk->code.data[offset + 11U] << 16U;
+            arg_count |= (uint32_t)chunk->code.data[offset + 12U] << 24U;
+
+            written = snprintf(
+                line,
+                sizeof(line),
+                " %u %u %u",
+                interface_index,
+                method_index,
+                arg_count
+            );
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    "failed to format chunk interface call operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 13U;
+        } else if (
+            opcode == BASL_OPCODE_NEW_INSTANCE ||
+            opcode == BASL_OPCODE_NEW_ARRAY ||
+            opcode == BASL_OPCODE_NEW_MAP ||
+            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+        ) {
+            uint32_t first_operand;
+            uint32_t second_operand;
+
+            if (offset + 8U >= chunk->code.length) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    opcode == BASL_OPCODE_NEW_INSTANCE ||
+                            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+                        ? "truncated constructor instruction"
+                        : "truncated collection instruction"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            first_operand = (uint32_t)chunk->code.data[offset + 1U];
+            first_operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+            first_operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+            first_operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+            second_operand = (uint32_t)chunk->code.data[offset + 5U];
+            second_operand |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
+            second_operand |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
+            second_operand |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
+
+            if (opcode == BASL_OPCODE_NEW_ARRAY || opcode == BASL_OPCODE_NEW_MAP) {
+                written = snprintf(line, sizeof(line), " %u %u", first_operand, second_operand);
+            } else {
+                written = snprintf(line, sizeof(line), " %u %u", first_operand, second_operand);
+            }
+            if (written < 0) {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INTERNAL,
+                    opcode == BASL_OPCODE_NEW_INSTANCE ||
+                            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+                        ? "failed to format chunk constructor operand"
+                        : "failed to format chunk collection operand"
+                );
+                return BASL_STATUS_INTERNAL;
+            }
+
+            status = basl_string_append(output, line, (size_t)written, error);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+
+            offset += 9U;
+        } else if (opcode == BASL_OPCODE_RETURN) {
+            if (offset + 4U < chunk->code.length) {
+                operand = (uint32_t)chunk->code.data[offset + 1U];
+                operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+                operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+                operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+
+                written = snprintf(line, sizeof(line), " %u", operand);
+                if (written < 0) {
+                    basl_error_set_literal(
+                        error,
+                        BASL_STATUS_INTERNAL,
+                        "failed to format chunk return count"
+                    );
+                    return BASL_STATUS_INTERNAL;
+                }
+
+                status = basl_string_append(output, line, (size_t)written, error);
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+                offset += 5U;
+            } else {
+                offset += 1U;
+            }
+        } else if (
             opcode == BASL_OPCODE_CONSTANT ||
             opcode == BASL_OPCODE_GET_LOCAL ||
             opcode == BASL_OPCODE_SET_LOCAL ||
+            opcode == BASL_OPCODE_GET_GLOBAL ||
+            opcode == BASL_OPCODE_SET_GLOBAL ||
+            opcode == BASL_OPCODE_GET_FUNCTION ||
+            opcode == BASL_OPCODE_GET_CAPTURE ||
+            opcode == BASL_OPCODE_SET_CAPTURE ||
             opcode == BASL_OPCODE_JUMP ||
             opcode == BASL_OPCODE_JUMP_IF_FALSE ||
-            opcode == BASL_OPCODE_LOOP
+            opcode == BASL_OPCODE_LOOP ||
+            opcode == BASL_OPCODE_FORMAT_F64 ||
+            opcode == BASL_OPCODE_GET_FIELD ||
+            opcode == BASL_OPCODE_SET_FIELD
         ) {
             if (offset + 4U >= chunk->code.length) {
                 basl_error_set_literal(
@@ -768,6 +1122,39 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 5U;
+        } else if (
+            opcode == BASL_OPCODE_GET_INDEX ||
+            opcode == BASL_OPCODE_SET_INDEX ||
+            opcode == BASL_OPCODE_GET_COLLECTION_SIZE ||
+            opcode == BASL_OPCODE_GET_MAP_KEY_AT ||
+            opcode == BASL_OPCODE_GET_MAP_VALUE_AT ||
+            opcode == BASL_OPCODE_GET_STRING_SIZE ||
+            opcode == BASL_OPCODE_STRING_CONTAINS ||
+            opcode == BASL_OPCODE_STRING_STARTS_WITH ||
+            opcode == BASL_OPCODE_STRING_ENDS_WITH ||
+            opcode == BASL_OPCODE_STRING_TRIM ||
+            opcode == BASL_OPCODE_STRING_TO_UPPER ||
+            opcode == BASL_OPCODE_STRING_TO_LOWER ||
+            opcode == BASL_OPCODE_STRING_REPLACE ||
+            opcode == BASL_OPCODE_STRING_SPLIT ||
+            opcode == BASL_OPCODE_STRING_INDEX_OF ||
+            opcode == BASL_OPCODE_STRING_SUBSTR ||
+            opcode == BASL_OPCODE_STRING_BYTES ||
+            opcode == BASL_OPCODE_STRING_CHAR_AT ||
+            opcode == BASL_OPCODE_ARRAY_PUSH ||
+            opcode == BASL_OPCODE_ARRAY_POP ||
+            opcode == BASL_OPCODE_ARRAY_GET_SAFE ||
+            opcode == BASL_OPCODE_ARRAY_SET_SAFE ||
+            opcode == BASL_OPCODE_ARRAY_SLICE ||
+            opcode == BASL_OPCODE_ARRAY_CONTAINS ||
+            opcode == BASL_OPCODE_MAP_GET_SAFE ||
+            opcode == BASL_OPCODE_MAP_SET_SAFE ||
+            opcode == BASL_OPCODE_MAP_REMOVE_SAFE ||
+            opcode == BASL_OPCODE_MAP_HAS ||
+            opcode == BASL_OPCODE_MAP_KEYS ||
+            opcode == BASL_OPCODE_MAP_VALUES
+        ) {
+            offset += 1U;
         } else {
             offset += 1U;
         }

@@ -12,13 +12,13 @@ extern "C" {
 #endif
 
 /*
- * Current implementation compiles a narrow runnable BASL slice:
- * multiple top-level `fn` declarations with direct same-module calls,
- * `i32`/`bool` parameters and return types, and a required
- * `fn main() -> i32 { ... }` entrypoint. Function bodies support typed local
- * declarations, integer/bool expressions, short-circuit `&&`/`||`,
- * assignment, `if`, `while`, `break`, `continue`, and explicit `return`
- * statements.
+ * Current implementation compiles a runnable BASL subset across multiple
+ * source files: top-level `import`, `const`, `class`, and `fn` declarations
+ * with a required `fn main() -> i32 { ... }` entrypoint. Function bodies
+ * support typed local declarations, integer/bool expressions, short-circuit
+ * `&&`/`||`, assignment, `if`, `while`, `break`, `continue`, explicit
+ * `return` statements, class construction, field reads/writes, and class
+ * methods with implicit `self`.
  */
 BASL_API basl_status_t basl_compile_source(
     const basl_source_registry_t *registry,

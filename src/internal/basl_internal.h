@@ -9,6 +9,17 @@ struct basl_runtime {
     basl_logger_t logger;
 };
 
+typedef struct basl_runtime_interface_impl_init {
+    size_t interface_index;
+    const size_t *function_indices;
+    size_t function_count;
+} basl_runtime_interface_impl_init_t;
+
+typedef struct basl_runtime_class_init {
+    const basl_runtime_interface_impl_init_t *interface_impls;
+    size_t interface_impl_count;
+} basl_runtime_class_init_t;
+
 basl_allocator_t basl_default_allocator(void);
 int basl_allocator_is_valid(const basl_allocator_t *allocator);
 void basl_error_set_literal(
@@ -21,11 +32,36 @@ basl_status_t basl_function_object_attach_siblings(
     basl_object_t **functions,
     size_t function_count,
     size_t owner_index,
+    const basl_value_t *initial_globals,
+    size_t global_count,
+    const basl_runtime_class_init_t *classes,
+    size_t class_count,
     basl_error_t *error
 );
 const basl_object_t *basl_function_object_sibling(
     const basl_object_t *function,
     size_t index
 );
+const basl_object_t *basl_function_object_resolve_interface_method(
+    const basl_object_t *function,
+    size_t class_index,
+    size_t interface_index,
+    size_t method_index
+);
+int basl_function_object_get_global(
+    const basl_object_t *function,
+    size_t index,
+    basl_value_t *out_value
+);
+basl_status_t basl_function_object_set_global(
+    const basl_object_t *function,
+    size_t index,
+    const basl_value_t *value,
+    basl_error_t *error
+);
+const basl_object_t *basl_callable_object_function(const basl_object_t *callable);
+size_t basl_callable_object_arity(const basl_object_t *callable);
+size_t basl_callable_object_return_count(const basl_object_t *callable);
+const basl_chunk_t *basl_callable_object_chunk(const basl_object_t *callable);
 
 #endif

@@ -205,12 +205,18 @@ const char *basl_token_kind_name(basl_token_kind_t kind) {
         case BASL_TOKEN_ENUM: return "enum";
         case BASL_TOKEN_CONST: return "const";
         case BASL_TOKEN_RETURN: return "return";
+        case BASL_TOKEN_DEFER: return "defer";
         case BASL_TOKEN_IF: return "if";
         case BASL_TOKEN_ELSE: return "else";
         case BASL_TOKEN_FOR: return "for";
         case BASL_TOKEN_WHILE: return "while";
+        case BASL_TOKEN_SWITCH: return "switch";
+        case BASL_TOKEN_GUARD: return "guard";
+        case BASL_TOKEN_CASE: return "case";
+        case BASL_TOKEN_DEFAULT: return "default";
         case BASL_TOKEN_BREAK: return "break";
         case BASL_TOKEN_CONTINUE: return "continue";
+        case BASL_TOKEN_IN: return "in";
         case BASL_TOKEN_NIL: return "nil";
         case BASL_TOKEN_TRUE: return "true";
         case BASL_TOKEN_FALSE: return "false";
