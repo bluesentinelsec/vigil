@@ -1210,6 +1210,36 @@ fn main() -> i32 {
     EXPECT_EQ(CompileAndRun(source), 29);
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals) {
+    const char *source = R"(
+fn empty_nums() -> array<i32> {
+    return [];
+}
+
+fn empty_labels() -> map<i32, string> {
+    return {};
+}
+
+fn main() -> i32 {
+    array<i32> nums = [];
+    map<i32, string> labels = {};
+
+    nums = empty_nums();
+    labels = empty_labels();
+    nums = [];
+    labels = {};
+
+    if (nums.len() == 0 && labels.len() == 0) {
+        return 17;
+    }
+
+    return 0;
+}
+)";
+
+    EXPECT_EQ(CompileAndRun(source), 17);
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
     const char *source = R"(
 class Counter {
@@ -1393,6 +1423,27 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) 
     };
 
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 6);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
+    const TestSource sources[] = {
+        {
+            "/project/lib.basl",
+            "pub array<i32> nums = [];"
+            "pub map<i32, string> labels = {};"
+        },
+        {
+            "/project/main.basl",
+            "import \"lib\";"
+            "fn main() -> i32 {"
+            "    lib.nums = [];"
+            "    lib.labels = {};"
+            "    return lib.nums.len() + lib.labels.len() + 5;"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 5);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
