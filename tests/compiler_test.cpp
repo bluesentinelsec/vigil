@@ -214,6 +214,31 @@ TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
     );
 }
 
+TEST(BaslCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "fn divide(i32 a, i32 b) -> (i32, err) {"
+            "    if (b == 0) {"
+            "        return (0, err(\"division by zero\", err.arg));"
+            "    }"
+            "    return (a / b, ok);"
+            "}"
+            "fn main() -> i32 {"
+            "    i32 first, err first_err = divide(9, 3);"
+            "    i32 _, err _ = divide(8, 2);"
+            "    guard i32 second, err second_err = divide(5, 0) {"
+            "        if (first_err == ok && first == 3 && second == 0 && second_err.kind() == err.arg) {"
+            "            return 11;"
+            "        }"
+            "        return 0;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        11
+    );
+}
+
 TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     EXPECT_EQ(
         CompileAndRun(
@@ -621,6 +646,34 @@ TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors) {
             "}"
         ),
         15
+    );
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
+    EXPECT_EQ(
+        CompileAndRun(
+            "class Connection {"
+            "    pub i32 port;"
+            "    fn init(i32 port) -> err {"
+            "        if (port < 0) {"
+            "            return err(\"bad port\", err.arg);"
+            "        }"
+            "        self.port = port;"
+            "        return ok;"
+            "    }"
+            "}"
+            "fn main() -> i32 {"
+            "    Connection good, err good_err = Connection(9);"
+            "    guard Connection bad, err bad_err = Connection(-1) {"
+            "        if (good_err == ok && good.port == 9 && bad_err.kind() == err.arg) {"
+            "            return 13;"
+            "        }"
+            "        return 0;"
+            "    }"
+            "    return 0;"
+            "}"
+        ),
+        13
     );
 }
 
@@ -1348,7 +1401,7 @@ TEST(BaslCompilerTest, RejectsNonVoidInitMethods) {
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
-        "init methods must return void"
+        "init methods must return void or err"
     );
 
     basl_diagnostic_list_free(&diagnostics);
@@ -2214,6 +2267,51 @@ TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown error method"
+    );
+
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, RejectsInvalidGuardBindings) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(
+        &registry,
+        "bad_guard.basl",
+        "fn divide(i32 a, i32 b) -> (i32, err) {"
+        "    if (b == 0) {"
+        "        return (0, err(\"division by zero\", err.arg));"
+        "    }"
+        "    return (a / b, ok);"
+        "}"
+        "fn main() -> i32 {"
+        "    guard i32 value, err _ = divide(1, 0) {"
+        "        return 1;"
+        "    }"
+        "    return 0;"
+        "}",
+        &error
+    );
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    EXPECT_EQ(function, nullptr);
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "guard error binding must be named"
     );
 
     basl_diagnostic_list_free(&diagnostics);

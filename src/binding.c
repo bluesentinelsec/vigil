@@ -152,6 +152,73 @@ static basl_status_t basl_binding_grow_function_params(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_binding_grow_function_returns(
+    basl_runtime_t *runtime,
+    basl_binding_function_t *function,
+    size_t minimum_capacity,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= function->return_capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = function->return_capacity;
+    next_capacity = old_capacity == 0U ? 2U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+        next_capacity *= 2U;
+    }
+
+    if (next_capacity > SIZE_MAX / sizeof(*function->return_types)) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_OUT_OF_MEMORY,
+            "binding return type table allocation overflow"
+        );
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = function->return_types;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            runtime,
+            next_capacity * sizeof(*function->return_types),
+            &memory,
+            error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            runtime,
+            &memory,
+            next_capacity * sizeof(*function->return_types),
+            error
+        );
+        if (status == BASL_STATUS_OK) {
+            memset(
+                (basl_binding_type_t *)memory + old_capacity,
+                0,
+                (next_capacity - old_capacity) * sizeof(*function->return_types)
+            );
+        }
+    }
+
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    function->return_types = (basl_binding_type_t *)memory;
+    function->return_capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_binding_grow_functions(
     basl_binding_function_table_t *table,
     size_t minimum_capacity,
@@ -310,6 +377,8 @@ void basl_binding_function_free(
 
     memory = function->params;
     basl_runtime_free(runtime, &memory);
+    memory = function->return_types;
+    basl_runtime_free(runtime, &memory);
     memset(function, 0, sizeof(*function));
 }
 
@@ -369,6 +438,39 @@ basl_status_t basl_binding_function_add_param(
     param->type = type;
     param->span = span;
     function->param_count += 1U;
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_binding_function_add_return_type(
+    basl_runtime_t *runtime,
+    basl_binding_function_t *function,
+    basl_binding_type_t type,
+    basl_error_t *error
+) {
+    basl_status_t status;
+
+    if (runtime == NULL || function == NULL || !basl_binding_type_is_valid(type)) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "binding function return type arguments are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    status = basl_binding_grow_function_returns(
+        runtime,
+        function,
+        function->return_count + 1U,
+        error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    function->return_types[function->return_count] = type;
+    function->return_count += 1U;
+    function->return_type = function->return_types[0];
     return BASL_STATUS_OK;
 }
 
@@ -656,6 +758,47 @@ basl_status_t basl_binding_scope_stack_declare_local(
     local = &stack->locals[stack->local_count];
     local->name = name;
     local->length = name_length;
+    local->depth = stack->scope_depth;
+    local->type = type;
+    local->is_const = is_const != 0;
+    if (out_index != NULL) {
+        *out_index = stack->local_count;
+    }
+    stack->local_count += 1U;
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_binding_scope_stack_declare_hidden_local(
+    basl_binding_scope_stack_t *stack,
+    basl_binding_type_t type,
+    int is_const,
+    size_t *out_index,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_binding_local_t *local;
+
+    if (out_index != NULL) {
+        *out_index = 0U;
+    }
+
+    if (stack == NULL) {
+        basl_error_set_literal(
+            error,
+            BASL_STATUS_INVALID_ARGUMENT,
+            "binding hidden local declaration arguments are invalid"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    status = basl_binding_grow_locals(stack, stack->local_count + 1U, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    local = &stack->locals[stack->local_count];
+    local->name = NULL;
+    local->length = 0U;
     local->depth = stack->scope_depth;
     local->type = type;
     local->is_const = is_const != 0;

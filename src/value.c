@@ -28,6 +28,7 @@ typedef struct basl_function_object {
     basl_object_t base;
     basl_string_t name;
     size_t arity;
+    size_t return_count;
     basl_chunk_t chunk;
     basl_object_t **functions;
     size_t function_count;
@@ -612,6 +613,7 @@ basl_status_t basl_function_object_new(
     const char *name,
     size_t name_length,
     size_t arity,
+    size_t return_count,
     basl_chunk_t *chunk,
     basl_object_t **out_object,
     basl_error_t *error
@@ -678,6 +680,7 @@ basl_status_t basl_function_object_new(
     basl_object_init(&object->base, runtime, BASL_OBJECT_FUNCTION);
     basl_string_init(&object->name, runtime);
     object->arity = arity;
+    object->return_count = return_count;
     object->functions = NULL;
     object->function_count = 0U;
     object->function_index = 0U;
@@ -704,6 +707,7 @@ basl_status_t basl_function_object_new_cstr(
     basl_runtime_t *runtime,
     const char *name,
     size_t arity,
+    size_t return_count,
     basl_chunk_t *chunk,
     basl_object_t **out_object,
     basl_error_t *error
@@ -722,6 +726,7 @@ basl_status_t basl_function_object_new_cstr(
         name,
         strlen(name),
         arity,
+        return_count,
         chunk,
         out_object,
         error
@@ -748,6 +753,17 @@ size_t basl_function_object_arity(const basl_object_t *object) {
     }
 
     return function_object->arity;
+}
+
+size_t basl_function_object_return_count(const basl_object_t *object) {
+    const basl_function_object_t *function_object;
+
+    function_object = basl_function_object_cast(object);
+    if (function_object == NULL) {
+        return 0U;
+    }
+
+    return function_object->return_count;
 }
 
 const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {

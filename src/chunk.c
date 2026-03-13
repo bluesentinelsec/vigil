@@ -852,6 +852,31 @@ basl_status_t basl_chunk_disassemble(
             }
 
             offset += 9U;
+        } else if (opcode == BASL_OPCODE_RETURN) {
+            if (offset + 4U < chunk->code.length) {
+                operand = (uint32_t)chunk->code.data[offset + 1U];
+                operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
+                operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
+                operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
+
+                written = snprintf(line, sizeof(line), " %u", operand);
+                if (written < 0) {
+                    basl_error_set_literal(
+                        error,
+                        BASL_STATUS_INTERNAL,
+                        "failed to format chunk return count"
+                    );
+                    return BASL_STATUS_INTERNAL;
+                }
+
+                status = basl_string_append(output, line, (size_t)written, error);
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+                offset += 5U;
+            } else {
+                offset += 1U;
+            }
         } else if (
             opcode == BASL_OPCODE_CONSTANT ||
             opcode == BASL_OPCODE_GET_LOCAL ||

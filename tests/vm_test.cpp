@@ -546,7 +546,7 @@ TEST(BaslVmTest, ExecutesFunctionObjectEntry) {
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_function_object_new_cstr(runtime, "main", 0U, &chunk, &function, &error),
+        basl_function_object_new_cstr(runtime, "main", 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_OK
     );
 
@@ -611,7 +611,7 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_function_object_new_cstr(runtime, "helper", 1U, &chunk, &function, &error),
+        basl_function_object_new_cstr(runtime, "helper", 1U, 1U, &chunk, &function, &error),
         BASL_STATUS_OK
     );
 

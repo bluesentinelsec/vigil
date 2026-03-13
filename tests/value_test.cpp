@@ -227,7 +227,7 @@ TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_function_object_new_cstr(runtime, "main", 0U, &chunk, &function, &error),
+        basl_function_object_new_cstr(runtime, "main", 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_OK
     );
 
@@ -259,23 +259,23 @@ TEST(BaslValueTest, FunctionObjectValidatesArguments) {
     basl_chunk_init(&chunk, other_runtime);
 
     EXPECT_EQ(
-        basl_function_object_new(nullptr, "main", 4U, 0U, &chunk, &function, &error),
+        basl_function_object_new(nullptr, "main", 4U, 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, nullptr, 0U, 0U, &chunk, &function, &error),
+        basl_function_object_new(runtime, nullptr, 0U, 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, 0U, nullptr, &function, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, 1U, nullptr, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, 0U, &chunk, nullptr, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, nullptr, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, 0U, &chunk, &function, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);

@@ -15,8 +15,9 @@ typedef struct basl_vm_frame {
     struct basl_vm_defer_action *defers;
     size_t defer_count;
     size_t defer_capacity;
-    basl_value_t pending_return;
-    int has_pending_return;
+    basl_value_t *pending_returns;
+    size_t pending_return_count;
+    size_t pending_return_capacity;
     int draining_defers;
 } basl_vm_frame_t;
 
@@ -58,7 +59,8 @@ static void basl_vm_defer_action_clear(
 );
 static basl_status_t basl_vm_complete_return(
     basl_vm_t *vm,
-    basl_value_t returned_value,
+    basl_value_t *returned_values,
+    size_t return_count,
     basl_value_t *out_value,
     basl_error_t *error
 );
@@ -125,6 +127,62 @@ static void basl_vm_defer_action_clear(
     memset(action, 0, sizeof(*action));
 }
 
+static basl_status_t basl_vm_grow_value_array(
+    basl_runtime_t *runtime,
+    basl_value_t **values,
+    size_t *capacity,
+    size_t minimum_capacity,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    size_t old_capacity;
+    size_t next_capacity;
+    void *memory;
+
+    if (minimum_capacity <= *capacity) {
+        basl_error_clear(error);
+        return BASL_STATUS_OK;
+    }
+
+    old_capacity = *capacity;
+    next_capacity = old_capacity == 0U ? 2U : old_capacity;
+    while (next_capacity < minimum_capacity) {
+        if (next_capacity > SIZE_MAX / 2U) {
+            next_capacity = minimum_capacity;
+            break;
+        }
+        next_capacity *= 2U;
+    }
+    if (next_capacity > SIZE_MAX / sizeof(**values)) {
+        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "vm value array overflow");
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    memory = *values;
+    if (memory == NULL) {
+        status = basl_runtime_alloc(
+            runtime,
+            next_capacity * sizeof(**values),
+            &memory,
+            error
+        );
+    } else {
+        status = basl_runtime_realloc(
+            runtime,
+            &memory,
+            next_capacity * sizeof(**values),
+            error
+        );
+    }
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    *values = (basl_value_t *)memory;
+    *capacity = next_capacity;
+    return BASL_STATUS_OK;
+}
+
 static void basl_vm_frame_clear(basl_runtime_t *runtime, basl_vm_frame_t *frame) {
     size_t i;
     void *memory;
@@ -140,7 +198,13 @@ static void basl_vm_frame_clear(basl_runtime_t *runtime, basl_vm_frame_t *frame)
     if (runtime != NULL) {
         basl_runtime_free(runtime, &memory);
     }
-    basl_value_release(&frame->pending_return);
+    for (i = 0U; i < frame->pending_return_count; i += 1U) {
+        basl_value_release(&frame->pending_returns[i]);
+    }
+    memory = frame->pending_returns;
+    if (runtime != NULL) {
+        basl_runtime_free(runtime, &memory);
+    }
     memset(frame, 0, sizeof(*frame));
 }
 
@@ -348,7 +412,6 @@ static basl_status_t basl_vm_push_frame(
     frame->chunk = chunk;
     frame->ip = 0U;
     frame->base_slot = base_slot;
-    basl_value_init_nil(&frame->pending_return);
     vm->frame_count += 1U;
     return BASL_STATUS_OK;
 }
@@ -862,14 +925,18 @@ static basl_status_t basl_vm_execute_next_defer(
 
 static basl_status_t basl_vm_complete_return(
     basl_vm_t *vm,
-    basl_value_t returned_value,
+    basl_value_t *returned_values,
+    size_t return_count,
     basl_value_t *out_value,
     basl_error_t *error
 ) {
     basl_status_t status;
-    basl_value_t current_value;
+    basl_value_t *current_values;
+    size_t current_count;
+    size_t i;
 
-    current_value = returned_value;
+    current_values = returned_values;
+    current_count = return_count;
     while (1) {
         basl_vm_frame_t *frame;
         size_t base_slot;
@@ -877,19 +944,52 @@ static basl_status_t basl_vm_complete_return(
 
         frame = basl_vm_current_frame(vm);
         if (frame == NULL) {
-            basl_value_release(&current_value);
+            for (i = 0U; i < current_count; i += 1U) {
+                basl_value_release(&current_values[i]);
+            }
+            if (current_values != NULL) {
+                void *memory = current_values;
+                basl_runtime_free(vm->runtime, &memory);
+            }
             basl_error_set_literal(error, BASL_STATUS_INTERNAL, "vm frame is missing");
             return BASL_STATUS_INTERNAL;
         }
 
-        if (!frame->has_pending_return) {
-            frame->pending_return = current_value;
-            frame->has_pending_return = 1;
-            current_value.kind = BASL_VALUE_NIL;
+        if (frame->pending_return_count == 0U) {
+            status = basl_vm_grow_value_array(
+                vm->runtime,
+                &frame->pending_returns,
+                &frame->pending_return_capacity,
+                current_count,
+                error
+            );
+            if (status != BASL_STATUS_OK) {
+                for (i = 0U; i < current_count; i += 1U) {
+                    basl_value_release(&current_values[i]);
+                }
+                if (current_values != NULL) {
+                    void *memory = current_values;
+                    basl_runtime_free(vm->runtime, &memory);
+                }
+                return status;
+            }
+            for (i = 0U; i < current_count; i += 1U) {
+                frame->pending_returns[i] = current_values[i];
+                basl_value_init_nil(&current_values[i]);
+            }
+            frame->pending_return_count = current_count;
             frame->draining_defers = 1;
         } else {
-            basl_value_release(&current_value);
+            for (i = 0U; i < current_count; i += 1U) {
+                basl_value_release(&current_values[i]);
+            }
         }
+        if (current_values != NULL) {
+            void *memory = current_values;
+            basl_runtime_free(vm->runtime, &memory);
+        }
+        current_values = NULL;
+        current_count = 0U;
 
         while (frame->defer_count > 0U) {
             status = basl_vm_execute_next_defer(vm, frame, &pushed_frame, error);
@@ -901,16 +1001,30 @@ static basl_status_t basl_vm_complete_return(
             }
         }
 
-        current_value = frame->pending_return;
-        basl_value_init_nil(&frame->pending_return);
-        frame->has_pending_return = 0;
+        current_values = frame->pending_returns;
+        current_count = frame->pending_return_count;
+        frame->pending_returns = NULL;
+        frame->pending_return_count = 0U;
+        frame->pending_return_capacity = 0U;
         frame->draining_defers = 0;
         base_slot = frame->base_slot;
         vm->frame_count -= 1U;
         basl_vm_frame_clear(vm->runtime, &vm->frames[vm->frame_count]);
         basl_vm_unwind_stack_to(vm, base_slot);
         if (vm->frame_count == 0U) {
-            *out_value = current_value;
+            if (current_count == 0U) {
+                basl_value_init_nil(out_value);
+            } else {
+                *out_value = current_values[0];
+                basl_value_init_nil(&current_values[0]);
+                for (i = 1U; i < current_count; i += 1U) {
+                    basl_value_release(&current_values[i]);
+                }
+            }
+            if (current_values != NULL) {
+                void *memory = current_values;
+                basl_runtime_free(vm->runtime, &memory);
+            }
             return BASL_STATUS_OK;
         }
         frame = basl_vm_current_frame(vm);
@@ -918,9 +1032,25 @@ static basl_status_t basl_vm_complete_return(
             continue;
         }
 
-        status = basl_vm_push(vm, &current_value, error);
-        basl_value_release(&current_value);
-        return status;
+        for (i = 0U; i < current_count; i += 1U) {
+            status = basl_vm_push(vm, &current_values[i], error);
+            if (status != BASL_STATUS_OK) {
+                for (; i < current_count; i += 1U) {
+                    basl_value_release(&current_values[i]);
+                }
+                if (current_values != NULL) {
+                    void *memory = current_values;
+                    basl_runtime_free(vm->runtime, &memory);
+                }
+                return status;
+            }
+            basl_value_release(&current_values[i]);
+        }
+        if (current_values != NULL) {
+            void *memory = current_values;
+            basl_runtime_free(vm->runtime, &memory);
+        }
+        return BASL_STATUS_OK;
     }
 }
 
@@ -2686,8 +2816,45 @@ basl_status_t basl_vm_execute_function(
                 break;
             case BASL_OPCODE_RETURN:
                 frame->ip += 1U;
-                value = basl_vm_pop_or_nil(vm);
-                status = basl_vm_complete_return(vm, value, out_value, error);
+                if (frame->ip + 4U <= code_size) {
+                    status = basl_vm_read_raw_u32(vm, &operand, error);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                } else {
+                    /* Legacy bytecode encoded RETURN without an explicit value count. */
+                    operand = 1U;
+                }
+                if (operand == 0U) {
+                    status = basl_vm_complete_return(vm, NULL, 0U, out_value, error);
+                } else {
+                    basl_value_t *returned_values;
+                    size_t returned_capacity;
+                    size_t return_index;
+
+                    returned_values = NULL;
+                    returned_capacity = 0U;
+                    status = basl_vm_grow_value_array(
+                        vm->runtime,
+                        &returned_values,
+                        &returned_capacity,
+                        (size_t)operand,
+                        error
+                    );
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                    for (return_index = (size_t)operand; return_index > 0U; return_index -= 1U) {
+                        returned_values[return_index - 1U] = basl_vm_pop_or_nil(vm);
+                    }
+                    status = basl_vm_complete_return(
+                        vm,
+                        returned_values,
+                        (size_t)operand,
+                        out_value,
+                        error
+                    );
+                }
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }

@@ -37,6 +37,9 @@ typedef struct basl_binding_function {
     basl_source_span_t name_span;
     int is_public;
     basl_binding_type_t return_type;
+    basl_binding_type_t *return_types;
+    size_t return_count;
+    size_t return_capacity;
     size_t owner_class_index;
     basl_binding_function_param_t *params;
     size_t param_count;
@@ -95,6 +98,12 @@ BASL_API basl_status_t basl_binding_function_add_param(
     basl_binding_type_t type,
     basl_error_t *error
 );
+BASL_API basl_status_t basl_binding_function_add_return_type(
+    basl_runtime_t *runtime,
+    basl_binding_function_t *function,
+    basl_binding_type_t type,
+    basl_error_t *error
+);
 
 BASL_API void basl_binding_function_table_init(
     basl_binding_function_table_t *table,
@@ -143,6 +152,13 @@ BASL_API basl_status_t basl_binding_scope_stack_declare_local(
     basl_binding_scope_stack_t *stack,
     const char *name,
     size_t name_length,
+    basl_binding_type_t type,
+    int is_const,
+    size_t *out_index,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_binding_scope_stack_declare_hidden_local(
+    basl_binding_scope_stack_t *stack,
     basl_binding_type_t type,
     int is_const,
     size_t *out_index,
