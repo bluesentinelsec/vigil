@@ -1755,47 +1755,6 @@ static basl_status_t basl_program_grow_classes(
     return BASL_STATUS_OK;
 }
 
-static int basl_program_find_class(
-    const basl_program_state_t *program,
-    const char *name,
-    size_t name_length,
-    size_t *out_index,
-    const basl_class_decl_t **out_class
-) {
-    size_t i;
-
-    if (out_index != NULL) {
-        *out_index = 0U;
-    }
-    if (out_class != NULL) {
-        *out_class = NULL;
-    }
-    if (program == NULL || name == NULL) {
-        return 0;
-    }
-
-    for (i = 0U; i < program->class_count; i += 1U) {
-        if (
-            basl_program_names_equal(
-                program->classes[i].name,
-                program->classes[i].name_length,
-                name,
-                name_length
-            )
-        ) {
-            if (out_index != NULL) {
-                *out_index = i;
-            }
-            if (out_class != NULL) {
-                *out_class = &program->classes[i];
-            }
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
 static int basl_program_find_class_in_source(
     const basl_program_state_t *program,
     basl_source_id_t source_id,
@@ -1926,47 +1885,6 @@ static basl_status_t basl_program_grow_interfaces(
     program->interfaces = (basl_interface_decl_t *)memory;
     program->interface_capacity = next_capacity;
     return BASL_STATUS_OK;
-}
-
-static int basl_program_find_interface(
-    const basl_program_state_t *program,
-    const char *name,
-    size_t name_length,
-    size_t *out_index,
-    const basl_interface_decl_t **out_interface
-) {
-    size_t i;
-
-    if (out_index != NULL) {
-        *out_index = 0U;
-    }
-    if (out_interface != NULL) {
-        *out_interface = NULL;
-    }
-    if (program == NULL || name == NULL) {
-        return 0;
-    }
-
-    for (i = 0U; i < program->interface_count; i += 1U) {
-        if (
-            basl_program_names_equal(
-                program->interfaces[i].name,
-                program->interfaces[i].name_length,
-                name,
-                name_length
-            )
-        ) {
-            if (out_index != NULL) {
-                *out_index = i;
-            }
-            if (out_interface != NULL) {
-                *out_interface = &program->interfaces[i];
-            }
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 static int basl_program_find_interface_in_source(
@@ -3906,47 +3824,6 @@ static basl_status_t basl_program_grow_globals(
     return BASL_STATUS_OK;
 }
 
-static int basl_program_find_global(
-    const basl_program_state_t *program,
-    const char *name,
-    size_t name_length,
-    size_t *out_index,
-    const basl_global_variable_t **out_global
-) {
-    size_t i;
-
-    if (out_index != NULL) {
-        *out_index = 0U;
-    }
-    if (out_global != NULL) {
-        *out_global = NULL;
-    }
-    if (program == NULL || name == NULL) {
-        return 0;
-    }
-
-    for (i = 0U; i < program->global_count; i += 1U) {
-        if (
-            basl_program_names_equal(
-                program->globals[i].name,
-                program->globals[i].name_length,
-                name,
-                name_length
-            )
-        ) {
-            if (out_index != NULL) {
-                *out_index = i;
-            }
-            if (out_global != NULL) {
-                *out_global = &program->globals[i];
-            }
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
 static int basl_program_find_global_in_source(
     const basl_program_state_t *program,
     basl_source_id_t source_id,
@@ -5135,15 +5012,45 @@ static basl_status_t basl_program_parse_type_name(
     if (type_kind == BASL_TYPE_NIL) {
         return basl_compile_report(program, token->span, unsupported_message);
     }
-    if (basl_program_find_class(program, text, length, &object_index, NULL)) {
+    if (
+        program->source != NULL &&
+        basl_program_find_class_in_source(
+            program,
+            program->source->id,
+            text,
+            length,
+            &object_index,
+            NULL
+        )
+    ) {
         *out_type = basl_binding_type_class(object_index);
         return BASL_STATUS_OK;
     }
-    if (basl_program_find_interface(program, text, length, &object_index, NULL)) {
+    if (
+        program->source != NULL &&
+        basl_program_find_interface_in_source(
+            program,
+            program->source->id,
+            text,
+            length,
+            &object_index,
+            NULL
+        )
+    ) {
         *out_type = basl_binding_type_interface(object_index);
         return BASL_STATUS_OK;
     }
-    if (basl_program_find_enum(program, text, length, &object_index, NULL)) {
+    if (
+        program->source != NULL &&
+        basl_program_find_enum_in_source(
+            program,
+            program->source->id,
+            text,
+            length,
+            &object_index,
+            NULL
+        )
+    ) {
         *out_type = basl_binding_type_enum(object_index);
         return BASL_STATUS_OK;
     }
@@ -5951,13 +5858,6 @@ static const basl_token_t *basl_program_cursor_peek(
 static const basl_token_t *basl_program_cursor_advance(
     const basl_program_state_t *program,
     size_t *cursor
-);
-static int basl_program_find_top_level_function_name(
-    const basl_program_state_t *program,
-    const char *name_text,
-    size_t name_length,
-    size_t *out_index,
-    const basl_function_decl_t **out_decl
 );
 static int basl_program_find_top_level_function_name_in_source(
     const basl_program_state_t *program,
@@ -8203,8 +8103,9 @@ static basl_status_t basl_program_parse_global_variable_declaration(
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
     if (
-        basl_program_find_top_level_function_name(
+        basl_program_find_top_level_function_name_in_source(
             program,
+            program->source->id,
             name_text,
             name_length,
             NULL,
@@ -8217,35 +8118,79 @@ static basl_status_t basl_program_parse_global_variable_declaration(
             "global variable name conflicts with function"
         );
     }
-    if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_interface_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global variable name conflicts with interface"
         );
     }
-    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_enum_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global variable name conflicts with enum"
         );
     }
-    if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_class_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global variable name conflicts with class"
         );
     }
-    if (basl_program_find_constant(program, name_text, name_length, &existing_constant)) {
+    if (
+        basl_program_find_constant_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            &existing_constant
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global variable name conflicts with global constant"
         );
     }
-    if (basl_program_find_global(program, name_text, name_length, NULL, &existing_global)) {
+    if (
+        basl_program_find_global_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            &existing_global
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
@@ -8360,8 +8305,9 @@ static basl_status_t basl_program_parse_constant_declaration(
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
     if (
-        basl_program_find_top_level_function_name(
+        basl_program_find_top_level_function_name_in_source(
             program,
+            program->source->id,
             name_text,
             name_length,
             NULL,
@@ -8374,35 +8320,79 @@ static basl_status_t basl_program_parse_constant_declaration(
             "global constant name conflicts with function"
         );
     }
-    if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_interface_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global constant name conflicts with interface"
         );
     }
-    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_enum_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global constant name conflicts with enum"
         );
     }
-    if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_class_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global constant name conflicts with class"
         );
     }
-    if (basl_program_find_constant(program, name_text, name_length, &existing_constant)) {
+    if (
+        basl_program_find_constant_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            &existing_constant
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "global constant is already declared"
         );
     }
-    if (basl_program_find_global(program, name_text, name_length, NULL, &existing_global)) {
+    if (
+        basl_program_find_global_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            &existing_global
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
@@ -8502,34 +8492,87 @@ static basl_status_t basl_program_parse_enum_declaration(
         return basl_compile_report(program, enum_token->span, "expected enum name");
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
-    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_enum_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "enum is already declared");
     }
-    if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_class_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "enum name conflicts with class");
     }
-    if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_interface_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "enum name conflicts with interface"
         );
     }
-    if (basl_program_find_constant(program, name_text, name_length, NULL)) {
+    if (
+        basl_program_find_constant_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "enum name conflicts with global constant"
         );
     }
-    if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_global_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "enum name conflicts with global variable"
         );
     }
-    if (basl_program_find_top_level_function_name(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_top_level_function_name_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "enum name conflicts with function");
     }
 
@@ -8679,30 +8722,83 @@ static basl_status_t basl_program_parse_interface_declaration(
         return basl_compile_report(program, interface_token->span, "expected interface name");
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
-    if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_interface_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "interface is already declared");
     }
-    if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_class_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "interface name conflicts with class");
     }
-    if (basl_program_find_constant(program, name_text, name_length, NULL)) {
+    if (
+        basl_program_find_constant_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "interface name conflicts with global constant"
         );
     }
-    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_enum_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "interface name conflicts with enum");
     }
-    if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_global_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "interface name conflicts with global variable"
         );
     }
-    if (basl_program_find_top_level_function_name(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_top_level_function_name_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "interface name conflicts with function");
     }
 
@@ -9140,30 +9236,83 @@ static basl_status_t basl_program_parse_class_declaration(
         return basl_compile_report(program, class_token->span, "expected class name");
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
-    if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_class_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "class is already declared");
     }
-    if (basl_program_find_constant(program, name_text, name_length, NULL)) {
+    if (
+        basl_program_find_constant_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "class name conflicts with global constant"
         );
     }
-    if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_enum_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "class name conflicts with enum");
     }
-    if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_global_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(
             program,
             name_token->span,
             "class name conflicts with global variable"
         );
     }
-    if (basl_program_find_top_level_function_name(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_top_level_function_name_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "class name conflicts with function");
     }
-    if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+    if (
+        basl_program_find_interface_in_source(
+            program,
+            program->source->id,
+            name_text,
+            name_length,
+            NULL,
+            NULL
+        )
+    ) {
         return basl_compile_report(program, name_token->span, "class name conflicts with interface");
     }
 
@@ -9616,8 +9765,9 @@ static basl_status_t basl_program_parse_declarations(
 
         name_text = basl_program_token_text(program, name_token, &name_length);
         if (
-            basl_program_find_top_level_function_name(
+            basl_program_find_top_level_function_name_in_source(
                 program,
+                program->source->id,
                 name_text,
                 name_length,
                 NULL,
@@ -9630,35 +9780,79 @@ static basl_status_t basl_program_parse_declarations(
                 "function is already declared"
             );
         }
-        if (basl_program_find_constant(program, name_text, name_length, NULL)) {
+        if (
+            basl_program_find_constant_in_source(
+                program,
+                program->source->id,
+                name_text,
+                name_length,
+                NULL
+            )
+        ) {
             return basl_compile_report(
                 program,
                 name_token->span,
                 "function name conflicts with global constant"
             );
         }
-        if (basl_program_find_global(program, name_text, name_length, NULL, NULL)) {
+        if (
+            basl_program_find_global_in_source(
+                program,
+                program->source->id,
+                name_text,
+                name_length,
+                NULL,
+                NULL
+            )
+        ) {
             return basl_compile_report(
                 program,
                 name_token->span,
                 "function name conflicts with global variable"
             );
         }
-        if (basl_program_find_class(program, name_text, name_length, NULL, NULL)) {
+        if (
+            basl_program_find_class_in_source(
+                program,
+                program->source->id,
+                name_text,
+                name_length,
+                NULL,
+                NULL
+            )
+        ) {
             return basl_compile_report(
                 program,
                 name_token->span,
                 "function name conflicts with class"
             );
         }
-        if (basl_program_find_enum(program, name_text, name_length, NULL, NULL)) {
+        if (
+            basl_program_find_enum_in_source(
+                program,
+                program->source->id,
+                name_text,
+                name_length,
+                NULL,
+                NULL
+            )
+        ) {
             return basl_compile_report(
                 program,
                 name_token->span,
                 "function name conflicts with enum"
             );
         }
-        if (basl_program_find_interface(program, name_text, name_length, NULL, NULL)) {
+        if (
+            basl_program_find_interface_in_source(
+                program,
+                program->source->id,
+                name_text,
+                name_length,
+                NULL,
+                NULL
+            )
+        ) {
             return basl_compile_report(
                 program,
                 name_token->span,
@@ -11453,8 +11647,9 @@ integer_conversion:
     return BASL_STATUS_OK;
 }
 
-static int basl_program_find_function_symbol(
+static int basl_program_find_function_symbol_in_source(
     const basl_program_state_t *program,
+    basl_source_id_t source_id,
     const basl_token_t *name_token,
     size_t *out_index,
     const basl_function_decl_t **out_decl
@@ -11463,47 +11658,14 @@ static int basl_program_find_function_symbol(
     size_t name_length;
 
     name_text = basl_program_token_text(program, name_token, &name_length);
-    return basl_program_find_top_level_function_name(
+    return basl_program_find_top_level_function_name_in_source(
         program,
+        source_id,
         name_text,
         name_length,
         out_index,
         out_decl
     );
-}
-
-static int basl_program_find_top_level_function_name(
-    const basl_program_state_t *program,
-    const char *name_text,
-    size_t name_length,
-    size_t *out_index,
-    const basl_function_decl_t **out_decl
-) {
-    size_t i;
-
-    for (i = 0U; i < program->functions.count; i += 1U) {
-        if (program->functions.functions[i].owner_class_index != BASL_BINDING_INVALID_CLASS_INDEX) {
-            continue;
-        }
-        if (
-            basl_program_names_equal(
-                program->functions.functions[i].name,
-                program->functions.functions[i].name_length,
-                name_text,
-                name_length
-            )
-        ) {
-            if (out_index != NULL) {
-                *out_index = i;
-            }
-            if (out_decl != NULL) {
-                *out_decl = &program->functions.functions[i];
-            }
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 static basl_status_t basl_parser_lookup_function_symbol(
@@ -11512,8 +11674,9 @@ static basl_status_t basl_parser_lookup_function_symbol(
     size_t *out_index,
     const basl_function_decl_t **out_decl
 ) {
-    if (basl_program_find_function_symbol(
+    if (basl_program_find_function_symbol_in_source(
             state->program,
+            state->program->source == NULL ? 0U : state->program->source->id,
             name_token,
             out_index,
             out_decl
@@ -11524,8 +11687,9 @@ static basl_status_t basl_parser_lookup_function_symbol(
     return basl_parser_report(state, name_token->span, "unknown function");
 }
 
-static int basl_program_find_class_symbol(
+static int basl_program_find_class_symbol_in_source(
     const basl_program_state_t *program,
+    basl_source_id_t source_id,
     const basl_token_t *name_token,
     size_t *out_index,
     const basl_class_decl_t **out_decl
@@ -11534,7 +11698,14 @@ static int basl_program_find_class_symbol(
     size_t name_length;
 
     name_text = basl_program_token_text(program, name_token, &name_length);
-    return basl_program_find_class(program, name_text, name_length, out_index, out_decl);
+    return basl_program_find_class_in_source(
+        program,
+        source_id,
+        name_text,
+        name_length,
+        out_index,
+        out_decl
+    );
 }
 
 static basl_status_t basl_parser_lookup_class_symbol(
@@ -11543,7 +11714,15 @@ static basl_status_t basl_parser_lookup_class_symbol(
     size_t *out_index,
     const basl_class_decl_t **out_decl
 ) {
-    if (basl_program_find_class_symbol(state->program, name_token, out_index, out_decl)) {
+    if (
+        basl_program_find_class_symbol_in_source(
+            state->program,
+            state->program->source == NULL ? 0U : state->program->source->id,
+            name_token,
+            out_index,
+            out_decl
+        )
+    ) {
         return BASL_STATUS_OK;
     }
 
@@ -14355,8 +14534,9 @@ static basl_status_t basl_parser_parse_primary_base(
             ) {
                 return basl_parser_parse_qualified_symbol(state, token, out_result);
             }
-            (void)basl_program_find_global(
+            (void)basl_program_find_global_in_source(
                 state->program,
+                state->program->source == NULL ? 0U : state->program->source->id,
                 name_text,
                 name_length,
                 &global_index,
@@ -14422,10 +14602,26 @@ static basl_status_t basl_parser_parse_primary_base(
                         out_result
                     );
                 }
-                if (basl_program_find_function_symbol(state->program, token, NULL, NULL)) {
+                if (
+                    basl_program_find_function_symbol_in_source(
+                        state->program,
+                        state->program->source == NULL ? 0U : state->program->source->id,
+                        token,
+                        NULL,
+                        NULL
+                    )
+                ) {
                     return basl_parser_parse_call(state, token, out_result);
                 }
-                if (basl_program_find_class_symbol(state->program, token, NULL, NULL)) {
+                if (
+                    basl_program_find_class_symbol_in_source(
+                        state->program,
+                        state->program->source == NULL ? 0U : state->program->source->id,
+                        token,
+                        NULL,
+                        NULL
+                    )
+                ) {
                     return basl_parser_parse_constructor(state, token, out_result);
                 }
                 return basl_parser_report(state, token->span, "unknown function");
@@ -14467,8 +14663,9 @@ static basl_status_t basl_parser_parse_primary_base(
                         return BASL_STATUS_OK;
                     }
                     if (
-                        !basl_program_lookup_enum_member(
+                        !basl_program_lookup_enum_member_in_source(
                             state->program,
+                            state->program->source == NULL ? 0U : state->program->source->id,
                             name_text,
                             name_length,
                             member_text,
@@ -14526,7 +14723,15 @@ static basl_status_t basl_parser_parse_primary_base(
                 return basl_parser_emit_u32(state, (uint32_t)global_index, token->span);
             }
 
-            if (basl_program_find_function_symbol(state->program, token, &global_index, NULL)) {
+            if (
+                basl_program_find_function_symbol_in_source(
+                    state->program,
+                    state->program->source == NULL ? 0U : state->program->source->id,
+                    token,
+                    &global_index,
+                    NULL
+                )
+            ) {
                 basl_parser_type_t function_type;
 
                 function_type = basl_binding_type_invalid();
@@ -14547,7 +14752,15 @@ static basl_status_t basl_parser_parse_primary_base(
             }
 
             constant = NULL;
-            if (!basl_program_find_constant(state->program, name_text, name_length, &constant)) {
+            if (
+                !basl_program_find_constant_in_source(
+                    state->program,
+                    state->program->source == NULL ? 0U : state->program->source->id,
+                    name_text,
+                    name_length,
+                    &constant
+                )
+            ) {
                 if (basl_program_names_equal(name_text, name_length, "ok", 2U)) {
                     status = basl_parser_emit_ok_constant(state, token->span);
                     if (status != BASL_STATUS_OK) {
@@ -18176,13 +18389,16 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         size_t name_length;
 
         name_text = basl_parser_token_text(state, name_token, &name_length);
-        if (!basl_program_find_global(
+        if (
+            !basl_program_find_global_in_source(
                 state->program,
+                state->program->source == NULL ? 0U : state->program->source->id,
                 name_text,
                 name_length,
                 &global_index,
                 &global_decl
-            )) {
+            )
+        ) {
             return basl_parser_report(state, name_token->span, "unknown local variable");
         }
         is_global_assignment = 1;

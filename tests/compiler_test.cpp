@@ -489,7 +489,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/math.basl",
-            "fn add(i32 left, i32 right) -> i32 {"
+            "pub fn add(i32 left, i32 right) -> i32 {"
             "    return left + right;"
             "}"
         },
@@ -497,7 +497,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
             "/project/main.basl",
             "import \"math\";"
             "fn main() -> i32 {"
-            "    return add(2, 5);"
+            "    return math.add(2, 5);"
             "}"
         }
     };
@@ -509,22 +509,22 @@ TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/lib/math.basl",
-            "fn inc(i32 value) -> i32 {"
+            "pub fn inc(i32 value) -> i32 {"
             "    return value + 1;"
             "}"
         },
         {
             "/project/lib/logic.basl",
             "import \"math\";"
-            "fn bump_twice(i32 value) -> i32 {"
-            "    return inc(inc(value));"
+            "pub fn bump_twice(i32 value) -> i32 {"
+            "    return math.inc(math.inc(value));"
             "}"
         },
         {
             "/project/main.basl",
             "import \"lib/logic\";"
             "fn main() -> i32 {"
-            "    return bump_twice(5);"
+            "    return logic.bump_twice(5);"
             "}"
         }
     };
@@ -573,13 +573,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/config.basl",
-            "const i32 LIMIT = 7;"
+            "pub const i32 LIMIT = 7;"
         },
         {
             "/project/main.basl",
             "import \"config\";"
             "fn main() -> i32 {"
-            "    return LIMIT;"
+            "    return config.LIMIT;"
             "}"
         }
     };
@@ -591,15 +591,15 @@ TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions) {
     const TestSource sources[] = {
         {
             "/project/config.basl",
-            "const i32 BASE = 2 + 3 * 4;"
-            "const bool READY = BASE == 14;"
+            "pub const i32 BASE = 2 + 3 * 4;"
+            "pub const bool READY = BASE == 14;"
         },
         {
             "/project/main.basl",
             "import \"config\";"
             "fn main() -> i32 {"
-            "    if (READY) {"
-            "        return BASE;"
+            "    if (config.READY) {"
+            "        return config.BASE;"
             "    }"
             "    return 0;"
             "}"
@@ -633,13 +633,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/model.basl",
-            "class Counter {"
-            "    i32 value;"
+            "pub class Counter {"
+            "    pub i32 value;"
             "}"
-            "fn make_counter(i32 value) -> Counter {"
+            "pub fn make_counter(i32 value) -> Counter {"
             "    return Counter(value);"
             "}"
-            "fn read_counter(Counter counter) -> i32 {"
+            "pub fn read_counter(Counter counter) -> i32 {"
             "    return counter.value;"
             "}"
         },
@@ -647,8 +647,8 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
             "/project/main.basl",
             "import \"model\";"
             "fn main() -> i32 {"
-            "    Counter counter = make_counter(7);"
-            "    return read_counter(counter);"
+            "    model.Counter counter = model.make_counter(7);"
+            "    return model.read_counter(counter);"
             "}"
         }
     };
@@ -809,7 +809,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
     const TestSource sources[] = {
         {
             "/project/model.basl",
-            "interface Reader {"
+            "pub interface Reader {"
             "    fn read() -> i32;"
             "}"
             "class Counter implements Reader {"
@@ -822,7 +822,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
             "        return self.value;"
             "    }"
             "}"
-            "fn make_reader(i32 value) -> Reader {"
+            "pub fn make_reader(i32 value) -> Reader {"
             "    Counter counter = Counter(value);"
             "    counter.bump(1);"
             "    return counter;"
@@ -831,11 +831,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
         {
             "/project/main.basl",
             "import \"model\";"
-            "fn use_reader(Reader reader) -> i32 {"
+            "fn use_reader(model.Reader reader) -> i32 {"
             "    return reader.read();"
             "}"
             "fn main() -> i32 {"
-            "    Reader reader = make_reader(6);"
+            "    model.Reader reader = model.make_reader(6);"
             "    return use_reader(reader);"
             "}"
         }
@@ -874,6 +874,82 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
     };
 
     EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 19);
+}
+
+TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
+    basl_runtime_t *runtime = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_source_id_t source_id;
+    const TestSource sources[] = {
+        {
+            "/project/math.basl",
+            "pub fn add(i32 left, i32 right) -> i32 {"
+            "    return left + right;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"math\";"
+            "fn main() -> i32 {"
+            "    return add(2, 5);"
+            "}"
+        }
+    };
+
+    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    for (size_t index = 0U; index < sizeof(sources) / sizeof(sources[0]); index += 1U) {
+        source_id = RegisterSource(&registry, sources[index].path, sources[index].text, &error);
+    }
+
+    EXPECT_EQ(
+        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        BASL_STATUS_SYNTAX_ERROR
+    );
+    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(
+        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        "unknown function"
+    );
+
+    basl_object_release(&function);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(BaslCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
+    const TestSource sources[] = {
+        {
+            "/project/alpha.basl",
+            "pub const i32 VALUE = 4;"
+            "pub fn read() -> i32 {"
+            "    return VALUE;"
+            "}"
+        },
+        {
+            "/project/beta.basl",
+            "pub const i32 VALUE = 9;"
+            "pub fn read() -> i32 {"
+            "    return VALUE;"
+            "}"
+        },
+        {
+            "/project/main.basl",
+            "import \"alpha\";"
+            "import \"beta\";"
+            "fn main() -> i32 {"
+            "    return alpha.read() + beta.read();"
+            "}"
+        }
+    };
+
+    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles) {
