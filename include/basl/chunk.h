@@ -120,7 +120,23 @@ typedef enum basl_opcode {
     BASL_OPCODE_DIVIDE_I64 = 95,
     BASL_OPCODE_MODULO_I64 = 96,
     BASL_OPCODE_EQUAL_I64 = 97,
-    BASL_OPCODE_NOT_EQUAL_I64 = 98
+    BASL_OPCODE_NOT_EQUAL_I64 = 98,
+
+    /* ── Superinstructions ─────────────────────────────────────────
+       Fused GET_LOCAL + GET_LOCAL + <i64 op>.  Each reads two local
+       slots directly (two u32 operands) and pushes the result,
+       eliminating two dispatches and all intermediate stack traffic.
+       The compiler emits these when it detects the pattern. */
+    BASL_OPCODE_LOCALS_ADD_I64 = 99,
+    BASL_OPCODE_LOCALS_SUBTRACT_I64 = 100,
+    BASL_OPCODE_LOCALS_MULTIPLY_I64 = 101,
+    BASL_OPCODE_LOCALS_MODULO_I64 = 102,
+    BASL_OPCODE_LOCALS_LESS_I64 = 103,
+    BASL_OPCODE_LOCALS_LESS_EQUAL_I64 = 104,
+    BASL_OPCODE_LOCALS_GREATER_I64 = 105,
+    BASL_OPCODE_LOCALS_GREATER_EQUAL_I64 = 106,
+    BASL_OPCODE_LOCALS_EQUAL_I64 = 107,
+    BASL_OPCODE_LOCALS_NOT_EQUAL_I64 = 108
 } basl_opcode_t;
 
 typedef struct basl_chunk {

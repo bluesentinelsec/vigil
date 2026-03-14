@@ -5280,12 +5280,97 @@ static basl_status_t basl_parser_parse_float_literal(
     return BASL_STATUS_OK;
 }
 
+/*
+ * Peephole: try to fuse GET_LOCAL + GET_LOCAL + <i64_op> into a single
+ * LOCALS_<op>_I64 superinstruction.  Called just before emitting an i64
+ * binary opcode.  If the last 10 emitted bytes are two GET_LOCAL
+ * instructions, rewind the chunk and emit the fused opcode with the
+ * two local indices as operands.  Returns the fused opcode, or the
+ * original opcode if fusion is not possible.
+ */
+static basl_opcode_t basl_parser_try_fuse_locals_i64(
+    basl_parser_state_t *state,
+    basl_opcode_t opcode,
+    size_t pre_left_size
+) {
+    uint8_t *code;
+    size_t len;
+    basl_opcode_t fused;
+
+    len = state->chunk.code.length;
+    /* Only fuse if exactly 10 bytes were emitted for the two operands
+       (5 bytes each: 1 opcode + 4 u32).  This ensures we don't match
+       stale GET_LOCALs from earlier code. */
+    if (len < 10U || len - pre_left_size != 10U) {
+        return opcode;
+    }
+    code = state->chunk.code.data;
+    if (code[len - 10U] != BASL_OPCODE_GET_LOCAL ||
+        code[len - 5U] != BASL_OPCODE_GET_LOCAL) {
+        return opcode;
+    }
+
+    switch (opcode) {
+        case BASL_OPCODE_ADD_I64:           fused = BASL_OPCODE_LOCALS_ADD_I64; break;
+        case BASL_OPCODE_SUBTRACT_I64:      fused = BASL_OPCODE_LOCALS_SUBTRACT_I64; break;
+        case BASL_OPCODE_MULTIPLY_I64:      fused = BASL_OPCODE_LOCALS_MULTIPLY_I64; break;
+        case BASL_OPCODE_MODULO_I64:        fused = BASL_OPCODE_LOCALS_MODULO_I64; break;
+        case BASL_OPCODE_LESS_I64:          fused = BASL_OPCODE_LOCALS_LESS_I64; break;
+        case BASL_OPCODE_LESS_EQUAL_I64:    fused = BASL_OPCODE_LOCALS_LESS_EQUAL_I64; break;
+        case BASL_OPCODE_GREATER_I64:       fused = BASL_OPCODE_LOCALS_GREATER_I64; break;
+        case BASL_OPCODE_GREATER_EQUAL_I64: fused = BASL_OPCODE_LOCALS_GREATER_EQUAL_I64; break;
+        case BASL_OPCODE_EQUAL_I64:         fused = BASL_OPCODE_LOCALS_EQUAL_I64; break;
+        case BASL_OPCODE_NOT_EQUAL_I64:     fused = BASL_OPCODE_LOCALS_NOT_EQUAL_I64; break;
+        default: return opcode;
+    }
+
+    /* Rewind: remove the two GET_LOCAL opcodes (keep their u32 operands).
+       The fused opcode will be emitted by the caller, followed by the
+       two u32 operands that are already in the byte stream.
+       Layout before: [GET_LOCAL][u32_a][GET_LOCAL][u32_b]  (10 bytes)
+       Layout after:  [LOCALS_<op>_I64][u32_a][u32_b]       (9 bytes)
+       We need to shift u32_b left by 1 byte (removing the second GET_LOCAL). */
+    /* Overwrite first GET_LOCAL with fused opcode */
+    code[len - 10U] = (uint8_t)fused;
+    /* Shift u32_b left by 1 to remove the second GET_LOCAL byte */
+    code[len - 5U] = code[len - 4U];
+    code[len - 4U] = code[len - 3U];
+    code[len - 3U] = code[len - 2U];
+    code[len - 2U] = code[len - 1U];
+    /* Shrink chunk by 1 byte (removed second GET_LOCAL opcode) */
+    state->chunk.code.length -= 1U;
+    /* Also fix the span array length to match */
+    if (state->chunk.span_count > 0U) {
+        state->chunk.span_count -= 1U;
+    }
+
+    /* Return a sentinel so the caller knows NOT to emit the opcode */
+    return (basl_opcode_t)255;
+}
+
 basl_status_t basl_parser_emit_opcode(
     basl_parser_state_t *state,
     basl_opcode_t opcode,
     basl_source_span_t span
 ) {
     return basl_chunk_write_opcode(&state->chunk, opcode, span, state->program->error);
+}
+
+/* Emit an i64 binary opcode, attempting superinstruction fusion first.
+   If the preceding bytecode is GET_LOCAL + GET_LOCAL, rewrites to a
+   single LOCALS_<op>_I64 superinstruction and returns OK without
+   emitting a separate opcode byte. */
+static basl_status_t basl_parser_emit_i64_binop(
+    basl_parser_state_t *state,
+    basl_opcode_t opcode,
+    basl_source_span_t span,
+    size_t pre_left_size
+) {
+    basl_opcode_t result = basl_parser_try_fuse_locals_i64(state, opcode, pre_left_size);
+    if (result == (basl_opcode_t)255) {
+        return BASL_STATUS_OK; /* fused — opcode already rewritten in place */
+    }
+    return basl_parser_emit_opcode(state, result, span);
 }
 
 basl_status_t basl_parser_emit_u32(
@@ -9234,10 +9319,12 @@ static basl_status_t basl_parser_parse_factor(
     basl_expression_result_t right_result;
     basl_token_kind_t operator_kind;
     basl_source_span_t operator_span;
+    size_t pre_left_size;
 
     basl_expression_result_clear(&left_result);
     basl_expression_result_clear(&right_result);
 
+    pre_left_size = state->chunk.code.length;
     status = basl_parser_parse_unary(state, &left_result);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -9308,23 +9395,23 @@ static basl_status_t basl_parser_parse_factor(
         }
 
         if (operator_kind == BASL_TOKEN_STAR) {
-            status = basl_parser_emit_opcode(state,
-                (basl_parser_type_is_signed_integer(left_result.type) &&
-                 basl_parser_type_is_signed_integer(right_result.type))
-                    ? BASL_OPCODE_MULTIPLY_I64 : BASL_OPCODE_MULTIPLY,
-                operator_span);
+            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+                          basl_parser_type_is_signed_integer(right_result.type);
+            status = both_si
+                ? basl_parser_emit_i64_binop(state, BASL_OPCODE_MULTIPLY_I64, operator_span, pre_left_size)
+                : basl_parser_emit_opcode(state, BASL_OPCODE_MULTIPLY, operator_span);
         } else if (operator_kind == BASL_TOKEN_SLASH) {
-            status = basl_parser_emit_opcode(state,
-                (basl_parser_type_is_signed_integer(left_result.type) &&
-                 basl_parser_type_is_signed_integer(right_result.type))
-                    ? BASL_OPCODE_DIVIDE_I64 : BASL_OPCODE_DIVIDE,
-                operator_span);
+            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+                          basl_parser_type_is_signed_integer(right_result.type);
+            status = both_si
+                ? basl_parser_emit_i64_binop(state, BASL_OPCODE_DIVIDE_I64, operator_span, pre_left_size)
+                : basl_parser_emit_opcode(state, BASL_OPCODE_DIVIDE, operator_span);
         } else {
-            status = basl_parser_emit_opcode(state,
-                (basl_parser_type_is_signed_integer(left_result.type) &&
-                 basl_parser_type_is_signed_integer(right_result.type))
-                    ? BASL_OPCODE_MODULO_I64 : BASL_OPCODE_MODULO,
-                operator_span);
+            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+                          basl_parser_type_is_signed_integer(right_result.type);
+            status = both_si
+                ? basl_parser_emit_i64_binop(state, BASL_OPCODE_MODULO_I64, operator_span, pre_left_size)
+                : basl_parser_emit_opcode(state, BASL_OPCODE_MODULO, operator_span);
         }
         if (status != BASL_STATUS_OK) {
             return status;
@@ -9348,10 +9435,12 @@ static basl_status_t basl_parser_parse_term(
     basl_expression_result_t right_result;
     basl_token_kind_t operator_kind;
     basl_source_span_t operator_span;
+    size_t pre_left_size;
 
     basl_expression_result_clear(&left_result);
     basl_expression_result_clear(&right_result);
 
+    pre_left_size = state->chunk.code.length;
     status = basl_parser_parse_factor(state, &left_result);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -9407,17 +9496,16 @@ static basl_status_t basl_parser_parse_term(
             );
         }
 
-        status = basl_parser_emit_opcode(
-            state,
-            operator_kind == BASL_TOKEN_PLUS
-                ? (basl_parser_type_is_signed_integer(left_result.type) &&
-                   basl_parser_type_is_signed_integer(right_result.type)
-                       ? BASL_OPCODE_ADD_I64 : BASL_OPCODE_ADD)
-                : (basl_parser_type_is_signed_integer(left_result.type) &&
-                   basl_parser_type_is_signed_integer(right_result.type)
-                       ? BASL_OPCODE_SUBTRACT_I64 : BASL_OPCODE_SUBTRACT),
-            operator_span
-        );
+        {
+            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+                          basl_parser_type_is_signed_integer(right_result.type);
+            basl_opcode_t op = operator_kind == BASL_TOKEN_PLUS
+                ? (both_si ? BASL_OPCODE_ADD_I64 : BASL_OPCODE_ADD)
+                : (both_si ? BASL_OPCODE_SUBTRACT_I64 : BASL_OPCODE_SUBTRACT);
+            status = both_si
+                ? basl_parser_emit_i64_binop(state, op, operator_span, pre_left_size)
+                : basl_parser_emit_opcode(state, op, operator_span);
+        }
         if (status != BASL_STATUS_OK) {
             return status;
         }
@@ -9534,10 +9622,12 @@ static basl_status_t basl_parser_parse_comparison(
     basl_expression_result_t right_result;
     basl_token_kind_t operator_kind;
     basl_source_span_t operator_span;
+    size_t pre_left_size;
 
     basl_expression_result_clear(&left_result);
     basl_expression_result_clear(&right_result);
 
+    pre_left_size = state->chunk.code.length;
     status = basl_parser_parse_shift(state, &left_result);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -9609,19 +9699,19 @@ static basl_status_t basl_parser_parse_comparison(
                               basl_parser_type_is_signed_integer(right_result.type);
             switch (operator_kind) {
                 case BASL_TOKEN_GREATER:
-                    status = basl_parser_emit_opcode(state,
-                        both_signed ? BASL_OPCODE_GREATER_I64 : BASL_OPCODE_GREATER,
-                        operator_span);
+                    status = both_signed
+                        ? basl_parser_emit_i64_binop(state, BASL_OPCODE_GREATER_I64, operator_span, pre_left_size)
+                        : basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
                     break;
                 case BASL_TOKEN_LESS:
-                    status = basl_parser_emit_opcode(state,
-                        both_signed ? BASL_OPCODE_LESS_I64 : BASL_OPCODE_LESS,
-                        operator_span);
+                    status = both_signed
+                        ? basl_parser_emit_i64_binop(state, BASL_OPCODE_LESS_I64, operator_span, pre_left_size)
+                        : basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
                     break;
                 case BASL_TOKEN_GREATER_EQUAL:
                     if (both_signed) {
-                        status = basl_parser_emit_opcode(state,
-                            BASL_OPCODE_GREATER_EQUAL_I64, operator_span);
+                        status = basl_parser_emit_i64_binop(state,
+                            BASL_OPCODE_GREATER_EQUAL_I64, operator_span, pre_left_size);
                     } else {
                         status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
                         if (status == BASL_STATUS_OK) {
@@ -9631,8 +9721,8 @@ static basl_status_t basl_parser_parse_comparison(
                     break;
                 case BASL_TOKEN_LESS_EQUAL:
                     if (both_signed) {
-                        status = basl_parser_emit_opcode(state,
-                            BASL_OPCODE_LESS_EQUAL_I64, operator_span);
+                        status = basl_parser_emit_i64_binop(state,
+                            BASL_OPCODE_LESS_EQUAL_I64, operator_span, pre_left_size);
                     } else {
                         status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
                         if (status == BASL_STATUS_OK) {
@@ -9664,10 +9754,12 @@ static basl_status_t basl_parser_parse_equality(
     basl_expression_result_t right_result;
     basl_token_kind_t operator_kind;
     basl_source_span_t operator_span;
+    size_t pre_left_size;
 
     basl_expression_result_clear(&left_result);
     basl_expression_result_clear(&right_result);
 
+    pre_left_size = state->chunk.code.length;
     status = basl_parser_parse_comparison(state, &left_result);
     if (status != BASL_STATUS_OK) {
         return status;
@@ -9718,10 +9810,9 @@ static basl_status_t basl_parser_parse_equality(
 
         if (basl_parser_type_is_signed_integer(left_result.type) &&
             basl_parser_type_is_signed_integer(right_result.type)) {
-            status = basl_parser_emit_opcode(state,
-                operator_kind == BASL_TOKEN_BANG_EQUAL
-                    ? BASL_OPCODE_NOT_EQUAL_I64 : BASL_OPCODE_EQUAL_I64,
-                operator_span);
+            basl_opcode_t eq_op = operator_kind == BASL_TOKEN_BANG_EQUAL
+                ? BASL_OPCODE_NOT_EQUAL_I64 : BASL_OPCODE_EQUAL_I64;
+            status = basl_parser_emit_i64_binop(state, eq_op, operator_span, pre_left_size);
         } else {
             status = basl_parser_emit_opcode(state, BASL_OPCODE_EQUAL, operator_span);
             if (status != BASL_STATUS_OK) {
