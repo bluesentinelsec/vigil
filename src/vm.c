@@ -2908,9 +2908,20 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(GET_LOCAL)
                 BASL_VM_READ_U32(code, frame->ip, operand);
                 local_index = frame->base_slot + (size_t)operand;
-                BASL_VM_VALUE_COPY(&value, &vm->stack[local_index]);
-                BASL_VM_PUSH(vm, &value);
-                BASL_VM_VALUE_RELEASE(&value);
+                /* Fast path: non-object values (int, bool, float, nil)
+                   don't need retain/release — just copy the struct. */
+                if (vm->stack[local_index].kind != BASL_VALUE_OBJECT) {
+                    if (vm->stack_count >= vm->stack_capacity) {
+                        status = basl_vm_grow_stack(vm, vm->stack_count + 1U, error);
+                        if (status != BASL_STATUS_OK) goto cleanup;
+                    }
+                    vm->stack[vm->stack_count] = vm->stack[local_index];
+                    vm->stack_count += 1U;
+                } else {
+                    BASL_VM_VALUE_COPY(&value, &vm->stack[local_index]);
+                    BASL_VM_PUSH(vm, &value);
+                    BASL_VM_VALUE_RELEASE(&value);
+                }
                 VM_BREAK();
             VM_CASE(SET_LOCAL)
                 BASL_VM_READ_U32(code, frame->ip, operand);
@@ -3207,13 +3218,16 @@ basl_status_t basl_vm_execute_function(
                     frame->function, (size_t)constant_index);
                 base_slot = vm->stack_count - (size_t)operand;
 
-                /* Fast path: frame capacity available (pre-allocated 64) */
+                /* Fast path: frame capacity available (pre-allocated 64).
+                   Skip memset — only set the fields we need.  The defer
+                   and pending_return fields are already zero from either
+                   initial allocation or the RETURN fast path. */
                 if (vm->frame_count < vm->frame_capacity) {
                     basl_vm_frame_t *nf = &vm->frames[vm->frame_count];
-                    memset(nf, 0, sizeof(*nf));
                     nf->callable = callee;
                     nf->function = callee;
                     nf->chunk = basl_vm_function_chunk(callee);
+                    nf->ip = 0U;
                     nf->base_slot = base_slot;
                     vm->frame_count += 1U;
                 } else {
@@ -5501,7 +5515,14 @@ basl_status_t basl_vm_execute_function(
             /* ── Specialized i64 arithmetic ────────────────────────
                No type dispatch, no overflow check wrappers — just
                inline integer ops.  The compiler only emits these
-               when both operands are statically i32/i64. */
+               when both operands are statically i32/i64.
+
+               TO_I32 fusion: after computing the result, peek at the
+               next opcode.  If it is TO_I32 (very common — the
+               compiler emits it after every i32 arithmetic op), do
+               the range check inline and skip the TO_I32 dispatch.
+               This saves one full opcode dispatch per arithmetic op
+               in i32-heavy code. */
             VM_CASE(ADD_I64)
             VM_CASE(SUBTRACT_I64)
             {
@@ -5533,6 +5554,17 @@ basl_status_t basl_vm_execute_function(
                 vm->stack[vm->stack_count].as.integer = r;
                 vm->stack_count += 1U;
                 frame->ip += 1U;
+                /* TO_I32 fusion */
+                if (frame->ip < code_size &&
+                    code[frame->ip] == BASL_OPCODE_TO_I32) {
+                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "i32 conversion overflow or invalid value", error);
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                }
                 VM_BREAK();
             }
             VM_CASE(LESS_I64)
@@ -5616,6 +5648,17 @@ basl_status_t basl_vm_execute_function(
                 vm->stack[vm->stack_count].as.integer = r;
                 vm->stack_count += 1U;
                 frame->ip += 1U;
+                /* TO_I32 fusion */
+                if (frame->ip < code_size &&
+                    code[frame->ip] == BASL_OPCODE_TO_I32) {
+                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "i32 conversion overflow or invalid value", error);
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                }
                 VM_BREAK();
             }
             VM_CASE(NEGATE)
@@ -6059,19 +6102,23 @@ basl_status_t basl_vm_execute_function(
                     basl_value_t ret_val;
                     size_t base_slot;
 
-                    BASL_VM_POP(vm, ret_val);
+                    /* Grab return value directly (skip POP overhead). */
+                    vm->stack_count -= 1U;
+                    ret_val = vm->stack[vm->stack_count];
                     base_slot = frame->base_slot;
                     vm->frame_count -= 1U;
-                    /* Frame has no defers/pending_returns — just zero it */
-                    memset(&vm->frames[vm->frame_count], 0,
-                           sizeof(vm->frames[vm->frame_count]));
+                    /* The fast path only fires when defer_count == 0 and
+                       draining_defers == false, so those fields are already
+                       clean.  The CALL fast path overwrites callable,
+                       function, chunk, ip, base_slot.  Nothing to clear. */
                     /* Unwind stack: release any remaining locals */
                     while (vm->stack_count > base_slot) {
                         vm->stack_count -= 1U;
                         BASL_VM_VALUE_RELEASE(&vm->stack[vm->stack_count]);
                     }
-                    BASL_VM_PUSH(vm, &ret_val);
-                    BASL_VM_VALUE_RELEASE(&ret_val);
+                    /* Place return value at base_slot (stack has capacity). */
+                    vm->stack[vm->stack_count] = ret_val;
+                    vm->stack_count += 1U;
                     VM_BREAK_RELOAD();
                 }
                 if (operand == 0U) {
