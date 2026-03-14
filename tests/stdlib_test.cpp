@@ -1,0 +1,447 @@
+#include <gtest/gtest.h>
+
+#include <cmath>
+#include <cstring>
+
+extern "C" {
+#include "basl/basl.h"
+#include "basl/stdlib.h"
+}
+
+namespace {
+
+/* ── test harness ────────────────────────────────────────────────── */
+
+/*
+ * Compile and run a BASL program that imports stdlib modules.
+ * The program's main() must return i32.  Returns that value.
+ */
+int64_t RunWithStdlib(const char *source_text) {
+    basl_runtime_t *runtime = nullptr;
+    basl_vm_t *vm = nullptr;
+    basl_error_t error = {};
+    basl_source_registry_t registry;
+    basl_native_registry_t natives;
+    basl_diagnostic_list_t diagnostics;
+    basl_object_t *function = nullptr;
+    basl_value_t result;
+    basl_source_id_t source_id = 0U;
+    int64_t output = 0;
+
+    EXPECT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+    basl_native_registry_init(&natives);
+    EXPECT_EQ(basl_stdlib_register_all(&natives, &error), BASL_STATUS_OK);
+
+    EXPECT_EQ(
+        basl_source_registry_register_cstr(
+            &registry, "main.basl", source_text, &source_id, &error),
+        BASL_STATUS_OK
+    );
+
+    EXPECT_EQ(
+        basl_compile_source_with_natives(
+            &registry, source_id, &natives, &function, &diagnostics, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_NE(function, nullptr);
+    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+
+    basl_value_init_nil(&result);
+    EXPECT_EQ(
+        basl_vm_execute_function(vm, function, &result, &error),
+        BASL_STATUS_OK
+    );
+    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
+    output = basl_value_as_int(&result);
+
+    basl_value_release(&result);
+    basl_object_release(&function);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_native_registry_free(&natives);
+    basl_source_registry_free(&registry);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+    return output;
+}
+
+/*
+ * Same as RunWithStdlib but captures stdout and returns it.
+ * The program's exit code is expected to be 0.
+ */
+std::string RunAndCaptureStdout(const char *source_text) {
+    testing::internal::CaptureStdout();
+    int64_t rc = RunWithStdlib(source_text);
+    std::string captured = testing::internal::GetCapturedStdout();
+    EXPECT_EQ(rc, 0);
+    return captured;
+}
+
+std::string RunAndCaptureStderr(const char *source_text) {
+    testing::internal::CaptureStderr();
+    int64_t rc = RunWithStdlib(source_text);
+    std::string captured = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(rc, 0);
+    return captured;
+}
+
+/* ── fmt tests ───────────────────────────────────────────────────── */
+
+TEST(BaslStdlibFmtTest, PrintlnOutputsStringWithNewline) {
+    std::string out = RunAndCaptureStdout(R"(
+        import "fmt";
+        fn main() -> i32 {
+            fmt.println("hello");
+            return 0;
+        }
+    )");
+    EXPECT_EQ(out, "hello\n");
+}
+
+TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline) {
+    std::string out = RunAndCaptureStdout(R"(
+        import "fmt";
+        fn main() -> i32 {
+            fmt.print("ab");
+            fmt.print("cd");
+            return 0;
+        }
+    )");
+    EXPECT_EQ(out, "abcd");
+}
+
+TEST(BaslStdlibFmtTest, EprintlnOutputsToStderr) {
+    std::string err = RunAndCaptureStderr(R"(
+        import "fmt";
+        fn main() -> i32 {
+            fmt.eprintln("oops");
+            return 0;
+        }
+    )");
+    EXPECT_EQ(err, "oops\n");
+}
+
+TEST(BaslStdlibFmtTest, PrintlnEmptyString) {
+    std::string out = RunAndCaptureStdout(R"(
+        import "fmt";
+        fn main() -> i32 {
+            fmt.println("");
+            return 0;
+        }
+    )");
+    EXPECT_EQ(out, "\n");
+}
+
+TEST(BaslStdlibFmtTest, PrintlnWithFString) {
+    std::string out = RunAndCaptureStdout(R"(
+        import "fmt";
+        fn main() -> i32 {
+            i32 x = 42;
+            fmt.println(f"val={x}");
+            return 0;
+        }
+    )");
+    EXPECT_EQ(out, "val=42\n");
+}
+
+TEST(BaslStdlibFmtTest, PrintlnWithVariable) {
+    std::string out = RunAndCaptureStdout(R"(
+        import "fmt";
+        fn main() -> i32 {
+            string s = "world";
+            fmt.println(s);
+            return 0;
+        }
+    )");
+    EXPECT_EQ(out, "world\n");
+}
+
+TEST(BaslStdlibFmtTest, PrintlnInLoop) {
+    std::string out = RunAndCaptureStdout(R"(
+        import "fmt";
+        fn main() -> i32 {
+            for (i32 i = 0; i < 3; i++) {
+                fmt.println(string(i));
+            }
+            return 0;
+        }
+    )");
+    EXPECT_EQ(out, "0\n1\n2\n");
+}
+
+/* ── math: constants ─────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, PiReturnsCorrectValue) {
+    /*
+     * Encode a pass/fail check as an integer return.
+     * The BASL program returns 0 if pi matches within tolerance.
+     */
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 diff = math.abs(math.pi() - 3.14159265358979323846);
+            if (diff > 0.000000000000001) { return 1; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, EReturnsCorrectValue) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 diff = math.abs(math.e() - 2.71828182845904523536);
+            if (diff > 0.000000000000001) { return 1; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── math: rounding / conversion table tests ─────────────────────── */
+
+/*
+ * Each rounding function is tested with a table of inputs including
+ * positive, negative, zero, and edge cases.  The BASL program
+ * encodes the index of the first failing case (1-based) or 0 on
+ * success.
+ */
+
+TEST(BaslStdlibMathTest, FloorTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.floor(3.7) != 3.0)   { return 1; }
+            if (math.floor(-3.7) != -4.0)  { return 2; }
+            if (math.floor(0.0) != 0.0)    { return 3; }
+            if (math.floor(5.0) != 5.0)    { return 4; }
+            if (math.floor(-0.1) != -1.0)  { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, CeilTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.ceil(3.2) != 4.0)    { return 1; }
+            if (math.ceil(-3.2) != -3.0)   { return 2; }
+            if (math.ceil(0.0) != 0.0)     { return 3; }
+            if (math.ceil(5.0) != 5.0)     { return 4; }
+            if (math.ceil(0.1) != 1.0)     { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, RoundTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.round(3.5) != 4.0)    { return 1; }
+            if (math.round(3.4) != 3.0)    { return 2; }
+            if (math.round(-3.5) != -4.0)  { return 3; }
+            if (math.round(0.0) != 0.0)    { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, TruncTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.trunc(3.7) != 3.0)    { return 1; }
+            if (math.trunc(-3.7) != -3.0)  { return 2; }
+            if (math.trunc(0.0) != 0.0)    { return 3; }
+            if (math.trunc(5.0) != 5.0)    { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, AbsTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.abs(-42.0) != 42.0)  { return 1; }
+            if (math.abs(42.0) != 42.0)   { return 2; }
+            if (math.abs(0.0) != 0.0)     { return 3; }
+            if (math.abs(-0.0) != 0.0)    { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, SignTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.sign(42.0) != 1.0)   { return 1; }
+            if (math.sign(-42.0) != -1.0)  { return 2; }
+            if (math.sign(0.0) != 0.0)    { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── math: trig / exponential ────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, SqrtTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.sqrt(144.0) != 12.0)  { return 1; }
+            if (math.sqrt(0.0) != 0.0)     { return 2; }
+            if (math.sqrt(1.0) != 1.0)     { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, SinCosAtZero) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.sin(0.0) != 0.0)  { return 1; }
+            if (math.cos(0.0) != 1.0)  { return 2; }
+            if (math.tan(0.0) != 0.0)  { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, LogTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.log(1.0) != 0.0)      { return 1; }
+            if (math.log2(1024.0) != 10.0)  { return 2; }
+            if (math.log10(1000.0) != 3.0)  { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, ExpAtZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.exp(0.0) != 1.0)  { return 1; }
+            f64 diff = math.abs(math.exp(1.0) - math.e());
+            if (diff > 0.000000000000001) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── math: two-argument functions ────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, PowTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.pow(2.0, 10.0) != 1024.0)  { return 1; }
+            if (math.pow(3.0, 0.0) != 1.0)      { return 2; }
+            if (math.pow(5.0, 1.0) != 5.0)      { return 3; }
+            if (math.pow(4.0, 0.5) != 2.0)      { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, MinMaxTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.min(3.0, 7.0) != 3.0)    { return 1; }
+            if (math.min(-1.0, 1.0) != -1.0)   { return 2; }
+            if (math.min(5.0, 5.0) != 5.0)    { return 3; }
+            if (math.max(3.0, 7.0) != 7.0)    { return 4; }
+            if (math.max(-1.0, 1.0) != 1.0)    { return 5; }
+            if (math.max(5.0, 5.0) != 5.0)    { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Atan2Table) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.atan2(0.0, 1.0) != 0.0)  { return 1; }
+            f64 diff = math.abs(math.atan2(1.0, 1.0) - math.pi() / 4.0);
+            if (diff > 0.000000000000001) { return 2; }
+            // atan2(1, 0) == pi/2
+            f64 diff2 = math.abs(math.atan2(1.0, 0.0) - math.pi() / 2.0);
+            if (diff2 > 0.000000000000001) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, HypotTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.hypot(3.0, 4.0) != 5.0)    { return 1; }
+            if (math.hypot(0.0, 0.0) != 0.0)    { return 2; }
+            if (math.hypot(5.0, 0.0) != 5.0)    { return 3; }
+            if (math.hypot(0.0, 7.0) != 7.0)    { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, FmodTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.fmod(7.5, 3.0) != 1.5)    { return 1; }
+            if (math.fmod(10.0, 5.0) != 0.0)   { return 2; }
+            if (math.fmod(-7.5, 3.0) != -1.5)  { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── math: three-argument functions ──────────────────────────────── */
+
+TEST(BaslStdlibMathTest, ClampTable) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.clamp(5.0, 0.0, 10.0) != 5.0)    { return 1; }
+            if (math.clamp(-5.0, 0.0, 10.0) != 0.0)   { return 2; }
+            if (math.clamp(15.0, 0.0, 10.0) != 10.0)   { return 3; }
+            if (math.clamp(0.0, 0.0, 10.0) != 0.0)    { return 4; }
+            if (math.clamp(10.0, 0.0, 10.0) != 10.0)   { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── math: composition ───────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, ComposedExpressions) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            // pythagorean theorem via composition
+            f64 hyp = math.sqrt(math.pow(3.0, 2.0) + math.pow(4.0, 2.0));
+            if (hyp != 5.0) { return 1; }
+
+            // clamp via min/max matches clamp()
+            f64 val = 15.0;
+            f64 a = math.min(math.max(val, 0.0), 10.0);
+            f64 b = math.clamp(val, 0.0, 10.0);
+            if (a != b) { return 2; }
+
+            return 0;
+        }
+    )"), 0);
+}
+
+}  // namespace

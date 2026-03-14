@@ -68,6 +68,7 @@ set_target_properties(basl_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(basl ${BASL_LIBRARY_TYPE}
     $<TARGET_OBJECTS:basl_core>
     src/stdlib/fmt.c
+    src/stdlib/math.c
 )
 
 target_include_directories(basl
@@ -85,6 +86,13 @@ if(NOT EMSCRIPTEN)
         PRIVATE BASL_EXPORTS
     )
     target_compile_definitions(basl_core PRIVATE BASL_EXPORTS BASL_SHARED)
+endif()
+
+# Link libm where needed (Linux/glibc; MSVC/macOS/Emscripten have it built-in).
+include(CheckLibraryExists)
+check_library_exists(m floor "" BASL_NEEDS_LIBM)
+if(BASL_NEEDS_LIBM)
+    target_link_libraries(basl PRIVATE m)
 endif()
 
 # On MSVC multi-config generators, an OBJECT-library-backed shared
@@ -138,6 +146,7 @@ if(BASL_BUILD_TESTS)
         tests/map_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp
+        tests/stdlib_test.cpp
         tests/string_test.cpp
         tests/status_test.cpp
         tests/symbol_test.cpp
