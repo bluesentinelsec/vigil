@@ -2419,12 +2419,16 @@ static basl_status_t basl_program_parse_import(
     basl_string_t import_path;
     basl_source_id_t imported_source_id;
     basl_program_module_t *module;
+    size_t native_idx;
+    int native_found;
 
     alias_token = NULL;
     alias_text = NULL;
     alias_length = 0U;
     imported_source_id = 0U;
     module = NULL;
+    native_idx = 0U;
+    native_found = 0;
     basl_string_init(&import_path, program->registry->runtime);
 
     token = basl_program_token_at(program, *cursor);
@@ -2439,6 +2443,30 @@ static basl_status_t basl_program_parse_import(
     *cursor += 1U;
 
     token = basl_program_token_at(program, *cursor);
+    {
+        const char *raw_import;
+        size_t raw_import_len;
+
+        raw_import = basl_program_token_text(program, token, &raw_import_len);
+        /* Strip quotes from the string literal. */
+        if (raw_import != NULL && raw_import_len >= 2U) {
+            raw_import += 1U;
+            raw_import_len -= 2U;
+        }
+        /* Check native module registry first — skip file resolution. */
+        if (
+            program->natives != NULL &&
+            raw_import != NULL &&
+            basl_native_registry_find_index(
+                program->natives,
+                raw_import, raw_import_len,
+                &native_idx
+            )
+        ) {
+            native_found = 1;
+            imported_source_id = BASL_NATIVE_SOURCE_ID(native_idx);
+        }
+    }
     status = basl_program_parse_import_target(program, token, &import_path);
     if (status != BASL_STATUS_OK) {
         basl_string_free(&import_path);
@@ -2474,6 +2502,7 @@ static basl_status_t basl_program_parse_import(
     *cursor += 1U;
 
     if (
+        !native_found &&
         !basl_program_find_source_by_path(
             program,
             basl_string_c_str(&import_path),
@@ -2500,12 +2529,17 @@ static basl_status_t basl_program_parse_import(
         return BASL_STATUS_INTERNAL;
     }
     if (alias_text == NULL) {
-        basl_program_import_default_alias(
-            basl_string_c_str(&import_path),
-            basl_string_length(&import_path),
-            &alias_text,
-            &alias_length
-        );
+        if (native_found) {
+            alias_text = program->natives->modules[native_idx]->name;
+            alias_length = program->natives->modules[native_idx]->name_length;
+        } else {
+            basl_program_import_default_alias(
+                basl_string_c_str(&import_path),
+                basl_string_length(&import_path),
+                &alias_text,
+                &alias_length
+            );
+        }
     }
     status = basl_program_add_module_import(
         program,
@@ -2520,7 +2554,9 @@ static basl_status_t basl_program_parse_import(
         return status;
     }
 
-    status = basl_program_parse_source(program, imported_source_id);
+    if (!native_found) {
+        status = basl_program_parse_source(program, imported_source_id);
+    }
     basl_string_free(&import_path);
     return status;
 }
@@ -7361,6 +7397,160 @@ static basl_status_t basl_parser_parse_constructor_resolved(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_native_call(
+    basl_parser_state_t *state,
+    const basl_token_t *member_token,
+    basl_source_id_t source_id,
+    const char *member_name,
+    size_t member_name_length,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t arg_result;
+    const basl_native_module_t *mod;
+    const basl_native_module_function_t *fn;
+    size_t mod_idx;
+    size_t i;
+    size_t arg_count;
+    basl_object_t *native_obj;
+    basl_value_t native_val;
+
+    mod_idx = BASL_NATIVE_SOURCE_INDEX(source_id);
+    if (mod_idx >= state->program->natives->module_count) {
+        return basl_parser_report(state, member_token->span, "unknown native module");
+    }
+    mod = state->program->natives->modules[mod_idx];
+
+    /* Find the function in the native module. */
+    fn = NULL;
+    for (i = 0U; i < mod->function_count; i++) {
+        if (mod->functions[i].name_length == member_name_length &&
+            memcmp(mod->functions[i].name, member_name, member_name_length) == 0) {
+            fn = &mod->functions[i];
+            break;
+        }
+    }
+    if (fn == NULL) {
+        return basl_parser_report(state, member_token->span, "unknown function");
+    }
+
+    /* Parse arguments. */
+    basl_expression_result_clear(&arg_result);
+    status = basl_parser_expect(
+        state, BASL_TOKEN_LPAREN, "expected '(' after function name", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    arg_count = 0U;
+    if (!basl_parser_check(state, BASL_TOKEN_RPAREN)) {
+        while (1) {
+            status = basl_parser_parse_expression(state, &arg_result);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_require_scalar_expression(
+                state, member_token->span, &arg_result,
+                "call arguments must be single values"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            if (arg_count < fn->param_count) {
+                status = basl_parser_require_type(
+                    state, member_token->span, arg_result.type,
+                    basl_binding_type_primitive(
+                        (basl_type_kind_t)fn->param_types[arg_count]),
+                    "call argument type does not match parameter type"
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+            }
+            arg_count += 1U;
+            if (!basl_parser_match(state, BASL_TOKEN_COMMA)) {
+                break;
+            }
+        }
+    }
+    status = basl_parser_expect(
+        state, BASL_TOKEN_RPAREN, "expected ')' after argument list", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (arg_count != fn->param_count) {
+        return basl_parser_report(
+            state, member_token->span,
+            "call argument count does not match function signature"
+        );
+    }
+
+    /* Create native function object and store in constant pool. */
+    native_obj = NULL;
+    status = basl_native_function_object_create(
+        state->program->registry->runtime,
+        fn->name, fn->name_length,
+        fn->param_count, fn->native_fn,
+        &native_obj, state->program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    basl_value_init_object(&native_val, &native_obj);
+    {
+        size_t const_idx;
+
+        const_idx = 0U;
+        status = basl_chunk_add_constant(
+            &state->chunk, &native_val, &const_idx,
+            state->program->error
+        );
+        basl_value_release(&native_val);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(
+            state, BASL_OPCODE_CALL_NATIVE, member_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_u32(
+            state, (uint32_t)const_idx, member_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_u32(
+            state, (uint32_t)arg_count, member_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    /* Set return type. */
+    if (fn->return_count <= 1U) {
+        basl_expression_result_set_type(
+            out_result,
+            basl_binding_type_primitive((basl_type_kind_t)fn->return_type)
+        );
+    } else {
+        /* Multi-return: build return_types array on the stack. */
+        basl_parser_type_t ret_types[2];
+        size_t rc;
+
+        rc = fn->return_count > 2U ? 2U : fn->return_count;
+        for (i = 0U; i < rc; i++) {
+            ret_types[i] = basl_binding_type_primitive(
+                (basl_type_kind_t)fn->return_types[i]);
+        }
+        basl_expression_result_set_return_types(
+            out_result,
+            ret_types[0],
+            ret_types,
+            rc
+        );
+    }
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_parser_parse_qualified_symbol(
     basl_parser_state_t *state,
     const basl_token_t *module_token,
@@ -7479,6 +7669,13 @@ static basl_status_t basl_parser_parse_qualified_symbol(
     }
 
     if (basl_parser_check(state, BASL_TOKEN_LPAREN)) {
+        /* Native module function call. */
+        if (BASL_IS_NATIVE_SOURCE_ID(source_id) && state->program->natives != NULL) {
+            return basl_parser_parse_native_call(
+                state, member_token, source_id, member_name,
+                member_name_length, out_result
+            );
+        }
         if (
             basl_program_find_top_level_function_name_in_source(
                 state->program,

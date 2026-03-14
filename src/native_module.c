@@ -65,3 +65,24 @@ const basl_native_module_t *basl_native_registry_find(
     }
     return NULL;
 }
+
+int basl_native_registry_find_index(
+    const basl_native_registry_t *registry,
+    const char *name,
+    size_t name_length,
+    size_t *out_index
+) {
+    size_t i;
+
+    if (registry == NULL || name == NULL || out_index == NULL) {
+        return 0;
+    }
+    for (i = 0U; i < registry->module_count; i++) {
+        if (registry->modules[i]->name_length == name_length &&
+            memcmp(registry->modules[i]->name, name, name_length) == 0) {
+            *out_index = i;
+            return 1;
+        }
+    }
+    return 0;
+}
