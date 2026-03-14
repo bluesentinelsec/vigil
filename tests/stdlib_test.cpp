@@ -444,4 +444,76 @@ TEST(BaslStdlibMathTest, ComposedExpressions) {
     )"), 0);
 }
 
+/* ── native class: Vec2 ──────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Vec2ConstructionAndFields) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec2 v = math.Vec2(3.0, 4.0);
+            if (v.x != 3.0) { return 1; }
+            if (v.y != 4.0) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec2FieldMutation) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec2 v = math.Vec2(1.0, 2.0);
+            v.x = 10.0;
+            v.y = 20.0;
+            if (v.x != 10.0) { return 1; }
+            if (v.y != 20.0) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec2Length) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec2 v = math.Vec2(3.0, 4.0);
+            if (v.length() != 5.0) { return 1; }
+            math.Vec2 zero = math.Vec2(0.0, 0.0);
+            if (zero.length() != 0.0) { return 2; }
+            math.Vec2 unit = math.Vec2(1.0, 0.0);
+            if (unit.length() != 1.0) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec2Dot) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec2 a = math.Vec2(3.0, 4.0);
+            math.Vec2 b = math.Vec2(1.0, 0.0);
+            if (a.dot(b) != 3.0) { return 1; }
+            // perpendicular vectors: dot == 0
+            math.Vec2 c = math.Vec2(0.0, 1.0);
+            if (b.dot(c) != 0.0) { return 2; }
+            // self dot
+            if (a.dot(a) != 25.0) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec2WithScalarMath) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec2 v = math.Vec2(3.0, 4.0);
+            f64 len = v.length();
+            if (math.sqrt(math.pow(len, 2.0)) != 5.0) { return 1; }
+            return 0;
+        }
+    )"), 0);
+}
+
 }  // namespace

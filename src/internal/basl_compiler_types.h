@@ -3,6 +3,7 @@
 
 #include "basl/chunk.h"
 #include "basl/diagnostic.h"
+#include "basl/native_module.h"
 #include "basl/source.h"
 #include "basl/token.h"
 #include "basl/value.h"
@@ -66,6 +67,7 @@ typedef struct basl_class_decl {
     size_t interface_impl_count;
     size_t interface_impl_capacity;
     size_t constructor_function_index;
+    const basl_native_class_t *native_class;  /* non-NULL = native */
 } basl_class_decl_t;
 
 typedef struct basl_interface_decl {

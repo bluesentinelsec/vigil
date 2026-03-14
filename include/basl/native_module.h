@@ -33,11 +33,41 @@ typedef struct basl_native_module_function {
 /**
  * Describes a native module (e.g. "fmt", "math").
  */
+
+typedef struct basl_native_class_field {
+    const char *name;
+    size_t name_length;
+    int type;                   /* basl_type_kind_t */
+} basl_native_class_field_t;
+
+typedef struct basl_native_class_method {
+    const char *name;
+    size_t name_length;
+    basl_native_fn_t native_fn;
+    size_t param_count;         /* excluding self */
+    const int *param_types;     /* basl_type_kind_t values, excluding self */
+    int return_type;            /* basl_type_kind_t */
+    size_t return_count;
+    const int *return_types;
+} basl_native_class_method_t;
+
+typedef struct basl_native_class {
+    const char *name;
+    size_t name_length;
+    const basl_native_class_field_t *fields;
+    size_t field_count;
+    const basl_native_class_method_t *methods;
+    size_t method_count;
+    basl_native_fn_t constructor;   /* NULL = default (field-per-arg) */
+} basl_native_class_t;
+
 typedef struct basl_native_module {
     const char *name;
     size_t name_length;
     const basl_native_module_function_t *functions;
     size_t function_count;
+    const basl_native_class_t *classes;
+    size_t class_count;
 } basl_native_module_t;
 
 /**

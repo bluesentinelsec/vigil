@@ -133,5 +133,6 @@ static const basl_native_module_function_t basl_fmt_functions[] = {
 BASL_API const basl_native_module_t basl_stdlib_fmt = {
     "fmt", 3U,
     basl_fmt_functions,
-    BASL_FMT_FUNCTION_COUNT
+    BASL_FMT_FUNCTION_COUNT,
+    NULL, 0U
 };

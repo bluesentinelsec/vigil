@@ -2407,6 +2407,73 @@ static basl_status_t basl_program_parse_import_target(
     return basl_program_resolve_import_path(program, text + 1U, length - 2U, out_path);
 }
 
+static basl_status_t basl_program_register_native_classes(
+    basl_program_state_t *program,
+    const basl_native_module_t *mod,
+    basl_source_id_t source_id
+) {
+    basl_status_t status;
+    size_t ci;
+    size_t fi;
+    size_t mi;
+
+    for (ci = 0U; ci < mod->class_count; ci++) {
+        const basl_native_class_t *nc = &mod->classes[ci];
+        basl_class_decl_t *decl;
+
+        status = basl_program_grow_classes(program, program->class_count + 1U);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        decl = &program->classes[program->class_count];
+        memset(decl, 0, sizeof(*decl));
+        decl->constructor_function_index = (size_t)-1;
+        decl->source_id = source_id;
+        decl->name = nc->name;
+        decl->name_length = nc->name_length;
+        decl->is_public = 1;
+        decl->native_class = nc;
+
+        /* Register fields. */
+        if (nc->field_count > 0U) {
+            status = basl_class_decl_grow_fields(
+                program, decl, nc->field_count);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            for (fi = 0U; fi < nc->field_count; fi++) {
+                basl_class_field_t *f = &decl->fields[fi];
+                f->name = nc->fields[fi].name;
+                f->name_length = nc->fields[fi].name_length;
+                f->is_public = 1;
+                f->type = basl_binding_type_primitive(
+                    (basl_type_kind_t)nc->fields[fi].type);
+            }
+            decl->field_count = nc->field_count;
+        }
+
+        /* Register method stubs (function_index unused for native). */
+        if (nc->method_count > 0U) {
+            status = basl_class_decl_grow_methods(
+                program, decl, nc->method_count);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            for (mi = 0U; mi < nc->method_count; mi++) {
+                basl_class_method_t *m = &decl->methods[mi];
+                m->name = nc->methods[mi].name;
+                m->name_length = nc->methods[mi].name_length;
+                m->is_public = 1;
+                m->function_index = (size_t)-1;
+            }
+            decl->method_count = nc->method_count;
+        }
+
+        program->class_count += 1U;
+    }
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_program_parse_import(
     basl_program_state_t *program,
     size_t *cursor
@@ -2556,6 +2623,12 @@ static basl_status_t basl_program_parse_import(
 
     if (!native_found) {
         status = basl_program_parse_source(program, imported_source_id);
+    } else if (program->natives->modules[native_idx]->class_count > 0U) {
+        status = basl_program_register_native_classes(
+            program,
+            program->natives->modules[native_idx],
+            imported_source_id
+        );
     }
     basl_string_free(&import_path);
     return status;
@@ -7551,6 +7624,133 @@ static basl_status_t basl_parser_parse_native_call(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_native_method_call(
+    basl_parser_state_t *state,
+    const basl_token_t *method_token,
+    const basl_native_class_t *nc,
+    const basl_native_class_method_t *method,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t arg_result;
+    size_t arg_count;
+    size_t i;
+    basl_object_t *native_obj;
+    basl_value_t native_val;
+
+    (void)nc;
+    basl_expression_result_clear(&arg_result);
+    status = basl_parser_expect(
+        state, BASL_TOKEN_LPAREN, "expected '(' after method name", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    /* self is already on the stack; parse remaining args. */
+    arg_count = 0U;
+    if (!basl_parser_check(state, BASL_TOKEN_RPAREN)) {
+        while (1) {
+            status = basl_parser_parse_expression(state, &arg_result);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_require_scalar_expression(
+                state, method_token->span, &arg_result,
+                "call arguments must be single values"
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            if (arg_count < method->param_count &&
+                method->param_types[arg_count] != BASL_TYPE_OBJECT) {
+                status = basl_parser_require_type(
+                    state, method_token->span, arg_result.type,
+                    basl_binding_type_primitive(
+                        (basl_type_kind_t)method->param_types[arg_count]),
+                    "call argument type does not match parameter type"
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+            }
+            arg_count += 1U;
+            if (!basl_parser_match(state, BASL_TOKEN_COMMA)) {
+                break;
+            }
+        }
+    }
+    status = basl_parser_expect(
+        state, BASL_TOKEN_RPAREN, "expected ')' after argument list", NULL);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    if (arg_count != method->param_count) {
+        return basl_parser_report(
+            state, method_token->span,
+            "call argument count does not match method signature"
+        );
+    }
+
+    /* Create native function object and emit CALL_NATIVE.
+     * arg_count + 1 accounts for self on the stack. */
+    native_obj = NULL;
+    status = basl_native_function_object_create(
+        state->program->registry->runtime,
+        method->name, method->name_length,
+        method->param_count + 1U, method->native_fn,
+        &native_obj, state->program->error
+    );
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    basl_value_init_object(&native_val, &native_obj);
+    {
+        size_t const_idx = 0U;
+
+        status = basl_chunk_add_constant(
+            &state->chunk, &native_val, &const_idx,
+            state->program->error
+        );
+        basl_value_release(&native_val);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(
+            state, BASL_OPCODE_CALL_NATIVE, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_u32(
+            state, (uint32_t)const_idx, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_u32(
+            state, (uint32_t)(arg_count + 1U), method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+    }
+
+    /* Set return type. */
+    if (method->return_count <= 1U) {
+        basl_expression_result_set_type(
+            out_result,
+            basl_binding_type_primitive((basl_type_kind_t)method->return_type)
+        );
+    } else {
+        basl_parser_type_t ret_types[2];
+        size_t rc = method->return_count > 2U ? 2U : method->return_count;
+        for (i = 0U; i < rc; i++) {
+            ret_types[i] = basl_binding_type_primitive(
+                (basl_type_kind_t)method->return_types[i]);
+        }
+        basl_expression_result_set_return_types(
+            out_result, ret_types[0], ret_types, rc);
+    }
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_parser_parse_qualified_symbol(
     basl_parser_state_t *state,
     const basl_token_t *module_token,
@@ -7671,10 +7871,27 @@ static basl_status_t basl_parser_parse_qualified_symbol(
     if (basl_parser_check(state, BASL_TOKEN_LPAREN)) {
         /* Native module function call. */
         if (BASL_IS_NATIVE_SOURCE_ID(source_id) && state->program->natives != NULL) {
-            return basl_parser_parse_native_call(
-                state, member_token, source_id, member_name,
-                member_name_length, out_result
-            );
+            /* Check if it's a function first; if not, fall through to class lookup. */
+            const basl_native_module_t *nmod;
+            size_t nmod_idx = BASL_NATIVE_SOURCE_INDEX(source_id);
+            int is_native_fn = 0;
+            if (nmod_idx < state->program->natives->module_count) {
+                size_t ni;
+                nmod = state->program->natives->modules[nmod_idx];
+                for (ni = 0U; ni < nmod->function_count; ni++) {
+                    if (nmod->functions[ni].name_length == member_name_length &&
+                        memcmp(nmod->functions[ni].name, member_name, member_name_length) == 0) {
+                        is_native_fn = 1;
+                        break;
+                    }
+                }
+            }
+            if (is_native_fn) {
+                return basl_parser_parse_native_call(
+                    state, member_token, source_id, member_name,
+                    member_name_length, out_result
+                );
+            }
         }
         if (
             basl_program_find_top_level_function_name_in_source(
@@ -8235,7 +8452,15 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
                             "class method is not public"
                         );
                     }
-                    status = basl_parser_parse_method_call(state, field_token, class_method, out_result);
+                    if (class_decl->native_class != NULL) {
+                        status = basl_parser_parse_native_method_call(
+                            state, field_token,
+                            class_decl->native_class,
+                            &class_decl->native_class->methods[method_index],
+                            out_result);
+                    } else {
+                        status = basl_parser_parse_method_call(state, field_token, class_method, out_result);
+                    }
                     if (status != BASL_STATUS_OK) {
                         return status;
                     }
