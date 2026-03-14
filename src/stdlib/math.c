@@ -230,6 +230,40 @@ static basl_status_t basl_math_remap(
     return basl_math_push_f64(vm, out_start + (out_end - out_start) * t, error);
 }
 
+static basl_status_t basl_math_inverselerp(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    double val = basl_math_pop_f64(vm);
+    double b = basl_math_pop_f64(vm);
+    double a = basl_math_pop_f64(vm);
+    double range = b - a;
+    return basl_math_push_f64(vm, (range == 0.0) ? 0.0 : (val - a) / range, error);
+}
+
+static basl_status_t basl_math_smoothstep(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    double x = basl_math_pop_f64(vm);
+    double edge1 = basl_math_pop_f64(vm);
+    double edge0 = basl_math_pop_f64(vm);
+    double range = edge1 - edge0;
+    double t = (range == 0.0) ? 0.0 : (x - edge0) / range;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+    return basl_math_push_f64(vm, t * t * (3.0 - 2.0 * t), error);
+}
+
+static basl_status_t basl_math_step(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    double x = basl_math_pop_f64(vm);
+    double edge = basl_math_pop_f64(vm);
+    return basl_math_push_f64(vm, (x >= edge) ? 1.0 : 0.0, error);
+}
+
 /* ── module descriptor ───────────────────────────────────────────── */
 
 static const int basl_math_f64_params[] = { BASL_TYPE_F64 };
@@ -288,8 +322,11 @@ static const basl_native_module_function_t basl_math_functions[] = {
     MATH_FN2(atan2,     "atan2",    5U),
     MATH_FN2(hypot,     "hypot",    5U),
     MATH_FN2(fmod,      "fmod",     4U),
+    MATH_FN2(step,      "step",     4U),
     MATH_FN3(clamp,     "clamp",    5U),
     MATH_FN3(lerp,      "lerp",     4U),
+    MATH_FN3(inverselerp, "inverseLerp", 11U),
+    MATH_FN3(smoothstep, "smoothstep", 10U),
     MATH_FN3(normalize, "normalize", 9U),
     MATH_FN3(wrap,      "wrap",     4U),
     MATH_FN5(remap,     "remap",    5U),
@@ -425,6 +462,56 @@ static basl_status_t basl_vec2_distance(
     return basl_math_push_f64(vm, sqrt(dx * dx + dy * dy), error);
 }
 
+static basl_status_t basl_vec2_lengthsqr(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x = basl_vec_get_field(vm, base, 0U);
+    double y = basl_vec_get_field(vm, base, 1U);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_math_push_f64(vm, x * x + y * y, error);
+}
+
+static basl_status_t basl_vec2_negate(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x = basl_vec_get_field(vm, base, 0U);
+    double y = basl_vec_get_field(vm, base, 1U);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_vec2_push_new(vm, -x, -y, ci, error);
+}
+
+static basl_status_t basl_vec2_vlerp(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x1 = basl_vec_get_field(vm, base, 0U);
+    double y1 = basl_vec_get_field(vm, base, 1U);
+    double x2 = basl_vec_get_field(vm, base + 1U, 0U);
+    double y2 = basl_vec_get_field(vm, base + 1U, 1U);
+    basl_value_t tv = basl_vm_stack_get(vm, base + 2U);
+    double t = basl_nanbox_decode_double(tv);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_vec2_push_new(vm, x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, ci, error);
+}
+
+static basl_status_t basl_vec2_reflect(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double vx = basl_vec_get_field(vm, base, 0U);
+    double vy = basl_vec_get_field(vm, base, 1U);
+    double nx = basl_vec_get_field(vm, base + 1U, 0U);
+    double ny = basl_vec_get_field(vm, base + 1U, 1U);
+    double d2 = 2.0 * (vx * nx + vy * ny);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_vec2_push_new(vm, vx - d2 * nx, vy - d2 * ny, ci, error);
+}
+
 static const basl_native_class_field_t basl_vec2_fields[] = {
     { "x", 1U, BASL_TYPE_F64 },
     { "y", 1U, BASL_TYPE_F64 },
@@ -432,13 +519,20 @@ static const basl_native_class_field_t basl_vec2_fields[] = {
 
 static const int basl_vec_obj_params[] = { BASL_TYPE_OBJECT };
 static const int basl_vec_f64_params[] = { BASL_TYPE_F64 };
+static const int basl_vec_obj_f64_params[] = { BASL_TYPE_OBJECT, BASL_TYPE_F64 };
 
 static const basl_native_class_method_t basl_vec2_methods[] = {
     { "length",    6U, basl_vec2_length,     0U, NULL,
       BASL_TYPE_F64, 1U, NULL },
+    { "lengthSqr", 9U, basl_vec2_lengthsqr, 0U, NULL,
+      BASL_TYPE_F64, 1U, NULL },
     { "dot",       3U, basl_vec2_dot,        1U, basl_vec_obj_params,
       BASL_TYPE_F64, 1U, NULL },
+    { "distance",  8U, basl_vec2_distance,   1U, basl_vec_obj_params,
+      BASL_TYPE_F64, 1U, NULL },
     { "normalize", 9U, basl_vec2_vnormalize, 0U, NULL,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "negate",    6U, basl_vec2_negate,     0U, NULL,
       BASL_TYPE_OBJECT, 1U, NULL },
     { "add",       3U, basl_vec2_add,        1U, basl_vec_obj_params,
       BASL_TYPE_OBJECT, 1U, NULL },
@@ -446,8 +540,10 @@ static const basl_native_class_method_t basl_vec2_methods[] = {
       BASL_TYPE_OBJECT, 1U, NULL },
     { "scale",     5U, basl_vec2_scale,      1U, basl_vec_f64_params,
       BASL_TYPE_OBJECT, 1U, NULL },
-    { "distance",  8U, basl_vec2_distance,   1U, basl_vec_obj_params,
-      BASL_TYPE_F64, 1U, NULL },
+    { "lerp",      4U, basl_vec2_vlerp,      2U, basl_vec_obj_f64_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "reflect",   7U, basl_vec2_reflect,    1U, basl_vec_obj_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
 };
 
 /* ── Vec3 class ──────────────────────────────────────────────────── */
@@ -584,6 +680,87 @@ static basl_status_t basl_vec3_distance(
     return basl_math_push_f64(vm, sqrt(dx*dx + dy*dy + dz*dz), error);
 }
 
+static basl_status_t basl_vec3_lengthsqr(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x = basl_vec_get_field(vm, base, 0U);
+    double y = basl_vec_get_field(vm, base, 1U);
+    double z = basl_vec_get_field(vm, base, 2U);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_math_push_f64(vm, x*x + y*y + z*z, error);
+}
+
+static basl_status_t basl_vec3_negate(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x = basl_vec_get_field(vm, base, 0U);
+    double y = basl_vec_get_field(vm, base, 1U);
+    double z = basl_vec_get_field(vm, base, 2U);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_vec3_push_new(vm, -x, -y, -z, ci, error);
+}
+
+static basl_status_t basl_vec3_vlerp(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x1 = basl_vec_get_field(vm, base, 0U);
+    double y1 = basl_vec_get_field(vm, base, 1U);
+    double z1 = basl_vec_get_field(vm, base, 2U);
+    double x2 = basl_vec_get_field(vm, base + 1U, 0U);
+    double y2 = basl_vec_get_field(vm, base + 1U, 1U);
+    double z2 = basl_vec_get_field(vm, base + 1U, 2U);
+    basl_value_t tv = basl_vm_stack_get(vm, base + 2U);
+    double t = basl_nanbox_decode_double(tv);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_vec3_push_new(vm,
+        x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, z1 + (z2 - z1) * t,
+        ci, error);
+}
+
+static basl_status_t basl_vec3_reflect(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double vx = basl_vec_get_field(vm, base, 0U);
+    double vy = basl_vec_get_field(vm, base, 1U);
+    double vz = basl_vec_get_field(vm, base, 2U);
+    double nx = basl_vec_get_field(vm, base + 1U, 0U);
+    double ny = basl_vec_get_field(vm, base + 1U, 1U);
+    double nz = basl_vec_get_field(vm, base + 1U, 2U);
+    double d2 = 2.0 * (vx*nx + vy*ny + vz*nz);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_vec3_push_new(vm, vx - d2*nx, vy - d2*ny, vz - d2*nz, ci, error);
+}
+
+static basl_status_t basl_vec3_angle(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x1 = basl_vec_get_field(vm, base, 0U);
+    double y1 = basl_vec_get_field(vm, base, 1U);
+    double z1 = basl_vec_get_field(vm, base, 2U);
+    double x2 = basl_vec_get_field(vm, base + 1U, 0U);
+    double y2 = basl_vec_get_field(vm, base + 1U, 1U);
+    double z2 = basl_vec_get_field(vm, base + 1U, 2U);
+    double dot = x1*x2 + y1*y2 + z1*z2;
+    double len1 = sqrt(x1*x1 + y1*y1 + z1*z1);
+    double len2 = sqrt(x2*x2 + y2*y2 + z2*z2);
+    double denom = len1 * len2;
+    double cosA;
+    basl_vm_stack_pop_n(vm, arg_count);
+    if (denom == 0.0) return basl_math_push_f64(vm, 0.0, error);
+    cosA = dot / denom;
+    if (cosA < -1.0) cosA = -1.0;
+    if (cosA > 1.0) cosA = 1.0;
+    return basl_math_push_f64(vm, acos(cosA), error);
+}
+
 static const basl_native_class_field_t basl_vec3_fields[] = {
     { "x", 1U, BASL_TYPE_F64 },
     { "y", 1U, BASL_TYPE_F64 },
@@ -593,11 +770,19 @@ static const basl_native_class_field_t basl_vec3_fields[] = {
 static const basl_native_class_method_t basl_vec3_methods[] = {
     { "length",    6U, basl_vec3_length,     0U, NULL,
       BASL_TYPE_F64, 1U, NULL },
+    { "lengthSqr", 9U, basl_vec3_lengthsqr, 0U, NULL,
+      BASL_TYPE_F64, 1U, NULL },
     { "dot",       3U, basl_vec3_dot,        1U, basl_vec_obj_params,
+      BASL_TYPE_F64, 1U, NULL },
+    { "distance",  8U, basl_vec3_distance,   1U, basl_vec_obj_params,
+      BASL_TYPE_F64, 1U, NULL },
+    { "angle",     5U, basl_vec3_angle,      1U, basl_vec_obj_params,
       BASL_TYPE_F64, 1U, NULL },
     { "cross",     5U, basl_vec3_cross,      1U, basl_vec_obj_params,
       BASL_TYPE_OBJECT, 1U, NULL },
     { "normalize", 9U, basl_vec3_vnormalize, 0U, NULL,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "negate",    6U, basl_vec3_negate,     0U, NULL,
       BASL_TYPE_OBJECT, 1U, NULL },
     { "add",       3U, basl_vec3_add,        1U, basl_vec_obj_params,
       BASL_TYPE_OBJECT, 1U, NULL },
@@ -605,21 +790,23 @@ static const basl_native_class_method_t basl_vec3_methods[] = {
       BASL_TYPE_OBJECT, 1U, NULL },
     { "scale",     5U, basl_vec3_scale,      1U, basl_vec_f64_params,
       BASL_TYPE_OBJECT, 1U, NULL },
-    { "distance",  8U, basl_vec3_distance,   1U, basl_vec_obj_params,
-      BASL_TYPE_F64, 1U, NULL },
+    { "lerp",      4U, basl_vec3_vlerp,      2U, basl_vec_obj_f64_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "reflect",   7U, basl_vec3_reflect,    1U, basl_vec_obj_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
 };
 
 static const basl_native_class_t basl_math_classes[] = {
     {
         "Vec2", 4U,
         basl_vec2_fields, 2U,
-        basl_vec2_methods, 7U,
+        basl_vec2_methods, 11U,
         NULL
     },
     {
         "Vec3", 4U,
         basl_vec3_fields, 3U,
-        basl_vec3_methods, 8U,
+        basl_vec3_methods, 13U,
         NULL
     },
 };
