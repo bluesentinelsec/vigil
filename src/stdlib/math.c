@@ -323,13 +323,15 @@ static basl_status_t basl_vec2_push_new(
     basl_value_t fields[2];
     basl_object_t *inst;
     basl_value_t result;
+    basl_status_t s;
     fields[0] = basl_nanbox_encode_double(x);
     fields[1] = basl_nanbox_encode_double(y);
-    basl_status_t s = basl_instance_object_new(
-        rt, class_index, fields, 2U, &inst, error);
+    s = basl_instance_object_new(rt, class_index, fields, 2U, &inst, error);
     if (s != BASL_STATUS_OK) return s;
     basl_value_init_object(&result, &inst);
-    return basl_vm_stack_push(vm, &result, error);
+    s = basl_vm_stack_push(vm, &result, error);
+    basl_value_release(&result);
+    return s;
 }
 
 /* Get class_index from self instance. */
@@ -458,14 +460,16 @@ static basl_status_t basl_vec3_push_new(
     basl_value_t fields[3];
     basl_object_t *inst;
     basl_value_t result;
+    basl_status_t s;
     fields[0] = basl_nanbox_encode_double(x);
     fields[1] = basl_nanbox_encode_double(y);
     fields[2] = basl_nanbox_encode_double(z);
-    basl_status_t s = basl_instance_object_new(
-        rt, class_index, fields, 3U, &inst, error);
+    s = basl_instance_object_new(rt, class_index, fields, 3U, &inst, error);
     if (s != BASL_STATUS_OK) return s;
     basl_value_init_object(&result, &inst);
-    return basl_vm_stack_push(vm, &result, error);
+    s = basl_vm_stack_push(vm, &result, error);
+    basl_value_release(&result);
+    return s;
 }
 
 static basl_status_t basl_vec3_length(
