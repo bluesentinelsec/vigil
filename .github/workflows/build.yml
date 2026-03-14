@@ -47,6 +47,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  portability:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check core portability
+        run: python3 scripts/check_core_portability.py
+
   sanitizers:
     runs-on: ubuntu-latest
     env:

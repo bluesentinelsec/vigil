@@ -18,7 +18,12 @@ else()
     set(BASL_LIBRARY_TYPE SHARED)
 endif()
 
-add_library(basl ${BASL_LIBRARY_TYPE}
+# ── Core interpreter library ─────────────────────────────────────────
+# Pure C11, no platform-specific headers.  Must compile on any
+# conforming C11 toolchain (GCC, Clang, MSVC, Emscripten).
+# When adding stdlib modules that need POSIX/Win32 APIs, put them in
+# a separate basl_stdlib target that links against basl_core.
+add_library(basl_core OBJECT
     src/allocator.c
     src/array.c
     src/binding.c
@@ -46,6 +51,23 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/vm.c
 )
 
+target_include_directories(basl_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_compile_features(basl_core PUBLIC c_std_11)
+
+# Objects may end up in a shared library, so they need PIC on Linux.
+set_target_properties(basl_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# ── Public shared/static library ────────────────────────────────────
+# Today this is just the core.  Future stdlib modules will be added
+# here (or as a basl_stdlib OBJECT library linked alongside).
+add_library(basl ${BASL_LIBRARY_TYPE}
+    $<TARGET_OBJECTS:basl_core>
+)
+
 target_include_directories(basl
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -58,6 +80,22 @@ if(NOT EMSCRIPTEN)
         PUBLIC BASL_SHARED
         PRIVATE BASL_EXPORTS
     )
+    target_compile_definitions(basl_core PRIVATE BASL_EXPORTS BASL_SHARED)
+endif()
+
+# On MSVC multi-config generators, an OBJECT-library-backed shared
+# library may place its import library (.lib) in a different directory
+# than dependents expect.  Pin all output directories so the DLL,
+# import lib, and executables land together.
+if(MSVC)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    foreach(CFG RELEASE DEBUG RELWITHDEBINFO MINSIZEREL)
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/${CFG}")
+        set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/${CFG}")
+        set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CFG} "${CMAKE_BINARY_DIR}/${CFG}")
+    endforeach()
 endif()
 
 add_executable(basl_cli

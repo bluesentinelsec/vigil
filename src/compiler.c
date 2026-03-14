@@ -5382,6 +5382,45 @@ static basl_status_t basl_parser_emit_i64_binop(
     return basl_parser_emit_opcode(state, result, span);
 }
 
+/*
+ * Map an i64 opcode to its i32 equivalent.
+ */
+static basl_opcode_t basl_parser_i64_to_i32(basl_opcode_t op) {
+    switch (op) {
+        case BASL_OPCODE_ADD_I64:           return BASL_OPCODE_ADD_I32;
+        case BASL_OPCODE_SUBTRACT_I64:      return BASL_OPCODE_SUBTRACT_I32;
+        case BASL_OPCODE_MULTIPLY_I64:      return BASL_OPCODE_MULTIPLY_I32;
+        case BASL_OPCODE_DIVIDE_I64:        return BASL_OPCODE_DIVIDE_I32;
+        case BASL_OPCODE_MODULO_I64:        return BASL_OPCODE_MODULO_I32;
+        case BASL_OPCODE_LESS_I64:          return BASL_OPCODE_LESS_I32;
+        case BASL_OPCODE_LESS_EQUAL_I64:    return BASL_OPCODE_LESS_EQUAL_I32;
+        case BASL_OPCODE_GREATER_I64:       return BASL_OPCODE_GREATER_I32;
+        case BASL_OPCODE_GREATER_EQUAL_I64: return BASL_OPCODE_GREATER_EQUAL_I32;
+        case BASL_OPCODE_EQUAL_I64:         return BASL_OPCODE_EQUAL_I32;
+        case BASL_OPCODE_NOT_EQUAL_I64:     return BASL_OPCODE_NOT_EQUAL_I32;
+        default:                            return op;
+    }
+}
+
+/*
+ * Emit an i32 binary opcode.  Tries LOCALS fusion first (reusing the
+ * i64 fusion which avoids push/pop).  If no fusion, emits the i32
+ * stack opcode which skips i64 overflow checks.
+ */
+static basl_status_t basl_parser_emit_i32_binop(
+    basl_parser_state_t *state,
+    basl_opcode_t i64_opcode,
+    basl_source_span_t span,
+    size_t pre_left_size
+) {
+    basl_opcode_t fused = basl_parser_try_fuse_locals_i64(state, i64_opcode, pre_left_size);
+    if (fused == (basl_opcode_t)255) {
+        return BASL_STATUS_OK; /* LOCALS_*_I64 fusion succeeded */
+    }
+    /* No fusion — emit the i32 stack opcode. */
+    return basl_parser_emit_opcode(state, basl_parser_i64_to_i32(i64_opcode), span);
+}
+
 basl_status_t basl_parser_emit_u32(
     basl_parser_state_t *state,
     uint32_t value,
@@ -9404,30 +9443,49 @@ static basl_status_t basl_parser_parse_factor(
         }
 
         if (operator_kind == BASL_TOKEN_STAR) {
-            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+            int both_i32 = basl_parser_type_is_i32(left_result.type) &&
+                           basl_parser_type_is_i32(right_result.type);
+            int both_si = !both_i32 &&
+                          basl_parser_type_is_signed_integer(left_result.type) &&
                           basl_parser_type_is_signed_integer(right_result.type);
-            status = both_si
+            status = both_i32
+                ? basl_parser_emit_i32_binop(state, BASL_OPCODE_MULTIPLY_I64, operator_span, pre_left_size)
+                : both_si
                 ? basl_parser_emit_i64_binop(state, BASL_OPCODE_MULTIPLY_I64, operator_span, pre_left_size)
                 : basl_parser_emit_opcode(state, BASL_OPCODE_MULTIPLY, operator_span);
         } else if (operator_kind == BASL_TOKEN_SLASH) {
-            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+            int both_i32 = basl_parser_type_is_i32(left_result.type) &&
+                           basl_parser_type_is_i32(right_result.type);
+            int both_si = !both_i32 &&
+                          basl_parser_type_is_signed_integer(left_result.type) &&
                           basl_parser_type_is_signed_integer(right_result.type);
-            status = both_si
+            status = both_i32
+                ? basl_parser_emit_i32_binop(state, BASL_OPCODE_DIVIDE_I64, operator_span, pre_left_size)
+                : both_si
                 ? basl_parser_emit_i64_binop(state, BASL_OPCODE_DIVIDE_I64, operator_span, pre_left_size)
                 : basl_parser_emit_opcode(state, BASL_OPCODE_DIVIDE, operator_span);
         } else {
-            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+            int both_i32 = basl_parser_type_is_i32(left_result.type) &&
+                           basl_parser_type_is_i32(right_result.type);
+            int both_si = !both_i32 &&
+                          basl_parser_type_is_signed_integer(left_result.type) &&
                           basl_parser_type_is_signed_integer(right_result.type);
-            status = both_si
+            status = both_i32
+                ? basl_parser_emit_i32_binop(state, BASL_OPCODE_MODULO_I64, operator_span, pre_left_size)
+                : both_si
                 ? basl_parser_emit_i64_binop(state, BASL_OPCODE_MODULO_I64, operator_span, pre_left_size)
                 : basl_parser_emit_opcode(state, BASL_OPCODE_MODULO, operator_span);
         }
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
-        if (status != BASL_STATUS_OK) {
-            return status;
+        /* i32 opcodes already produce i32 results — skip the cast. */
+        if (!basl_parser_type_is_i32(left_result.type) ||
+            !basl_parser_type_is_i32(right_result.type)) {
+            status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
         }
     }
 
@@ -9506,14 +9564,19 @@ static basl_status_t basl_parser_parse_term(
         }
 
         {
-            int both_si = basl_parser_type_is_signed_integer(left_result.type) &&
+            int both_i32 = basl_parser_type_is_i32(left_result.type) &&
+                           basl_parser_type_is_i32(right_result.type);
+            int both_si = !both_i32 &&
+                          basl_parser_type_is_signed_integer(left_result.type) &&
                           basl_parser_type_is_signed_integer(right_result.type);
             basl_opcode_t op = operator_kind == BASL_TOKEN_PLUS
-                ? (both_si ? BASL_OPCODE_ADD_I64 : BASL_OPCODE_ADD)
-                : (both_si ? BASL_OPCODE_SUBTRACT_I64 : BASL_OPCODE_SUBTRACT);
-            status = both_si
-                ? basl_parser_emit_i64_binop(state, op, operator_span, pre_left_size)
-                : basl_parser_emit_opcode(state, op, operator_span);
+                ? ((both_si || both_i32) ? BASL_OPCODE_ADD_I64 : BASL_OPCODE_ADD)
+                : ((both_si || both_i32) ? BASL_OPCODE_SUBTRACT_I64 : BASL_OPCODE_SUBTRACT);
+            status = both_i32
+                ? basl_parser_emit_i32_binop(state, op, operator_span, pre_left_size)
+                : (both_si
+                    ? basl_parser_emit_i64_binop(state, op, operator_span, pre_left_size)
+                    : basl_parser_emit_opcode(state, op, operator_span));
         }
         if (status != BASL_STATUS_OK) {
             return status;
@@ -9526,7 +9589,8 @@ static basl_status_t basl_parser_parse_term(
             )
         ) {
             left_result.type = basl_binding_type_primitive(BASL_TYPE_STRING);
-        } else {
+        } else if (!(basl_parser_type_is_i32(left_result.type) &&
+                     basl_parser_type_is_i32(right_result.type))) {
             status = basl_parser_emit_integer_cast(state, left_result.type, operator_span);
             if (status != BASL_STATUS_OK) {
                 return status;
@@ -9704,21 +9768,31 @@ static basl_status_t basl_parser_parse_comparison(
         }
 
         {
-            int both_signed = basl_parser_type_is_signed_integer(left_result.type) &&
+            int both_i32 = basl_parser_type_is_i32(left_result.type) &&
+                           basl_parser_type_is_i32(right_result.type);
+            int both_signed = !both_i32 &&
+                              basl_parser_type_is_signed_integer(left_result.type) &&
                               basl_parser_type_is_signed_integer(right_result.type);
             switch (operator_kind) {
                 case BASL_TOKEN_GREATER:
-                    status = both_signed
+                    status = both_i32
+                        ? basl_parser_emit_i32_binop(state, BASL_OPCODE_GREATER_I64, operator_span, pre_left_size)
+                        : both_signed
                         ? basl_parser_emit_i64_binop(state, BASL_OPCODE_GREATER_I64, operator_span, pre_left_size)
                         : basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
                     break;
                 case BASL_TOKEN_LESS:
-                    status = both_signed
+                    status = both_i32
+                        ? basl_parser_emit_i32_binop(state, BASL_OPCODE_LESS_I64, operator_span, pre_left_size)
+                        : both_signed
                         ? basl_parser_emit_i64_binop(state, BASL_OPCODE_LESS_I64, operator_span, pre_left_size)
                         : basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
                     break;
                 case BASL_TOKEN_GREATER_EQUAL:
-                    if (both_signed) {
+                    if (both_i32) {
+                        status = basl_parser_emit_i32_binop(state,
+                            BASL_OPCODE_GREATER_EQUAL_I64, operator_span, pre_left_size);
+                    } else if (both_signed) {
                         status = basl_parser_emit_i64_binop(state,
                             BASL_OPCODE_GREATER_EQUAL_I64, operator_span, pre_left_size);
                     } else {
@@ -9729,7 +9803,10 @@ static basl_status_t basl_parser_parse_comparison(
                     }
                     break;
                 case BASL_TOKEN_LESS_EQUAL:
-                    if (both_signed) {
+                    if (both_i32) {
+                        status = basl_parser_emit_i32_binop(state,
+                            BASL_OPCODE_LESS_EQUAL_I64, operator_span, pre_left_size);
+                    } else if (both_signed) {
                         status = basl_parser_emit_i64_binop(state,
                             BASL_OPCODE_LESS_EQUAL_I64, operator_span, pre_left_size);
                     } else {
@@ -9817,7 +9894,12 @@ static basl_status_t basl_parser_parse_equality(
             return status;
         }
 
-        if (basl_parser_type_is_signed_integer(left_result.type) &&
+        if (basl_parser_type_is_i32(left_result.type) &&
+            basl_parser_type_is_i32(right_result.type)) {
+            basl_opcode_t eq_op = operator_kind == BASL_TOKEN_BANG_EQUAL
+                ? BASL_OPCODE_NOT_EQUAL_I64 : BASL_OPCODE_EQUAL_I64;
+            status = basl_parser_emit_i32_binop(state, eq_op, operator_span, pre_left_size);
+        } else if (basl_parser_type_is_signed_integer(left_result.type) &&
             basl_parser_type_is_signed_integer(right_result.type)) {
             basl_opcode_t eq_op = operator_kind == BASL_TOKEN_BANG_EQUAL
                 ? BASL_OPCODE_NOT_EQUAL_I64 : BASL_OPCODE_EQUAL_I64;
@@ -10669,6 +10751,31 @@ static basl_status_t basl_parser_parse_return_statement(
         return status;
     }
 
+    /* Peephole: CALL + RETURN 1 → TAIL_CALL when safe.
+       Pattern: [CALL(1)][u32 func][u32 argc][RETURN(1)][u32 1] = 14 bytes
+       Rewrite: [TAIL_CALL(1)][u32 func][u32 argc] = 9 bytes
+       Safe only when: single return value, no defers emitted. */
+    if (state->expected_return_count == 1U && !state->defer_emitted) {
+        uint8_t *c = state->chunk.code.data;
+        size_t len = state->chunk.code.length;
+        if (len >= 14U &&
+            c[len - 14U] == BASL_OPCODE_CALL &&
+            c[len - 5U] == BASL_OPCODE_RETURN) {
+            /* Verify RETURN operand is 1. */
+            uint32_t ret_count = (uint32_t)c[len - 4U]
+                | ((uint32_t)c[len - 3U] << 8U)
+                | ((uint32_t)c[len - 2U] << 16U)
+                | ((uint32_t)c[len - 1U] << 24U);
+            if (ret_count == 1U) {
+                c[len - 14U] = BASL_OPCODE_TAIL_CALL;
+                state->chunk.code.length = len - 5U;
+                if (state->chunk.span_count > len - 5U) {
+                    state->chunk.span_count = len - 5U;
+                }
+            }
+        }
+    }
+
     basl_statement_result_set_guaranteed_return(out_result, 1);
     return BASL_STATUS_OK;
 }
@@ -11081,6 +11188,77 @@ static basl_status_t basl_parser_parse_while_statement(
     status = basl_parser_emit_loop(state, loop_start, while_token->span);
     if (status != BASL_STATUS_OK) {
         goto cleanup_loop;
+    }
+
+    /* Peephole: rewrite INCREMENT_LOCAL_I32 + LOOP → FORLOOP_I32
+       when the condition at loop_start is GET_LOCAL + CONSTANT + <cmp_I32>
+       + JUMP_IF_FALSE + POP.  The FORLOOP does increment + compare + branch
+       in a single dispatch, jumping back to the body start. */
+    {
+        uint8_t *c = state->chunk.code.data;
+        size_t len = state->chunk.code.length;
+        /* Last 11 bytes: INCREMENT_LOCAL_I32(6) + LOOP(5) */
+        if (len >= 11U &&
+            c[len - 11U] == BASL_OPCODE_INCREMENT_LOCAL_I32 &&
+            c[len - 5U] == BASL_OPCODE_LOOP) {
+            /* Condition at loop_start: GET_LOCAL(5) + CONSTANT(5) + cmp(1)
+               + JUMP_IF_FALSE(5) + POP(1) = 17 bytes */
+            size_t cs = loop_start;
+            if (cs + 17U <= len &&
+                c[cs] == BASL_OPCODE_GET_LOCAL &&
+                c[cs + 5U] == BASL_OPCODE_CONSTANT) {
+                uint8_t cmp_op = c[cs + 10U];
+                uint8_t cmp_type = 255;
+                switch ((basl_opcode_t)cmp_op) {
+                    case BASL_OPCODE_LESS_I32:          cmp_type = 0; break;
+                    case BASL_OPCODE_LESS_EQUAL_I32:    cmp_type = 1; break;
+                    case BASL_OPCODE_GREATER_I32:       cmp_type = 2; break;
+                    case BASL_OPCODE_GREATER_EQUAL_I32: cmp_type = 3; break;
+                    case BASL_OPCODE_NOT_EQUAL_I32:     cmp_type = 4; break;
+                    default: break;
+                }
+                if (cmp_type != 255 &&
+                    c[cs + 11U] == BASL_OPCODE_JUMP_IF_FALSE &&
+                    c[cs + 16U] == BASL_OPCODE_POP) {
+                    /* Verify the GET_LOCAL index matches INCREMENT local. */
+                    uint32_t cond_idx = (uint32_t)c[cs + 1U]
+                        | ((uint32_t)c[cs + 2U] << 8U)
+                        | ((uint32_t)c[cs + 3U] << 16U)
+                        | ((uint32_t)c[cs + 4U] << 24U);
+                    uint32_t inc_idx = (uint32_t)c[len - 10U]
+                        | ((uint32_t)c[len - 9U] << 8U)
+                        | ((uint32_t)c[len - 8U] << 16U)
+                        | ((uint32_t)c[len - 7U] << 24U);
+                    if (cond_idx == inc_idx) {
+                        /* Extract constant index and delta. */
+                        uint8_t const_idx[4];
+                        int8_t delta = (int8_t)c[len - 6U];
+                        size_t body_start = cs + 17U;
+                        size_t forloop_pos = len - 11U;
+                        /* back_offset: from end of FORLOOP to body_start */
+                        size_t forloop_end = forloop_pos + 15U;
+                        uint32_t back_off = (uint32_t)(forloop_end - body_start);
+
+                        memcpy(const_idx, &c[cs + 6U], 4);
+
+                        /* Write FORLOOP_I32 over INCREMENT+LOOP. */
+                        c[forloop_pos] = BASL_OPCODE_FORLOOP_I32;
+                        /* local idx (reuse from increment) */
+                        /* c[forloop_pos+1..4] already has inc_idx */
+                        memcpy(&c[forloop_pos + 1U], &c[len - 10U], 4);
+                        c[forloop_pos + 5U] = (uint8_t)delta;
+                        memcpy(&c[forloop_pos + 6U], const_idx, 4);
+                        c[forloop_pos + 10U] = cmp_type;
+                        c[forloop_pos + 11U] = (uint8_t)(back_off & 0xFF);
+                        c[forloop_pos + 12U] = (uint8_t)((back_off >> 8U) & 0xFF);
+                        c[forloop_pos + 13U] = (uint8_t)((back_off >> 16U) & 0xFF);
+                        c[forloop_pos + 14U] = (uint8_t)((back_off >> 24U) & 0xFF);
+                        /* New length: forloop_pos + 15 (grew by 4 bytes). */
+                        state->chunk.code.length = forloop_pos + 15U;
+                    }
+                }
+            }
+        }
     }
     status = basl_parser_patch_jump(state, exit_jump_offset);
     if (status != BASL_STATUS_OK) {
@@ -13067,6 +13245,7 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
             opcode = operator_token->kind == BASL_TOKEN_PLUS_PLUS
                 ? BASL_OPCODE_ADD
                 : BASL_OPCODE_SUBTRACT;
+            value_result.type = target_type;
         } else {
             status = basl_parser_parse_expression(state, &value_result);
             if (status != BASL_STATUS_OK) {
@@ -13135,8 +13314,18 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
             }
         }
 
-        /* Specialize to i64 opcodes when both operands are signed integers. */
-        if (basl_parser_type_is_signed_integer(target_type) &&
+        /* Specialize to i32/i64 opcodes when both operands are signed integers. */
+        if (basl_parser_type_is_i32(target_type) &&
+            basl_parser_type_is_i32(value_result.type)) {
+            switch (opcode) {
+                case BASL_OPCODE_ADD:      opcode = BASL_OPCODE_ADD_I32;      break;
+                case BASL_OPCODE_SUBTRACT: opcode = BASL_OPCODE_SUBTRACT_I32; break;
+                case BASL_OPCODE_MULTIPLY: opcode = BASL_OPCODE_MULTIPLY_I32; break;
+                case BASL_OPCODE_DIVIDE:   opcode = BASL_OPCODE_DIVIDE_I32;   break;
+                case BASL_OPCODE_MODULO:   opcode = BASL_OPCODE_MODULO_I32;   break;
+                default: break;
+            }
+        } else if (basl_parser_type_is_signed_integer(target_type) &&
             basl_parser_type_is_signed_integer(value_result.type)) {
             switch (opcode) {
                 case BASL_OPCODE_ADD:      opcode = BASL_OPCODE_ADD_I64;      break;
@@ -13152,9 +13341,13 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         if (status != BASL_STATUS_OK) {
             return status;
         }
-        status = basl_parser_emit_integer_cast(state, target_type, operator_token->span);
-        if (status != BASL_STATUS_OK) {
-            return status;
+        /* i32 opcodes already produce i32 results — skip the cast. */
+        if (!(basl_parser_type_is_i32(target_type) &&
+              basl_parser_type_is_i32(value_result.type))) {
+            status = basl_parser_emit_integer_cast(state, target_type, operator_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
         }
     }
 
@@ -13203,6 +13396,104 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
         status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, target_token->span);
         if (status != BASL_STATUS_OK) {
             return status;
+        }
+
+        /* Peephole: rewrite GET_LOCAL + CONSTANT + ADD_I32/SUBTRACT_I32
+           + SET_LOCAL + POP → INCREMENT_LOCAL_I32 when the constant is
+           a small integer and both locals are the same slot. */
+        if (!is_global_assignment && !is_capture_local) {
+            uint8_t *code = state->chunk.code.data;
+            size_t len = state->chunk.code.length;
+            /* Pattern: [GET_LOCAL(5)][CONSTANT(5)][ADD_I32|SUB_I32(1)][SET_LOCAL(5)][POP(1)] = 17 */
+            if (len >= 17U) {
+                size_t base = len - 17U;
+                if (code[base] == BASL_OPCODE_GET_LOCAL &&
+                    code[base + 5U] == BASL_OPCODE_CONSTANT &&
+                    (code[base + 10U] == BASL_OPCODE_ADD_I32 ||
+                     code[base + 10U] == BASL_OPCODE_SUBTRACT_I32) &&
+                    code[base + 11U] == BASL_OPCODE_SET_LOCAL &&
+                    code[base + 16U] == BASL_OPCODE_POP) {
+                    /* Read both local indices. */
+                    uint32_t get_idx = (uint32_t)code[base + 1U]
+                        | ((uint32_t)code[base + 2U] << 8U)
+                        | ((uint32_t)code[base + 3U] << 16U)
+                        | ((uint32_t)code[base + 4U] << 24U);
+                    uint32_t set_idx = (uint32_t)code[base + 12U]
+                        | ((uint32_t)code[base + 13U] << 8U)
+                        | ((uint32_t)code[base + 14U] << 16U)
+                        | ((uint32_t)code[base + 15U] << 24U);
+                    if (get_idx == set_idx) {
+                        /* Read constant index. */
+                        uint32_t ci = (uint32_t)code[base + 6U]
+                            | ((uint32_t)code[base + 7U] << 8U)
+                            | ((uint32_t)code[base + 8U] << 16U)
+                            | ((uint32_t)code[base + 9U] << 24U);
+                        const basl_value_t *cv = (ci < state->chunk.constant_count)
+                            ? &state->chunk.constants[ci] : NULL;
+                        if (cv != NULL && basl_value_kind(cv) == BASL_VALUE_INT) {
+                            int64_t val = basl_value_as_int(cv);
+                            int is_sub = (code[base + 10U] == BASL_OPCODE_SUBTRACT_I32);
+                            if (is_sub) val = -val;
+                            if (val >= -128 && val <= 127) {
+                                /* Rewrite to INCREMENT_LOCAL_I32. */
+                                code[base] = BASL_OPCODE_INCREMENT_LOCAL_I32;
+                                /* idx already at base+1..base+4 */
+                                code[base + 5U] = (uint8_t)(int8_t)val;
+                                state->chunk.code.length = base + 6U;
+                                if (state->chunk.span_count > base + 6U) {
+                                    state->chunk.span_count = base + 6U;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Peephole: rewrite LOCALS_*_I64 + SET_LOCAL + POP →
+           LOCALS_*_I32_STORE when target type is i32.
+           Pattern: [LOCALS_op(1)][u32 a][u32 b][SET_LOCAL(1)][u32 dst][POP(1)] = 15 bytes
+           Rewrite: [LOCALS_op_I32_STORE(1)][u32 dst][u32 a][u32 b] = 13 bytes */
+        if (!is_global_assignment && !is_capture_local &&
+            basl_parser_type_is_i32(target_type)) {
+            uint8_t *code = state->chunk.code.data;
+            size_t len = state->chunk.code.length;
+            if (len >= 15U) {
+                size_t base = len - 15U;
+                uint8_t op = code[base];
+                basl_opcode_t store_op = (basl_opcode_t)0;
+                switch ((basl_opcode_t)op) {
+                    case BASL_OPCODE_LOCALS_ADD_I64:       store_op = BASL_OPCODE_LOCALS_ADD_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_SUBTRACT_I64:  store_op = BASL_OPCODE_LOCALS_SUBTRACT_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_MULTIPLY_I64:  store_op = BASL_OPCODE_LOCALS_MULTIPLY_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_MODULO_I64:    store_op = BASL_OPCODE_LOCALS_MODULO_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_LESS_I64:      store_op = BASL_OPCODE_LOCALS_LESS_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_LESS_EQUAL_I64: store_op = BASL_OPCODE_LOCALS_LESS_EQUAL_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_GREATER_I64:   store_op = BASL_OPCODE_LOCALS_GREATER_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_GREATER_EQUAL_I64: store_op = BASL_OPCODE_LOCALS_GREATER_EQUAL_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_EQUAL_I64:     store_op = BASL_OPCODE_LOCALS_EQUAL_I32_STORE; break;
+                    case BASL_OPCODE_LOCALS_NOT_EQUAL_I64: store_op = BASL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE; break;
+                    default: break;
+                }
+                if (store_op != (basl_opcode_t)0 &&
+                    code[base + 9U] == BASL_OPCODE_SET_LOCAL &&
+                    code[base + 14U] == BASL_OPCODE_POP) {
+                    /* Extract operands. */
+                    uint8_t a[4], b[4], dst[4];
+                    memcpy(a, &code[base + 1U], 4);
+                    memcpy(b, &code[base + 5U], 4);
+                    memcpy(dst, &code[base + 10U], 4);
+                    /* Rewrite: [store_op][dst][a][b] */
+                    code[base] = (uint8_t)store_op;
+                    memcpy(&code[base + 1U], dst, 4);
+                    memcpy(&code[base + 5U], a, 4);
+                    memcpy(&code[base + 9U], b, 4);
+                    state->chunk.code.length = base + 13U;
+                    if (state->chunk.span_count > base + 13U) {
+                        state->chunk.span_count = base + 13U;
+                    }
+                }
+            }
         }
     }
     basl_statement_result_set_guaranteed_return(out_result, 0);
