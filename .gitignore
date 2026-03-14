@@ -33,3 +33,5 @@ Thumbs.db
 __pycache__/
 /build-sanitize/
 build_asan/
+build-release/
+build-profile/
