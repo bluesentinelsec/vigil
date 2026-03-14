@@ -2780,6 +2780,7 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_LOCALS_EQUAL_I32_STORE] = &&op_LOCALS_EQUAL_I32_STORE,
             [BASL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE] = &&op_LOCALS_NOT_EQUAL_I32_STORE,
             [BASL_OPCODE_INCREMENT_LOCAL_I32] = &&op_INCREMENT_LOCAL_I32,
+            [BASL_OPCODE_TAIL_CALL] = &&op_TAIL_CALL,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3272,6 +3273,53 @@ basl_status_t basl_vm_execute_function(
                     }
                 }
                 VM_BREAK_RELOAD();
+            }
+            VM_CASE(TAIL_CALL) {
+                const basl_object_t *callee;
+                size_t arg_count;
+                size_t arg_src;
+                size_t dst;
+                size_t i;
+
+                BASL_VM_READ_U32(code, frame->ip, constant_index);
+                BASL_VM_READ_RAW_U32(code, frame->ip, operand);
+                arg_count = (size_t)operand;
+
+                callee = basl_vm_function_sibling(
+                    frame->function, (size_t)constant_index);
+
+                /* Source: arguments are at top of stack. */
+                arg_src = vm->stack_count - arg_count;
+                dst = frame->base_slot;
+
+                /* Release old locals that will be overwritten. */
+                for (i = dst; i < dst + arg_count && i < arg_src; i++) {
+                    BASL_VM_VALUE_RELEASE(&vm->stack[i]);
+                }
+                /* Release any remaining old locals beyond arg_count. */
+                for (i = dst + arg_count; i < arg_src; i++) {
+                    BASL_VM_VALUE_RELEASE(&vm->stack[i]);
+                }
+
+                /* Move arguments down (may overlap if arg_count > old locals). */
+                if (dst != arg_src) {
+                    memmove(&vm->stack[dst], &vm->stack[arg_src],
+                            arg_count * sizeof(basl_value_t));
+                }
+
+                vm->stack_count = dst + arg_count;
+
+                /* Reuse the current frame. */
+                frame->callable = callee;
+                frame->function = callee;
+                frame->chunk = basl_vm_function_chunk(callee);
+                frame->ip = 0U;
+                /* base_slot stays the same */
+
+                code = BASL_VM_CHUNK_CODE(frame->chunk);
+                code_size = BASL_VM_CHUNK_CODE_SIZE(frame->chunk);
+                if (frame->ip >= code_size) goto vm_loop_end;
+                VM_DISPATCH();
             }
             VM_CASE(CALL_VALUE)
                 status = basl_vm_read_u32(vm, &operand, error);

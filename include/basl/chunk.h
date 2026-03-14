@@ -169,7 +169,11 @@ typedef enum basl_opcode {
 
     /* Single-opcode increment: local[idx] += imm8 (signed).
        Covers i = i + 1, i = i - 1, and small constant steps. */
-    BASL_OPCODE_INCREMENT_LOCAL_I32 = 130
+    BASL_OPCODE_INCREMENT_LOCAL_I32 = 130,
+
+    /* Tail-call optimization: reuses the current frame instead of
+       pushing a new one.  Same operand format as CALL. */
+    BASL_OPCODE_TAIL_CALL = 131
 } basl_opcode_t;
 
 typedef struct basl_chunk {

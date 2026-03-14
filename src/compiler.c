@@ -10751,6 +10751,31 @@ static basl_status_t basl_parser_parse_return_statement(
         return status;
     }
 
+    /* Peephole: CALL + RETURN 1 → TAIL_CALL when safe.
+       Pattern: [CALL(1)][u32 func][u32 argc][RETURN(1)][u32 1] = 14 bytes
+       Rewrite: [TAIL_CALL(1)][u32 func][u32 argc] = 9 bytes
+       Safe only when: single return value, no defers emitted. */
+    if (state->expected_return_count == 1U && !state->defer_emitted) {
+        uint8_t *c = state->chunk.code.data;
+        size_t len = state->chunk.code.length;
+        if (len >= 14U &&
+            c[len - 14U] == BASL_OPCODE_CALL &&
+            c[len - 5U] == BASL_OPCODE_RETURN) {
+            /* Verify RETURN operand is 1. */
+            uint32_t ret_count = (uint32_t)c[len - 4U]
+                | ((uint32_t)c[len - 3U] << 8U)
+                | ((uint32_t)c[len - 2U] << 16U)
+                | ((uint32_t)c[len - 1U] << 24U);
+            if (ret_count == 1U) {
+                c[len - 14U] = BASL_OPCODE_TAIL_CALL;
+                state->chunk.code.length = len - 5U;
+                if (state->chunk.span_count > len - 5U) {
+                    state->chunk.span_count = len - 5U;
+                }
+            }
+        }
+    }
+
     basl_statement_result_set_guaranteed_return(out_result, 1);
     return BASL_STATUS_OK;
 }
