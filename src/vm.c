@@ -95,6 +95,7 @@
 #include "internal/basl_internal.h"
 #include "basl/string.h"
 #include "basl/vm.h"
+#include "value_internal.h"
 
 /* ── Computed-goto detection ───────────────────────────────────────
    GCC/Clang: use dispatch table.  Everything else: switch fallback.
@@ -103,7 +104,7 @@
 #if defined(__GNUC__) || defined(__clang__)
   #define BASL_VM_COMPUTED_GOTO 1
 #else
-  #define BASL_VM_COMPUTED_GOTO 0
+  #define BASL_VM_COMPUTED_GOTO 1
 #endif
 
 #define BASL_VM_INITIAL_STACK_CAPACITY  256U
@@ -2754,6 +2755,11 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_LESS_EQUAL_I64] = &&op_LESS_EQUAL_I64,
             [BASL_OPCODE_GREATER_I64] = &&op_GREATER_I64,
             [BASL_OPCODE_GREATER_EQUAL_I64] = &&op_GREATER_EQUAL_I64,
+            [BASL_OPCODE_MULTIPLY_I64] = &&op_MULTIPLY_I64,
+            [BASL_OPCODE_DIVIDE_I64] = &&op_DIVIDE_I64,
+            [BASL_OPCODE_MODULO_I64] = &&op_MODULO_I64,
+            [BASL_OPCODE_EQUAL_I64] = &&op_EQUAL_I64,
+            [BASL_OPCODE_NOT_EQUAL_I64] = &&op_NOT_EQUAL_I64,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3197,7 +3203,7 @@ basl_status_t basl_vm_execute_function(
                 BASL_VM_READ_U32(code, frame->ip, constant_index);
                 BASL_VM_READ_RAW_U32(code, frame->ip, operand);
 
-                callee = basl_function_object_sibling(
+                callee = basl_vm_function_sibling(
                     frame->function, (size_t)constant_index);
                 base_slot = vm->stack_count - (size_t)operand;
 
@@ -3207,13 +3213,13 @@ basl_status_t basl_vm_execute_function(
                     memset(nf, 0, sizeof(*nf));
                     nf->callable = callee;
                     nf->function = callee;
-                    nf->chunk = basl_function_object_chunk(callee);
+                    nf->chunk = basl_vm_function_chunk(callee);
                     nf->base_slot = base_slot;
                     vm->frame_count += 1U;
                 } else {
                     status = basl_vm_push_frame(
                         vm, callee, callee,
-                        basl_function_object_chunk(callee),
+                        basl_vm_function_chunk(callee),
                         base_slot, error);
                     if (status != BASL_STATUS_OK) {
                         goto cleanup;
@@ -5533,6 +5539,8 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(LESS_EQUAL_I64)
             VM_CASE(GREATER_I64)
             VM_CASE(GREATER_EQUAL_I64)
+            VM_CASE(EQUAL_I64)
+            VM_CASE(NOT_EQUAL_I64)
             {
                 int64_t a, b;
                 bool result;
@@ -5545,10 +5553,67 @@ basl_status_t basl_vm_execute_function(
                     case BASL_OPCODE_LESS_EQUAL_I64:    result = a <= b; break;
                     case BASL_OPCODE_GREATER_I64:       result = a > b;  break;
                     case BASL_OPCODE_GREATER_EQUAL_I64: result = a >= b; break;
+                    case BASL_OPCODE_EQUAL_I64:         result = a == b; break;
+                    case BASL_OPCODE_NOT_EQUAL_I64:     result = a != b; break;
                     default: result = false; break;
                 }
                 vm->stack[vm->stack_count].kind = BASL_VALUE_BOOL;
                 vm->stack[vm->stack_count].as.boolean = result;
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(MULTIPLY_I64)
+            VM_CASE(DIVIDE_I64)
+            VM_CASE(MODULO_I64)
+            {
+                int64_t a, b, r;
+                vm->stack_count -= 1U;
+                b = vm->stack[vm->stack_count].as.integer;
+                vm->stack_count -= 1U;
+                a = vm->stack[vm->stack_count].as.integer;
+                switch ((basl_opcode_t)code[frame->ip]) {
+                    case BASL_OPCODE_MULTIPLY_I64:
+                        /* Overflow check for multiplication. */
+                        if (a != 0 && b != 0 &&
+                            ((a > 0 && b > 0 && a > INT64_MAX / b) ||
+                             (a > 0 && b < 0 && b < INT64_MIN / a) ||
+                             (a < 0 && b > 0 && a < INT64_MIN / b) ||
+                             (a < 0 && b < 0 && a < INT64_MAX / b))) {
+                            status = basl_vm_fail_at_ip(vm,
+                                BASL_STATUS_INVALID_ARGUMENT,
+                                "integer overflow", error);
+                            goto cleanup;
+                        }
+                        r = a * b;
+                        break;
+                    case BASL_OPCODE_DIVIDE_I64:
+                        if (b == 0) {
+                            status = basl_vm_fail_at_ip(vm,
+                                BASL_STATUS_INVALID_ARGUMENT,
+                                "division by zero", error);
+                            goto cleanup;
+                        }
+                        if (a == INT64_MIN && b == -1) {
+                            status = basl_vm_fail_at_ip(vm,
+                                BASL_STATUS_INVALID_ARGUMENT,
+                                "integer overflow", error);
+                            goto cleanup;
+                        }
+                        r = a / b;
+                        break;
+                    default: /* MODULO_I64 */
+                        if (b == 0) {
+                            status = basl_vm_fail_at_ip(vm,
+                                BASL_STATUS_INVALID_ARGUMENT,
+                                "division by zero", error);
+                            goto cleanup;
+                        }
+                        r = a % b;
+                        break;
+                }
+                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
+                vm->stack[vm->stack_count].as.integer = r;
                 vm->stack_count += 1U;
                 frame->ip += 1U;
                 VM_BREAK();
