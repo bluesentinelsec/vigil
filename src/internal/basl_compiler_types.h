@@ -475,4 +475,74 @@ basl_status_t basl_program_grow_functions(
 );
 void basl_program_free(basl_program_state_t *program);
 
+/* compiler.c — shared helpers used by extracted modules */
+void basl_expression_result_clear(basl_expression_result_t *result);
+void basl_expression_result_set_type(
+    basl_expression_result_t *result,
+    basl_parser_type_t type);
+basl_status_t basl_parser_emit_f64_constant(
+    basl_parser_state_t *state, double value, basl_source_span_t span);
+basl_status_t basl_parser_emit_integer_constant(
+    basl_parser_state_t *state, basl_parser_type_t target_type,
+    int64_t value, basl_source_span_t span);
+basl_status_t basl_parser_emit_ok_constant(
+    basl_parser_state_t *state, basl_source_span_t span);
+basl_status_t basl_parser_emit_opcode(
+    basl_parser_state_t *state, basl_opcode_t opcode,
+    basl_source_span_t span);
+basl_status_t basl_parser_emit_string_constant_text(
+    basl_parser_state_t *state, basl_source_span_t span,
+    const char *text, size_t length);
+basl_status_t basl_parser_expect(
+    basl_parser_state_t *state, basl_token_kind_t kind,
+    const char *message, const basl_token_t **out_token);
+const char *basl_parser_token_text(
+    const basl_parser_state_t *state, const basl_token_t *token,
+    size_t *out_length);
+int basl_program_names_equal(
+    const char *left, size_t left_length,
+    const char *right, size_t right_length);
+void basl_expression_result_set_pair(
+    basl_expression_result_t *result,
+    basl_parser_type_t first_type, basl_parser_type_t second_type);
+basl_status_t basl_parser_parse_expression(
+    basl_parser_state_t *state,
+    basl_expression_result_t *out_result);
+basl_status_t basl_parser_report(
+    basl_parser_state_t *state, basl_source_span_t span,
+    const char *message);
+basl_status_t basl_parser_require_scalar_expression(
+    basl_parser_state_t *state, basl_source_span_t span,
+    const basl_expression_result_t *result, const char *message);
+basl_status_t basl_parser_require_type(
+    basl_parser_state_t *state, basl_source_span_t span,
+    basl_parser_type_t actual_type, basl_parser_type_t expected_type,
+    const char *message);
+basl_parser_type_t basl_program_array_type_element(
+    const basl_program_state_t *program, basl_parser_type_t array_type);
+basl_parser_type_t basl_program_map_type_key(
+    const basl_program_state_t *program, basl_parser_type_t map_type);
+basl_parser_type_t basl_program_map_type_value(
+    const basl_program_state_t *program, basl_parser_type_t map_type);
+
+/* compiler_builtins.c — built-in method dispatch */
+basl_status_t basl_parser_emit_default_value(
+    basl_parser_state_t *state,
+    basl_parser_type_t type,
+    basl_source_span_t span);
+basl_status_t basl_parser_parse_string_method_call(
+    basl_parser_state_t *state,
+    const basl_token_t *method_token,
+    basl_expression_result_t *out_result);
+basl_status_t basl_parser_parse_array_method_call(
+    basl_parser_state_t *state,
+    basl_parser_type_t receiver_type,
+    const basl_token_t *method_token,
+    basl_expression_result_t *out_result);
+basl_status_t basl_parser_parse_map_method_call(
+    basl_parser_state_t *state,
+    basl_parser_type_t receiver_type,
+    const basl_token_t *method_token,
+    basl_expression_result_t *out_result);
+
 #endif
