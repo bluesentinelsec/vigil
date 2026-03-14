@@ -211,6 +211,7 @@ typedef struct basl_program_state {
     basl_global_variable_t *globals;
     size_t global_count;
     size_t global_capacity;
+    const struct basl_native_registry *natives;
 } basl_program_state_t;
 
 typedef struct basl_parser_state {

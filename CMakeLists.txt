@@ -40,6 +40,7 @@ add_library(basl_core OBJECT
     src/lexer.c
     src/log.c
     src/map.c
+    src/native_module.c
     src/runtime.c
     src/source.c
     src/string.c

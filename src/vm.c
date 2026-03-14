@@ -2549,6 +2549,45 @@ size_t basl_vm_frame_depth(const basl_vm_t *vm) {
     return vm->frame_count;
 }
 
+basl_value_t basl_vm_stack_get(const basl_vm_t *vm, size_t index) {
+    if (vm == NULL || index >= vm->stack_count) {
+        basl_value_t nil;
+        basl_value_init_nil(&nil);
+        return nil;
+    }
+    return vm->stack[index];
+}
+
+basl_status_t basl_vm_stack_push(
+    basl_vm_t *vm,
+    const basl_value_t *value,
+    basl_error_t *error
+) {
+    if (vm == NULL || value == NULL) {
+        basl_error_set_literal(
+            error, BASL_STATUS_INVALID_ARGUMENT,
+            "vm and value must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    return basl_vm_push(vm, value, error);
+}
+
+void basl_vm_stack_pop_n(basl_vm_t *vm, size_t count) {
+    size_t i;
+
+    if (vm == NULL || count == 0U) {
+        return;
+    }
+    if (count > vm->stack_count) {
+        count = vm->stack_count;
+    }
+    for (i = 0U; i < count; i++) {
+        vm->stack_count -= 1U;
+        BASL_VM_VALUE_RELEASE(&vm->stack[vm->stack_count]);
+    }
+}
+
 basl_status_t basl_vm_execute(
     basl_vm_t *vm,
     const basl_chunk_t *chunk,
@@ -2782,6 +2821,7 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_INCREMENT_LOCAL_I32] = &&op_INCREMENT_LOCAL_I32,
             [BASL_OPCODE_TAIL_CALL] = &&op_TAIL_CALL,
             [BASL_OPCODE_FORLOOP_I32] = &&op_FORLOOP_I32,
+            [BASL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3331,6 +3371,32 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 VM_BREAK_RELOAD();
+            VM_CASE(CALL_NATIVE) {
+                uint32_t native_arg_count;
+                const basl_value_t *native_val;
+                basl_object_t *native_obj;
+                basl_native_fn_t native_fn;
+
+                BASL_VM_READ_U32(code, frame->ip, constant_index);
+                BASL_VM_READ_RAW_U32(code, frame->ip, native_arg_count);
+
+                native_val = BASL_VM_CHUNK_CONSTANT(
+                    frame->chunk, (size_t)constant_index);
+                native_obj = (basl_object_t *)basl_nanbox_decode_ptr(
+                    *native_val);
+                native_fn = basl_native_function_get(native_obj);
+                if (native_fn == NULL) {
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INTERNAL,
+                        "call target is not a native function", error);
+                    goto cleanup;
+                }
+                status = native_fn(vm, (size_t)native_arg_count, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
             VM_CASE(CALL_INTERFACE) {
                 size_t interface_index;
                 size_t method_index;

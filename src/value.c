@@ -93,6 +93,13 @@ typedef struct basl_bigint_object {
     } as;
 } basl_bigint_object_t;
 
+typedef struct basl_native_function_object {
+    basl_object_t base;
+    basl_string_t name;
+    size_t arity;
+    basl_native_fn_t function;
+} basl_native_function_object_t;
+
 static const basl_string_object_t *basl_string_object_cast(
     const basl_object_t *object
 ) {
@@ -286,6 +293,11 @@ static void basl_object_destroy(basl_object_t *object) {
             basl_map_free(&((basl_map_object_t *)object)->entries);
             break;
         case BASL_OBJECT_BIGINT:
+            break;
+        case BASL_OBJECT_NATIVE_FUNCTION:
+            basl_string_free(
+                &((basl_native_function_object_t *)object)->name
+            );
             break;
         case BASL_OBJECT_INVALID:
         default:
@@ -2154,4 +2166,55 @@ const basl_chunk_t *basl_callable_object_chunk(const basl_object_t *callable) {
     const basl_object_t *function = basl_callable_object_function(callable);
 
     return basl_function_object_chunk(function);
+}
+
+basl_status_t basl_native_function_object_create(
+    basl_runtime_t *runtime,
+    const char *name,
+    size_t name_length,
+    size_t arity,
+    basl_native_fn_t function,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_native_function_object_t *obj;
+    void *memory;
+
+    if (out_object == NULL || function == NULL) {
+        basl_error_set_literal(
+            error, BASL_STATUS_INVALID_ARGUMENT,
+            "native function arguments must not be null"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_object = NULL;
+    memory = NULL;
+    status = basl_runtime_alloc(runtime, sizeof(*obj), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+    obj = (basl_native_function_object_t *)memory;
+    memset(obj, 0, sizeof(*obj));
+    obj->base.runtime = runtime;
+    obj->base.type = BASL_OBJECT_NATIVE_FUNCTION;
+    obj->base.ref_count = 1U;
+    basl_string_init(&obj->name, runtime);
+    if (name != NULL && name_length > 0U) {
+        basl_string_assign(&obj->name, name, name_length, error);
+    }
+    obj->arity = arity;
+    obj->function = function;
+    *out_object = &obj->base;
+    return BASL_STATUS_OK;
+}
+
+basl_native_fn_t basl_native_function_get(const basl_object_t *object) {
+    const basl_native_function_object_t *native;
+
+    if (object == NULL || object->type != BASL_OBJECT_NATIVE_FUNCTION) {
+        return NULL;
+    }
+    native = (const basl_native_function_object_t *)object;
+    return native->function;
 }

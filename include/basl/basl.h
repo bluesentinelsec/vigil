@@ -10,6 +10,7 @@
 #include "basl/export.h"
 #include "basl/log.h"
 #include "basl/map.h"
+#include "basl/native_module.h"
 #include "basl/runtime.h"
 #include "basl/source.h"
 #include "basl/string.h"
