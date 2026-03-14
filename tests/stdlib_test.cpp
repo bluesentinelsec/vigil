@@ -1115,4 +1115,97 @@ TEST(BaslStdlibMathTest, QuaternionDotAndNormalize) {
     )"), 0);
 }
 
+/* ── Mat4 ────────────────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Mat4ConstructionAndFieldAccess) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            array<f64> d = [1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0];
+            math.Mat4 m = math.Mat4(d);
+            // data field is array<f64>
+            array<f64> arr = m.data;
+            if (arr.len() != 16) { return 1; }
+            if (arr[0] != 1.0) { return 2; }
+            if (arr[5] != 1.0) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4Identity) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            math.Mat4 m = math.Mat4(z);
+            math.Mat4 id = m.identity();
+            if (id.get(0, 0) != 1.0) { return 1; }
+            if (id.get(1, 1) != 1.0) { return 2; }
+            if (id.get(2, 2) != 1.0) { return 3; }
+            if (id.get(3, 3) != 1.0) { return 4; }
+            if (id.get(0, 1) != 0.0) { return 5; }
+            if (id.get(1, 0) != 0.0) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4GetSetTranspose) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            math.Mat4 id = math.Mat4(z).identity();
+            // set(0,1) = 5 -> get(0,1) = 5
+            math.Mat4 m = id.set(0, 1, 5.0);
+            if (m.get(0, 1) != 5.0) { return 1; }
+            if (m.get(1, 0) != 0.0) { return 2; }
+            // transpose swaps (0,1) and (1,0)
+            math.Mat4 t = m.transpose();
+            if (t.get(1, 0) != 5.0) { return 3; }
+            if (t.get(0, 1) != 0.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4MultiplyAndDeterminant) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            math.Mat4 id = math.Mat4(z).identity();
+            // id * id = id
+            math.Mat4 r = id.multiply(id);
+            if (r.get(0, 0) != 1.0) { return 1; }
+            if (r.get(0, 1) != 0.0) { return 2; }
+            // det(id) = 1
+            if (math.abs(id.determinant() - 1.0) > eps) { return 3; }
+            // scale by 2 -> det = 2^4 = 16
+            math.Mat4 s = id.scale(2.0);
+            if (math.abs(s.determinant() - 16.0) > eps) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4AddAndScale) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+            math.Mat4 id = math.Mat4(z).identity();
+            math.Mat4 sum = id.add(id);
+            if (sum.get(0, 0) != 2.0) { return 1; }
+            if (sum.get(0, 1) != 0.0) { return 2; }
+            math.Mat4 s = id.scale(3.0);
+            if (s.get(0, 0) != 3.0) { return 3; }
+            if (s.get(1, 1) != 3.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
 }  // namespace
