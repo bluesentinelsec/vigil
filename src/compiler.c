@@ -6,6 +6,7 @@
 
 #include "basl/chunk.h"
 #include "basl/lexer.h"
+#include "basl/native_module.h"
 #include "basl/string.h"
 #include "basl/token.h"
 #include "basl/type.h"
@@ -14487,6 +14488,7 @@ basl_status_t basl_compile_source_internal(
     const basl_source_registry_t *registry,
     basl_source_id_t source_id,
     basl_compile_mode_t mode,
+    const basl_native_registry_t *natives,
     basl_object_t **out_function,
     basl_diagnostic_list_t *diagnostics,
     basl_error_t *error
@@ -14525,6 +14527,7 @@ basl_status_t basl_compile_source_internal(
     program.registry = registry;
     program.diagnostics = diagnostics;
     program.error = error;
+    program.natives = natives;
     basl_binding_function_table_init(&program.functions, registry->runtime);
     basl_program_set_module_context(&program, source, NULL);
 
@@ -14574,6 +14577,26 @@ basl_status_t basl_compile_source(
         registry,
         source_id,
         BASL_COMPILE_MODE_BUILD_ENTRYPOINT,
+        NULL,
+        out_function,
+        diagnostics,
+        error
+    );
+}
+
+basl_status_t basl_compile_source_with_natives(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    const basl_native_registry_t *natives,
+    basl_object_t **out_function,
+    basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error
+) {
+    return basl_compile_source_internal(
+        registry,
+        source_id,
+        BASL_COMPILE_MODE_BUILD_ENTRYPOINT,
+        natives,
         out_function,
         diagnostics,
         error

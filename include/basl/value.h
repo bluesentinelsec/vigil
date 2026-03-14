@@ -31,11 +31,13 @@ typedef enum basl_object_type {
     BASL_OBJECT_ERROR = 5,
     BASL_OBJECT_ARRAY = 6,
     BASL_OBJECT_MAP = 7,
-    BASL_OBJECT_BIGINT = 8
+    BASL_OBJECT_BIGINT = 8,
+    BASL_OBJECT_NATIVE_FUNCTION = 9
 } basl_object_type_t;
 
 typedef struct basl_object basl_object_t;
 typedef struct basl_chunk basl_chunk_t;
+typedef struct basl_vm basl_vm_t;
 
 /*
  * NaN-boxed value representation.  Every value is a single uint64_t.
@@ -267,6 +269,31 @@ BASL_API int basl_map_object_remove(
     const basl_value_t *key,
     basl_value_t *out_value,
     basl_error_t *error
+);
+
+/**
+ * Native function callback.  The implementation reads `arg_count`
+ * arguments from the top of the VM stack (bottom-up, first arg is
+ * deepest) and pushes its return value(s) before returning.
+ */
+typedef basl_status_t (*basl_native_fn_t)(
+    basl_vm_t *vm,
+    size_t arg_count,
+    basl_error_t *error
+);
+
+BASL_API basl_status_t basl_native_function_object_create(
+    basl_runtime_t *runtime,
+    const char *name,
+    size_t name_length,
+    size_t arity,
+    basl_native_fn_t function,
+    basl_object_t **out_object,
+    basl_error_t *error
+);
+
+BASL_API basl_native_fn_t basl_native_function_get(
+    const basl_object_t *object
 );
 
 #ifdef __cplusplus

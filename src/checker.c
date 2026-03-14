@@ -13,6 +13,7 @@ basl_status_t basl_check_source(
         source_id,
         BASL_COMPILE_MODE_CHECK_ONLY,
         NULL,
+        NULL,
         diagnostics,
         error
     );

@@ -47,6 +47,12 @@ BASL_API basl_status_t basl_vm_execute_function(
     basl_error_t *error
 );
 
+/* Stack access for native function implementations. */
+BASL_API basl_value_t basl_vm_stack_get(const basl_vm_t *vm, size_t index);
+BASL_API basl_status_t basl_vm_stack_push(
+    basl_vm_t *vm, const basl_value_t *value, basl_error_t *error);
+BASL_API void basl_vm_stack_pop_n(basl_vm_t *vm, size_t count);
+
 #ifdef __cplusplus
 }
 #endif
