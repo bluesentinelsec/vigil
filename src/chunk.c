@@ -674,6 +674,7 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
         case BASL_OPCODE_LOCALS_MODULO_I32_STORE: return "LOCALS_MODULO_I32_STORE";
         case BASL_OPCODE_INCREMENT_LOCAL_I32: return "INCREMENT_LOCAL_I32";
         case BASL_OPCODE_TAIL_CALL: return "TAIL_CALL";
+        case BASL_OPCODE_FORLOOP_I32: return "FORLOOP_I32";
         default:
             return "UNKNOWN";
     }

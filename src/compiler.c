@@ -11189,6 +11189,77 @@ static basl_status_t basl_parser_parse_while_statement(
     if (status != BASL_STATUS_OK) {
         goto cleanup_loop;
     }
+
+    /* Peephole: rewrite INCREMENT_LOCAL_I32 + LOOP → FORLOOP_I32
+       when the condition at loop_start is GET_LOCAL + CONSTANT + <cmp_I32>
+       + JUMP_IF_FALSE + POP.  The FORLOOP does increment + compare + branch
+       in a single dispatch, jumping back to the body start. */
+    {
+        uint8_t *c = state->chunk.code.data;
+        size_t len = state->chunk.code.length;
+        /* Last 11 bytes: INCREMENT_LOCAL_I32(6) + LOOP(5) */
+        if (len >= 11U &&
+            c[len - 11U] == BASL_OPCODE_INCREMENT_LOCAL_I32 &&
+            c[len - 5U] == BASL_OPCODE_LOOP) {
+            /* Condition at loop_start: GET_LOCAL(5) + CONSTANT(5) + cmp(1)
+               + JUMP_IF_FALSE(5) + POP(1) = 17 bytes */
+            size_t cs = loop_start;
+            if (cs + 17U <= len &&
+                c[cs] == BASL_OPCODE_GET_LOCAL &&
+                c[cs + 5U] == BASL_OPCODE_CONSTANT) {
+                uint8_t cmp_op = c[cs + 10U];
+                uint8_t cmp_type = 255;
+                switch ((basl_opcode_t)cmp_op) {
+                    case BASL_OPCODE_LESS_I32:          cmp_type = 0; break;
+                    case BASL_OPCODE_LESS_EQUAL_I32:    cmp_type = 1; break;
+                    case BASL_OPCODE_GREATER_I32:       cmp_type = 2; break;
+                    case BASL_OPCODE_GREATER_EQUAL_I32: cmp_type = 3; break;
+                    case BASL_OPCODE_NOT_EQUAL_I32:     cmp_type = 4; break;
+                    default: break;
+                }
+                if (cmp_type != 255 &&
+                    c[cs + 11U] == BASL_OPCODE_JUMP_IF_FALSE &&
+                    c[cs + 16U] == BASL_OPCODE_POP) {
+                    /* Verify the GET_LOCAL index matches INCREMENT local. */
+                    uint32_t cond_idx = (uint32_t)c[cs + 1U]
+                        | ((uint32_t)c[cs + 2U] << 8U)
+                        | ((uint32_t)c[cs + 3U] << 16U)
+                        | ((uint32_t)c[cs + 4U] << 24U);
+                    uint32_t inc_idx = (uint32_t)c[len - 10U]
+                        | ((uint32_t)c[len - 9U] << 8U)
+                        | ((uint32_t)c[len - 8U] << 16U)
+                        | ((uint32_t)c[len - 7U] << 24U);
+                    if (cond_idx == inc_idx) {
+                        /* Extract constant index and delta. */
+                        uint8_t const_idx[4];
+                        int8_t delta = (int8_t)c[len - 6U];
+                        size_t body_start = cs + 17U;
+                        size_t forloop_pos = len - 11U;
+                        /* back_offset: from end of FORLOOP to body_start */
+                        size_t forloop_end = forloop_pos + 15U;
+                        uint32_t back_off = (uint32_t)(forloop_end - body_start);
+
+                        memcpy(const_idx, &c[cs + 6U], 4);
+
+                        /* Write FORLOOP_I32 over INCREMENT+LOOP. */
+                        c[forloop_pos] = BASL_OPCODE_FORLOOP_I32;
+                        /* local idx (reuse from increment) */
+                        /* c[forloop_pos+1..4] already has inc_idx */
+                        memcpy(&c[forloop_pos + 1U], &c[len - 10U], 4);
+                        c[forloop_pos + 5U] = (uint8_t)delta;
+                        memcpy(&c[forloop_pos + 6U], const_idx, 4);
+                        c[forloop_pos + 10U] = cmp_type;
+                        c[forloop_pos + 11U] = (uint8_t)(back_off & 0xFF);
+                        c[forloop_pos + 12U] = (uint8_t)((back_off >> 8U) & 0xFF);
+                        c[forloop_pos + 13U] = (uint8_t)((back_off >> 16U) & 0xFF);
+                        c[forloop_pos + 14U] = (uint8_t)((back_off >> 24U) & 0xFF);
+                        /* New length: forloop_pos + 15 (grew by 4 bytes). */
+                        state->chunk.code.length = forloop_pos + 15U;
+                    }
+                }
+            }
+        }
+    }
     status = basl_parser_patch_jump(state, exit_jump_offset);
     if (status != BASL_STATUS_OK) {
         goto cleanup_loop;

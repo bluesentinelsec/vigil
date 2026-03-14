@@ -173,7 +173,13 @@ typedef enum basl_opcode {
 
     /* Tail-call optimization: reuses the current frame instead of
        pushing a new one.  Same operand format as CALL. */
-    BASL_OPCODE_TAIL_CALL = 131
+    BASL_OPCODE_TAIL_CALL = 131,
+
+    /* FORLOOP_I32: fused increment + compare + branch for counting loops.
+       Format: [opcode][u32 local][i8 delta][u32 const_limit][u8 cmp][u32 back_offset]
+       Increments local by delta, compares against constant limit using
+       cmp (0=LT,1=LE,2=GT,3=GE,4=NE), jumps back if true. */
+    BASL_OPCODE_FORLOOP_I32 = 132
 } basl_opcode_t;
 
 typedef struct basl_chunk {

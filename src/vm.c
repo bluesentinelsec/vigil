@@ -2781,6 +2781,7 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE] = &&op_LOCALS_NOT_EQUAL_I32_STORE,
             [BASL_OPCODE_INCREMENT_LOCAL_I32] = &&op_INCREMENT_LOCAL_I32,
             [BASL_OPCODE_TAIL_CALL] = &&op_TAIL_CALL,
+            [BASL_OPCODE_FORLOOP_I32] = &&op_FORLOOP_I32,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3318,8 +3319,7 @@ basl_status_t basl_vm_execute_function(
 
                 code = BASL_VM_CHUNK_CODE(frame->chunk);
                 code_size = BASL_VM_CHUNK_CODE_SIZE(frame->chunk);
-                if (frame->ip >= code_size) goto vm_loop_end;
-                VM_DISPATCH();
+                VM_BREAK_RELOAD();
             }
             VM_CASE(CALL_VALUE)
                 status = basl_vm_read_u32(vm, &operand, error);
@@ -6115,6 +6115,55 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 vm->stack[frame->base_slot + idx] = basl_nanbox_encode_i32(r);
+                VM_BREAK();
+            }
+
+            /* ── FORLOOP_I32 ──────────────────────────────────────────
+               Format: [op][u32 local][i8 delta][u32 const_idx][u8 cmp][u32 back_off]
+               Single-dispatch counting loop: increment, compare, branch. */
+            VM_CASE(FORLOOP_I32)
+            {
+                uint32_t idx, ci, back;
+                int32_t val, delta, r, limit;
+                uint8_t cmp;
+                int cont;
+                const basl_value_t *cv;
+
+                BASL_VM_READ_U32(code, frame->ip, idx);
+                delta = (int8_t)code[frame->ip];
+                frame->ip += 1U;
+                BASL_VM_READ_RAW_U32(code, frame->ip, ci);
+                cmp = code[frame->ip];
+                frame->ip += 1U;
+                BASL_VM_READ_RAW_U32(code, frame->ip, back);
+
+                val = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx]);
+                if (BASL_I32_ADD_OVERFLOW(val, delta, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[frame->base_slot + idx] = basl_nanbox_encode_i32(r);
+
+                cv = BASL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)ci);
+                limit = basl_nanbox_decode_i32(*cv);
+
+                switch (cmp) {
+                    case 0: cont = r < limit;  break;
+                    case 1: cont = r <= limit; break;
+                    case 2: cont = r > limit;  break;
+                    case 3: cont = r >= limit; break;
+                    case 4: cont = r != limit; break;
+                    default: cont = 0; break;
+                }
+                if (cont) {
+                    frame->ip -= (size_t)back;
+                } else {
+                    /* Push false so the POP after the loop has a value. */
+                    vm->stack[vm->stack_count] = BASL_NANBOX_FALSE;
+                    vm->stack_count += 1U;
+                }
                 VM_BREAK();
             }
 
