@@ -655,41 +655,6 @@ static const basl_value_t *basl_vm_peek(
     return &vm->stack[vm->stack_count - 1U - distance];
 }
 
-static basl_status_t basl_vm_validate_local_slot(
-    basl_vm_t *vm,
-    uint32_t slot_index,
-    size_t *out_index,
-    basl_error_t *error
-) {
-    basl_vm_frame_t *frame;
-    size_t index;
-
-    frame = basl_vm_current_frame(vm);
-    if (frame == NULL) {
-        return basl_vm_fail_at_ip(
-            vm,
-            BASL_STATUS_INTERNAL,
-            "vm frame is missing",
-            error
-        );
-    }
-
-    index = frame->base_slot + (size_t)slot_index;
-    if (index >= vm->stack_count) {
-        return basl_vm_fail_at_ip(
-            vm,
-            BASL_STATUS_INTERNAL,
-            "local slot out of range",
-            error
-        );
-    }
-
-    if (out_index != NULL) {
-        *out_index = index;
-    }
-    return BASL_STATUS_OK;
-}
-
 static basl_status_t basl_vm_frame_grow_defers(
     basl_vm_t *vm,
     basl_vm_frame_t *frame,
@@ -2848,19 +2813,24 @@ basl_status_t basl_vm_execute_function(
 
             VM_CASE(CONSTANT)
                 BASL_VM_READ_U32(code, frame->ip, constant_index);
-
                 constant = BASL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)constant_index);
                 if (constant == NULL) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "constant index out of range",
-                        error
-                    );
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INTERNAL,
+                        "constant index out of range", error);
                     goto cleanup;
                 }
-
-                BASL_VM_PUSH(vm, constant);
+                /* Fast path: non-object constants (int, float, bool) —
+                   skip VALUE_COPY retain and PUSH capacity check. */
+                if (constant->kind != BASL_VALUE_OBJECT) {
+                    if (vm->stack_count >= vm->stack_capacity) {
+                        status = basl_vm_grow_stack(vm, vm->stack_count + 1U, error);
+                        if (status != BASL_STATUS_OK) goto cleanup;
+                    }
+                    vm->stack[vm->stack_count] = *constant;
+                    vm->stack_count += 1U;
+                } else {
+                    BASL_VM_PUSH(vm, constant);
+                }
                 VM_BREAK();
             VM_CASE(POP)
                 BASL_VM_POP(vm, value);
@@ -2935,26 +2905,33 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             VM_CASE(SET_LOCAL)
                 BASL_VM_READ_U32(code, frame->ip, operand);
-
-                peeked = BASL_VM_PEEK(vm, 0U);
-                if (peeked == NULL) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "assignment requires a value on the stack",
-                        error
-                    );
+                local_index = frame->base_slot + (size_t)operand;
+                /* Fast path for non-object values: skip retain/release. */
+                if (vm->stack_count > 0U &&
+                    vm->stack[vm->stack_count - 1U].kind != BASL_VALUE_OBJECT) {
+                    vm->stack[local_index] = vm->stack[vm->stack_count - 1U];
+                    /* SET_LOCAL + POP fusion: if next opcode is POP, consume
+                       it here by popping the stack top directly. */
+                    if (frame->ip < code_size &&
+                        code[frame->ip] == BASL_OPCODE_POP) {
+                        vm->stack_count -= 1U;
+                        frame->ip += 1U;
+                    }
+                } else if (vm->stack_count > 0U) {
+                    BASL_VM_VALUE_RELEASE(&vm->stack[local_index]);
+                    BASL_VM_VALUE_COPY(&vm->stack[local_index],
+                                       &vm->stack[vm->stack_count - 1U]);
+                    if (frame->ip < code_size &&
+                        code[frame->ip] == BASL_OPCODE_POP) {
+                        vm->stack_count -= 1U;
+                        BASL_VM_VALUE_RELEASE(&vm->stack[vm->stack_count]);
+                        frame->ip += 1U;
+                    }
+                } else {
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INTERNAL,
+                        "assignment requires a value on the stack", error);
                     goto cleanup;
                 }
-
-                status = basl_vm_validate_local_slot(vm, operand, &local_index, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-
-                BASL_VM_VALUE_COPY(&value, peeked);
-                basl_value_release(&vm->stack[local_index]);
-                vm->stack[local_index] = value;
                 VM_BREAK();
             VM_CASE(GET_GLOBAL)
                 status = basl_vm_read_u32(vm, &operand, error);
@@ -5154,34 +5131,30 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             VM_CASE(JUMP_IF_FALSE)
                 BASL_VM_READ_U32(code, frame->ip, operand);
-                peeked = BASL_VM_PEEK(vm, 0U);
-                if (peeked == NULL || (peeked)->kind != BASL_VALUE_BOOL) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
+                if (vm->stack_count > 0U &&
+                    vm->stack[vm->stack_count - 1U].kind == BASL_VALUE_BOOL) {
+                    if (!vm->stack[vm->stack_count - 1U].as.boolean) {
+                        /* Condition false — jump.  The POP after us is
+                           inside the true-path, so we skip past it. */
+                        frame->ip += (size_t)operand;
+                    } else {
+                        /* Condition true — fall through.  Fuse with the
+                           following POP if present. */
+                        if (frame->ip < code_size &&
+                            code[frame->ip] == BASL_OPCODE_POP) {
+                            vm->stack_count -= 1U;
+                            frame->ip += 1U;
+                        }
+                    }
+                } else {
+                    status = basl_vm_fail_at_ip(vm,
                         BASL_STATUS_INVALID_ARGUMENT,
-                        "condition must evaluate to bool",
-                        error
-                    );
+                        "condition must evaluate to bool", error);
                     goto cleanup;
-                }
-                if (!(peeked)->as.boolean) {
-                    frame->ip += (size_t)operand;
                 }
                 VM_BREAK();
             VM_CASE(LOOP)
-                status = basl_vm_read_u32(vm, &operand, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-                if ((size_t)operand > frame->ip) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "loop target out of range",
-                        error
-                    );
-                    goto cleanup;
-                }
+                BASL_VM_READ_U32(code, frame->ip, operand);
                 frame->ip -= (size_t)operand;
                 VM_BREAK();
             VM_CASE(NIL)
