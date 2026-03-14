@@ -115,5 +115,13 @@ if(BASL_BUILD_TESTS)
             BaslSyntaxIntegrationTest
             PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
         )
+        add_test(
+            NAME BaslRegressionTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_regression.py
+        )
+        set_tests_properties(
+            BaslRegressionTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
     endif()
 endif()
