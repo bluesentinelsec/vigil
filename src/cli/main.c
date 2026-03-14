@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "basl/basl.h"
+#include "basl/stdlib.h"
 
 typedef enum basl_cli_mode {
     BASL_CLI_MODE_RUN = 0,
@@ -463,6 +464,13 @@ static int basl_register_source_tree(
                 break;
             }
 
+            /* Skip native stdlib modules — they don't have .basl files. */
+            if (basl_stdlib_is_native_module(
+                    import_text + 1U, import_length - 2U)) {
+                cursor += 1U;
+                continue;
+            }
+
             basl_string_init(&import_path, runtime);
             if (
                 basl_resolve_import_path(
@@ -538,7 +546,17 @@ static int basl_run_script(
     basl_status_t status;
 
     function = NULL;
-    status = basl_compile_source(registry, source_id, &function, diagnostics, error);
+    {
+        basl_native_registry_t natives;
+
+        basl_native_registry_init(&natives);
+        basl_stdlib_register_all(&natives, error);
+        status = basl_compile_source_with_natives(
+            registry, source_id, &natives,
+            &function, diagnostics, error
+        );
+        basl_native_registry_free(&natives);
+    }
     if (status != BASL_STATUS_OK) {
         if (basl_diagnostic_list_count(diagnostics) != 0U) {
             basl_object_release(&function);

@@ -63,15 +63,18 @@ target_compile_features(basl_core PUBLIC c_std_11)
 set_target_properties(basl_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ── Public shared/static library ────────────────────────────────────
-# Today this is just the core.  Future stdlib modules will be added
-# here (or as a basl_stdlib OBJECT library linked alongside).
+# Today this is the core plus stdlib modules.  Stdlib modules may use
+# platform-specific headers; the core (basl_core) stays pure C11.
 add_library(basl ${BASL_LIBRARY_TYPE}
     $<TARGET_OBJECTS:basl_core>
+    src/stdlib/fmt.c
 )
 
 target_include_directories(basl
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_features(basl PUBLIC c_std_11)

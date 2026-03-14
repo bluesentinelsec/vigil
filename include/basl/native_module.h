@@ -61,6 +61,18 @@ BASL_API const basl_native_module_t *basl_native_registry_find(
     const char *name,
     size_t name_length
 );
+BASL_API int basl_native_registry_find_index(
+    const basl_native_registry_t *registry,
+    const char *name,
+    size_t name_length,
+    size_t *out_index
+);
+
+/* Synthetic source IDs for native modules: 0xFFFF0000 + index. */
+#define BASL_NATIVE_SOURCE_ID_BASE ((basl_source_id_t)0xFFFF0000U)
+#define BASL_NATIVE_SOURCE_ID(idx) (BASL_NATIVE_SOURCE_ID_BASE + (basl_source_id_t)(idx))
+#define BASL_IS_NATIVE_SOURCE_ID(id) ((id) >= BASL_NATIVE_SOURCE_ID_BASE)
+#define BASL_NATIVE_SOURCE_INDEX(id) ((size_t)((id) - BASL_NATIVE_SOURCE_ID_BASE))
 
 /**
  * Extended compile API that accepts a native module registry.
