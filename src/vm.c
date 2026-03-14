@@ -183,6 +183,13 @@
         (ip) += 4U; \
     } while (0)
 
+/* Direct chunk field access — avoids function-call overhead for
+   basl_chunk_code(), basl_chunk_code_size(), basl_chunk_constant(). */
+#define BASL_VM_CHUNK_CODE(chunk)       ((chunk)->code.data)
+#define BASL_VM_CHUNK_CODE_SIZE(chunk)  ((chunk)->code.length)
+#define BASL_VM_CHUNK_CONSTANT(chunk, idx) \
+    ((idx) < (chunk)->constant_count ? &(chunk)->constants[(idx)] : NULL)
+
 typedef struct basl_vm_frame {
     const basl_object_t *callable;
     const basl_object_t *function;
@@ -2369,8 +2376,8 @@ static basl_status_t basl_vm_read_u32(
         );
     }
 
-    code = basl_chunk_code(frame->chunk);
-    code_size = basl_chunk_code_size(frame->chunk);
+    code = BASL_VM_CHUNK_CODE(frame->chunk);
+    code_size = BASL_VM_CHUNK_CODE_SIZE(frame->chunk);
     ip = frame->ip;
     if (code == NULL || ip + 4U >= code_size) {
         return basl_vm_fail_at_ip(
@@ -2409,8 +2416,8 @@ static basl_status_t basl_vm_read_raw_u32(
         );
     }
 
-    code = basl_chunk_code(frame->chunk);
-    code_size = basl_chunk_code_size(frame->chunk);
+    code = BASL_VM_CHUNK_CODE(frame->chunk);
+    code_size = BASL_VM_CHUNK_CODE_SIZE(frame->chunk);
     ip = frame->ip;
     if (code == NULL || ip + 3U >= code_size) {
         return basl_vm_fail_at_ip(
@@ -2678,8 +2685,8 @@ basl_status_t basl_vm_execute_function(
             return BASL_STATUS_INVALID_ARGUMENT;
         }
 
-        code = basl_chunk_code(frame->chunk);
-        code_size = basl_chunk_code_size(frame->chunk);
+        code = BASL_VM_CHUNK_CODE(frame->chunk);
+        code_size = BASL_VM_CHUNK_CODE_SIZE(frame->chunk);
         if (frame->ip >= code_size) {
             break;
         }
@@ -2741,6 +2748,12 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_MAP_REMOVE_SAFE] = &&op_MAP_REMOVE_SAFE,
             [BASL_OPCODE_MAP_SET_SAFE] = &&op_MAP_SET_SAFE,
             [BASL_OPCODE_MAP_VALUES] = &&op_MAP_VALUES,
+            [BASL_OPCODE_ADD_I64] = &&op_ADD_I64,
+            [BASL_OPCODE_SUBTRACT_I64] = &&op_SUBTRACT_I64,
+            [BASL_OPCODE_LESS_I64] = &&op_LESS_I64,
+            [BASL_OPCODE_LESS_EQUAL_I64] = &&op_LESS_EQUAL_I64,
+            [BASL_OPCODE_GREATER_I64] = &&op_GREATER_I64,
+            [BASL_OPCODE_GREATER_EQUAL_I64] = &&op_GREATER_EQUAL_I64,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -2802,8 +2815,8 @@ basl_status_t basl_vm_execute_function(
         #define VM_BREAK_RELOAD() \
             do { \
                 frame = &vm->frames[vm->frame_count - 1U]; \
-                code = basl_chunk_code(frame->chunk); \
-                code_size = basl_chunk_code_size(frame->chunk); \
+                code = BASL_VM_CHUNK_CODE(frame->chunk); \
+                code_size = BASL_VM_CHUNK_CODE_SIZE(frame->chunk); \
                 if (frame->ip >= code_size) goto vm_loop_end; \
                 VM_DISPATCH(); \
             } while (0)
@@ -2820,7 +2833,7 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(CONSTANT)
                 BASL_VM_READ_U32(code, frame->ip, constant_index);
 
-                constant = basl_chunk_constant(frame->chunk, (size_t)constant_index);
+                constant = BASL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)constant_index);
                 if (constant == NULL) {
                     status = basl_vm_fail_at_ip(
                         vm,
@@ -2888,12 +2901,7 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             VM_CASE(GET_LOCAL)
                 BASL_VM_READ_U32(code, frame->ip, operand);
-
-                status = basl_vm_validate_local_slot(vm, operand, &local_index, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-
+                local_index = frame->base_slot + (size_t)operand;
                 BASL_VM_VALUE_COPY(&value, &vm->stack[local_index]);
                 BASL_VM_PUSH(vm, &value);
                 BASL_VM_VALUE_RELEASE(&value);
@@ -3183,18 +3191,33 @@ basl_status_t basl_vm_execute_function(
                 }
                 VM_BREAK();
             VM_CASE(CALL) {
+                const basl_object_t *callee;
+                size_t base_slot;
+
                 BASL_VM_READ_U32(code, frame->ip, constant_index);
                 BASL_VM_READ_RAW_U32(code, frame->ip, operand);
 
-                status = basl_vm_invoke_call(
-                    vm,
-                    frame,
-                    (size_t)constant_index,
-                    (size_t)operand,
-                    error
-                );
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
+                callee = basl_function_object_sibling(
+                    frame->function, (size_t)constant_index);
+                base_slot = vm->stack_count - (size_t)operand;
+
+                /* Fast path: frame capacity available (pre-allocated 64) */
+                if (vm->frame_count < vm->frame_capacity) {
+                    basl_vm_frame_t *nf = &vm->frames[vm->frame_count];
+                    memset(nf, 0, sizeof(*nf));
+                    nf->callable = callee;
+                    nf->function = callee;
+                    nf->chunk = basl_function_object_chunk(callee);
+                    nf->base_slot = base_slot;
+                    vm->frame_count += 1U;
+                } else {
+                    status = basl_vm_push_frame(
+                        vm, callee, callee,
+                        basl_function_object_chunk(callee),
+                        base_slot, error);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
                 }
                 VM_BREAK_RELOAD();
             }
@@ -5468,6 +5491,68 @@ basl_status_t basl_vm_execute_function(
                 BASL_VM_VALUE_RELEASE(&value);
                 frame->ip += 1U;
                 VM_BREAK();
+
+            /* ── Specialized i64 arithmetic ────────────────────────
+               No type dispatch, no overflow check wrappers — just
+               inline integer ops.  The compiler only emits these
+               when both operands are statically i32/i64. */
+            VM_CASE(ADD_I64)
+            VM_CASE(SUBTRACT_I64)
+            {
+                int64_t a, b, r;
+                vm->stack_count -= 1U;
+                b = vm->stack[vm->stack_count].as.integer;
+                vm->stack_count -= 1U;
+                a = vm->stack[vm->stack_count].as.integer;
+                if ((basl_opcode_t)code[frame->ip] == BASL_OPCODE_ADD_I64) {
+                    if ((b > 0 && a > INT64_MAX - b) ||
+                        (b < 0 && a < INT64_MIN - b)) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer overflow", error);
+                        goto cleanup;
+                    }
+                    r = a + b;
+                } else {
+                    if ((b < 0 && a > INT64_MAX + b) ||
+                        (b > 0 && a < INT64_MIN + b)) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer overflow", error);
+                        goto cleanup;
+                    }
+                    r = a - b;
+                }
+                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
+                vm->stack[vm->stack_count].as.integer = r;
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(LESS_I64)
+            VM_CASE(LESS_EQUAL_I64)
+            VM_CASE(GREATER_I64)
+            VM_CASE(GREATER_EQUAL_I64)
+            {
+                int64_t a, b;
+                bool result;
+                vm->stack_count -= 1U;
+                b = vm->stack[vm->stack_count].as.integer;
+                vm->stack_count -= 1U;
+                a = vm->stack[vm->stack_count].as.integer;
+                switch ((basl_opcode_t)code[frame->ip]) {
+                    case BASL_OPCODE_LESS_I64:          result = a < b;  break;
+                    case BASL_OPCODE_LESS_EQUAL_I64:    result = a <= b; break;
+                    case BASL_OPCODE_GREATER_I64:       result = a > b;  break;
+                    case BASL_OPCODE_GREATER_EQUAL_I64: result = a >= b; break;
+                    default: result = false; break;
+                }
+                vm->stack[vm->stack_count].kind = BASL_VALUE_BOOL;
+                vm->stack[vm->stack_count].as.boolean = result;
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
             VM_CASE(NEGATE)
                 value = basl_vm_pop_or_nil(vm);
                 if ((value).kind == BASL_VALUE_FLOAT) {
@@ -5563,6 +5648,19 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 VM_BREAK();
             VM_CASE(TO_I32)
+                /* Fast path: if top of stack is already INT, just range-check */
+                if (vm->stack_count > 0U &&
+                    vm->stack[vm->stack_count - 1U].kind == BASL_VALUE_INT) {
+                    int64_t v = vm->stack[vm->stack_count - 1U].as.integer;
+                    if (v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "i32 conversion overflow or invalid value", error);
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                    VM_BREAK();
+                }
                 value = basl_vm_pop_or_nil(vm);
                 status = basl_vm_convert_to_signed_integer_type(
                     vm,
@@ -5899,9 +5997,14 @@ basl_status_t basl_vm_execute_function(
                     BASL_VM_POP(vm, ret_val);
                     base_slot = frame->base_slot;
                     vm->frame_count -= 1U;
-                    basl_vm_frame_clear(vm->runtime,
-                                        &vm->frames[vm->frame_count]);
-                    basl_vm_unwind_stack_to(vm, base_slot);
+                    /* Frame has no defers/pending_returns — just zero it */
+                    memset(&vm->frames[vm->frame_count], 0,
+                           sizeof(vm->frames[vm->frame_count]));
+                    /* Unwind stack: release any remaining locals */
+                    while (vm->stack_count > base_slot) {
+                        vm->stack_count -= 1U;
+                        BASL_VM_VALUE_RELEASE(&vm->stack[vm->stack_count]);
+                    }
                     BASL_VM_PUSH(vm, &ret_val);
                     BASL_VM_VALUE_RELEASE(&ret_val);
                     VM_BREAK_RELOAD();

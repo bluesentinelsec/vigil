@@ -9397,7 +9397,13 @@ static basl_status_t basl_parser_parse_term(
 
         status = basl_parser_emit_opcode(
             state,
-            operator_kind == BASL_TOKEN_PLUS ? BASL_OPCODE_ADD : BASL_OPCODE_SUBTRACT,
+            operator_kind == BASL_TOKEN_PLUS
+                ? (basl_parser_type_is_signed_integer(left_result.type) &&
+                   basl_parser_type_is_signed_integer(right_result.type)
+                       ? BASL_OPCODE_ADD_I64 : BASL_OPCODE_ADD)
+                : (basl_parser_type_is_signed_integer(left_result.type) &&
+                   basl_parser_type_is_signed_integer(right_result.type)
+                       ? BASL_OPCODE_SUBTRACT_I64 : BASL_OPCODE_SUBTRACT),
             operator_span
         );
         if (status != BASL_STATUS_OK) {
@@ -9586,28 +9592,46 @@ static basl_status_t basl_parser_parse_comparison(
             return status;
         }
 
-        switch (operator_kind) {
-            case BASL_TOKEN_GREATER:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
-                break;
-            case BASL_TOKEN_LESS:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
-                break;
-            case BASL_TOKEN_GREATER_EQUAL:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
-                if (status == BASL_STATUS_OK) {
-                    status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
-                }
-                break;
-            case BASL_TOKEN_LESS_EQUAL:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
-                if (status == BASL_STATUS_OK) {
-                    status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
-                }
-                break;
-            default:
-                status = BASL_STATUS_INTERNAL;
-                break;
+        {
+            int both_signed = basl_parser_type_is_signed_integer(left_result.type) &&
+                              basl_parser_type_is_signed_integer(right_result.type);
+            switch (operator_kind) {
+                case BASL_TOKEN_GREATER:
+                    status = basl_parser_emit_opcode(state,
+                        both_signed ? BASL_OPCODE_GREATER_I64 : BASL_OPCODE_GREATER,
+                        operator_span);
+                    break;
+                case BASL_TOKEN_LESS:
+                    status = basl_parser_emit_opcode(state,
+                        both_signed ? BASL_OPCODE_LESS_I64 : BASL_OPCODE_LESS,
+                        operator_span);
+                    break;
+                case BASL_TOKEN_GREATER_EQUAL:
+                    if (both_signed) {
+                        status = basl_parser_emit_opcode(state,
+                            BASL_OPCODE_GREATER_EQUAL_I64, operator_span);
+                    } else {
+                        status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
+                        if (status == BASL_STATUS_OK) {
+                            status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
+                        }
+                    }
+                    break;
+                case BASL_TOKEN_LESS_EQUAL:
+                    if (both_signed) {
+                        status = basl_parser_emit_opcode(state,
+                            BASL_OPCODE_LESS_EQUAL_I64, operator_span);
+                    } else {
+                        status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
+                        if (status == BASL_STATUS_OK) {
+                            status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
+                        }
+                    }
+                    break;
+                default:
+                    status = BASL_STATUS_INTERNAL;
+                    break;
+            }
         }
         if (status != BASL_STATUS_OK) {
             return status;
