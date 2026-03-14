@@ -524,6 +524,19 @@ basl_parser_type_t basl_program_map_type_key(
     const basl_program_state_t *program, basl_parser_type_t map_type);
 basl_parser_type_t basl_program_map_type_value(
     const basl_program_state_t *program, basl_parser_type_t map_type);
+const basl_token_t *basl_parser_peek(const basl_parser_state_t *state);
+int basl_parser_check(
+    const basl_parser_state_t *state, basl_token_kind_t kind);
+basl_status_t basl_parser_emit_u32(
+    basl_parser_state_t *state, uint32_t value, basl_source_span_t span);
+basl_status_t basl_compile_report(
+    const basl_program_state_t *program, basl_source_span_t span,
+    const char *message);
+
+/* compiler_strings.c — string/f-string parsing */
+basl_status_t basl_parser_parse_fstring_literal(
+    basl_parser_state_t *state, const basl_token_t *token,
+    basl_expression_result_t *out_result);
 
 /* compiler_builtins.c — built-in method dispatch */
 basl_status_t basl_parser_emit_default_value(
