@@ -103,7 +103,24 @@ typedef enum basl_opcode {
     BASL_OPCODE_MAP_REMOVE_SAFE = 84,
     BASL_OPCODE_MAP_HAS = 85,
     BASL_OPCODE_MAP_KEYS = 86,
-    BASL_OPCODE_MAP_VALUES = 87
+    BASL_OPCODE_MAP_VALUES = 87,
+
+    /* Specialized integer opcodes — emitted by the compiler when both
+       operands are statically known to be signed integers (i32/i64).
+       These skip the type-dispatch switch in the generic arithmetic
+       handler.  The VM reads two i64 values from the stack and
+       produces an i64 (arithmetic) or bool (comparison) result. */
+    BASL_OPCODE_ADD_I64 = 88,
+    BASL_OPCODE_SUBTRACT_I64 = 89,
+    BASL_OPCODE_LESS_I64 = 90,
+    BASL_OPCODE_LESS_EQUAL_I64 = 91,
+    BASL_OPCODE_GREATER_I64 = 92,
+    BASL_OPCODE_GREATER_EQUAL_I64 = 93,
+    BASL_OPCODE_MULTIPLY_I64 = 94,
+    BASL_OPCODE_DIVIDE_I64 = 95,
+    BASL_OPCODE_MODULO_I64 = 96,
+    BASL_OPCODE_EQUAL_I64 = 97,
+    BASL_OPCODE_NOT_EQUAL_I64 = 98
 } basl_opcode_t;
 
 typedef struct basl_chunk {

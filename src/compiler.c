@@ -9308,11 +9308,23 @@ static basl_status_t basl_parser_parse_factor(
         }
 
         if (operator_kind == BASL_TOKEN_STAR) {
-            status = basl_parser_emit_opcode(state, BASL_OPCODE_MULTIPLY, operator_span);
+            status = basl_parser_emit_opcode(state,
+                (basl_parser_type_is_signed_integer(left_result.type) &&
+                 basl_parser_type_is_signed_integer(right_result.type))
+                    ? BASL_OPCODE_MULTIPLY_I64 : BASL_OPCODE_MULTIPLY,
+                operator_span);
         } else if (operator_kind == BASL_TOKEN_SLASH) {
-            status = basl_parser_emit_opcode(state, BASL_OPCODE_DIVIDE, operator_span);
+            status = basl_parser_emit_opcode(state,
+                (basl_parser_type_is_signed_integer(left_result.type) &&
+                 basl_parser_type_is_signed_integer(right_result.type))
+                    ? BASL_OPCODE_DIVIDE_I64 : BASL_OPCODE_DIVIDE,
+                operator_span);
         } else {
-            status = basl_parser_emit_opcode(state, BASL_OPCODE_MODULO, operator_span);
+            status = basl_parser_emit_opcode(state,
+                (basl_parser_type_is_signed_integer(left_result.type) &&
+                 basl_parser_type_is_signed_integer(right_result.type))
+                    ? BASL_OPCODE_MODULO_I64 : BASL_OPCODE_MODULO,
+                operator_span);
         }
         if (status != BASL_STATUS_OK) {
             return status;
@@ -9397,7 +9409,13 @@ static basl_status_t basl_parser_parse_term(
 
         status = basl_parser_emit_opcode(
             state,
-            operator_kind == BASL_TOKEN_PLUS ? BASL_OPCODE_ADD : BASL_OPCODE_SUBTRACT,
+            operator_kind == BASL_TOKEN_PLUS
+                ? (basl_parser_type_is_signed_integer(left_result.type) &&
+                   basl_parser_type_is_signed_integer(right_result.type)
+                       ? BASL_OPCODE_ADD_I64 : BASL_OPCODE_ADD)
+                : (basl_parser_type_is_signed_integer(left_result.type) &&
+                   basl_parser_type_is_signed_integer(right_result.type)
+                       ? BASL_OPCODE_SUBTRACT_I64 : BASL_OPCODE_SUBTRACT),
             operator_span
         );
         if (status != BASL_STATUS_OK) {
@@ -9586,28 +9604,46 @@ static basl_status_t basl_parser_parse_comparison(
             return status;
         }
 
-        switch (operator_kind) {
-            case BASL_TOKEN_GREATER:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
-                break;
-            case BASL_TOKEN_LESS:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
-                break;
-            case BASL_TOKEN_GREATER_EQUAL:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
-                if (status == BASL_STATUS_OK) {
-                    status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
-                }
-                break;
-            case BASL_TOKEN_LESS_EQUAL:
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
-                if (status == BASL_STATUS_OK) {
-                    status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
-                }
-                break;
-            default:
-                status = BASL_STATUS_INTERNAL;
-                break;
+        {
+            int both_signed = basl_parser_type_is_signed_integer(left_result.type) &&
+                              basl_parser_type_is_signed_integer(right_result.type);
+            switch (operator_kind) {
+                case BASL_TOKEN_GREATER:
+                    status = basl_parser_emit_opcode(state,
+                        both_signed ? BASL_OPCODE_GREATER_I64 : BASL_OPCODE_GREATER,
+                        operator_span);
+                    break;
+                case BASL_TOKEN_LESS:
+                    status = basl_parser_emit_opcode(state,
+                        both_signed ? BASL_OPCODE_LESS_I64 : BASL_OPCODE_LESS,
+                        operator_span);
+                    break;
+                case BASL_TOKEN_GREATER_EQUAL:
+                    if (both_signed) {
+                        status = basl_parser_emit_opcode(state,
+                            BASL_OPCODE_GREATER_EQUAL_I64, operator_span);
+                    } else {
+                        status = basl_parser_emit_opcode(state, BASL_OPCODE_LESS, operator_span);
+                        if (status == BASL_STATUS_OK) {
+                            status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
+                        }
+                    }
+                    break;
+                case BASL_TOKEN_LESS_EQUAL:
+                    if (both_signed) {
+                        status = basl_parser_emit_opcode(state,
+                            BASL_OPCODE_LESS_EQUAL_I64, operator_span);
+                    } else {
+                        status = basl_parser_emit_opcode(state, BASL_OPCODE_GREATER, operator_span);
+                        if (status == BASL_STATUS_OK) {
+                            status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
+                        }
+                    }
+                    break;
+                default:
+                    status = BASL_STATUS_INTERNAL;
+                    break;
+            }
         }
         if (status != BASL_STATUS_OK) {
             return status;
@@ -9680,14 +9716,19 @@ static basl_status_t basl_parser_parse_equality(
             return status;
         }
 
-        status = basl_parser_emit_opcode(state, BASL_OPCODE_EQUAL, operator_span);
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-        if (operator_kind == BASL_TOKEN_BANG_EQUAL) {
-            status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
+        if (basl_parser_type_is_signed_integer(left_result.type) &&
+            basl_parser_type_is_signed_integer(right_result.type)) {
+            status = basl_parser_emit_opcode(state,
+                operator_kind == BASL_TOKEN_BANG_EQUAL
+                    ? BASL_OPCODE_NOT_EQUAL_I64 : BASL_OPCODE_EQUAL_I64,
+                operator_span);
+        } else {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_EQUAL, operator_span);
             if (status != BASL_STATUS_OK) {
                 return status;
+            }
+            if (operator_kind == BASL_TOKEN_BANG_EQUAL) {
+                status = basl_parser_emit_opcode(state, BASL_OPCODE_NOT, operator_span);
             }
         }
         left_result.type = basl_binding_type_primitive(BASL_TYPE_BOOL);
@@ -12991,6 +13032,19 @@ static basl_status_t basl_parser_parse_assignment_statement_internal(
             }
             if (status != BASL_STATUS_OK) {
                 return status;
+            }
+        }
+
+        /* Specialize to i64 opcodes when both operands are signed integers. */
+        if (basl_parser_type_is_signed_integer(target_type) &&
+            basl_parser_type_is_signed_integer(value_result.type)) {
+            switch (opcode) {
+                case BASL_OPCODE_ADD:      opcode = BASL_OPCODE_ADD_I64;      break;
+                case BASL_OPCODE_SUBTRACT: opcode = BASL_OPCODE_SUBTRACT_I64; break;
+                case BASL_OPCODE_MULTIPLY: opcode = BASL_OPCODE_MULTIPLY_I64; break;
+                case BASL_OPCODE_DIVIDE:   opcode = BASL_OPCODE_DIVIDE_I64;   break;
+                case BASL_OPCODE_MODULO:   opcode = BASL_OPCODE_MODULO_I64;   break;
+                default: break;
             }
         }
 
