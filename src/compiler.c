@@ -13,6 +13,7 @@
 #include "internal/basl_compiler_internal.h"
 #include "internal/basl_internal.h"
 #include "internal/basl_compiler_types.h"
+#include "internal/basl_nanbox.h"
 
 static int basl_parser_is_assignment_start(
     const basl_parser_state_t *state
@@ -1744,25 +1745,33 @@ static int basl_program_values_equal(
     const char *right_text;
     size_t left_length;
     size_t right_length;
+    basl_value_kind_t lk;
+    basl_value_kind_t rk;
 
-    if (left == NULL || right == NULL || left->kind != right->kind) {
+    if (left == NULL || right == NULL) {
         return 0;
     }
 
-    switch (left->kind) {
+    lk = basl_value_kind(left);
+    rk = basl_value_kind(right);
+    if (lk != rk) {
+        return 0;
+    }
+
+    switch (lk) {
         case BASL_VALUE_NIL:
             return 1;
         case BASL_VALUE_BOOL:
-            return left->as.boolean == right->as.boolean;
+            return basl_value_as_bool(left) == basl_value_as_bool(right);
         case BASL_VALUE_INT:
-            return left->as.integer == right->as.integer;
+            return basl_value_as_int(left) == basl_value_as_int(right);
         case BASL_VALUE_UINT:
-            return left->as.uinteger == right->as.uinteger;
+            return basl_value_as_uint(left) == basl_value_as_uint(right);
         case BASL_VALUE_FLOAT:
-            return left->as.number == right->as.number;
+            return basl_value_as_float(left) == basl_value_as_float(right);
         case BASL_VALUE_OBJECT:
-            left_object = left->as.object;
-            right_object = right->as.object;
+            left_object = basl_value_as_object(left);
+            right_object = basl_value_as_object(right);
             if (left_object == right_object) {
                 return 1;
             }
@@ -3508,7 +3517,7 @@ static basl_status_t basl_program_parse_constant_unary(
                     program,
                     token->span,
                     integer_type,
-                    &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                    &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
                 );
                 if (status != BASL_STATUS_OK) {
                     return status;
@@ -3652,8 +3661,8 @@ static basl_status_t basl_program_parse_constant_factor(
                 token->span,
                 left.type,
                 basl_parser_type_is_unsigned_integer(left.type)
-                    ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
-                    : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                    ? &(basl_value_t){ basl_nanbox_encode_uint(uinteger_result ) }
+                    : &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
             );
             if (status != BASL_STATUS_OK) {
                 basl_constant_result_release(&left);
@@ -3811,8 +3820,8 @@ static basl_status_t basl_program_parse_constant_term(
                 token->span,
                 left.type,
                 basl_parser_type_is_unsigned_integer(left.type)
-                    ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
-                    : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                    ? &(basl_value_t){ basl_nanbox_encode_uint(uinteger_result ) }
+                    : &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
             );
             if (status != BASL_STATUS_OK) {
                 basl_constant_result_release(&left);
@@ -3948,8 +3957,8 @@ static basl_status_t basl_program_parse_constant_shift(
             token->span,
             left.type,
             basl_parser_type_is_unsigned_integer(left.type)
-                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
-                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                ? &(basl_value_t){ basl_nanbox_encode_uint(uinteger_result ) }
+                : &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -4199,8 +4208,8 @@ static basl_status_t basl_program_parse_constant_bitwise_and(
             token->span,
             left.type,
             basl_parser_type_is_unsigned_integer(left.type)
-                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
-                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                ? &(basl_value_t){ basl_nanbox_encode_uint(uinteger_result ) }
+                : &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -4275,8 +4284,8 @@ static basl_status_t basl_program_parse_constant_bitwise_xor(
             token->span,
             left.type,
             basl_parser_type_is_unsigned_integer(left.type)
-                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
-                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                ? &(basl_value_t){ basl_nanbox_encode_uint(uinteger_result ) }
+                : &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);
@@ -4351,8 +4360,8 @@ static basl_status_t basl_program_parse_constant_bitwise_or(
             token->span,
             left.type,
             basl_parser_type_is_unsigned_integer(left.type)
-                ? &(basl_value_t){ .kind = BASL_VALUE_UINT, .as.uinteger = uinteger_result }
-                : &(basl_value_t){ .kind = BASL_VALUE_INT, .as.integer = integer_result }
+                ? &(basl_value_t){ basl_nanbox_encode_uint(uinteger_result ) }
+                : &(basl_value_t){ basl_nanbox_encode_int(integer_result ) }
         );
         if (status != BASL_STATUS_OK) {
             basl_constant_result_release(&left);

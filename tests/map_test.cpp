@@ -112,6 +112,7 @@ TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys) {
     EXPECT_TRUE(basl_map_contains_value(&map, &uint_key));
     EXPECT_TRUE(basl_map_contains_value(&map, &bool_key));
 
+    basl_value_release(&uint_key);
     basl_map_free(&map);
     basl_runtime_close(&runtime);
 }

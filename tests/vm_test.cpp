@@ -167,6 +167,7 @@ TEST(BaslVmTest, RejectsArithmeticOverflow) {
         basl_chunk_write_constant(&chunk, &constant, Span(5U, 0U, 1U), nullptr, &error),
         BASL_STATUS_OK
     );
+    basl_value_release(&constant);
     basl_value_init_int(&constant, 1);
     ASSERT_EQ(
         basl_chunk_write_constant(&chunk, &constant, Span(5U, 2U, 3U), nullptr, &error),
@@ -215,6 +216,7 @@ TEST(BaslVmTest, RejectsNegateOverflow) {
         basl_chunk_write_constant(&chunk, &constant, Span(6U, 0U, 1U), nullptr, &error),
         BASL_STATUS_OK
     );
+    basl_value_release(&constant);
     ASSERT_EQ(
         basl_chunk_write_opcode(&chunk, BASL_OPCODE_NEGATE, Span(6U, 2U, 3U), &error),
         BASL_STATUS_OK
@@ -775,6 +777,7 @@ TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic) {
         basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 3U), nullptr, &error),
         BASL_STATUS_OK
     );
+    basl_value_release(&constant);
     basl_value_init_uint(&constant, UINT64_C(2));
     ASSERT_EQ(
         basl_chunk_write_constant(&chunk, &constant, Span(13U, 4U, 5U), nullptr, &error),
@@ -800,6 +803,7 @@ TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic) {
         basl_chunk_write_constant(&chunk, &constant, Span(14U, 0U, 3U), nullptr, &error),
         BASL_STATUS_OK
     );
+    basl_value_release(&constant);
     ASSERT_EQ(
         basl_chunk_write_opcode(&chunk, BASL_OPCODE_TO_F64, Span(14U, 4U, 5U), &error),
         BASL_STATUS_OK

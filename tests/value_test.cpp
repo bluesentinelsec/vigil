@@ -56,6 +56,7 @@ TEST(BaslValueTest, ImmediateValuesRoundTrip) {
     basl_value_init_uint(&value, UINT64_C(9223372036854775808));
     EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_UINT);
     EXPECT_EQ(basl_value_as_uint(&value), UINT64_C(9223372036854775808));
+    basl_value_release(&value);
 
     basl_value_init_float(&value, 3.5);
     EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_FLOAT);

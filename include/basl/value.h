@@ -30,28 +30,42 @@ typedef enum basl_object_type {
     BASL_OBJECT_INSTANCE = 4,
     BASL_OBJECT_ERROR = 5,
     BASL_OBJECT_ARRAY = 6,
-    BASL_OBJECT_MAP = 7
+    BASL_OBJECT_MAP = 7,
+    BASL_OBJECT_BIGINT = 8
 } basl_object_type_t;
 
 typedef struct basl_object basl_object_t;
 typedef struct basl_chunk basl_chunk_t;
 
-typedef struct basl_value {
-    basl_value_kind_t kind;
-    union {
-        bool boolean;
-        int64_t integer;
-        uint64_t uinteger;
-        double number;
-        basl_object_t *object;
-    } as;
-} basl_value_t;
+/*
+ * NaN-boxed value representation.  Every value is a single uint64_t.
+ * Doubles are stored as raw IEEE 754 bits.  All other types (nil, bool,
+ * int, uint, object pointer) are encoded in the quiet-NaN space.
+ * See src/internal/basl_nanbox.h for the encoding details.
+ */
+typedef uint64_t basl_value_t;
 
 BASL_API void basl_value_init_nil(basl_value_t *value);
 BASL_API void basl_value_init_bool(basl_value_t *value, bool boolean);
 BASL_API void basl_value_init_int(basl_value_t *value, int64_t integer);
 BASL_API void basl_value_init_uint(basl_value_t *value, uint64_t integer);
 BASL_API void basl_value_init_float(basl_value_t *value, double number);
+/*
+ * Runtime-aware integer init — heap-boxes values that exceed the
+ * 48-bit inline range.  Use these when the value may be large.
+ */
+BASL_API basl_status_t basl_value_init_int_rt(
+    basl_value_t *value,
+    int64_t integer,
+    basl_runtime_t *runtime,
+    basl_error_t *error
+);
+BASL_API basl_status_t basl_value_init_uint_rt(
+    basl_value_t *value,
+    uint64_t integer,
+    basl_runtime_t *runtime,
+    basl_error_t *error
+);
 /*
  * Transfers one owned object reference into the value and clears *object.
  * Passing a null object pointer initializes the value to nil.

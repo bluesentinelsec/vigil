@@ -4,6 +4,7 @@
 
 #include "basl/chunk.h"
 #include "internal/basl_internal.h"
+#include "internal/basl_nanbox.h"
 #include "basl/map.h"
 #include "basl/string.h"
 #include "basl/value.h"
@@ -78,6 +79,19 @@ typedef struct basl_map_object {
     basl_object_t base;
     basl_map_t entries;
 } basl_map_object_t;
+
+/* Bigint object — heap-boxed 64-bit integer for values outside
+   the 48-bit inline range. */
+#define BASL_BIGINT_MAGIC UINT32_C(0xB161B161)
+typedef struct basl_bigint_object {
+    basl_object_t base;
+    uint32_t magic;
+    int is_unsigned;
+    union {
+        int64_t signed_value;
+        uint64_t unsigned_value;
+    } as;
+} basl_bigint_object_t;
 
 static const basl_string_object_t *basl_string_object_cast(
     const basl_object_t *object
@@ -271,6 +285,8 @@ static void basl_object_destroy(basl_object_t *object) {
         case BASL_OBJECT_MAP:
             basl_map_free(&((basl_map_object_t *)object)->entries);
             break;
+        case BASL_OBJECT_BIGINT:
+            break;
         case BASL_OBJECT_INVALID:
         default:
             break;
@@ -279,6 +295,8 @@ static void basl_object_destroy(basl_object_t *object) {
     memory = object;
     if (runtime != NULL) {
         basl_runtime_free(runtime, &memory);
+    } else {
+        free(memory);
     }
 }
 
@@ -301,8 +319,7 @@ void basl_value_init_nil(basl_value_t *value) {
         return;
     }
 
-    memset(value, 0, sizeof(*value));
-    value->kind = BASL_VALUE_NIL;
+    *value = BASL_NANBOX_NIL;
 }
 
 void basl_value_init_bool(basl_value_t *value, bool boolean) {
@@ -310,9 +327,7 @@ void basl_value_init_bool(basl_value_t *value, bool boolean) {
         return;
     }
 
-    basl_value_init_nil(value);
-    value->kind = BASL_VALUE_BOOL;
-    value->as.boolean = boolean;
+    *value = boolean ? BASL_NANBOX_TRUE : BASL_NANBOX_FALSE;
 }
 
 void basl_value_init_int(basl_value_t *value, int64_t integer) {
@@ -320,9 +335,21 @@ void basl_value_init_int(basl_value_t *value, int64_t integer) {
         return;
     }
 
-    basl_value_init_nil(value);
-    value->kind = BASL_VALUE_INT;
-    value->as.integer = integer;
+    if (basl_nanbox_int_fits_inline(integer)) {
+        *value = basl_nanbox_encode_int(integer);
+    } else {
+        /* Box using malloc (no runtime available). */
+        basl_bigint_object_t *obj =
+            (basl_bigint_object_t *)malloc(sizeof(basl_bigint_object_t));
+        if (obj == NULL) {
+            *value = BASL_NANBOX_NIL;
+            return;
+        }
+        basl_object_init(&obj->base, NULL, BASL_OBJECT_BIGINT);
+        obj->magic = BASL_BIGINT_MAGIC; obj->is_unsigned = 0;
+        obj->as.signed_value = integer;
+        *value = basl_nanbox_encode_bigint(&obj->base);
+    }
 }
 
 void basl_value_init_uint(basl_value_t *value, uint64_t integer) {
@@ -330,9 +357,20 @@ void basl_value_init_uint(basl_value_t *value, uint64_t integer) {
         return;
     }
 
-    basl_value_init_nil(value);
-    value->kind = BASL_VALUE_UINT;
-    value->as.uinteger = integer;
+    if (basl_nanbox_uint_fits_inline(integer)) {
+        *value = basl_nanbox_encode_uint(integer);
+    } else {
+        basl_bigint_object_t *obj =
+            (basl_bigint_object_t *)malloc(sizeof(basl_bigint_object_t));
+        if (obj == NULL) {
+            *value = BASL_NANBOX_NIL;
+            return;
+        }
+        basl_object_init(&obj->base, NULL, BASL_OBJECT_BIGINT);
+        obj->magic = BASL_BIGINT_MAGIC; obj->is_unsigned = 1;
+        obj->as.unsigned_value = integer;
+        *value = basl_nanbox_encode_biguint(&obj->base);
+    }
 }
 
 void basl_value_init_float(basl_value_t *value, double number) {
@@ -340,9 +378,7 @@ void basl_value_init_float(basl_value_t *value, double number) {
         return;
     }
 
-    basl_value_init_nil(value);
-    value->kind = BASL_VALUE_FLOAT;
-    value->as.number = number;
+    *value = basl_nanbox_encode_double(number);
 }
 
 void basl_value_init_object(
@@ -355,7 +391,7 @@ void basl_value_init_object(
         return;
     }
 
-    basl_value_init_nil(value);
+    *value = BASL_NANBOX_NIL;
 
     if (object == NULL || *object == NULL) {
         return;
@@ -363,21 +399,19 @@ void basl_value_init_object(
 
     resolved_object = *object;
     *object = NULL;
-    value->kind = BASL_VALUE_OBJECT;
-    value->as.object = resolved_object;
+    *value = basl_nanbox_encode_object(resolved_object);
 }
 
 basl_value_t basl_value_copy(const basl_value_t *value) {
     basl_value_t copy;
 
-    basl_value_init_nil(&copy);
     if (value == NULL) {
-        return copy;
+        return BASL_NANBOX_NIL;
     }
 
     copy = *value;
-    if (copy.kind == BASL_VALUE_OBJECT) {
-        basl_object_retain(copy.as.object);
+    if (basl_nanbox_has_object(copy)) {
+        basl_object_retain((basl_object_t *)basl_nanbox_decode_ptr(copy));
     }
 
     return copy;
@@ -390,60 +424,110 @@ void basl_value_release(basl_value_t *value) {
         return;
     }
 
-    if (value->kind == BASL_VALUE_OBJECT) {
-        object = value->as.object;
+    if (basl_nanbox_has_object(*value)) {
+        object = (basl_object_t *)basl_nanbox_decode_ptr(*value);
         basl_object_release(&object);
     }
 
-    basl_value_init_nil(value);
+    *value = BASL_NANBOX_NIL;
 }
 
 basl_value_kind_t basl_value_kind(const basl_value_t *value) {
+    uint64_t v;
+
     if (value == NULL) {
         return BASL_VALUE_NIL;
     }
 
-    return value->kind;
+    v = *value;
+    if (basl_nanbox_is_double(v)) {
+        return BASL_VALUE_FLOAT;
+    }
+    if (basl_nanbox_is_nil(v)) {
+        return BASL_VALUE_NIL;
+    }
+    if (basl_nanbox_is_bool(v)) {
+        return BASL_VALUE_BOOL;
+    }
+    if (basl_nanbox_is_int(v)) {
+        return BASL_VALUE_INT;
+    }
+    if (basl_nanbox_is_uint(v)) {
+        return BASL_VALUE_UINT;
+    }
+    /* object, bigint ptr, biguint ptr all have sign bit set */
+    if (basl_nanbox_is_object(v)) {
+        return BASL_VALUE_OBJECT;
+    }
+    return BASL_VALUE_NIL;
 }
 
 bool basl_value_as_bool(const basl_value_t *value) {
-    if (value == NULL || value->kind != BASL_VALUE_BOOL) {
+    if (value == NULL) {
         return false;
     }
 
-    return value->as.boolean;
+    return basl_nanbox_decode_bool(*value);
 }
 
 int64_t basl_value_as_int(const basl_value_t *value) {
-    if (value == NULL || value->kind != BASL_VALUE_INT) {
+    uint64_t v;
+
+    if (value == NULL) {
         return 0;
     }
 
-    return value->as.integer;
+    v = *value;
+    if (basl_nanbox_is_int_inline(v)) {
+        return basl_nanbox_decode_int(v);
+    }
+    if (basl_nanbox_is_bigint(v)) {
+        const basl_bigint_object_t *bi =
+            (const basl_bigint_object_t *)basl_nanbox_decode_ptr(v);
+        return bi->as.signed_value;
+    }
+    return 0;
 }
 
 uint64_t basl_value_as_uint(const basl_value_t *value) {
-    if (value == NULL || value->kind != BASL_VALUE_UINT) {
+    uint64_t v;
+
+    if (value == NULL) {
         return 0U;
     }
 
-    return value->as.uinteger;
+    v = *value;
+    if (basl_nanbox_is_uint_inline(v)) {
+        return basl_nanbox_decode_uint(v);
+    }
+    if (basl_nanbox_is_biguint(v)) {
+        const basl_bigint_object_t *bi =
+            (const basl_bigint_object_t *)basl_nanbox_decode_ptr(v);
+        return bi->as.unsigned_value;
+    }
+    return 0U;
 }
 
 double basl_value_as_float(const basl_value_t *value) {
-    if (value == NULL || value->kind != BASL_VALUE_FLOAT) {
+    if (value == NULL) {
         return 0.0;
     }
 
-    return value->as.number;
+    if (basl_nanbox_is_double(*value)) {
+        return basl_nanbox_decode_double(*value);
+    }
+    return 0.0;
 }
 
 basl_object_t *basl_value_as_object(const basl_value_t *value) {
-    if (value == NULL || value->kind != BASL_VALUE_OBJECT) {
+    if (value == NULL) {
         return NULL;
     }
 
-    return value->as.object;
+    if (basl_nanbox_is_object(*value)) {
+        return (basl_object_t *)basl_nanbox_decode_ptr(*value);
+    }
+    return NULL;
 }
 
 basl_object_type_t basl_object_type(const basl_object_t *object) {
@@ -490,6 +574,110 @@ void basl_object_release(basl_object_t **object) {
     }
 
     basl_object_destroy(resolved_object);
+}
+
+/* ── Bigint object creation (internal) ───────────────────────────── */
+
+static basl_status_t basl_bigint_object_new_signed(
+    basl_runtime_t *runtime,
+    int64_t value,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_bigint_object_t *object;
+    void *memory;
+
+    basl_error_clear(error);
+    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    object = (basl_bigint_object_t *)memory;
+    basl_object_init(&object->base, runtime, BASL_OBJECT_BIGINT);
+    object->magic = BASL_BIGINT_MAGIC; object->is_unsigned = 0;
+    object->as.signed_value = value;
+    *out_object = &object->base;
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t basl_bigint_object_new_unsigned(
+    basl_runtime_t *runtime,
+    uint64_t value,
+    basl_object_t **out_object,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_bigint_object_t *object;
+    void *memory;
+
+    basl_error_clear(error);
+    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    object = (basl_bigint_object_t *)memory;
+    basl_object_init(&object->base, runtime, BASL_OBJECT_BIGINT);
+    object->magic = BASL_BIGINT_MAGIC; object->is_unsigned = 1;
+    object->as.unsigned_value = value;
+    *out_object = &object->base;
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_value_init_int_rt(
+    basl_value_t *value,
+    int64_t integer,
+    basl_runtime_t *runtime,
+    basl_error_t *error
+) {
+    basl_object_t *obj;
+    basl_status_t status;
+
+    if (value == NULL) {
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_nanbox_int_fits_inline(integer)) {
+        *value = basl_nanbox_encode_int(integer);
+        return BASL_STATUS_OK;
+    }
+
+    status = basl_bigint_object_new_signed(runtime, integer, &obj, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    *value = basl_nanbox_encode_bigint(obj);
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_value_init_uint_rt(
+    basl_value_t *value,
+    uint64_t integer,
+    basl_runtime_t *runtime,
+    basl_error_t *error
+) {
+    basl_object_t *obj;
+    basl_status_t status;
+
+    if (value == NULL) {
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_nanbox_uint_fits_inline(integer)) {
+        *value = basl_nanbox_encode_uint(integer);
+        return BASL_STATUS_OK;
+    }
+
+    status = basl_bigint_object_new_unsigned(runtime, integer, &obj, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    *value = basl_nanbox_encode_biguint(obj);
+    return BASL_STATUS_OK;
 }
 
 basl_status_t basl_string_object_new(
