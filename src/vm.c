@@ -108,6 +108,28 @@
   #define BASL_VM_COMPUTED_GOTO 0
 #endif
 
+/* Portable overflow-checked i32 arithmetic.
+   GCC/Clang: single-instruction __builtin_*_overflow.
+   MSVC: manual range checks (i32 ops can't overflow i64). */
+#if defined(__GNUC__) || defined(__clang__)
+  #define BASL_I32_ADD_OVERFLOW(a, b, r) __builtin_add_overflow(a, b, r)
+  #define BASL_I32_SUB_OVERFLOW(a, b, r) __builtin_sub_overflow(a, b, r)
+  #define BASL_I32_MUL_OVERFLOW(a, b, r) __builtin_mul_overflow(a, b, r)
+#else
+  #define BASL_I32_ADD_OVERFLOW(a, b, r) \
+      (*(r) = (int32_t)((int64_t)(a) + (int64_t)(b)), \
+       (int64_t)(a) + (int64_t)(b) < (int64_t)INT32_MIN || \
+       (int64_t)(a) + (int64_t)(b) > (int64_t)INT32_MAX)
+  #define BASL_I32_SUB_OVERFLOW(a, b, r) \
+      (*(r) = (int32_t)((int64_t)(a) - (int64_t)(b)), \
+       (int64_t)(a) - (int64_t)(b) < (int64_t)INT32_MIN || \
+       (int64_t)(a) - (int64_t)(b) > (int64_t)INT32_MAX)
+  #define BASL_I32_MUL_OVERFLOW(a, b, r) \
+      (*(r) = (int32_t)((int64_t)(a) * (int64_t)(b)), \
+       (int64_t)(a) * (int64_t)(b) < (int64_t)INT32_MIN || \
+       (int64_t)(a) * (int64_t)(b) > (int64_t)INT32_MAX)
+#endif
+
 #define BASL_VM_INITIAL_STACK_CAPACITY  256U
 #define BASL_VM_INITIAL_FRAME_CAPACITY  64U
 
@@ -2736,6 +2758,28 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_LOCALS_GREATER_EQUAL_I64] = &&op_LOCALS_GREATER_EQUAL_I64,
             [BASL_OPCODE_LOCALS_EQUAL_I64] = &&op_LOCALS_EQUAL_I64,
             [BASL_OPCODE_LOCALS_NOT_EQUAL_I64] = &&op_LOCALS_NOT_EQUAL_I64,
+            [BASL_OPCODE_ADD_I32] = &&op_ADD_I32,
+            [BASL_OPCODE_SUBTRACT_I32] = &&op_SUBTRACT_I32,
+            [BASL_OPCODE_MULTIPLY_I32] = &&op_MULTIPLY_I32,
+            [BASL_OPCODE_DIVIDE_I32] = &&op_DIVIDE_I32,
+            [BASL_OPCODE_MODULO_I32] = &&op_MODULO_I32,
+            [BASL_OPCODE_LESS_I32] = &&op_LESS_I32,
+            [BASL_OPCODE_LESS_EQUAL_I32] = &&op_LESS_EQUAL_I32,
+            [BASL_OPCODE_GREATER_I32] = &&op_GREATER_I32,
+            [BASL_OPCODE_GREATER_EQUAL_I32] = &&op_GREATER_EQUAL_I32,
+            [BASL_OPCODE_EQUAL_I32] = &&op_EQUAL_I32,
+            [BASL_OPCODE_NOT_EQUAL_I32] = &&op_NOT_EQUAL_I32,
+            [BASL_OPCODE_LOCALS_ADD_I32_STORE] = &&op_LOCALS_ADD_I32_STORE,
+            [BASL_OPCODE_LOCALS_SUBTRACT_I32_STORE] = &&op_LOCALS_SUBTRACT_I32_STORE,
+            [BASL_OPCODE_LOCALS_MULTIPLY_I32_STORE] = &&op_LOCALS_MULTIPLY_I32_STORE,
+            [BASL_OPCODE_LOCALS_MODULO_I32_STORE] = &&op_LOCALS_MODULO_I32_STORE,
+            [BASL_OPCODE_LOCALS_LESS_I32_STORE] = &&op_LOCALS_LESS_I32_STORE,
+            [BASL_OPCODE_LOCALS_LESS_EQUAL_I32_STORE] = &&op_LOCALS_LESS_EQUAL_I32_STORE,
+            [BASL_OPCODE_LOCALS_GREATER_I32_STORE] = &&op_LOCALS_GREATER_I32_STORE,
+            [BASL_OPCODE_LOCALS_GREATER_EQUAL_I32_STORE] = &&op_LOCALS_GREATER_EQUAL_I32_STORE,
+            [BASL_OPCODE_LOCALS_EQUAL_I32_STORE] = &&op_LOCALS_EQUAL_I32_STORE,
+            [BASL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE] = &&op_LOCALS_NOT_EQUAL_I32_STORE,
+            [BASL_OPCODE_INCREMENT_LOCAL_I32] = &&op_INCREMENT_LOCAL_I32,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -5771,6 +5815,261 @@ basl_status_t basl_vm_execute_function(
                 vm->stack_count += 1U;
                 VM_BREAK();
             }
+            /* ── i32-specific binary opcodes ──────────────────────────
+               These skip the i64 overflow check entirely.  For i32
+               arithmetic, overflow is checked with __builtin_*_overflow
+               on 32-bit operands (single instruction on ARM/x86). */
+            VM_CASE(ADD_I32)
+            {
+                int32_t a, b, r;
+                vm->stack_count -= 1U;
+                b = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                vm->stack_count -= 1U;
+                a = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                if (BASL_I32_ADD_OVERFLOW(a, b, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[vm->stack_count] = basl_nanbox_encode_i32(r);
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(SUBTRACT_I32)
+            {
+                int32_t a, b, r;
+                vm->stack_count -= 1U;
+                b = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                vm->stack_count -= 1U;
+                a = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                if (BASL_I32_SUB_OVERFLOW(a, b, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[vm->stack_count] = basl_nanbox_encode_i32(r);
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(MULTIPLY_I32)
+            {
+                int32_t a, b, r;
+                vm->stack_count -= 1U;
+                b = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                vm->stack_count -= 1U;
+                a = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                if (BASL_I32_MUL_OVERFLOW(a, b, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[vm->stack_count] = basl_nanbox_encode_i32(r);
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(DIVIDE_I32)
+            {
+                int32_t a, b, r;
+                vm->stack_count -= 1U;
+                b = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                vm->stack_count -= 1U;
+                a = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                if (b == 0 || (a == INT32_MIN && b == -1)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                r = a / b;
+                vm->stack[vm->stack_count] = basl_nanbox_encode_i32(r);
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(MODULO_I32)
+            {
+                int32_t a, b, r;
+                vm->stack_count -= 1U;
+                b = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                vm->stack_count -= 1U;
+                a = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                if (b == 0 || (a == INT32_MIN && b == -1)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                r = a % b;
+                vm->stack[vm->stack_count] = basl_nanbox_encode_i32(r);
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+            VM_CASE(LESS_I32)
+            VM_CASE(LESS_EQUAL_I32)
+            VM_CASE(GREATER_I32)
+            VM_CASE(GREATER_EQUAL_I32)
+            VM_CASE(EQUAL_I32)
+            VM_CASE(NOT_EQUAL_I32)
+            {
+                int32_t a, b;
+                bool result;
+                uint8_t op;
+                vm->stack_count -= 1U;
+                b = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                vm->stack_count -= 1U;
+                a = basl_nanbox_decode_i32(vm->stack[vm->stack_count]);
+                op = code[frame->ip];
+                switch ((basl_opcode_t)op) {
+                    case BASL_OPCODE_LESS_I32:          result = a < b;  break;
+                    case BASL_OPCODE_LESS_EQUAL_I32:    result = a <= b; break;
+                    case BASL_OPCODE_GREATER_I32:       result = a > b;  break;
+                    case BASL_OPCODE_GREATER_EQUAL_I32: result = a >= b; break;
+                    case BASL_OPCODE_EQUAL_I32:         result = a == b; break;
+                    case BASL_OPCODE_NOT_EQUAL_I32:     result = a != b; break;
+                    default: result = false; break;
+                }
+                vm->stack[vm->stack_count] = basl_nanbox_from_bool(result);
+                vm->stack_count += 1U;
+                frame->ip += 1U;
+                VM_BREAK();
+            }
+
+            /* ── Three-address i32 store superinstructions ────────────
+               Format: [opcode][u32 dst][u32 a][u32 b]  (13 bytes)
+               Reads locals a and b, operates, stores result to local dst.
+               Zero stack traffic — pure register-style execution. */
+            VM_CASE(LOCALS_ADD_I32_STORE)
+            {
+                uint32_t dst, idx_a, idx_b;
+                int32_t a, b, r;
+                BASL_VM_READ_U32(code, frame->ip, dst);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
+                if (BASL_I32_ADD_OVERFLOW(a, b, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[frame->base_slot + dst] = basl_nanbox_encode_i32(r);
+                VM_BREAK();
+            }
+            VM_CASE(LOCALS_SUBTRACT_I32_STORE)
+            {
+                uint32_t dst, idx_a, idx_b;
+                int32_t a, b, r;
+                BASL_VM_READ_U32(code, frame->ip, dst);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
+                if (BASL_I32_SUB_OVERFLOW(a, b, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[frame->base_slot + dst] = basl_nanbox_encode_i32(r);
+                VM_BREAK();
+            }
+            VM_CASE(LOCALS_MULTIPLY_I32_STORE)
+            {
+                uint32_t dst, idx_a, idx_b;
+                int32_t a, b, r;
+                BASL_VM_READ_U32(code, frame->ip, dst);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
+                if (BASL_I32_MUL_OVERFLOW(a, b, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[frame->base_slot + dst] = basl_nanbox_encode_i32(r);
+                VM_BREAK();
+            }
+            VM_CASE(LOCALS_MODULO_I32_STORE)
+            {
+                uint32_t dst, idx_a, idx_b;
+                int32_t a, b, r;
+                BASL_VM_READ_U32(code, frame->ip, dst);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
+                if (b == 0 || (a == INT32_MIN && b == -1)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                r = a % b;
+                vm->stack[frame->base_slot + dst] = basl_nanbox_encode_i32(r);
+                VM_BREAK();
+            }
+            VM_CASE(LOCALS_LESS_I32_STORE)
+            VM_CASE(LOCALS_LESS_EQUAL_I32_STORE)
+            VM_CASE(LOCALS_GREATER_I32_STORE)
+            VM_CASE(LOCALS_GREATER_EQUAL_I32_STORE)
+            VM_CASE(LOCALS_EQUAL_I32_STORE)
+            VM_CASE(LOCALS_NOT_EQUAL_I32_STORE)
+            {
+                uint32_t dst, idx_a, idx_b;
+                int32_t a, b;
+                bool result;
+                uint8_t op;
+                BASL_VM_READ_U32(code, frame->ip, dst);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
+                op = code[frame->ip - 13U];
+                switch ((basl_opcode_t)op) {
+                    case BASL_OPCODE_LOCALS_LESS_I32_STORE:          result = a < b;  break;
+                    case BASL_OPCODE_LOCALS_LESS_EQUAL_I32_STORE:    result = a <= b; break;
+                    case BASL_OPCODE_LOCALS_GREATER_I32_STORE:       result = a > b;  break;
+                    case BASL_OPCODE_LOCALS_GREATER_EQUAL_I32_STORE: result = a >= b; break;
+                    case BASL_OPCODE_LOCALS_EQUAL_I32_STORE:         result = a == b; break;
+                    case BASL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE:     result = a != b; break;
+                    default: result = false; break;
+                }
+                vm->stack[frame->base_slot + dst] = basl_nanbox_from_bool(result);
+                VM_BREAK();
+            }
+
+            /* ── INCREMENT_LOCAL_I32 ──────────────────────────────────
+               Format: [opcode][u32 local_idx][i8 delta]  (6 bytes)
+               Increments local[idx] by a signed 8-bit immediate.
+               Covers i = i + 1, i = i - 1, and small constant steps. */
+            VM_CASE(INCREMENT_LOCAL_I32)
+            {
+                uint32_t idx;
+                int32_t val, delta, r;
+                BASL_VM_READ_U32(code, frame->ip, idx);
+                delta = (int8_t)code[frame->ip];
+                frame->ip += 1U;
+                val = basl_nanbox_decode_i32(vm->stack[frame->base_slot + idx]);
+                if (BASL_I32_ADD_OVERFLOW(val, delta, &r)) {
+                    status = basl_vm_fail_at_ip(vm,
+                        BASL_STATUS_INVALID_ARGUMENT,
+                        "i32 overflow", error);
+                    goto cleanup;
+                }
+                vm->stack[frame->base_slot + idx] = basl_nanbox_encode_i32(r);
+                VM_BREAK();
+            }
+
             VM_CASE(NEGATE)
                 value = basl_vm_pop_or_nil(vm);
                 if (basl_nanbox_is_double(value)) {
@@ -6221,7 +6520,7 @@ basl_status_t basl_vm_execute_function(
                        draining_defers == false, so those fields are already
                        clean.  The CALL fast path overwrites callable,
                        function, chunk, ip, base_slot.  Nothing to clear. */
-                    /* Unwind stack: release any remaining locals */
+                    /* Unwind stack: release any remaining locals. */
                     while (vm->stack_count > base_slot) {
                         vm->stack_count -= 1U;
                         BASL_VM_VALUE_RELEASE(&vm->stack[vm->stack_count]);

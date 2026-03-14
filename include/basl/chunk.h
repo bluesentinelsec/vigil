@@ -136,7 +136,40 @@ typedef enum basl_opcode {
     BASL_OPCODE_LOCALS_GREATER_I64 = 105,
     BASL_OPCODE_LOCALS_GREATER_EQUAL_I64 = 106,
     BASL_OPCODE_LOCALS_EQUAL_I64 = 107,
-    BASL_OPCODE_LOCALS_NOT_EQUAL_I64 = 108
+    BASL_OPCODE_LOCALS_NOT_EQUAL_I64 = 108,
+
+    /* ── i32-specific opcodes ─────────────────────────────────────
+       These operate on values known at compile time to be i32.
+       They use 32-bit overflow checks (cheaper than i64) and avoid
+       sign-extension overhead in the NaN-box decode path. */
+    BASL_OPCODE_ADD_I32 = 109,
+    BASL_OPCODE_SUBTRACT_I32 = 110,
+    BASL_OPCODE_MULTIPLY_I32 = 111,
+    BASL_OPCODE_LESS_I32 = 112,
+    BASL_OPCODE_LESS_EQUAL_I32 = 113,
+    BASL_OPCODE_GREATER_I32 = 114,
+    BASL_OPCODE_GREATER_EQUAL_I32 = 115,
+    BASL_OPCODE_EQUAL_I32 = 116,
+    BASL_OPCODE_NOT_EQUAL_I32 = 117,
+    BASL_OPCODE_MODULO_I32 = 118,
+    BASL_OPCODE_DIVIDE_I32 = 119,
+
+    /* Three-address i32 superinstructions: read two locals, operate,
+       store result to a third local.  Zero stack traffic. */
+    BASL_OPCODE_LOCALS_ADD_I32_STORE = 120,
+    BASL_OPCODE_LOCALS_SUBTRACT_I32_STORE = 121,
+    BASL_OPCODE_LOCALS_MULTIPLY_I32_STORE = 122,
+    BASL_OPCODE_LOCALS_LESS_I32_STORE = 123,
+    BASL_OPCODE_LOCALS_LESS_EQUAL_I32_STORE = 124,
+    BASL_OPCODE_LOCALS_GREATER_I32_STORE = 125,
+    BASL_OPCODE_LOCALS_GREATER_EQUAL_I32_STORE = 126,
+    BASL_OPCODE_LOCALS_EQUAL_I32_STORE = 127,
+    BASL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE = 128,
+    BASL_OPCODE_LOCALS_MODULO_I32_STORE = 129,
+
+    /* Single-opcode increment: local[idx] += imm8 (signed).
+       Covers i = i + 1, i = i - 1, and small constant steps. */
+    BASL_OPCODE_INCREMENT_LOCAL_I32 = 130
 } basl_opcode_t;
 
 typedef struct basl_chunk {
