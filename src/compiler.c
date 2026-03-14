@@ -19355,6 +19355,12 @@ static basl_status_t basl_compile_function_with_parent(
         basl_parser_state_free(&state);
         return status;
     }
+
+    /* Re-fetch: the function table may have been reallocated while
+       parsing the body (e.g. local/anonymous function declarations
+       call basl_program_grow_functions). */
+    decl = &program->functions.functions[function_index];
+
     if (
         !body_result.guaranteed_return &&
         decl->return_count == 1U &&
