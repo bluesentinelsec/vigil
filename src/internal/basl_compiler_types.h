@@ -308,4 +308,171 @@ const basl_function_type_decl_t *basl_program_function_type_decl(
 int basl_class_decl_implements_interface(
     const basl_class_decl_t *decl, size_t interface_index);
 
+
+/* compiler_program.c — grow/init/intern/free helpers */
+void basl_statement_result_clear(
+    basl_statement_result_t *result
+);
+void basl_statement_result_set_guaranteed_return(
+    basl_statement_result_t *result,
+    int guaranteed_return
+);
+void basl_program_set_module_context(
+    basl_program_state_t *program,
+    const basl_source_file_t *source,
+    const basl_token_list_t *tokens
+);
+basl_status_t basl_program_grow_modules(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+void basl_program_import_default_alias(
+    const char *path,
+    size_t path_length,
+    const char **out_alias,
+    size_t *out_alias_length
+);
+void basl_class_decl_free(
+    basl_program_state_t *program,
+    basl_class_decl_t *decl
+);
+basl_status_t basl_program_grow_classes(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+void basl_interface_decl_free(
+    basl_program_state_t *program,
+    basl_interface_decl_t *decl
+);
+basl_status_t basl_program_grow_interfaces(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+void basl_enum_decl_free(
+    basl_program_state_t *program,
+    basl_enum_decl_t *decl
+);
+basl_status_t basl_program_grow_enums(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+basl_status_t basl_program_grow_array_types(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+int basl_program_find_array_type(
+    const basl_program_state_t *program,
+    basl_parser_type_t element_type,
+    size_t *out_index
+);
+basl_status_t basl_program_intern_array_type(
+    basl_program_state_t *program,
+    basl_parser_type_t element_type,
+    basl_parser_type_t *out_type
+);
+basl_status_t basl_program_grow_map_types(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+int basl_program_find_map_type(
+    const basl_program_state_t *program,
+    basl_parser_type_t key_type,
+    basl_parser_type_t value_type,
+    size_t *out_index
+);
+basl_status_t basl_program_intern_map_type(
+    basl_program_state_t *program,
+    basl_parser_type_t key_type,
+    basl_parser_type_t value_type,
+    basl_parser_type_t *out_type
+);
+void basl_function_type_decl_free(
+    basl_program_state_t *program,
+    basl_function_type_decl_t *decl
+);
+basl_status_t basl_function_type_decl_grow_params(
+    basl_program_state_t *program,
+    basl_function_type_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_function_type_decl_add_param(
+    basl_program_state_t *program,
+    basl_function_type_decl_t *decl,
+    basl_parser_type_t type
+);
+basl_status_t basl_function_type_decl_grow_returns(
+    basl_program_state_t *program,
+    basl_function_type_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_function_type_decl_add_return(
+    basl_program_state_t *program,
+    basl_function_type_decl_t *decl,
+    basl_parser_type_t type
+);
+basl_status_t basl_program_grow_function_types(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+int basl_program_find_function_type(
+    const basl_program_state_t *program,
+    const basl_function_type_decl_t *needle,
+    size_t *out_index
+);
+basl_status_t basl_program_intern_function_type(
+    basl_program_state_t *program,
+    const basl_function_type_decl_t *decl,
+    basl_parser_type_t *out_type
+);
+basl_status_t basl_program_intern_function_type_from_decl(
+    basl_program_state_t *program,
+    const basl_function_decl_t *decl,
+    basl_parser_type_t *out_type
+);
+basl_status_t basl_class_decl_grow_fields(
+    basl_program_state_t *program,
+    basl_class_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_class_decl_grow_methods(
+    basl_program_state_t *program,
+    basl_class_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_class_decl_grow_implemented_interfaces(
+    basl_program_state_t *program,
+    basl_class_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_class_decl_grow_interface_impls(
+    basl_program_state_t *program,
+    basl_class_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_interface_decl_grow_methods(
+    basl_program_state_t *program,
+    basl_interface_decl_t *decl,
+    size_t minimum_capacity
+);
+basl_status_t basl_program_grow_constants(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+basl_status_t basl_program_grow_globals(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+void basl_program_trim_text_range(
+    const char *text,
+    size_t start,
+    size_t end,
+    size_t *out_start,
+    size_t *out_end
+);
+basl_status_t basl_program_grow_functions(
+    basl_program_state_t *program,
+    size_t minimum_capacity
+);
+void basl_program_free(basl_program_state_t *program);
+
 #endif

@@ -25,6 +25,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/checker.c
     src/chunk.c
     src/compiler.c
+    src/compiler_program.c
     src/compiler_types.c
     src/diagnostic.c
     src/lexer.c
