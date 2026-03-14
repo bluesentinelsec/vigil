@@ -842,7 +842,7 @@ static basl_status_t basl_vm_invoke_new_instance(
     status = basl_instance_object_new(
         vm->runtime,
         class_index,
-        vm->stack + base_slot,
+        field_count > 0U ? vm->stack + base_slot : NULL,
         field_count,
         &instance,
         error
