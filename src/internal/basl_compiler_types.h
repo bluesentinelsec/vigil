@@ -532,6 +532,47 @@ basl_status_t basl_parser_emit_u32(
 basl_status_t basl_compile_report(
     const basl_program_state_t *program, basl_source_span_t span,
     const char *message);
+const basl_token_t *basl_program_token_at(
+    const basl_program_state_t *program, size_t index);
+
+/* compiler_typeparsing.c — type reference parsing */
+extern int basl_type_close_pending;
+int basl_program_consume_type_close(
+    const basl_program_state_t *program, size_t *cursor);
+basl_status_t basl_program_parse_type_reference(
+    const basl_program_state_t *program, size_t *cursor,
+    const char *unsupported_message, basl_parser_type_t *out_type);
+basl_status_t basl_program_parse_primitive_type_reference(
+    const basl_program_state_t *program, size_t *cursor,
+    const char *unsupported_message, basl_parser_type_t *out_type);
+int basl_program_skip_type_reference_syntax(
+    const basl_program_state_t *program, size_t *cursor);
+basl_source_span_t basl_program_eof_span(
+    const basl_program_state_t *program);
+int basl_program_find_class_in_source(
+    const basl_program_state_t *program, basl_source_id_t source_id,
+    const char *name, size_t name_length,
+    size_t *out_index, const basl_class_decl_t **out_class);
+int basl_program_find_enum_in_source(
+    const basl_program_state_t *program, basl_source_id_t source_id,
+    const char *name, size_t name_length,
+    size_t *out_index, const basl_enum_decl_t **out_decl);
+int basl_program_find_interface_in_source(
+    const basl_program_state_t *program, basl_source_id_t source_id,
+    const char *name, size_t name_length,
+    size_t *out_index, const basl_interface_decl_t **out_interface);
+int basl_program_is_class_public(const basl_class_decl_t *decl);
+int basl_program_is_enum_public(const basl_enum_decl_t *decl);
+int basl_program_is_interface_public(const basl_interface_decl_t *decl);
+basl_status_t basl_program_require_non_void_type(
+    const basl_program_state_t *program, basl_source_span_t span,
+    basl_parser_type_t type, const char *message);
+int basl_program_resolve_import_alias(
+    const basl_program_state_t *program, const char *alias,
+    size_t alias_length, basl_source_id_t *out_source_id);
+const char *basl_program_token_text(
+    const basl_program_state_t *program, const basl_token_t *token,
+    size_t *out_length);
 
 /* compiler_strings.c — string/f-string parsing */
 basl_status_t basl_parser_parse_fstring_literal(
