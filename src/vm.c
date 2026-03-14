@@ -1,3 +1,90 @@
+/*
+ * vm.c — BASL bytecode virtual machine
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ *  PERFORMANCE-CRITICAL FILE — READ BEFORE MAKING CHANGES
+ * ═══════════════════════════════════════════════════════════════════
+ *
+ * This file contains the bytecode dispatch loop, which is the single
+ * hottest code path in the entire runtime.  Several deliberate
+ * trade-offs have been made to reduce per-opcode overhead:
+ *
+ *   1. COMPUTED GOTO DISPATCH (GCC/Clang only)
+ *      Instead of a switch statement, the dispatch loop uses a jump
+ *      table (goto *dispatch_table[opcode]).  This avoids the branch
+ *      predictor penalty of a single indirect branch that a switch
+ *      compiles to.  An ISO C11 switch fallback is always compiled
+ *      when BASL_VM_COMPUTED_GOTO == 0 (e.g. MSVC).
+ *
+ *   2. INLINE VALUE MACROS (BASL_VM_VALUE_*)
+ *      The public API functions (basl_value_kind, basl_value_as_int,
+ *      basl_value_copy, basl_value_release, etc.) perform NULL checks
+ *      and go through a function-call boundary.  Inside the dispatch
+ *      loop we access struct fields directly and skip ref-counting
+ *      for non-object values (int, uint, float, bool, nil).  This is
+ *      safe because the compiler has already validated types.
+ *
+ *      TRADEOFF: Direct field access bypasses the safety checks in
+ *      the public API.  If the VM ever executes untrusted bytecode,
+ *      these macros would need bounds/type guards added back.
+ *
+ *   3. INLINE STACK / BYTECODE MACROS (BASL_VM_PUSH, _POP, _READ_U32)
+ *      Replace basl_vm_push(), basl_vm_pop_or_nil(), and
+ *      basl_vm_read_u32() function calls with inline operations.
+ *      The pre-allocated stack (256 slots) means the capacity check
+ *      in BASL_VM_PUSH almost never triggers.
+ *
+ *   4. FAST-PATH RETURN
+ *      The RETURN opcode has an inlined fast path for the common case:
+ *      single return value, no defers, returning to a caller frame.
+ *      This avoids a heap allocation (basl_vm_grow_value_array) and
+ *      the full basl_vm_complete_return() call on every return.
+ *
+ *      TRADEOFF: This duplicates return logic.  If return semantics
+ *      change, BOTH the fast path and basl_vm_complete_return() must
+ *      be updated.  The fast path is guarded by:
+ *        - operand == 1  (single return value)
+ *        - defer_count == 0  (no defers on this frame)
+ *        - !draining_defers  (not mid-defer execution)
+ *        - frame_count > 1  (not the top-level frame)
+ *        - caller not draining defers
+ *      If ANY of these conditions is false, the slow path runs.
+ *
+ * ─── DEVELOPER CHECKLIST: ADDING A NEW OPCODE ─────────────────────
+ *
+ *   [ ] Add the VM_CASE(OPNAME) handler in the dispatch loop
+ *   [ ] Add [BASL_OPCODE_OPNAME] = &&op_OPNAME to the dispatch table
+ *       (inside the #if BASL_VM_COMPUTED_GOTO block, ~line 2590)
+ *   [ ] Use VM_BREAK() at the end (or VM_BREAK_RELOAD() if the
+ *       opcode changes the call frame — see CALL, RETURN)
+ *   [ ] Use the BASL_VM_* macros for stack/value ops, not the
+ *       public API functions, for consistency and performance
+ *   [ ] NEVER use bare "break;" inside an opcode handler in the
+ *       computed-goto path — it breaks out of the while(1) loop
+ *       instead of dispatching the next opcode.  Use VM_BREAK().
+ *       (break inside an inner for/while/switch is fine.)
+ *
+ * ─── DEVELOPER CHECKLIST: CHANGING RETURN SEMANTICS ───────────────
+ *
+ *   [ ] Update basl_vm_complete_return() (the general path)
+ *   [ ] Update the fast-path RETURN in VM_CASE(RETURN)
+ *   [ ] If adding new frame cleanup steps, ensure the fast-path
+ *       guard excludes frames that need the new cleanup
+ *   [ ] Run the defer tests — they are the canary for fast-path bugs
+ *
+ * ─── PORTABILITY ──────────────────────────────────────────────────
+ *
+ *   - All macros are ISO C11.  The only extension is computed goto.
+ *   - BASL_VM_COMPUTED_GOTO is auto-detected: 1 for GCC/Clang,
+ *     0 for everything else.  The #else branch MUST remain 0.
+ *   - _Pragma("GCC diagnostic push/pop") suppresses -Wpedantic for
+ *     the computed-goto block only.  MSVC ignores it (warning C4068).
+ *   - To test the switch fallback locally, temporarily set
+ *     BASL_VM_COMPUTED_GOTO to 0 and run the full test suite.
+ *
+ * ═══════════════════════════════════════════════════════════════════
+ */
+
 #include <ctype.h>
 #include <math.h>
 #include <stddef.h>
@@ -9,15 +96,10 @@
 #include "basl/string.h"
 #include "basl/vm.h"
 
-/* ── VM hot-path macros ─────────────────────────────────────────────
-   These replace function calls in the dispatch loop to avoid per-
-   opcode overhead.  All are pure ISO C11.
-   ---------------------------------------------------------------- */
-
-/* Computed-goto dispatch: GCC/Clang extension with ISO C11 fallback.
+/* ── Computed-goto detection ───────────────────────────────────────
+   GCC/Clang: use dispatch table.  Everything else: switch fallback.
    Per docs/stdlib-portability.md the core VM must compile as ISO C11;
-   the extension is gated behind a compiler check and the switch-based
-   fallback is always available. */
+   the extension is gated behind a compiler check. */
 #if defined(__GNUC__) || defined(__clang__)
   #define BASL_VM_COMPUTED_GOTO 1
 #else
@@ -27,11 +109,15 @@
 #define BASL_VM_INITIAL_STACK_CAPACITY  256U
 #define BASL_VM_INITIAL_FRAME_CAPACITY  64U
 
-/* ---- Inline value helpers ----
-   For non-object values (int, uint, float, bool, nil) we can skip
-   ref-counting entirely.  These macros avoid the function-call overhead
-   of basl_value_copy / basl_value_release / basl_value_init_nil on the
-   hot path while remaining correct for heap-allocated objects. */
+/* ── Inline value helpers ───────────────────────────────────────────
+   These replace the public basl_value_* API inside the dispatch loop.
+   For non-object values (int, uint, float, bool, nil) they skip the
+   function call, NULL check, and ref-counting overhead entirely.
+   Objects still go through basl_object_retain / basl_object_release.
+
+   WARNING: These bypass the safety checks in value.h.  They assume
+   the caller has already validated the value kind.  Do NOT use
+   outside the dispatch loop without equivalent guards. */
 
 #define BASL_VM_VALUE_INIT_NIL(v) \
     do { (v)->kind = BASL_VALUE_NIL; (v)->as.uinteger = 0U; } while (0)
@@ -5794,8 +5880,11 @@ basl_status_t basl_vm_execute_function(
                 } else {
                     operand = 1U;
                 }
-                /* Fast path: single return value, no defers, caller waiting.
-                   Avoids heap-allocating a returned_values array. */
+                /* Fast-path RETURN: single value, no defers, caller waiting.
+                   Avoids heap-allocating a returned_values array.
+                   WARNING: This duplicates logic from basl_vm_complete_return().
+                   If return semantics change, update BOTH paths.  See the
+                   developer checklist at the top of this file. */
                 if (operand == 1U &&
                     frame->defer_count == 0U &&
                     !frame->draining_defers &&
