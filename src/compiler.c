@@ -2446,8 +2446,39 @@ static basl_status_t basl_program_register_native_classes(
                 f->name = nc->fields[fi].name;
                 f->name_length = nc->fields[fi].name_length;
                 f->is_public = 1;
-                f->type = basl_binding_type_primitive(
-                    (basl_type_kind_t)nc->fields[fi].type);
+                if (nc->fields[fi].object_kind == BASL_BINDING_OBJECT_CLASS &&
+                    nc->fields[fi].class_name != NULL) {
+                    /* Resolve class by name within the same module. */
+                    size_t cls_idx = 0U;
+                    int found = 0;
+                    size_t k;
+                    for (k = 0U; k < program->class_count; k++) {
+                        if (program->classes[k].name_length == nc->fields[fi].class_name_length &&
+                            memcmp(program->classes[k].name, nc->fields[fi].class_name,
+                                   nc->fields[fi].class_name_length) == 0) {
+                            cls_idx = k;
+                            found = 1;
+                            break;
+                        }
+                    }
+                    f->type = found
+                        ? basl_binding_type_class(cls_idx)
+                        : basl_binding_type_primitive(BASL_TYPE_OBJECT);
+                } else if (nc->fields[fi].object_kind == BASL_BINDING_OBJECT_ARRAY) {
+                    /* Intern array type with the given element type. */
+                    basl_parser_type_t arr_type;
+                    status = basl_program_intern_array_type(
+                        program,
+                        basl_binding_type_primitive(
+                            (basl_type_kind_t)nc->fields[fi].element_type),
+                        &arr_type);
+                    f->type = (status == BASL_STATUS_OK)
+                        ? arr_type
+                        : basl_binding_type_primitive(BASL_TYPE_OBJECT);
+                } else {
+                    f->type = basl_binding_type_primitive(
+                        (basl_type_kind_t)nc->fields[fi].type);
+                }
             }
             decl->field_count = nc->field_count;
         }

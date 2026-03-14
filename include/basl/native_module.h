@@ -38,7 +38,17 @@ typedef struct basl_native_class_field {
     const char *name;
     size_t name_length;
     int type;                   /* basl_type_kind_t */
+    int object_kind;            /* 0 = primitive. See BASL_NATIVE_FIELD_* below. */
+    const char *class_name;     /* object_kind == CLASS: class name to resolve */
+    size_t class_name_length;
+    int element_type;           /* object_kind == ARRAY: element basl_type_kind_t */
 } basl_native_class_field_t;
+
+/* Object kind constants for native class fields.
+ * Values match basl_binding_object_kind_t in the internal API. */
+#define BASL_NATIVE_FIELD_PRIMITIVE 0
+#define BASL_NATIVE_FIELD_CLASS     1
+#define BASL_NATIVE_FIELD_ARRAY     4
 
 typedef struct basl_native_class_method {
     const char *name;

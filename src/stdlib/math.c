@@ -512,9 +512,12 @@ static basl_status_t basl_vec2_reflect(
     return basl_vec2_push_new(vm, vx - d2 * nx, vy - d2 * ny, ci, error);
 }
 
+/* Helper: primitive field descriptor (object_kind=0, no class/element). */
+#define BASL_PFIELD(n, nl, t) { n, nl, t, 0, NULL, 0U, 0 }
+
 static const basl_native_class_field_t basl_vec2_fields[] = {
-    { "x", 1U, BASL_TYPE_F64 },
-    { "y", 1U, BASL_TYPE_F64 },
+    BASL_PFIELD("x", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("y", 1U, BASL_TYPE_F64),
 };
 
 static const int basl_vec_obj_params[] = { BASL_TYPE_OBJECT };
@@ -762,9 +765,9 @@ static basl_status_t basl_vec3_angle(
 }
 
 static const basl_native_class_field_t basl_vec3_fields[] = {
-    { "x", 1U, BASL_TYPE_F64 },
-    { "y", 1U, BASL_TYPE_F64 },
-    { "z", 1U, BASL_TYPE_F64 },
+    BASL_PFIELD("x", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("y", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("z", 1U, BASL_TYPE_F64),
 };
 
 static const basl_native_class_method_t basl_vec3_methods[] = {
@@ -957,10 +960,10 @@ static basl_status_t basl_vec4_vlerp(
 }
 
 static const basl_native_class_field_t basl_vec4_fields[] = {
-    { "x", 1U, BASL_TYPE_F64 },
-    { "y", 1U, BASL_TYPE_F64 },
-    { "z", 1U, BASL_TYPE_F64 },
-    { "w", 1U, BASL_TYPE_F64 },
+    BASL_PFIELD("x", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("y", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("z", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("w", 1U, BASL_TYPE_F64),
 };
 
 static const basl_native_class_method_t basl_vec4_methods[] = {
@@ -1174,10 +1177,10 @@ static basl_status_t basl_quat_to_euler(
 }
 
 static const basl_native_class_field_t basl_quat_fields[] = {
-    { "x", 1U, BASL_TYPE_F64 },
-    { "y", 1U, BASL_TYPE_F64 },
-    { "z", 1U, BASL_TYPE_F64 },
-    { "w", 1U, BASL_TYPE_F64 },
+    BASL_PFIELD("x", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("y", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("z", 1U, BASL_TYPE_F64),
+    BASL_PFIELD("w", 1U, BASL_TYPE_F64),
 };
 
 static const basl_native_class_method_t basl_quat_methods[] = {
@@ -1198,6 +1201,233 @@ static const basl_native_class_method_t basl_quat_methods[] = {
     { "fromAxisAngle", 13U, basl_quat_from_axis_angle, 2U, basl_vec_obj_f64_params,
       BASL_TYPE_OBJECT, 1U, NULL },
     { "toEuler",       7U, basl_quat_to_euler,        0U, NULL,
+      BASL_TYPE_OBJECT, 1U, NULL },
+};
+
+/* ── Mat4 class ──────────────────────────────────────────────────── */
+
+/*
+ * Mat4 stores a single field: data (array<f64>, 16 elements).
+ * Column-major layout matching OpenGL/raylib convention:
+ *   [m0  m4  m8  m12]
+ *   [m1  m5  m9  m13]
+ *   [m2  m6  m10 m14]
+ *   [m3  m7  m11 m15]
+ * Index = col * 4 + row.
+ */
+
+/* Helper: get the data array object from a Mat4 instance at stack slot.
+ * The returned pointer is borrowed — the instance on the stack keeps it alive.
+ */
+static basl_object_t *basl_mat4_get_data(basl_vm_t *vm, size_t slot) {
+    basl_value_t self_val = basl_vm_stack_get(vm, slot);
+    basl_object_t *inst = (basl_object_t *)basl_nanbox_decode_ptr(self_val);
+    basl_value_t field;
+    basl_object_t *arr;
+    basl_instance_object_get_field(inst, 0U, &field);
+    arr = (basl_object_t *)basl_nanbox_decode_ptr(field);
+    basl_value_release(&field);
+    return arr;
+}
+
+/* Helper: read f64 from mat4 data array at index. */
+static double basl_mat4_read(basl_object_t *arr, size_t idx) {
+    basl_value_t v;
+    basl_array_object_get(arr, idx, &v);
+    return basl_nanbox_decode_double(v);
+}
+
+/* Helper: push a new Mat4 with 16 doubles. */
+static basl_status_t basl_mat4_push_new(
+    basl_vm_t *vm, const double m[16], size_t class_index,
+    basl_error_t *error
+) {
+    basl_runtime_t *rt = basl_vm_runtime(vm);
+    basl_value_t items[16];
+    basl_object_t *arr;
+    basl_value_t arr_val;
+    basl_value_t inst_fields[1];
+    basl_object_t *inst;
+    basl_value_t result;
+    basl_status_t s;
+    size_t i;
+    for (i = 0; i < 16; i++) items[i] = basl_nanbox_encode_double(m[i]);
+    s = basl_array_object_new(rt, items, 16U, &arr, error);
+    if (s != BASL_STATUS_OK) return s;
+    basl_value_init_object(&arr_val, &arr);
+    inst_fields[0] = arr_val;
+    s = basl_instance_object_new(rt, class_index, inst_fields, 1U, &inst, error);
+    basl_value_release(&arr_val);
+    if (s != BASL_STATUS_OK) return s;
+    basl_value_init_object(&result, &inst);
+    s = basl_vm_stack_push(vm, &result, error);
+    basl_value_release(&result);
+    return s;
+}
+
+/* identity(): returns identity matrix */
+static basl_status_t basl_mat4_identity(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t ci = basl_vec_self_class(vm, base);
+    double m[16] = {
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    };
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_mat4_push_new(vm, m, ci, error);
+}
+
+/* get(row, col) -> f64 */
+static basl_status_t basl_mat4_get(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *arr = basl_mat4_get_data(vm, base);
+    basl_value_t rv = basl_vm_stack_get(vm, base + 1U);
+    basl_value_t cv = basl_vm_stack_get(vm, base + 2U);
+    int row = (int)basl_nanbox_decode_i32(rv);
+    int col = (int)basl_nanbox_decode_i32(cv);
+    double val = basl_mat4_read(arr, (size_t)(col * 4 + row));
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_math_push_f64(vm, val, error);
+}
+
+/* set(row, col, val) -> Mat4 (returns new matrix) */
+static basl_status_t basl_mat4_set(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *arr = basl_mat4_get_data(vm, base);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_value_t rv = basl_vm_stack_get(vm, base + 1U);
+    basl_value_t cv = basl_vm_stack_get(vm, base + 2U);
+    basl_value_t vv = basl_vm_stack_get(vm, base + 3U);
+    int row = (int)basl_nanbox_decode_i32(rv);
+    int col = (int)basl_nanbox_decode_i32(cv);
+    double m[16];
+    size_t i;
+    for (i = 0; i < 16; i++) m[i] = basl_mat4_read(arr, i);
+    m[col * 4 + row] = basl_nanbox_decode_double(vv);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_mat4_push_new(vm, m, ci, error);
+}
+
+/* multiply(Mat4) -> Mat4 */
+static basl_status_t basl_mat4_multiply(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *a = basl_mat4_get_data(vm, base);
+    basl_object_t *b = basl_mat4_get_data(vm, base + 1U);
+    size_t ci = basl_vec_self_class(vm, base);
+    double m[16];
+    int c, r, k;
+    for (c = 0; c < 4; c++) {
+        for (r = 0; r < 4; r++) {
+            double sum = 0.0;
+            for (k = 0; k < 4; k++) {
+                sum += basl_mat4_read(a, k * 4 + r) *
+                       basl_mat4_read(b, c * 4 + k);
+            }
+            m[c * 4 + r] = sum;
+        }
+    }
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_mat4_push_new(vm, m, ci, error);
+}
+
+/* transpose() -> Mat4 */
+static basl_status_t basl_mat4_transpose(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *a = basl_mat4_get_data(vm, base);
+    size_t ci = basl_vec_self_class(vm, base);
+    double m[16];
+    int c, r;
+    for (c = 0; c < 4; c++)
+        for (r = 0; r < 4; r++)
+            m[c * 4 + r] = basl_mat4_read(a, r * 4 + c);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_mat4_push_new(vm, m, ci, error);
+}
+
+/* determinant() -> f64 */
+static basl_status_t basl_mat4_determinant(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *a = basl_mat4_get_data(vm, base);
+    double m[16];
+    double det;
+    size_t i;
+    for (i = 0; i < 16; i++) m[i] = basl_mat4_read(a, i);
+    det = m[0]*(m[5]*(m[10]*m[15]-m[11]*m[14])-m[9]*(m[6]*m[15]-m[7]*m[14])+m[13]*(m[6]*m[11]-m[7]*m[10]))
+        - m[4]*(m[1]*(m[10]*m[15]-m[11]*m[14])-m[9]*(m[2]*m[15]-m[3]*m[14])+m[13]*(m[2]*m[11]-m[3]*m[10]))
+        + m[8]*(m[1]*(m[6]*m[15]-m[7]*m[14])-m[5]*(m[2]*m[15]-m[3]*m[14])+m[13]*(m[2]*m[7]-m[3]*m[6]))
+        - m[12]*(m[1]*(m[6]*m[11]-m[7]*m[10])-m[5]*(m[2]*m[11]-m[3]*m[10])+m[9]*(m[2]*m[7]-m[3]*m[6]));
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_math_push_f64(vm, det, error);
+}
+
+/* add(Mat4) -> Mat4 */
+static basl_status_t basl_mat4_add(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *a = basl_mat4_get_data(vm, base);
+    basl_object_t *b = basl_mat4_get_data(vm, base + 1U);
+    size_t ci = basl_vec_self_class(vm, base);
+    double m[16];
+    size_t i;
+    for (i = 0; i < 16; i++) m[i] = basl_mat4_read(a, i) + basl_mat4_read(b, i);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_mat4_push_new(vm, m, ci, error);
+}
+
+/* scale(f64) -> Mat4 (scalar multiply) */
+static basl_status_t basl_mat4_scale(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_object_t *a = basl_mat4_get_data(vm, base);
+    size_t ci = basl_vec_self_class(vm, base);
+    basl_value_t sv = basl_vm_stack_get(vm, base + 1U);
+    double s = basl_nanbox_decode_double(sv);
+    double m[16];
+    size_t i;
+    for (i = 0; i < 16; i++) m[i] = basl_mat4_read(a, i) * s;
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_mat4_push_new(vm, m, ci, error);
+}
+
+static const int basl_mat4_i32i32_params[] = { BASL_TYPE_I32, BASL_TYPE_I32 };
+static const int basl_mat4_i32i32f64_params[] = {
+    BASL_TYPE_I32, BASL_TYPE_I32, BASL_TYPE_F64
+};
+
+static const basl_native_class_field_t basl_mat4_fields[] = {
+    { "data", 4U, BASL_TYPE_OBJECT,
+      BASL_NATIVE_FIELD_ARRAY, NULL, 0U, BASL_TYPE_F64 },
+};
+
+static const basl_native_class_method_t basl_mat4_methods[] = {
+    { "identity",    8U, basl_mat4_identity,    0U, NULL,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "get",         3U, basl_mat4_get,         2U, basl_mat4_i32i32_params,
+      BASL_TYPE_F64, 1U, NULL },
+    { "set",         3U, basl_mat4_set,         3U, basl_mat4_i32i32f64_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "multiply",    8U, basl_mat4_multiply,    1U, basl_vec_obj_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "transpose",   9U, basl_mat4_transpose,   0U, NULL,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "determinant", 11U, basl_mat4_determinant, 0U, NULL,
+      BASL_TYPE_F64, 1U, NULL },
+    { "add",         3U, basl_mat4_add,         1U, basl_vec_obj_params,
+      BASL_TYPE_OBJECT, 1U, NULL },
+    { "scale",       5U, basl_mat4_scale,       1U, basl_vec_f64_params,
       BASL_TYPE_OBJECT, 1U, NULL },
 };
 
@@ -1224,6 +1454,12 @@ static const basl_native_class_t basl_math_classes[] = {
         "Quaternion", 10U,
         basl_quat_fields, 4U,
         basl_quat_methods, 9U,
+        NULL
+    },
+    {
+        "Mat4", 4U,
+        basl_mat4_fields, 1U,
+        basl_mat4_methods, 8U,
         NULL
     },
 };
