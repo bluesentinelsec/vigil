@@ -9,6 +9,69 @@
 #include "basl/string.h"
 #include "basl/vm.h"
 
+/* ── VM hot-path macros ─────────────────────────────────────────────
+   These replace function calls in the dispatch loop to avoid per-
+   opcode overhead.  All are pure ISO C11.
+   ---------------------------------------------------------------- */
+
+/* Computed-goto dispatch: GCC/Clang extension with ISO C11 fallback.
+   Per docs/stdlib-portability.md the core VM must compile as ISO C11;
+   the extension is gated behind a compiler check and the switch-based
+   fallback is always available. */
+#if defined(__GNUC__) || defined(__clang__)
+  #define BASL_VM_COMPUTED_GOTO 1
+#else
+  #define BASL_VM_COMPUTED_GOTO 0
+#endif
+
+#define BASL_VM_INITIAL_STACK_CAPACITY  256U
+#define BASL_VM_INITIAL_FRAME_CAPACITY  64U
+
+/* Fast stack push — caller must ensure capacity (pre-allocated). */
+#define BASL_VM_PUSH(vm, val) \
+    do { \
+        if ((vm)->stack_count >= (vm)->stack_capacity) { \
+            status = basl_vm_grow_stack((vm), (vm)->stack_count + 1U, error); \
+            if (status != BASL_STATUS_OK) goto cleanup; \
+        } \
+        (vm)->stack[(vm)->stack_count] = basl_value_copy((val)); \
+        (vm)->stack_count += 1U; \
+    } while (0)
+
+/* Fast stack pop — returns value, clears slot. */
+#define BASL_VM_POP(vm, out) \
+    do { \
+        (vm)->stack_count -= 1U; \
+        (out) = (vm)->stack[(vm)->stack_count]; \
+        basl_value_init_nil(&(vm)->stack[(vm)->stack_count]); \
+    } while (0)
+
+/* Fast peek — no NULL check, caller knows stack is non-empty. */
+#define BASL_VM_PEEK(vm, dist) \
+    (&(vm)->stack[(vm)->stack_count - 1U - (dist)])
+
+/* Fast bytecode read — reads u32 operand after the opcode byte.
+   Advances ip past opcode + 4 operand bytes (total 5). */
+#define BASL_VM_READ_U32(code, ip, out) \
+    do { \
+        (out) = (uint32_t)(code)[(ip) + 1U]; \
+        (out) |= (uint32_t)(code)[(ip) + 2U] << 8U; \
+        (out) |= (uint32_t)(code)[(ip) + 3U] << 16U; \
+        (out) |= (uint32_t)(code)[(ip) + 4U] << 24U; \
+        (ip) += 5U; \
+    } while (0)
+
+/* Fast raw u32 read — reads 4 bytes at current ip (no opcode skip).
+   Advances ip by 4. */
+#define BASL_VM_READ_RAW_U32(code, ip, out) \
+    do { \
+        (out) = (uint32_t)(code)[(ip)]; \
+        (out) |= (uint32_t)(code)[(ip) + 1U] << 8U; \
+        (out) |= (uint32_t)(code)[(ip) + 2U] << 16U; \
+        (out) |= (uint32_t)(code)[(ip) + 3U] << 24U; \
+        (ip) += 4U; \
+    } while (0)
+
 typedef struct basl_vm_frame {
     const basl_object_t *callable;
     const basl_object_t *function;
@@ -2303,13 +2366,22 @@ basl_status_t basl_vm_open(
     vm = (basl_vm_t *)memory;
     vm->runtime = runtime;
     initial_stack_capacity = options == NULL ? 0U : options->initial_stack_capacity;
-    if (initial_stack_capacity != 0U) {
-        status = basl_vm_grow_stack(vm, initial_stack_capacity, error);
-        if (status != BASL_STATUS_OK) {
-            memory = vm;
-            basl_runtime_free(runtime, &memory);
-            return status;
-        }
+    if (initial_stack_capacity < BASL_VM_INITIAL_STACK_CAPACITY) {
+        initial_stack_capacity = BASL_VM_INITIAL_STACK_CAPACITY;
+    }
+    status = basl_vm_grow_stack(vm, initial_stack_capacity, error);
+    if (status != BASL_STATUS_OK) {
+        memory = vm;
+        basl_runtime_free(runtime, &memory);
+        return status;
+    }
+    status = basl_vm_grow_frames(vm, BASL_VM_INITIAL_FRAME_CAPACITY, error);
+    if (status != BASL_STATUS_OK) {
+        memory = vm->stack;
+        basl_runtime_free(runtime, &memory);
+        memory = vm;
+        basl_runtime_free(runtime, &memory);
+        return status;
     }
 
     *out_vm = vm;
@@ -2485,8 +2557,8 @@ basl_status_t basl_vm_execute_function(
     }
 
     while (1) {
-        frame = basl_vm_current_frame(vm);
-        if (frame == NULL || frame->chunk == NULL) {
+        frame = &vm->frames[vm->frame_count - 1U];
+        if (frame->chunk == NULL) {
             basl_error_set_literal(
                 error,
                 BASL_STATUS_INVALID_ARGUMENT,
@@ -2501,12 +2573,141 @@ basl_status_t basl_vm_execute_function(
             break;
         }
 
+#if BASL_VM_COMPUTED_GOTO
+        /* Dispatch table — one label per opcode.  Entries for unused
+           indices fall through to the default (unknown opcode) path.
+           This is a GCC/Clang extension; the ISO C11 switch fallback
+           is below.  See docs/stdlib-portability.md. */
+        _Pragma("GCC diagnostic push")
+        _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+        {
+        static const void *dispatch_table[256] = {
+            [BASL_OPCODE_ADD] = &&op_ADD,
+            [BASL_OPCODE_ARRAY_CONTAINS] = &&op_ARRAY_CONTAINS,
+            [BASL_OPCODE_ARRAY_GET_SAFE] = &&op_ARRAY_GET_SAFE,
+            [BASL_OPCODE_ARRAY_POP] = &&op_ARRAY_POP,
+            [BASL_OPCODE_ARRAY_PUSH] = &&op_ARRAY_PUSH,
+            [BASL_OPCODE_ARRAY_SET_SAFE] = &&op_ARRAY_SET_SAFE,
+            [BASL_OPCODE_ARRAY_SLICE] = &&op_ARRAY_SLICE,
+            [BASL_OPCODE_BITWISE_AND] = &&op_BITWISE_AND,
+            [BASL_OPCODE_BITWISE_NOT] = &&op_BITWISE_NOT,
+            [BASL_OPCODE_BITWISE_OR] = &&op_BITWISE_OR,
+            [BASL_OPCODE_BITWISE_XOR] = &&op_BITWISE_XOR,
+            [BASL_OPCODE_CALL] = &&op_CALL,
+            [BASL_OPCODE_CALL_INTERFACE] = &&op_CALL_INTERFACE,
+            [BASL_OPCODE_CALL_VALUE] = &&op_CALL_VALUE,
+            [BASL_OPCODE_CONSTANT] = &&op_CONSTANT,
+            [BASL_OPCODE_DEFER_CALL] = &&op_DEFER_CALL,
+            [BASL_OPCODE_DEFER_CALL_INTERFACE] = &&op_DEFER_CALL_INTERFACE,
+            [BASL_OPCODE_DEFER_CALL_VALUE] = &&op_DEFER_CALL_VALUE,
+            [BASL_OPCODE_DEFER_NEW_INSTANCE] = &&op_DEFER_NEW_INSTANCE,
+            [BASL_OPCODE_DIVIDE] = &&op_DIVIDE,
+            [BASL_OPCODE_DUP] = &&op_DUP,
+            [BASL_OPCODE_DUP_TWO] = &&op_DUP_TWO,
+            [BASL_OPCODE_EQUAL] = &&op_EQUAL,
+            [BASL_OPCODE_FALSE] = &&op_FALSE,
+            [BASL_OPCODE_FORMAT_F64] = &&op_FORMAT_F64,
+            [BASL_OPCODE_GET_CAPTURE] = &&op_GET_CAPTURE,
+            [BASL_OPCODE_GET_COLLECTION_SIZE] = &&op_GET_COLLECTION_SIZE,
+            [BASL_OPCODE_GET_ERROR_KIND] = &&op_GET_ERROR_KIND,
+            [BASL_OPCODE_GET_ERROR_MESSAGE] = &&op_GET_ERROR_MESSAGE,
+            [BASL_OPCODE_GET_FIELD] = &&op_GET_FIELD,
+            [BASL_OPCODE_GET_FUNCTION] = &&op_GET_FUNCTION,
+            [BASL_OPCODE_GET_GLOBAL] = &&op_GET_GLOBAL,
+            [BASL_OPCODE_GET_INDEX] = &&op_GET_INDEX,
+            [BASL_OPCODE_GET_LOCAL] = &&op_GET_LOCAL,
+            [BASL_OPCODE_GET_MAP_KEY_AT] = &&op_GET_MAP_KEY_AT,
+            [BASL_OPCODE_GET_MAP_VALUE_AT] = &&op_GET_MAP_VALUE_AT,
+            [BASL_OPCODE_GET_STRING_SIZE] = &&op_GET_STRING_SIZE,
+            [BASL_OPCODE_GREATER] = &&op_GREATER,
+            [BASL_OPCODE_JUMP] = &&op_JUMP,
+            [BASL_OPCODE_JUMP_IF_FALSE] = &&op_JUMP_IF_FALSE,
+            [BASL_OPCODE_LESS] = &&op_LESS,
+            [BASL_OPCODE_LOOP] = &&op_LOOP,
+            [BASL_OPCODE_MAP_GET_SAFE] = &&op_MAP_GET_SAFE,
+            [BASL_OPCODE_MAP_HAS] = &&op_MAP_HAS,
+            [BASL_OPCODE_MAP_KEYS] = &&op_MAP_KEYS,
+            [BASL_OPCODE_MAP_REMOVE_SAFE] = &&op_MAP_REMOVE_SAFE,
+            [BASL_OPCODE_MAP_SET_SAFE] = &&op_MAP_SET_SAFE,
+            [BASL_OPCODE_MAP_VALUES] = &&op_MAP_VALUES,
+            [BASL_OPCODE_MODULO] = &&op_MODULO,
+            [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
+            [BASL_OPCODE_NEGATE] = &&op_NEGATE,
+            [BASL_OPCODE_NEW_ARRAY] = &&op_NEW_ARRAY,
+            [BASL_OPCODE_NEW_CLOSURE] = &&op_NEW_CLOSURE,
+            [BASL_OPCODE_NEW_ERROR] = &&op_NEW_ERROR,
+            [BASL_OPCODE_NEW_INSTANCE] = &&op_NEW_INSTANCE,
+            [BASL_OPCODE_NEW_MAP] = &&op_NEW_MAP,
+            [BASL_OPCODE_NIL] = &&op_NIL,
+            [BASL_OPCODE_NOT] = &&op_NOT,
+            [BASL_OPCODE_POP] = &&op_POP,
+            [BASL_OPCODE_RETURN] = &&op_RETURN,
+            [BASL_OPCODE_SET_CAPTURE] = &&op_SET_CAPTURE,
+            [BASL_OPCODE_SET_FIELD] = &&op_SET_FIELD,
+            [BASL_OPCODE_SET_GLOBAL] = &&op_SET_GLOBAL,
+            [BASL_OPCODE_SET_INDEX] = &&op_SET_INDEX,
+            [BASL_OPCODE_SET_LOCAL] = &&op_SET_LOCAL,
+            [BASL_OPCODE_SHIFT_LEFT] = &&op_SHIFT_LEFT,
+            [BASL_OPCODE_SHIFT_RIGHT] = &&op_SHIFT_RIGHT,
+            [BASL_OPCODE_STRING_BYTES] = &&op_STRING_BYTES,
+            [BASL_OPCODE_STRING_CHAR_AT] = &&op_STRING_CHAR_AT,
+            [BASL_OPCODE_STRING_CONTAINS] = &&op_STRING_CONTAINS,
+            [BASL_OPCODE_STRING_ENDS_WITH] = &&op_STRING_ENDS_WITH,
+            [BASL_OPCODE_STRING_INDEX_OF] = &&op_STRING_INDEX_OF,
+            [BASL_OPCODE_STRING_REPLACE] = &&op_STRING_REPLACE,
+            [BASL_OPCODE_STRING_SPLIT] = &&op_STRING_SPLIT,
+            [BASL_OPCODE_STRING_STARTS_WITH] = &&op_STRING_STARTS_WITH,
+            [BASL_OPCODE_STRING_SUBSTR] = &&op_STRING_SUBSTR,
+            [BASL_OPCODE_STRING_TO_LOWER] = &&op_STRING_TO_LOWER,
+            [BASL_OPCODE_STRING_TO_UPPER] = &&op_STRING_TO_UPPER,
+            [BASL_OPCODE_STRING_TRIM] = &&op_STRING_TRIM,
+            [BASL_OPCODE_SUBTRACT] = &&op_SUBTRACT,
+            [BASL_OPCODE_TO_F64] = &&op_TO_F64,
+            [BASL_OPCODE_TO_I32] = &&op_TO_I32,
+            [BASL_OPCODE_TO_I64] = &&op_TO_I64,
+            [BASL_OPCODE_TO_STRING] = &&op_TO_STRING,
+            [BASL_OPCODE_TO_U32] = &&op_TO_U32,
+            [BASL_OPCODE_TO_U64] = &&op_TO_U64,
+            [BASL_OPCODE_TO_U8] = &&op_TO_U8,
+            [BASL_OPCODE_TRUE] = &&op_TRUE,
+        };
+
+        #define VM_DISPATCH() \
+            do { \
+                if (dispatch_table[code[frame->ip]] == NULL) { \
+                    status = basl_vm_fail_at_ip( \
+                        vm, BASL_STATUS_UNSUPPORTED, \
+                        "unsupported opcode", error); \
+                    goto cleanup; \
+                } \
+                goto *dispatch_table[code[frame->ip]]; \
+            } while (0)
+        #define VM_CASE(op) op_##op:
+        #define VM_BREAK() \
+            do { \
+                if (frame->ip >= code_size) goto vm_loop_end; \
+                VM_DISPATCH(); \
+            } while (0)
+        #define VM_BREAK_RELOAD() \
+            do { \
+                frame = &vm->frames[vm->frame_count - 1U]; \
+                code = basl_chunk_code(frame->chunk); \
+                code_size = basl_chunk_code_size(frame->chunk); \
+                if (frame->ip >= code_size) goto vm_loop_end; \
+                VM_DISPATCH(); \
+            } while (0)
+
+        VM_DISPATCH();
+#else
+        #define VM_CASE(op) case BASL_OPCODE_##op:
+        #define VM_BREAK() break
+        #define VM_BREAK_RELOAD() break
+
         switch ((basl_opcode_t)code[frame->ip]) {
-            case BASL_OPCODE_CONSTANT:
-                status = basl_vm_read_u32(vm, &constant_index, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
+#endif
+
+            VM_CASE(CONSTANT)
+                BASL_VM_READ_U32(code, frame->ip, constant_index);
 
                 constant = basl_chunk_constant(frame->chunk, (size_t)constant_index);
                 if (constant == NULL) {
@@ -2519,17 +2720,14 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
 
-                status = basl_vm_push(vm, constant, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-                break;
-            case BASL_OPCODE_POP:
-                value = basl_vm_pop_or_nil(vm);
+                BASL_VM_PUSH(vm, constant);
+                VM_BREAK();
+            VM_CASE(POP)
+                BASL_VM_POP(vm, value);
                 basl_value_release(&value);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_DUP:
+                VM_BREAK();
+            VM_CASE(DUP)
                 peeked = basl_vm_peek(vm, 0U);
                 if (peeked == NULL) {
                     status = basl_vm_fail_at_ip(
@@ -2548,8 +2746,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_DUP_TWO:
+                VM_BREAK();
+            VM_CASE(DUP_TWO)
                 left_peek = basl_vm_peek(vm, 1U);
                 peeked = basl_vm_peek(vm, 0U);
                 if (left_peek == NULL || peeked == NULL) {
@@ -2576,12 +2774,9 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_GET_LOCAL:
-                status = basl_vm_read_u32(vm, &operand, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
+                VM_BREAK();
+            VM_CASE(GET_LOCAL)
+                BASL_VM_READ_U32(code, frame->ip, operand);
 
                 status = basl_vm_validate_local_slot(vm, operand, &local_index, error);
                 if (status != BASL_STATUS_OK) {
@@ -2589,19 +2784,13 @@ basl_status_t basl_vm_execute_function(
                 }
 
                 value = basl_value_copy(&vm->stack[local_index]);
-                status = basl_vm_push(vm, &value, error);
+                BASL_VM_PUSH(vm, &value);
                 basl_value_release(&value);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-                break;
-            case BASL_OPCODE_SET_LOCAL:
-                status = basl_vm_read_u32(vm, &operand, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
+                VM_BREAK();
+            VM_CASE(SET_LOCAL)
+                BASL_VM_READ_U32(code, frame->ip, operand);
 
-                peeked = basl_vm_peek(vm, 0U);
+                peeked = BASL_VM_PEEK(vm, 0U);
                 if (peeked == NULL) {
                     status = basl_vm_fail_at_ip(
                         vm,
@@ -2620,8 +2809,8 @@ basl_status_t basl_vm_execute_function(
                 value = basl_value_copy(peeked);
                 basl_value_release(&vm->stack[local_index]);
                 vm->stack[local_index] = value;
-                break;
-            case BASL_OPCODE_GET_GLOBAL:
+                VM_BREAK();
+            VM_CASE(GET_GLOBAL)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -2654,8 +2843,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_SET_GLOBAL:
+                VM_BREAK();
+            VM_CASE(SET_GLOBAL)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -2692,8 +2881,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_GET_FUNCTION:
+                VM_BREAK();
+            VM_CASE(GET_FUNCTION)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -2734,8 +2923,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_NEW_CLOSURE: {
+                VM_BREAK();
+            VM_CASE(NEW_CLOSURE) {
                 basl_object_t *closure;
                 const basl_object_t *callee;
                 size_t capture_count;
@@ -2805,9 +2994,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_GET_CAPTURE:
+            VM_CASE(GET_CAPTURE)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -2841,8 +3030,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_SET_CAPTURE:
+                VM_BREAK();
+            VM_CASE(SET_CAPTURE)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -2881,18 +3070,11 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_CALL: {
-                status = basl_vm_read_u32(vm, &constant_index, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-                status = basl_vm_read_raw_u32(vm, &operand, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
+                VM_BREAK();
+            VM_CASE(CALL) {
+                BASL_VM_READ_U32(code, frame->ip, constant_index);
+                BASL_VM_READ_RAW_U32(code, frame->ip, operand);
 
-                frame = basl_vm_current_frame(vm);
                 status = basl_vm_invoke_call(
                     vm,
                     frame,
@@ -2903,9 +3085,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK_RELOAD();
             }
-            case BASL_OPCODE_CALL_VALUE:
+            VM_CASE(CALL_VALUE)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -2914,8 +3096,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_CALL_INTERFACE: {
+                VM_BREAK_RELOAD();
+            VM_CASE(CALL_INTERFACE) {
                 size_t interface_index;
                 size_t method_index;
                 size_t arg_count;
@@ -2948,9 +3130,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK_RELOAD();
             }
-            case BASL_OPCODE_NEW_INSTANCE: {
+            VM_CASE(NEW_INSTANCE) {
                 size_t class_index;
                 size_t field_count;
 
@@ -2976,9 +3158,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_NEW_ARRAY: {
+            VM_CASE(NEW_ARRAY) {
                 size_t type_index;
                 size_t item_count;
 
@@ -3003,9 +3185,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_NEW_MAP: {
+            VM_CASE(NEW_MAP) {
                 size_t type_index;
                 size_t pair_count;
 
@@ -3030,9 +3212,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_DEFER_CALL: {
+            VM_CASE(DEFER_CALL) {
                 uint32_t arg_count;
 
                 status = basl_vm_read_u32(vm, &constant_index, error);
@@ -3057,9 +3239,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_DEFER_CALL_VALUE: {
+            VM_CASE(DEFER_CALL_VALUE) {
                 uint32_t arg_count;
 
                 status = basl_vm_read_u32(vm, &arg_count, error);
@@ -3080,9 +3262,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_DEFER_CALL_INTERFACE: {
+            VM_CASE(DEFER_CALL_INTERFACE) {
                 uint32_t interface_index;
                 uint32_t method_index;
                 uint32_t arg_count;
@@ -3113,9 +3295,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_DEFER_NEW_INSTANCE: {
+            VM_CASE(DEFER_NEW_INSTANCE) {
                 uint32_t class_index;
                 uint32_t field_count;
 
@@ -3141,9 +3323,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_GET_FIELD:
+            VM_CASE(GET_FIELD)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -3187,8 +3369,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_SET_FIELD:
+                VM_BREAK();
+            VM_CASE(SET_FIELD)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -3222,8 +3404,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_GET_INDEX:
+                VM_BREAK();
+            VM_CASE(GET_INDEX)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -3325,8 +3507,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_GET_COLLECTION_SIZE:
+                VM_BREAK();
+            VM_CASE(GET_COLLECTION_SIZE)
                 frame->ip += 1U;
                 left = basl_vm_pop_or_nil(vm);
                 if (
@@ -3370,8 +3552,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_ARRAY_PUSH:
+                VM_BREAK();
+            VM_CASE(ARRAY_PUSH)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -3400,8 +3582,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_ARRAY_POP:
+                VM_BREAK();
+            VM_CASE(ARRAY_POP)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -3447,8 +3629,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_ARRAY_GET_SAFE:
+                VM_BREAK();
+            VM_CASE(ARRAY_GET_SAFE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -3522,8 +3704,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_ARRAY_SET_SAFE:
+                VM_BREAK();
+            VM_CASE(ARRAY_SET_SAFE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -3583,8 +3765,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_ARRAY_SLICE:
+                VM_BREAK();
+            VM_CASE(ARRAY_SLICE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -3649,8 +3831,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_ARRAY_CONTAINS:
+                VM_BREAK();
+            VM_CASE(ARRAY_CONTAINS)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -3699,8 +3881,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_MAP_GET_SAFE:
+                VM_BREAK();
+            VM_CASE(MAP_GET_SAFE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -3744,8 +3926,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_MAP_SET_SAFE:
+                VM_BREAK();
+            VM_CASE(MAP_SET_SAFE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -3787,8 +3969,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_MAP_REMOVE_SAFE:
+                VM_BREAK();
+            VM_CASE(MAP_REMOVE_SAFE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -3839,8 +4021,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_MAP_HAS:
+                VM_BREAK();
+            VM_CASE(MAP_HAS)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -3875,9 +4057,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_MAP_KEYS:
-            case BASL_OPCODE_MAP_VALUES:
+                VM_BREAK();
+            VM_CASE(MAP_KEYS)
+            VM_CASE(MAP_VALUES)
                 frame->ip += 1U;
                 left = basl_vm_pop_or_nil(vm);
                 if (
@@ -3965,8 +4147,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_GET_STRING_SIZE:
+                VM_BREAK();
+            VM_CASE(GET_STRING_SIZE)
                 frame->ip += 1U;
                 left = basl_vm_pop_or_nil(vm);
                 {
@@ -3991,10 +4173,10 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_STRING_CONTAINS:
-            case BASL_OPCODE_STRING_STARTS_WITH:
-            case BASL_OPCODE_STRING_ENDS_WITH: {
+                VM_BREAK();
+            VM_CASE(STRING_CONTAINS)
+            VM_CASE(STRING_STARTS_WITH)
+            VM_CASE(STRING_ENDS_WITH) {
                 basl_opcode_t string_opcode = (basl_opcode_t)code[frame->ip];
                 const char *text;
                 const char *needle;
@@ -4047,11 +4229,11 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_STRING_TRIM:
-            case BASL_OPCODE_STRING_TO_UPPER:
-            case BASL_OPCODE_STRING_TO_LOWER: {
+            VM_CASE(STRING_TRIM)
+            VM_CASE(STRING_TO_UPPER)
+            VM_CASE(STRING_TO_LOWER) {
                 basl_opcode_t string_opcode = (basl_opcode_t)code[frame->ip];
                 const char *text;
                 size_t length;
@@ -4117,9 +4299,9 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
+                VM_BREAK();
             }
-            case BASL_OPCODE_STRING_REPLACE:
+            VM_CASE(STRING_REPLACE)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -4216,8 +4398,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_STRING_SPLIT:
+                VM_BREAK();
+            VM_CASE(STRING_SPLIT)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -4352,8 +4534,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_STRING_INDEX_OF:
+                VM_BREAK();
+            VM_CASE(STRING_INDEX_OF)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -4399,8 +4581,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_STRING_SUBSTR:
+                VM_BREAK();
+            VM_CASE(STRING_SUBSTR)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -4470,8 +4652,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_STRING_BYTES:
+                VM_BREAK();
+            VM_CASE(STRING_BYTES)
                 frame->ip += 1U;
                 left = basl_vm_pop_or_nil(vm);
                 {
@@ -4530,8 +4712,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_STRING_CHAR_AT:
+                VM_BREAK();
+            VM_CASE(STRING_CHAR_AT)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -4593,8 +4775,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_GET_MAP_KEY_AT:
+                VM_BREAK();
+            VM_CASE(GET_MAP_KEY_AT)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -4653,8 +4835,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_GET_MAP_VALUE_AT:
+                VM_BREAK();
+            VM_CASE(GET_MAP_VALUE_AT)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
@@ -4713,8 +4895,8 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_SET_INDEX:
+                VM_BREAK();
+            VM_CASE(SET_INDEX)
                 frame->ip += 1U;
                 value = basl_vm_pop_or_nil(vm);
                 right = basl_vm_pop_or_nil(vm);
@@ -4798,29 +4980,14 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
-                break;
-            case BASL_OPCODE_JUMP:
-                status = basl_vm_read_u32(vm, &operand, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-                if ((size_t)operand > SIZE_MAX - frame->ip) {
-                    status = basl_vm_fail_at_ip(
-                        vm,
-                        BASL_STATUS_INTERNAL,
-                        "jump target overflow",
-                        error
-                    );
-                    goto cleanup;
-                }
+                VM_BREAK();
+            VM_CASE(JUMP)
+                BASL_VM_READ_U32(code, frame->ip, operand);
                 frame->ip += (size_t)operand;
-                break;
-            case BASL_OPCODE_JUMP_IF_FALSE:
-                status = basl_vm_read_u32(vm, &operand, error);
-                if (status != BASL_STATUS_OK) {
-                    goto cleanup;
-                }
-                peeked = basl_vm_peek(vm, 0U);
+                VM_BREAK();
+            VM_CASE(JUMP_IF_FALSE)
+                BASL_VM_READ_U32(code, frame->ip, operand);
+                peeked = BASL_VM_PEEK(vm, 0U);
                 if (peeked == NULL || basl_value_kind(peeked) != BASL_VALUE_BOOL) {
                     status = basl_vm_fail_at_ip(
                         vm,
@@ -4831,19 +4998,10 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 if (!basl_value_as_bool(peeked)) {
-                    if ((size_t)operand > SIZE_MAX - frame->ip) {
-                        status = basl_vm_fail_at_ip(
-                            vm,
-                            BASL_STATUS_INTERNAL,
-                            "jump target overflow",
-                            error
-                        );
-                        goto cleanup;
-                    }
                     frame->ip += (size_t)operand;
                 }
-                break;
-            case BASL_OPCODE_LOOP:
+                VM_BREAK();
+            VM_CASE(LOOP)
                 status = basl_vm_read_u32(vm, &operand, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -4858,46 +5016,46 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip -= (size_t)operand;
-                break;
-            case BASL_OPCODE_NIL:
+                VM_BREAK();
+            VM_CASE(NIL)
                 basl_value_init_nil(&value);
                 status = basl_vm_push(vm, &value, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TRUE:
+                VM_BREAK();
+            VM_CASE(TRUE)
                 basl_value_init_bool(&value, 1);
                 status = basl_vm_push(vm, &value, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_FALSE:
+                VM_BREAK();
+            VM_CASE(FALSE)
                 basl_value_init_bool(&value, 0);
                 status = basl_vm_push(vm, &value, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_ADD:
-            case BASL_OPCODE_SUBTRACT:
-            case BASL_OPCODE_MULTIPLY:
-            case BASL_OPCODE_DIVIDE:
-            case BASL_OPCODE_MODULO:
-            case BASL_OPCODE_BITWISE_AND:
-            case BASL_OPCODE_BITWISE_OR:
-            case BASL_OPCODE_BITWISE_XOR:
-            case BASL_OPCODE_SHIFT_LEFT:
-            case BASL_OPCODE_SHIFT_RIGHT:
-            case BASL_OPCODE_GREATER:
-            case BASL_OPCODE_LESS:
-            case BASL_OPCODE_EQUAL:
-                right = basl_vm_pop_or_nil(vm);
-                left = basl_vm_pop_or_nil(vm);
+                VM_BREAK();
+            VM_CASE(ADD)
+            VM_CASE(SUBTRACT)
+            VM_CASE(MULTIPLY)
+            VM_CASE(DIVIDE)
+            VM_CASE(MODULO)
+            VM_CASE(BITWISE_AND)
+            VM_CASE(BITWISE_OR)
+            VM_CASE(BITWISE_XOR)
+            VM_CASE(SHIFT_LEFT)
+            VM_CASE(SHIFT_RIGHT)
+            VM_CASE(GREATER)
+            VM_CASE(LESS)
+            VM_CASE(EQUAL)
+                BASL_VM_POP(vm, right);
+                BASL_VM_POP(vm, left);
 
                 if ((basl_opcode_t)code[frame->ip] == BASL_OPCODE_EQUAL) {
                     basl_value_init_bool(
@@ -5192,15 +5350,11 @@ basl_status_t basl_vm_execute_function(
 
                 basl_value_release(&left);
                 basl_value_release(&right);
-                status = basl_vm_push(vm, &value, error);
-                if (status != BASL_STATUS_OK) {
-                    basl_value_release(&value);
-                    goto cleanup;
-                }
+                BASL_VM_PUSH(vm, &value);
                 basl_value_release(&value);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_NEGATE:
+                VM_BREAK();
+            VM_CASE(NEGATE)
                 value = basl_vm_pop_or_nil(vm);
                 if (basl_value_kind(&value) == BASL_VALUE_FLOAT) {
                     basl_value_t negated;
@@ -5214,7 +5368,7 @@ basl_status_t basl_vm_execute_function(
                     }
                     basl_value_release(&negated);
                     frame->ip += 1U;
-                    break;
+                    VM_BREAK();
                 }
                 if (basl_value_kind(&value) != BASL_VALUE_INT) {
                     basl_value_release(&value);
@@ -5249,8 +5403,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_NOT:
+                VM_BREAK();
+            VM_CASE(NOT)
                 value = basl_vm_pop_or_nil(vm);
                 if (basl_value_kind(&value) != BASL_VALUE_BOOL) {
                     basl_value_release(&value);
@@ -5271,8 +5425,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_BITWISE_NOT:
+                VM_BREAK();
+            VM_CASE(BITWISE_NOT)
                 value = basl_vm_pop_or_nil(vm);
                 if (basl_value_kind(&value) != BASL_VALUE_INT) {
                     basl_value_release(&value);
@@ -5293,8 +5447,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_I32:
+                VM_BREAK();
+            VM_CASE(TO_I32)
                 value = basl_vm_pop_or_nil(vm);
                 status = basl_vm_convert_to_signed_integer_type(
                     vm,
@@ -5316,8 +5470,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_I64:
+                VM_BREAK();
+            VM_CASE(TO_I64)
                 value = basl_vm_pop_or_nil(vm);
                 status = basl_vm_convert_to_signed_integer_type(
                     vm,
@@ -5339,8 +5493,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_U8:
+                VM_BREAK();
+            VM_CASE(TO_U8)
                 value = basl_vm_pop_or_nil(vm);
                 status = basl_vm_convert_to_unsigned_integer_type(
                     vm,
@@ -5361,8 +5515,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_U32:
+                VM_BREAK();
+            VM_CASE(TO_U32)
                 value = basl_vm_pop_or_nil(vm);
                 status = basl_vm_convert_to_unsigned_integer_type(
                     vm,
@@ -5383,8 +5537,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_U64:
+                VM_BREAK();
+            VM_CASE(TO_U64)
                 value = basl_vm_pop_or_nil(vm);
                 status = basl_vm_convert_to_unsigned_integer_type(
                     vm,
@@ -5405,8 +5559,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_F64:
+                VM_BREAK();
+            VM_CASE(TO_F64)
                 value = basl_vm_pop_or_nil(vm);
                 if (basl_value_kind(&value) == BASL_VALUE_FLOAT) {
                     status = basl_vm_push(vm, &value, error);
@@ -5415,7 +5569,7 @@ basl_status_t basl_vm_execute_function(
                         goto cleanup;
                     }
                     frame->ip += 1U;
-                    break;
+                    VM_BREAK();
                 }
                 if (!basl_vm_value_is_integer(&value)) {
                     basl_value_release(&value);
@@ -5440,8 +5594,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_TO_STRING:
+                VM_BREAK();
+            VM_CASE(TO_STRING)
                 value = basl_vm_pop_or_nil(vm);
                 basl_value_init_nil(&left);
                 status = basl_vm_stringify_value(vm, &value, &left, error);
@@ -5462,8 +5616,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_FORMAT_F64:
+                VM_BREAK();
+            VM_CASE(FORMAT_F64)
                 if ((status = basl_vm_read_u32(vm, &operand, error)) != BASL_STATUS_OK) {
                     goto cleanup;
                 }
@@ -5486,8 +5640,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 basl_value_release(&left);
-                break;
-            case BASL_OPCODE_NEW_ERROR:
+                VM_BREAK();
+            VM_CASE(NEW_ERROR)
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
@@ -5541,8 +5695,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&value);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_GET_ERROR_KIND:
+                VM_BREAK();
+            VM_CASE(GET_ERROR_KIND)
                 value = basl_vm_pop_or_nil(vm);
                 if (
                     basl_value_kind(&value) != BASL_VALUE_OBJECT ||
@@ -5567,8 +5721,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_GET_ERROR_MESSAGE:
+                VM_BREAK();
+            VM_CASE(GET_ERROR_MESSAGE)
                 value = basl_vm_pop_or_nil(vm);
                 if (
                     basl_value_kind(&value) != BASL_VALUE_OBJECT ||
@@ -5607,8 +5761,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 basl_value_release(&left);
                 frame->ip += 1U;
-                break;
-            case BASL_OPCODE_RETURN:
+                VM_BREAK();
+            VM_CASE(RETURN)
                 frame->ip += 1U;
                 if (frame->ip + 4U <= code_size) {
                     status = basl_vm_read_raw_u32(vm, &operand, error);
@@ -5655,7 +5809,8 @@ basl_status_t basl_vm_execute_function(
                 if (vm->frame_count == 0U) {
                     return BASL_STATUS_OK;
                 }
-                break;
+                VM_BREAK_RELOAD();
+#if !BASL_VM_COMPUTED_GOTO
             default:
                 status = basl_vm_fail_at_ip(
                     vm,
@@ -5664,8 +5819,19 @@ basl_status_t basl_vm_execute_function(
                     error
                 );
                 goto cleanup;
+#endif
+#if BASL_VM_COMPUTED_GOTO
+        vm_loop_end: (void)0;
+        _Pragma("GCC diagnostic pop")
         }
+#else
+        }
+#endif
     }
+
+    #undef VM_CASE
+    #undef VM_BREAK
+    #undef VM_BREAK_RELOAD
 
     status = basl_vm_fail_at_ip(
         vm,
