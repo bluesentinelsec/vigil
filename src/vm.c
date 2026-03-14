@@ -2601,9 +2601,9 @@ basl_status_t basl_vm_execute_function(
     basl_error_t *error
 ) {
     basl_status_t status;
-    basl_value_t value;
-    basl_value_t left;
-    basl_value_t right;
+    basl_value_t value = {0};
+    basl_value_t left = {0};
+    basl_value_t right = {0};
     int64_t integer_result = 0;
     uint64_t uinteger_result = 0U;
     const basl_value_t *constant;
