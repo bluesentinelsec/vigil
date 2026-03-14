@@ -93,6 +93,7 @@
 #include <string.h>
 
 #include "internal/basl_internal.h"
+#include "internal/basl_nanbox.h"
 #include "basl/string.h"
 #include "basl/vm.h"
 #include "value_internal.h"
@@ -121,22 +122,22 @@
    outside the dispatch loop without equivalent guards. */
 
 #define BASL_VM_VALUE_INIT_NIL(v) \
-    do { (v)->kind = BASL_VALUE_NIL; (v)->as.uinteger = 0U; } while (0)
+    do { *(v) = BASL_NANBOX_NIL; } while (0)
 
 #define BASL_VM_VALUE_COPY(dst, src) \
     do { \
         *(dst) = *(src); \
-        if ((dst)->kind == BASL_VALUE_OBJECT) \
-            basl_object_retain((dst)->as.object); \
+        if (basl_nanbox_has_object(*(dst))) \
+            basl_object_retain((basl_object_t *)basl_nanbox_decode_ptr(*(dst))); \
     } while (0)
 
 #define BASL_VM_VALUE_RELEASE(v) \
     do { \
-        if ((v)->kind == BASL_VALUE_OBJECT) { \
-            basl_object_t *_obj = (v)->as.object; \
+        if (basl_nanbox_has_object(*(v))) { \
+            basl_object_t *_obj = (basl_object_t *)basl_nanbox_decode_ptr(*(v)); \
             basl_object_release(&_obj); \
         } \
-        BASL_VM_VALUE_INIT_NIL(v); \
+        *(v) = BASL_NANBOX_NIL; \
     } while (0)
 
 /* Fast stack push — caller must ensure capacity (pre-allocated). */
@@ -155,7 +156,7 @@
     do { \
         (vm)->stack_count -= 1U; \
         (out) = (vm)->stack[(vm)->stack_count]; \
-        BASL_VM_VALUE_INIT_NIL(&(vm)->stack[(vm)->stack_count]); \
+        (vm)->stack[(vm)->stack_count] = BASL_NANBOX_NIL; \
     } while (0)
 
 /* Fast peek — no NULL check, caller knows stack is non-empty. */
@@ -839,9 +840,9 @@ static basl_status_t basl_vm_invoke_value_call(
 
     callee_slot = vm->stack_count - (arg_count + 1U);
     callee_value = vm->stack[callee_slot];
-    callee = (callee_value).as.object;
+    callee = ((basl_object_t *)basl_nanbox_decode_ptr(callee_value));
     if (
-        (callee_value).kind != BASL_VALUE_OBJECT ||
+        !basl_nanbox_is_object(callee_value) ||
         callee == NULL ||
         (basl_object_type(callee) != BASL_OBJECT_FUNCTION &&
          basl_object_type(callee) != BASL_OBJECT_CLOSURE)
@@ -914,8 +915,8 @@ static basl_status_t basl_vm_invoke_interface_call(
     base_slot = vm->stack_count - (arg_count + 1U);
     receiver = &vm->stack[base_slot];
     if (
-        (receiver)->kind != BASL_VALUE_OBJECT ||
-        basl_object_type((receiver)->as.object) != BASL_OBJECT_INSTANCE
+        !basl_nanbox_is_object(*receiver) ||
+        basl_object_type((basl_object_t *)basl_nanbox_decode_ptr(*receiver)) != BASL_OBJECT_INSTANCE
     ) {
         basl_error_set_literal(
             error,
@@ -933,7 +934,7 @@ static basl_status_t basl_vm_invoke_interface_call(
         return BASL_STATUS_INTERNAL;
     }
 
-    class_index = basl_instance_object_class_index((receiver)->as.object);
+    class_index = basl_instance_object_class_index((basl_object_t *)basl_nanbox_decode_ptr(*receiver));
     callee = basl_function_object_resolve_interface_method(
         frame->function,
         class_index,
@@ -1628,8 +1629,8 @@ static basl_status_t basl_vm_checked_ushift_right(
 
 static int basl_vm_value_is_integer(const basl_value_t *value) {
     return value != NULL &&
-           ((value)->kind == BASL_VALUE_INT ||
-            (value)->kind == BASL_VALUE_UINT);
+           (basl_nanbox_is_int(*value) ||
+            basl_nanbox_is_uint(*value));
 }
 
 static int basl_vm_values_equal(
@@ -1643,24 +1644,24 @@ static int basl_vm_values_equal(
         return 0;
     }
 
-    if (left->kind != right->kind) {
+    if (basl_value_kind(left) != basl_value_kind(right)) {
         return 0;
     }
 
-    switch (left->kind) {
+    switch (basl_value_kind(left)) {
         case BASL_VALUE_NIL:
             return 1;
         case BASL_VALUE_BOOL:
-            return left->as.boolean == right->as.boolean;
+            return basl_nanbox_decode_bool(*left) == basl_nanbox_decode_bool(*right);
         case BASL_VALUE_INT:
-            return left->as.integer == right->as.integer;
+            return basl_value_as_int(left) == basl_value_as_int(right);
         case BASL_VALUE_UINT:
-            return left->as.uinteger == right->as.uinteger;
+            return basl_value_as_uint(left) == basl_value_as_uint(right);
         case BASL_VALUE_FLOAT:
-            return left->as.number == right->as.number;
+            return basl_nanbox_decode_double(*left) == basl_nanbox_decode_double(*right);
         case BASL_VALUE_OBJECT:
-            left_object = left->as.object;
-            right_object = right->as.object;
+            left_object = ((basl_object_t *)basl_nanbox_decode_ptr(*left));
+            right_object = ((basl_object_t *)basl_nanbox_decode_ptr(*right));
             if (left_object == right_object) {
                 return 1;
             }
@@ -1711,13 +1712,13 @@ static int basl_vm_value_is_supported_map_key(
         return 0;
     }
 
-    switch ((value)->kind) {
+    switch (basl_value_kind(value)) {
         case BASL_VALUE_BOOL:
         case BASL_VALUE_INT:
         case BASL_VALUE_UINT:
             return 1;
         case BASL_VALUE_OBJECT:
-            object = (value)->as.object;
+            object = ((basl_object_t *)basl_nanbox_decode_ptr(*value));
             return object != NULL && basl_object_type(object) == BASL_OBJECT_STRING;
         default:
             return 0;
@@ -1742,8 +1743,8 @@ static basl_status_t basl_vm_concat_strings(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    left_object = (left)->as.object;
-    right_object = (right)->as.object;
+    left_object = (basl_object_t *)basl_nanbox_decode_ptr(*left);
+    right_object = (basl_object_t *)basl_nanbox_decode_ptr(*right);
     if (
         left_object == NULL ||
         right_object == NULL ||
@@ -1809,9 +1810,9 @@ static basl_status_t basl_vm_stringify_value(
     }
 
     object = NULL;
-    switch ((value)->kind) {
+    switch (basl_value_kind(value)) {
         case BASL_VALUE_BOOL:
-            text = (value)->as.boolean ? "true" : "false";
+            text = basl_nanbox_decode_bool(*value) ? "true" : "false";
             status = basl_string_object_new_cstr(vm->runtime, text, &object, error);
             if (status != BASL_STATUS_OK) {
                 return status;
@@ -1822,7 +1823,7 @@ static basl_status_t basl_vm_stringify_value(
                 buffer,
                 sizeof(buffer),
                 "%lld",
-                (long long)(value)->as.integer
+                (long long)basl_value_as_int(value)
             );
             if (written < 0 || (size_t)written >= sizeof(buffer)) {
                 basl_error_set_literal(
@@ -1842,7 +1843,7 @@ static basl_status_t basl_vm_stringify_value(
                 buffer,
                 sizeof(buffer),
                 "%llu",
-                (unsigned long long)(value)->as.uinteger
+                (unsigned long long)basl_value_as_uint(value)
             );
             if (written < 0 || (size_t)written >= sizeof(buffer)) {
                 basl_error_set_literal(
@@ -1862,7 +1863,7 @@ static basl_status_t basl_vm_stringify_value(
                 buffer,
                 sizeof(buffer),
                 "%.17g",
-                (value)->as.number
+                basl_nanbox_decode_double(*value)
             );
             if (written < 0 || (size_t)written >= sizeof(buffer)) {
                 basl_error_set_literal(
@@ -1879,8 +1880,8 @@ static basl_status_t basl_vm_stringify_value(
             break;
         case BASL_VALUE_OBJECT:
             if (
-                (value)->as.object == NULL ||
-                basl_object_type((value)->as.object) != BASL_OBJECT_STRING
+                ((basl_object_t *)basl_nanbox_decode_ptr(*value)) == NULL ||
+                basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(*value))) != BASL_OBJECT_STRING
             ) {
                 basl_error_set_literal(
                     error,
@@ -1929,7 +1930,7 @@ static basl_status_t basl_vm_format_f64_value(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    if ((value)->kind != BASL_VALUE_FLOAT) {
+    if (!basl_nanbox_is_double(*value)) {
         basl_error_set_literal(
             error,
             BASL_STATUS_INVALID_ARGUMENT,
@@ -1948,7 +1949,7 @@ static basl_status_t basl_vm_format_f64_value(
         return BASL_STATUS_INTERNAL;
     }
 
-    length = snprintf(NULL, 0, format, (value)->as.number);
+    length = snprintf(NULL, 0, format, basl_nanbox_decode_double(*value));
     if (length < 0) {
         basl_error_set_literal(
             error,
@@ -1965,7 +1966,7 @@ static basl_status_t basl_vm_format_f64_value(
         return status;
     }
     buffer = (char *)memory;
-    written = snprintf(buffer, (size_t)length + 1U, format, (value)->as.number);
+    written = snprintf(buffer, (size_t)length + 1U, format, basl_nanbox_decode_double(*value));
     if (written != length) {
         basl_runtime_free(vm->runtime, &memory);
         basl_error_set_literal(
@@ -2000,10 +2001,10 @@ static int basl_vm_get_string_parts(
     if (out_length != NULL) {
         *out_length = 0U;
     }
-    if (value == NULL || (value)->kind != BASL_VALUE_OBJECT) {
+    if (value == NULL || !basl_nanbox_is_object(*value)) {
         return 0;
     }
-    object = (value)->as.object;
+    object = ((basl_object_t *)basl_nanbox_decode_ptr(*value));
     if (object == NULL || basl_object_type(object) != BASL_OBJECT_STRING) {
         return 0;
     }
@@ -2143,7 +2144,7 @@ static basl_status_t basl_vm_push_checked_signed_integer(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    do { (value).kind = BASL_VALUE_INT; (value).as.integer = (integer_value); } while(0);
+    do { basl_value_init_int(&(value), integer_value); } while(0);
     status = basl_vm_push(vm, &value, error);
     BASL_VM_VALUE_RELEASE(&value);
     return status;
@@ -2164,7 +2165,7 @@ static basl_status_t basl_vm_push_checked_unsigned_integer(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    do { (value).kind = BASL_VALUE_UINT; (value).as.uinteger = (integer_value); } while(0);
+    do { basl_value_init_uint(&(value), integer_value); } while(0);
     status = basl_vm_push(vm, &value, error);
     BASL_VM_VALUE_RELEASE(&value);
     return status;
@@ -2191,36 +2192,36 @@ static basl_status_t basl_vm_convert_to_signed_integer_type(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    if ((value)->kind == BASL_VALUE_INT) {
+    if (basl_nanbox_is_int(*value)) {
         return basl_vm_push_checked_signed_integer(
             vm,
-            (value)->as.integer,
+            basl_value_as_int(value),
             minimum_value,
             maximum_value,
             range_error,
             error
         );
     }
-    if ((value)->kind == BASL_VALUE_UINT) {
-        if ((value)->as.uinteger > (uint64_t)maximum_value) {
+    if (basl_nanbox_is_uint(*value)) {
+        if (basl_value_as_uint(value) > (uint64_t)maximum_value) {
             basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, range_error);
             return BASL_STATUS_INVALID_ARGUMENT;
         }
         return basl_vm_push_checked_signed_integer(
             vm,
-            (int64_t)(value)->as.uinteger,
+            (int64_t)basl_value_as_uint(value),
             minimum_value,
             maximum_value,
             range_error,
             error
         );
     }
-    if ((value)->kind != BASL_VALUE_FLOAT) {
+    if (!basl_nanbox_is_double(*value)) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, operand_error);
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    float_value = (value)->as.number;
+    float_value = basl_nanbox_decode_double(*value);
     if (!isfinite(float_value) ||
         float_value > (double)INT64_MAX ||
         float_value < (double)INT64_MIN) {
@@ -2259,34 +2260,34 @@ static basl_status_t basl_vm_convert_to_unsigned_integer_type(
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    if ((value)->kind == BASL_VALUE_UINT) {
+    if (basl_nanbox_is_uint(*value)) {
         return basl_vm_push_checked_unsigned_integer(
             vm,
-            (value)->as.uinteger,
+            basl_value_as_uint(value),
             maximum_value,
             range_error,
             error
         );
     }
-    if ((value)->kind == BASL_VALUE_INT) {
-        if ((value)->as.integer < 0) {
+    if (basl_nanbox_is_int(*value)) {
+        if (basl_value_as_int(value) < 0) {
             basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, range_error);
             return BASL_STATUS_INVALID_ARGUMENT;
         }
         return basl_vm_push_checked_unsigned_integer(
             vm,
-            (uint64_t)(value)->as.integer,
+            (uint64_t)basl_value_as_int(value),
             maximum_value,
             range_error,
             error
         );
     }
-    if ((value)->kind != BASL_VALUE_FLOAT) {
+    if (!basl_nanbox_is_double(*value)) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, operand_error);
         return BASL_STATUS_INVALID_ARGUMENT;
     }
 
-    float_value = (value)->as.number;
+    float_value = basl_nanbox_decode_double(*value);
     if (!isfinite(float_value) || float_value < 0.0 || float_value > (double)UINT64_MAX) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, range_error);
         return BASL_STATUS_INVALID_ARGUMENT;
@@ -2821,7 +2822,7 @@ basl_status_t basl_vm_execute_function(
                 }
                 /* Fast path: non-object constants (int, float, bool) —
                    skip VALUE_COPY retain and PUSH capacity check. */
-                if (constant->kind != BASL_VALUE_OBJECT) {
+                if (!basl_nanbox_has_object(*constant)) {
                     if (vm->stack_count >= vm->stack_capacity) {
                         status = basl_vm_grow_stack(vm, vm->stack_count + 1U, error);
                         if (status != BASL_STATUS_OK) goto cleanup;
@@ -2890,7 +2891,7 @@ basl_status_t basl_vm_execute_function(
                 local_index = frame->base_slot + (size_t)operand;
                 /* Fast path: non-object values (int, bool, float, nil)
                    don't need retain/release — just copy the struct. */
-                if (vm->stack[local_index].kind != BASL_VALUE_OBJECT) {
+                if (!basl_nanbox_has_object(vm->stack[local_index])) {
                     if (vm->stack_count >= vm->stack_capacity) {
                         status = basl_vm_grow_stack(vm, vm->stack_count + 1U, error);
                         if (status != BASL_STATUS_OK) goto cleanup;
@@ -2908,7 +2909,7 @@ basl_status_t basl_vm_execute_function(
                 local_index = frame->base_slot + (size_t)operand;
                 /* Fast path for non-object values: skip retain/release. */
                 if (vm->stack_count > 0U &&
-                    vm->stack[vm->stack_count - 1U].kind != BASL_VALUE_OBJECT) {
+                    !basl_nanbox_has_object(vm->stack[vm->stack_count - 1U])) {
                     vm->stack[local_index] = vm->stack[vm->stack_count - 1U];
                     /* SET_LOCAL + POP fusion: if next opcode is POP, consume
                        it here by popping the stack top directly. */
@@ -3474,8 +3475,8 @@ basl_status_t basl_vm_execute_function(
 
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_INSTANCE
+                    !basl_nanbox_is_object(left) ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_INSTANCE
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     status = basl_vm_fail_at_ip(
@@ -3489,7 +3490,7 @@ basl_status_t basl_vm_execute_function(
 
                 if (
                     !basl_instance_object_get_field(
-                        (left).as.object,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                         (size_t)operand,
                         &value
                     )
@@ -3520,8 +3521,8 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_INSTANCE
+                    !basl_nanbox_is_object(left) ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_INSTANCE
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3535,7 +3536,7 @@ basl_status_t basl_vm_execute_function(
                 }
 
                 status = basl_instance_object_set_field(
-                    (left).as.object,
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                     (size_t)operand,
                     &right,
                     error
@@ -3552,8 +3553,8 @@ basl_status_t basl_vm_execute_function(
                 left = basl_vm_pop_or_nil(vm);
 
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3566,10 +3567,10 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
 
-                if (basl_object_type((left).as.object) == BASL_OBJECT_ARRAY) {
+                if (basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_ARRAY) {
                     if (
-                        (right).kind != BASL_VALUE_INT ||
-                        (right).as.integer < 0
+                        !basl_nanbox_is_int(right) ||
+                        basl_value_as_int(&(right)) < 0
                     ) {
                         BASL_VM_VALUE_RELEASE(&left);
                         BASL_VM_VALUE_RELEASE(&right);
@@ -3584,8 +3585,8 @@ basl_status_t basl_vm_execute_function(
 
                     if (
                         !basl_array_object_get(
-                            (left).as.object,
-                            (size_t)(right).as.integer,
+                            ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                            (size_t)basl_value_as_int(&(right)),
                             &value
                         )
                     ) {
@@ -3599,7 +3600,7 @@ basl_status_t basl_vm_execute_function(
                         );
                         goto cleanup;
                     }
-                } else if (basl_object_type((left).as.object) == BASL_OBJECT_MAP) {
+                } else if (basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_MAP) {
                     if (!basl_vm_value_is_supported_map_key(&right)) {
                         BASL_VM_VALUE_RELEASE(&left);
                         BASL_VM_VALUE_RELEASE(&right);
@@ -3614,7 +3615,7 @@ basl_status_t basl_vm_execute_function(
 
                     if (
                         !basl_map_object_get(
-                            (left).as.object,
+                            ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                             &right,
                             &value
                         )
@@ -3653,8 +3654,8 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     status = basl_vm_fail_at_ip(
@@ -3666,15 +3667,15 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
 
-                if (basl_object_type((left).as.object) == BASL_OBJECT_ARRAY) {
+                if (basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_ARRAY) {
                     basl_value_init_int(
                         &value,
-                        (int64_t)basl_array_object_length((left).as.object)
+                        (int64_t)basl_array_object_length(((basl_object_t *)basl_nanbox_decode_ptr(left)))
                     );
-                } else if (basl_object_type((left).as.object) == BASL_OBJECT_MAP) {
+                } else if (basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_MAP) {
                     basl_value_init_int(
                         &value,
-                        (int64_t)basl_map_object_count((left).as.object)
+                        (int64_t)basl_map_object_count(((basl_object_t *)basl_nanbox_decode_ptr(left)))
                     );
                 } else {
                     BASL_VM_VALUE_RELEASE(&left);
@@ -3699,9 +3700,9 @@ basl_status_t basl_vm_execute_function(
                 value = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_ARRAY
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_ARRAY
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&value);
@@ -3714,7 +3715,7 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 status = basl_array_object_append(
-                    (left).as.object,
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                     &value,
                     error
                 );
@@ -3729,9 +3730,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_ARRAY
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_ARRAY
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3743,7 +3744,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                if (basl_array_object_pop((left).as.object, &value)) {
+                if (basl_array_object_pop(((basl_object_t *)basl_nanbox_decode_ptr(left)), &value)) {
                     BASL_VM_VALUE_RELEASE(&right);
                     BASL_VM_VALUE_INIT_NIL(&right);
                     status = basl_vm_make_ok_error_value(vm, &right, error);
@@ -3777,9 +3778,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_ARRAY
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_ARRAY
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3792,7 +3793,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                if ((right).kind != BASL_VALUE_INT || (right).as.integer < 0) {
+                if (!basl_nanbox_is_int(right) || basl_value_as_int(&(right)) < 0) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
                     BASL_VM_VALUE_RELEASE(&value);
@@ -3810,8 +3811,8 @@ basl_status_t basl_vm_execute_function(
 
                     BASL_VM_VALUE_INIT_NIL(&item);
                     found = basl_array_object_get(
-                        (left).as.object,
-                        (size_t)(right).as.integer,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                        (size_t)basl_value_as_int(&(right)),
                         &item
                     );
                     if (found) {
@@ -3852,9 +3853,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_ARRAY
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_ARRAY
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3867,7 +3868,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                if ((right).kind != BASL_VALUE_INT || (right).as.integer < 0) {
+                if (!basl_nanbox_is_int(right) || basl_value_as_int(&(right)) < 0) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
                     BASL_VM_VALUE_RELEASE(&value);
@@ -3880,8 +3881,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 status = basl_array_object_set(
-                    (left).as.object,
-                    (size_t)(right).as.integer,
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                    (size_t)basl_value_as_int(&(right)),
                     &value,
                     error
                 );
@@ -3913,9 +3914,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_ARRAY
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_ARRAY
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3929,10 +3930,10 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 if (
-                    (right).kind != BASL_VALUE_INT ||
-                    (value).kind != BASL_VALUE_INT ||
-                    (right).as.integer < 0 ||
-                    (value).as.integer < 0
+                    !basl_nanbox_is_int(right) ||
+                    !basl_nanbox_is_int(value) ||
+                    basl_value_as_int(&(right)) < 0 ||
+                    basl_value_as_int(&(value)) < 0
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3947,9 +3948,9 @@ basl_status_t basl_vm_execute_function(
                 }
                 object = NULL;
                 status = basl_array_object_slice(
-                    (left).as.object,
-                    (size_t)(right).as.integer,
-                    (size_t)(value).as.integer,
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                    (size_t)basl_value_as_int(&(right)),
+                    (size_t)basl_value_as_int(&(value)),
                     &object,
                     error
                 );
@@ -3978,9 +3979,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_ARRAY
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_ARRAY
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -3992,23 +3993,23 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                do { (value).kind = BASL_VALUE_BOOL; (value).as.boolean = (0); } while(0);
+                do { (value) = basl_nanbox_from_bool(0); } while(0);
                 {
-                    size_t item_count = basl_array_object_length((left).as.object);
+                    size_t item_count = basl_array_object_length(((basl_object_t *)basl_nanbox_decode_ptr(left)));
                     size_t item_index;
                     basl_value_t item;
 
                     for (item_index = 0U; item_index < item_count; item_index += 1U) {
                         BASL_VM_VALUE_INIT_NIL(&item);
                         if (!basl_array_object_get(
-                                (left).as.object,
+                                ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                                 item_index,
                                 &item
                             )) {
                             continue;
                         }
                         if (basl_vm_values_equal(&item, &right)) {
-                            do { (value).kind = BASL_VALUE_BOOL; (value).as.boolean = (1); } while(0);
+                            do { (value) = basl_nanbox_from_bool(1); } while(0);
                             basl_value_release(&item);
                             break;
                         }
@@ -4029,9 +4030,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -4049,9 +4050,9 @@ basl_status_t basl_vm_execute_function(
                     int found;
 
                     BASL_VM_VALUE_INIT_NIL(&stored);
-                    found = basl_map_object_get((left).as.object, &right, &stored);
+                    found = basl_map_object_get(((basl_object_t *)basl_nanbox_decode_ptr(left)), &right, &stored);
                     BASL_VM_VALUE_RELEASE(&right);
-                    do { (right).kind = BASL_VALUE_BOOL; (right).as.boolean = (found != 0); } while(0);
+                    do { (right) = basl_nanbox_from_bool(found != 0); } while(0);
                     if (found) {
                         BASL_VM_VALUE_RELEASE(&value);
                         value = stored;
@@ -4074,9 +4075,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -4090,7 +4091,7 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 status = basl_map_object_set(
-                    (left).as.object,
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                     &right,
                     &value,
                     error
@@ -4117,9 +4118,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -4138,13 +4139,13 @@ basl_status_t basl_vm_execute_function(
 
                     BASL_VM_VALUE_INIT_NIL(&removed_value);
                     removed = basl_map_object_remove(
-                        (left).as.object,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                         &right,
                         &removed_value,
                         error
                     );
                     BASL_VM_VALUE_RELEASE(&right);
-                    do { (right).kind = BASL_VALUE_BOOL; (right).as.boolean = (removed != 0); } while(0);
+                    do { (right) = basl_nanbox_from_bool(removed != 0); } while(0);
                     if (removed) {
                         BASL_VM_VALUE_RELEASE(&value);
                         value = removed_value;
@@ -4168,9 +4169,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -4187,10 +4188,10 @@ basl_status_t basl_vm_execute_function(
                     int found;
 
                     BASL_VM_VALUE_INIT_NIL(&stored);
-                    found = basl_map_object_get((left).as.object, &right, &stored);
+                    found = basl_map_object_get(((basl_object_t *)basl_nanbox_decode_ptr(left)), &right, &stored);
                     basl_value_release(&stored);
                     BASL_VM_VALUE_RELEASE(&right);
-                    do { (value).kind = BASL_VALUE_BOOL; (value).as.boolean = (found != 0); } while(0);
+                    do { (value) = basl_nanbox_from_bool(found != 0); } while(0);
                 }
                 BASL_VM_VALUE_RELEASE(&left);
                 status = basl_vm_push(vm, &value, error);
@@ -4204,9 +4205,9 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     status = basl_vm_fail_at_ip(
@@ -4218,7 +4219,7 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 {
-                    size_t item_count = basl_map_object_count((left).as.object);
+                    size_t item_count = basl_map_object_count(((basl_object_t *)basl_nanbox_decode_ptr(left)));
                     basl_value_t *items = NULL;
                     size_t item_capacity = 0U;
                     size_t item_index;
@@ -4238,7 +4239,7 @@ basl_status_t basl_vm_execute_function(
                         BASL_VM_VALUE_INIT_NIL(&items[item_index]);
                         if ((basl_opcode_t)code[frame->ip - 1U] == BASL_OPCODE_MAP_KEYS) {
                             if (!basl_map_object_key_at(
-                                    (left).as.object,
+                                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                                     item_index,
                                     &items[item_index]
                                 )) {
@@ -4246,7 +4247,7 @@ basl_status_t basl_vm_execute_function(
                             }
                         } else {
                             if (!basl_map_object_value_at(
-                                    (left).as.object,
+                                    ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                                     item_index,
                                     &items[item_index]
                                 )) {
@@ -4362,7 +4363,7 @@ basl_status_t basl_vm_execute_function(
                                 needle_length
                             ) == 0;
                 }
-                do { (value).kind = BASL_VALUE_BOOL; (value).as.boolean = (found); } while(0);
+                do { (value) = basl_nanbox_from_bool(found); } while(0);
                 BASL_VM_VALUE_RELEASE(&left);
                 BASL_VM_VALUE_RELEASE(&right);
                 status = basl_vm_push(vm, &value, error);
@@ -4710,7 +4711,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     basl_value_init_int(&value, found ? (int64_t)index : -1);
                     BASL_VM_VALUE_RELEASE(&right);
-                    do { (right).kind = BASL_VALUE_BOOL; (right).as.boolean = (found); } while(0);
+                    do { (right) = basl_nanbox_from_bool(found); } while(0);
                 }
                 BASL_VM_VALUE_RELEASE(&left);
                 status = basl_vm_push(vm, &value, error);
@@ -4735,8 +4736,8 @@ basl_status_t basl_vm_execute_function(
                     int64_t slice_length;
 
                     if (!basl_vm_get_string_parts(&left, &text, &text_length) ||
-                        (right).kind != BASL_VALUE_INT ||
-                        (value).kind != BASL_VALUE_INT) {
+                        !basl_nanbox_is_int(right) ||
+                        !basl_nanbox_is_int(value)) {
                         BASL_VM_VALUE_RELEASE(&left);
                         BASL_VM_VALUE_RELEASE(&right);
                         BASL_VM_VALUE_RELEASE(&value);
@@ -4748,8 +4749,8 @@ basl_status_t basl_vm_execute_function(
                         );
                         goto cleanup;
                     }
-                    start = (right).as.integer;
-                    slice_length = (value).as.integer;
+                    start = basl_value_as_int(&(right));
+                    slice_length = basl_value_as_int(&(value));
                     if (start < 0 || slice_length < 0 ||
                         (uint64_t)start > text_length ||
                         (uint64_t)slice_length > text_length - (size_t)start) {
@@ -4865,7 +4866,7 @@ basl_status_t basl_vm_execute_function(
                     int64_t index;
 
                     if (!basl_vm_get_string_parts(&left, &text, &text_length) ||
-                        (right).kind != BASL_VALUE_INT) {
+                        !basl_nanbox_is_int(right)) {
                         BASL_VM_VALUE_RELEASE(&left);
                         BASL_VM_VALUE_RELEASE(&right);
                         status = basl_vm_fail_at_ip(
@@ -4876,7 +4877,7 @@ basl_status_t basl_vm_execute_function(
                         );
                         goto cleanup;
                     }
-                    index = (right).as.integer;
+                    index = basl_value_as_int(&(right));
                     if (index < 0 || (uint64_t)index >= text_length) {
                         status = basl_vm_new_string_value(vm, "", 0U, &right, error);
                         if (status == BASL_STATUS_OK) {
@@ -4925,9 +4926,9 @@ basl_status_t basl_vm_execute_function(
                 BASL_VM_VALUE_INIT_NIL(&value);
 
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -4940,8 +4941,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 if (
-                    (right).kind != BASL_VALUE_INT ||
-                    (right).as.integer < 0
+                    !basl_nanbox_is_int(right) ||
+                    basl_value_as_int(&(right)) < 0
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -4955,8 +4956,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 if (
                     !basl_map_object_key_at(
-                        (left).as.object,
-                        (size_t)(right).as.integer,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                        (size_t)basl_value_as_int(&(right)),
                         &value
                     )
                 ) {
@@ -4986,9 +4987,9 @@ basl_status_t basl_vm_execute_function(
                 BASL_VM_VALUE_INIT_NIL(&value);
 
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_MAP
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_MAP
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -5001,8 +5002,8 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 if (
-                    (right).kind != BASL_VALUE_INT ||
-                    (right).as.integer < 0
+                    !basl_nanbox_is_int(right) ||
+                    basl_value_as_int(&(right)) < 0
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -5016,8 +5017,8 @@ basl_status_t basl_vm_execute_function(
                 }
                 if (
                     !basl_map_object_value_at(
-                        (left).as.object,
-                        (size_t)(right).as.integer,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                        (size_t)basl_value_as_int(&(right)),
                         &value
                     )
                 ) {
@@ -5047,8 +5048,8 @@ basl_status_t basl_vm_execute_function(
                 left = basl_vm_pop_or_nil(vm);
 
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -5062,10 +5063,10 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
 
-                if (basl_object_type((left).as.object) == BASL_OBJECT_ARRAY) {
+                if (basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_ARRAY) {
                     if (
-                        (right).kind != BASL_VALUE_INT ||
-                        (right).as.integer < 0
+                        !basl_nanbox_is_int(right) ||
+                        basl_value_as_int(&(right)) < 0
                     ) {
                         BASL_VM_VALUE_RELEASE(&left);
                         BASL_VM_VALUE_RELEASE(&right);
@@ -5080,12 +5081,12 @@ basl_status_t basl_vm_execute_function(
                     }
 
                     status = basl_array_object_set(
-                        (left).as.object,
-                        (size_t)(right).as.integer,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
+                        (size_t)basl_value_as_int(&(right)),
                         &value,
                         error
                     );
-                } else if (basl_object_type((left).as.object) == BASL_OBJECT_MAP) {
+                } else if (basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_MAP) {
                     if (!basl_vm_value_is_supported_map_key(&right)) {
                         BASL_VM_VALUE_RELEASE(&left);
                         BASL_VM_VALUE_RELEASE(&right);
@@ -5100,7 +5101,7 @@ basl_status_t basl_vm_execute_function(
                     }
 
                     status = basl_map_object_set(
-                        (left).as.object,
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)),
                         &right,
                         &value,
                         error
@@ -5132,8 +5133,8 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(JUMP_IF_FALSE)
                 BASL_VM_READ_U32(code, frame->ip, operand);
                 if (vm->stack_count > 0U &&
-                    vm->stack[vm->stack_count - 1U].kind == BASL_VALUE_BOOL) {
-                    if (!vm->stack[vm->stack_count - 1U].as.boolean) {
+                    basl_nanbox_is_bool(vm->stack[vm->stack_count - 1U])) {
+                    if (!basl_nanbox_decode_bool(vm->stack[vm->stack_count - 1U])) {
                         /* Condition false — jump.  The POP after us is
                            inside the true-path, so we skip past it. */
                         frame->ip += (size_t)operand;
@@ -5166,7 +5167,7 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 VM_BREAK();
             VM_CASE(TRUE)
-                do { (value).kind = BASL_VALUE_BOOL; (value).as.boolean = (1); } while(0);
+                do { (value) = basl_nanbox_from_bool(1); } while(0);
                 status = basl_vm_push(vm, &value, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -5174,7 +5175,7 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 VM_BREAK();
             VM_CASE(FALSE)
-                do { (value).kind = BASL_VALUE_BOOL; (value).as.boolean = (0); } while(0);
+                do { (value) = basl_nanbox_from_bool(0); } while(0);
                 status = basl_vm_push(vm, &value, error);
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
@@ -5205,12 +5206,12 @@ basl_status_t basl_vm_execute_function(
                 } else {
                     if (
                         (basl_opcode_t)code[frame->ip] == BASL_OPCODE_ADD &&
-                        (left).kind == BASL_VALUE_OBJECT &&
-                        (right).kind == BASL_VALUE_OBJECT &&
-                        (left).as.object != NULL &&
-                        (right).as.object != NULL &&
-                        basl_object_type((left).as.object) == BASL_OBJECT_STRING &&
-                        basl_object_type((right).as.object) == BASL_OBJECT_STRING
+                        basl_nanbox_is_object(left) &&
+                        basl_nanbox_is_object(right) &&
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)) != NULL &&
+                        ((basl_object_t *)basl_nanbox_decode_ptr(right)) != NULL &&
+                        basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_STRING &&
+                        basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(right))) == BASL_OBJECT_STRING
                     ) {
                         status = basl_vm_concat_strings(vm, &left, &right, &value, error);
                         if (status != BASL_STATUS_OK) {
@@ -5219,44 +5220,44 @@ basl_status_t basl_vm_execute_function(
                             goto cleanup;
                         }
                     } else if (
-                        (left).kind == BASL_VALUE_FLOAT &&
-                        (right).kind == BASL_VALUE_FLOAT
+                        basl_nanbox_is_double(left) &&
+                        basl_nanbox_is_double(right)
                     ) {
                         switch ((basl_opcode_t)code[frame->ip]) {
                             case BASL_OPCODE_ADD:
                                 basl_value_init_float(
                                     &value,
-                                    (left).as.number + (right).as.number
+                                    basl_nanbox_decode_double(left) + basl_nanbox_decode_double(right)
                                 );
                                 break;
                             case BASL_OPCODE_SUBTRACT:
                                 basl_value_init_float(
                                     &value,
-                                    (left).as.number - (right).as.number
+                                    basl_nanbox_decode_double(left) - basl_nanbox_decode_double(right)
                                 );
                                 break;
                             case BASL_OPCODE_MULTIPLY:
                                 basl_value_init_float(
                                     &value,
-                                    (left).as.number * (right).as.number
+                                    basl_nanbox_decode_double(left) * basl_nanbox_decode_double(right)
                                 );
                                 break;
                             case BASL_OPCODE_DIVIDE:
                                 basl_value_init_float(
                                     &value,
-                                    (left).as.number / (right).as.number
+                                    basl_nanbox_decode_double(left) / basl_nanbox_decode_double(right)
                                 );
                                 break;
                             case BASL_OPCODE_GREATER:
                                 basl_value_init_bool(
                                     &value,
-                                    (left).as.number > (right).as.number
+                                    basl_nanbox_decode_double(left) > basl_nanbox_decode_double(right)
                                 );
                                 break;
                             case BASL_OPCODE_LESS:
                                 basl_value_init_bool(
                                     &value,
-                                    (left).as.number < (right).as.number
+                                    basl_nanbox_decode_double(left) < basl_nanbox_decode_double(right)
                                 );
                                 break;
                             default:
@@ -5274,7 +5275,7 @@ basl_status_t basl_vm_execute_function(
                         if (
                             !basl_vm_value_is_integer(&left) ||
                             !basl_vm_value_is_integer(&right) ||
-                            (left).kind != (right).kind
+                            basl_value_kind(&(left)) != basl_value_kind(&(right))
                         ) {
                             BASL_VM_VALUE_RELEASE(&left);
                             BASL_VM_VALUE_RELEASE(&right);
@@ -5287,69 +5288,69 @@ basl_status_t basl_vm_execute_function(
                             goto cleanup;
                         }
 
-                        if ((left).kind == BASL_VALUE_UINT) {
+                        if (basl_nanbox_is_uint(left)) {
                             switch ((basl_opcode_t)code[frame->ip]) {
                                 case BASL_OPCODE_ADD:
                                     status = basl_vm_checked_uadd(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
                                 case BASL_OPCODE_SUBTRACT:
                                     status = basl_vm_checked_usubtract(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
                                 case BASL_OPCODE_MULTIPLY:
                                     status = basl_vm_checked_umultiply(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
                                 case BASL_OPCODE_DIVIDE:
                                     status = basl_vm_checked_udivide(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
                                 case BASL_OPCODE_MODULO:
                                     status = basl_vm_checked_umodulo(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
                                 case BASL_OPCODE_BITWISE_AND:
                                     status = BASL_STATUS_OK;
                                     uinteger_result =
-                                        (left).as.uinteger & (right).as.uinteger;
+                                        basl_value_as_uint(&(left)) & basl_value_as_uint(&(right));
                                     break;
                                 case BASL_OPCODE_BITWISE_OR:
                                     status = BASL_STATUS_OK;
                                     uinteger_result =
-                                        (left).as.uinteger | (right).as.uinteger;
+                                        basl_value_as_uint(&(left)) | basl_value_as_uint(&(right));
                                     break;
                                 case BASL_OPCODE_BITWISE_XOR:
                                     status = BASL_STATUS_OK;
                                     uinteger_result =
-                                        (left).as.uinteger ^ (right).as.uinteger;
+                                        basl_value_as_uint(&(left)) ^ basl_value_as_uint(&(right));
                                     break;
                                 case BASL_OPCODE_SHIFT_LEFT:
                                     status = basl_vm_checked_ushift_left(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
                                 case BASL_OPCODE_SHIFT_RIGHT:
                                     status = basl_vm_checked_ushift_right(
-                                        (left).as.uinteger,
-                                        (right).as.uinteger,
+                                        basl_value_as_uint(&(left)),
+                                        basl_value_as_uint(&(right)),
                                         &uinteger_result
                                     );
                                     break;
@@ -5357,14 +5358,14 @@ basl_status_t basl_vm_execute_function(
                                     status = BASL_STATUS_OK;
                                     basl_value_init_bool(
                                         &value,
-                                        (left).as.uinteger > (right).as.uinteger
+                                        basl_value_as_uint(&(left)) > basl_value_as_uint(&(right))
                                     );
                                     break;
                                 case BASL_OPCODE_LESS:
                                     status = BASL_STATUS_OK;
                                     basl_value_init_bool(
                                         &value,
-                                        (left).as.uinteger < (right).as.uinteger
+                                        basl_value_as_uint(&(left)) < basl_value_as_uint(&(right))
                                     );
                                     break;
                                 default:
@@ -5375,65 +5376,65 @@ basl_status_t basl_vm_execute_function(
                             switch ((basl_opcode_t)code[frame->ip]) {
                                 case BASL_OPCODE_ADD:
                                     status = basl_vm_checked_add(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
                                 case BASL_OPCODE_SUBTRACT:
                                     status = basl_vm_checked_subtract(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
                                 case BASL_OPCODE_MULTIPLY:
                                     status = basl_vm_checked_multiply(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
                                 case BASL_OPCODE_DIVIDE:
                                     status = basl_vm_checked_divide(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
                                 case BASL_OPCODE_MODULO:
                                     status = basl_vm_checked_modulo(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
                                 case BASL_OPCODE_BITWISE_AND:
                                     status = BASL_STATUS_OK;
                                     integer_result =
-                                        (left).as.integer & (right).as.integer;
+                                        basl_value_as_int(&(left)) & basl_value_as_int(&(right));
                                     break;
                                 case BASL_OPCODE_BITWISE_OR:
                                     status = BASL_STATUS_OK;
                                     integer_result =
-                                        (left).as.integer | (right).as.integer;
+                                        basl_value_as_int(&(left)) | basl_value_as_int(&(right));
                                     break;
                                 case BASL_OPCODE_BITWISE_XOR:
                                     status = BASL_STATUS_OK;
                                     integer_result =
-                                        (left).as.integer ^ (right).as.integer;
+                                        basl_value_as_int(&(left)) ^ basl_value_as_int(&(right));
                                     break;
                                 case BASL_OPCODE_SHIFT_LEFT:
                                     status = basl_vm_checked_shift_left(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
                                 case BASL_OPCODE_SHIFT_RIGHT:
                                     status = basl_vm_checked_shift_right(
-                                        (left).as.integer,
-                                        (right).as.integer,
+                                        basl_value_as_int(&(left)),
+                                        basl_value_as_int(&(right)),
                                         &integer_result
                                     );
                                     break;
@@ -5441,14 +5442,14 @@ basl_status_t basl_vm_execute_function(
                                     status = BASL_STATUS_OK;
                                     basl_value_init_bool(
                                         &value,
-                                        (left).as.integer > (right).as.integer
+                                        basl_value_as_int(&(left)) > basl_value_as_int(&(right))
                                     );
                                     break;
                                 case BASL_OPCODE_LESS:
                                     status = BASL_STATUS_OK;
                                     basl_value_init_bool(
                                         &value,
-                                        (left).as.integer < (right).as.integer
+                                        basl_value_as_int(&(left)) < basl_value_as_int(&(right))
                                     );
                                     break;
                                 default:
@@ -5479,10 +5480,10 @@ basl_status_t basl_vm_execute_function(
                             (basl_opcode_t)code[frame->ip] == BASL_OPCODE_SHIFT_LEFT ||
                             (basl_opcode_t)code[frame->ip] == BASL_OPCODE_SHIFT_RIGHT
                         ) {
-                            if ((left).kind == BASL_VALUE_UINT) {
-                                do { (value).kind = BASL_VALUE_UINT; (value).as.uinteger = (uinteger_result); } while(0);
+                            if (basl_nanbox_is_uint(left)) {
+                                basl_value_init_uint(&value, uinteger_result);
                             } else {
-                                do { (value).kind = BASL_VALUE_INT; (value).as.integer = (integer_result); } while(0);
+                                basl_value_init_int(&value, integer_result);
                             }
                         }
                     }
@@ -5511,9 +5512,9 @@ basl_status_t basl_vm_execute_function(
             {
                 int64_t a, b, r;
                 vm->stack_count -= 1U;
-                b = vm->stack[vm->stack_count].as.integer;
+                b = basl_nanbox_decode_int(vm->stack[vm->stack_count]);
                 vm->stack_count -= 1U;
-                a = vm->stack[vm->stack_count].as.integer;
+                a = basl_nanbox_decode_int(vm->stack[vm->stack_count]);
                 if ((basl_opcode_t)code[frame->ip] == BASL_OPCODE_ADD_I64) {
                     if ((b > 0 && a > INT64_MAX - b) ||
                         (b < 0 && a < INT64_MIN - b)) {
@@ -5533,8 +5534,8 @@ basl_status_t basl_vm_execute_function(
                     }
                     r = a - b;
                 }
-                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
-                vm->stack[vm->stack_count].as.integer = r;
+                /* kind set by nanbox_encode_int below */
+                vm->stack[vm->stack_count] = basl_nanbox_encode_int(r);
                 vm->stack_count += 1U;
                 frame->ip += 1U;
                 /* TO_I32 fusion */
@@ -5560,9 +5561,9 @@ basl_status_t basl_vm_execute_function(
                 int64_t a, b;
                 bool result;
                 vm->stack_count -= 1U;
-                b = vm->stack[vm->stack_count].as.integer;
+                b = basl_nanbox_decode_int(vm->stack[vm->stack_count]);
                 vm->stack_count -= 1U;
-                a = vm->stack[vm->stack_count].as.integer;
+                a = basl_nanbox_decode_int(vm->stack[vm->stack_count]);
                 switch ((basl_opcode_t)code[frame->ip]) {
                     case BASL_OPCODE_LESS_I64:          result = a < b;  break;
                     case BASL_OPCODE_LESS_EQUAL_I64:    result = a <= b; break;
@@ -5572,8 +5573,8 @@ basl_status_t basl_vm_execute_function(
                     case BASL_OPCODE_NOT_EQUAL_I64:     result = a != b; break;
                     default: result = false; break;
                 }
-                vm->stack[vm->stack_count].kind = BASL_VALUE_BOOL;
-                vm->stack[vm->stack_count].as.boolean = result;
+                /* kind set by nanbox_from_bool below */
+                vm->stack[vm->stack_count] = basl_nanbox_from_bool(result);
                 vm->stack_count += 1U;
                 frame->ip += 1U;
                 VM_BREAK();
@@ -5584,9 +5585,9 @@ basl_status_t basl_vm_execute_function(
             {
                 int64_t a, b, r;
                 vm->stack_count -= 1U;
-                b = vm->stack[vm->stack_count].as.integer;
+                b = basl_nanbox_decode_int(vm->stack[vm->stack_count]);
                 vm->stack_count -= 1U;
-                a = vm->stack[vm->stack_count].as.integer;
+                a = basl_nanbox_decode_int(vm->stack[vm->stack_count]);
                 switch ((basl_opcode_t)code[frame->ip]) {
                     case BASL_OPCODE_MULTIPLY_I64:
                         /* Overflow check for multiplication. */
@@ -5627,8 +5628,8 @@ basl_status_t basl_vm_execute_function(
                         r = a % b;
                         break;
                 }
-                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
-                vm->stack[vm->stack_count].as.integer = r;
+                /* kind set by nanbox_encode_int below */
+                vm->stack[vm->stack_count] = basl_nanbox_encode_int(r);
                 vm->stack_count += 1U;
                 frame->ip += 1U;
                 /* TO_I32 fusion */
@@ -5657,8 +5658,8 @@ basl_status_t basl_vm_execute_function(
                 int64_t a, b, r;
                 BASL_VM_READ_U32(code, frame->ip, idx_a);
                 BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vm->stack[frame->base_slot + idx_a].as.integer;
-                b = vm->stack[frame->base_slot + idx_b].as.integer;
+                a = basl_nanbox_decode_int(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_int(vm->stack[frame->base_slot + idx_b]);
                 if ((basl_opcode_t)code[frame->ip - 9U] == BASL_OPCODE_LOCALS_ADD_I64) {
                     if ((b > 0 && a > INT64_MAX - b) ||
                         (b < 0 && a < INT64_MIN - b)) {
@@ -5678,8 +5679,8 @@ basl_status_t basl_vm_execute_function(
                     }
                     r = a - b;
                 }
-                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
-                vm->stack[vm->stack_count].as.integer = r;
+                /* kind set by nanbox_encode_int below */
+                vm->stack[vm->stack_count] = basl_nanbox_encode_int(r);
                 vm->stack_count += 1U;
                 /* TO_I32 fusion */
                 if (frame->ip < code_size &&
@@ -5701,8 +5702,8 @@ basl_status_t basl_vm_execute_function(
                 int64_t a, b, r;
                 BASL_VM_READ_U32(code, frame->ip, idx_a);
                 BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vm->stack[frame->base_slot + idx_a].as.integer;
-                b = vm->stack[frame->base_slot + idx_b].as.integer;
+                a = basl_nanbox_decode_int(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_int(vm->stack[frame->base_slot + idx_b]);
                 if ((basl_opcode_t)code[frame->ip - 9U] == BASL_OPCODE_LOCALS_MULTIPLY_I64) {
                     if (a != 0 && b != 0 &&
                         ((a > 0 && b > 0 && a > INT64_MAX / b) ||
@@ -5724,8 +5725,8 @@ basl_status_t basl_vm_execute_function(
                     }
                     r = a % b;
                 }
-                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
-                vm->stack[vm->stack_count].as.integer = r;
+                /* kind set by nanbox_encode_int below */
+                vm->stack[vm->stack_count] = basl_nanbox_encode_int(r);
                 vm->stack_count += 1U;
                 /* TO_I32 fusion */
                 if (frame->ip < code_size &&
@@ -5753,8 +5754,8 @@ basl_status_t basl_vm_execute_function(
                 uint8_t op;
                 BASL_VM_READ_U32(code, frame->ip, idx_a);
                 BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vm->stack[frame->base_slot + idx_a].as.integer;
-                b = vm->stack[frame->base_slot + idx_b].as.integer;
+                a = basl_nanbox_decode_int(vm->stack[frame->base_slot + idx_a]);
+                b = basl_nanbox_decode_int(vm->stack[frame->base_slot + idx_b]);
                 op = code[frame->ip - 9U];
                 switch ((basl_opcode_t)op) {
                     case BASL_OPCODE_LOCALS_LESS_I64:          result = a < b;  break;
@@ -5765,17 +5766,17 @@ basl_status_t basl_vm_execute_function(
                     case BASL_OPCODE_LOCALS_NOT_EQUAL_I64:     result = a != b; break;
                     default: result = false; break;
                 }
-                vm->stack[vm->stack_count].kind = BASL_VALUE_BOOL;
-                vm->stack[vm->stack_count].as.boolean = result;
+                /* kind set by nanbox_from_bool below */
+                vm->stack[vm->stack_count] = basl_nanbox_from_bool(result);
                 vm->stack_count += 1U;
                 VM_BREAK();
             }
             VM_CASE(NEGATE)
                 value = basl_vm_pop_or_nil(vm);
-                if ((value).kind == BASL_VALUE_FLOAT) {
+                if (basl_nanbox_is_double(value)) {
                     basl_value_t negated;
 
-                    basl_value_init_float(&negated, -(value).as.number);
+                    basl_value_init_float(&negated, -basl_nanbox_decode_double(value));
                     BASL_VM_VALUE_RELEASE(&value);
                     status = basl_vm_push(vm, &negated, error);
                     if (status != BASL_STATUS_OK) {
@@ -5786,7 +5787,7 @@ basl_status_t basl_vm_execute_function(
                     frame->ip += 1U;
                     VM_BREAK();
                 }
-                if ((value).kind != BASL_VALUE_INT) {
+                if (!basl_nanbox_is_int(value)) {
                     BASL_VM_VALUE_RELEASE(&value);
                     status = basl_vm_fail_at_ip(
                         vm,
@@ -5797,7 +5798,7 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 status = basl_vm_checked_negate(
-                    (value).as.integer,
+                    basl_value_as_int(&(value)),
                     &integer_result
                 );
                 if (status != BASL_STATUS_OK) {
@@ -5810,7 +5811,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                do { (left).kind = BASL_VALUE_INT; (left).as.integer = (integer_result); } while(0);
+                do { (left) = basl_nanbox_encode_int(integer_result); } while(0);
                 BASL_VM_VALUE_RELEASE(&value);
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {
@@ -5822,7 +5823,7 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             VM_CASE(NOT)
                 value = basl_vm_pop_or_nil(vm);
-                if ((value).kind != BASL_VALUE_BOOL) {
+                if (!basl_nanbox_is_bool(value)) {
                     BASL_VM_VALUE_RELEASE(&value);
                     status = basl_vm_fail_at_ip(
                         vm,
@@ -5832,7 +5833,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                basl_value_init_bool(&left, !(value).as.boolean);
+                basl_value_init_bool(&left, !basl_nanbox_decode_bool(value));
                 BASL_VM_VALUE_RELEASE(&value);
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {
@@ -5844,7 +5845,7 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             VM_CASE(BITWISE_NOT)
                 value = basl_vm_pop_or_nil(vm);
-                if ((value).kind != BASL_VALUE_INT) {
+                if (!basl_nanbox_is_int(value)) {
                     BASL_VM_VALUE_RELEASE(&value);
                     status = basl_vm_fail_at_ip(
                         vm,
@@ -5854,7 +5855,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                basl_value_init_int(&left, ~(value).as.integer);
+                basl_value_init_int(&left, ~basl_value_as_int(&(value)));
                 BASL_VM_VALUE_RELEASE(&value);
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {
@@ -5867,8 +5868,8 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(TO_I32)
                 /* Fast path: if top of stack is already INT, just range-check */
                 if (vm->stack_count > 0U &&
-                    vm->stack[vm->stack_count - 1U].kind == BASL_VALUE_INT) {
-                    int64_t v = vm->stack[vm->stack_count - 1U].as.integer;
+                    basl_nanbox_is_int_inline(vm->stack[vm->stack_count - 1U])) {
+                    int64_t v = basl_nanbox_decode_int(vm->stack[vm->stack_count - 1U]);
                     if (v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX) {
                         status = basl_vm_fail_at_ip(vm,
                             BASL_STATUS_INVALID_ARGUMENT,
@@ -5991,7 +5992,7 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             VM_CASE(TO_F64)
                 value = basl_vm_pop_or_nil(vm);
-                if ((value).kind == BASL_VALUE_FLOAT) {
+                if (basl_nanbox_is_double(value)) {
                     status = basl_vm_push(vm, &value, error);
                     BASL_VM_VALUE_RELEASE(&value);
                     if (status != BASL_STATUS_OK) {
@@ -6010,10 +6011,10 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                if ((value).kind == BASL_VALUE_UINT) {
-                    basl_value_init_float(&left, (double)(value).as.uinteger);
+                if (basl_nanbox_is_uint(value)) {
+                    basl_value_init_float(&left, (double)basl_value_as_uint(&(value)));
                 } else {
-                    basl_value_init_float(&left, (double)(value).as.integer);
+                    basl_value_init_float(&left, (double)basl_value_as_int(&(value)));
                 }
                 BASL_VM_VALUE_RELEASE(&value);
                 status = basl_vm_push(vm, &left, error);
@@ -6074,9 +6075,9 @@ basl_status_t basl_vm_execute_function(
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
                 if (
-                    (left).kind != BASL_VALUE_OBJECT ||
-                    (left).as.object == NULL ||
-                    basl_object_type((left).as.object) != BASL_OBJECT_STRING
+                    !basl_nanbox_is_object(left) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(left)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) != BASL_OBJECT_STRING
                 ) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
@@ -6088,7 +6089,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                if ((right).kind != BASL_VALUE_INT) {
+                if (!basl_nanbox_is_int(right)) {
                     BASL_VM_VALUE_RELEASE(&left);
                     BASL_VM_VALUE_RELEASE(&right);
                     status = basl_vm_fail_at_ip(
@@ -6104,9 +6105,9 @@ basl_status_t basl_vm_execute_function(
 
                     status = basl_error_object_new(
                         vm->runtime,
-                        basl_string_object_c_str((left).as.object),
-                        basl_string_object_length((left).as.object),
-                        (right).as.integer,
+                        basl_string_object_c_str(((basl_object_t *)basl_nanbox_decode_ptr(left))),
+                        basl_string_object_length(((basl_object_t *)basl_nanbox_decode_ptr(left))),
+                        basl_value_as_int(&(right)),
                         &error_object,
                         error
                     );
@@ -6128,9 +6129,9 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(GET_ERROR_KIND)
                 value = basl_vm_pop_or_nil(vm);
                 if (
-                    (value).kind != BASL_VALUE_OBJECT ||
-                    (value).as.object == NULL ||
-                    basl_object_type((value).as.object) != BASL_OBJECT_ERROR
+                    !basl_nanbox_is_object(value) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(value)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(value))) != BASL_OBJECT_ERROR
                 ) {
                     BASL_VM_VALUE_RELEASE(&value);
                     status = basl_vm_fail_at_ip(
@@ -6141,7 +6142,7 @@ basl_status_t basl_vm_execute_function(
                     );
                     goto cleanup;
                 }
-                basl_value_init_int(&left, basl_error_object_kind((value).as.object));
+                basl_value_init_int(&left, basl_error_object_kind(((basl_object_t *)basl_nanbox_decode_ptr(value))));
                 BASL_VM_VALUE_RELEASE(&value);
                 status = basl_vm_push(vm, &left, error);
                 if (status != BASL_STATUS_OK) {
@@ -6154,9 +6155,9 @@ basl_status_t basl_vm_execute_function(
             VM_CASE(GET_ERROR_MESSAGE)
                 value = basl_vm_pop_or_nil(vm);
                 if (
-                    (value).kind != BASL_VALUE_OBJECT ||
-                    (value).as.object == NULL ||
-                    basl_object_type((value).as.object) != BASL_OBJECT_ERROR
+                    !basl_nanbox_is_object(value) ||
+                    ((basl_object_t *)basl_nanbox_decode_ptr(value)) == NULL ||
+                    basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(value))) != BASL_OBJECT_ERROR
                 ) {
                     BASL_VM_VALUE_RELEASE(&value);
                     status = basl_vm_fail_at_ip(
@@ -6172,8 +6173,8 @@ basl_status_t basl_vm_execute_function(
 
                     status = basl_string_object_new(
                         vm->runtime,
-                        basl_error_object_message((value).as.object),
-                        basl_error_object_message_length((value).as.object),
+                        basl_error_object_message(((basl_object_t *)basl_nanbox_decode_ptr(value))),
+                        basl_error_object_message_length(((basl_object_t *)basl_nanbox_decode_ptr(value))),
                         &string_object,
                         error
                     );

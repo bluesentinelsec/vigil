@@ -35,3 +35,5 @@ __pycache__/
 build_asan/
 build-release/
 build-profile/
+build-asan/
+.cache/
