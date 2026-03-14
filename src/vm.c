@@ -4828,6 +4828,7 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
+                BASL_VM_VALUE_INIT_NIL(&value);
                 {
                     const char *text;
                     size_t text_length;
@@ -4891,6 +4892,7 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
+                BASL_VM_VALUE_INIT_NIL(&value);
 
                 if (
                     (left).kind != BASL_VALUE_OBJECT ||
@@ -4951,6 +4953,7 @@ basl_status_t basl_vm_execute_function(
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);
+                BASL_VM_VALUE_INIT_NIL(&value);
 
                 if (
                     (left).kind != BASL_VALUE_OBJECT ||
