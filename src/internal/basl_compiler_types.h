@@ -574,6 +574,59 @@ const char *basl_program_token_text(
     const basl_program_state_t *program, const basl_token_t *token,
     size_t *out_length);
 
+/* compiler_declarations.c — declaration parsing */
+void basl_constant_result_clear(basl_constant_result_t *result);
+const basl_token_t *basl_program_cursor_advance(
+    const basl_program_state_t *program, size_t *cursor);
+const basl_token_t *basl_program_cursor_peek(
+    const basl_program_state_t *program, size_t cursor);
+int basl_program_find_constant_in_source(
+    const basl_program_state_t *program, basl_source_id_t source_id,
+    const char *name, size_t name_length,
+    const basl_global_constant_t **out_constant);
+int basl_program_find_global_in_source(
+    const basl_program_state_t *program, basl_source_id_t source_id,
+    const char *name, size_t name_length,
+    size_t *out_index, const basl_global_variable_t **out_global);
+int basl_program_find_top_level_function_name_in_source(
+    const basl_program_state_t *program, basl_source_id_t source_id,
+    const char *name_text, size_t name_length,
+    size_t *out_index, const basl_function_decl_t **out_decl);
+int basl_class_decl_find_field(
+    const basl_class_decl_t *decl, const char *name, size_t name_length,
+    size_t *out_index, const basl_class_field_t **out_field);
+int basl_class_decl_find_method(
+    const basl_class_decl_t *decl, const char *name, size_t name_length,
+    size_t *out_index, const basl_class_method_t **out_method);
+void basl_constant_result_release(basl_constant_result_t *result);
+int basl_enum_decl_find_member(
+    const basl_enum_decl_t *decl, const char *name, size_t name_length,
+    size_t *out_index, const basl_enum_member_t **out_member);
+int basl_interface_decl_find_method(
+    const basl_interface_decl_t *decl, const char *name, size_t name_length,
+    size_t *out_index, const basl_interface_method_t **out_method);
+basl_status_t basl_program_add_param(
+    basl_program_state_t *program, basl_function_decl_t *decl,
+    basl_parser_type_t type, const basl_token_t *name_token);
+basl_status_t basl_program_parse_constant_expression(
+    basl_program_state_t *program, size_t *cursor,
+    basl_constant_result_t *out_result);
+basl_status_t basl_program_parse_function_return_types(
+    basl_program_state_t *program, size_t *cursor,
+    const char *unsupported_message, basl_function_decl_t *decl);
+int basl_program_parse_optional_pub(
+    const basl_program_state_t *program, size_t *cursor);
+basl_status_t basl_program_parse_global_variable_declaration(
+    basl_program_state_t *program, size_t *cursor, int is_public);
+basl_status_t basl_program_parse_constant_declaration(
+    basl_program_state_t *program, size_t *cursor, int is_public);
+basl_status_t basl_program_parse_enum_declaration(
+    basl_program_state_t *program, size_t *cursor, int is_public);
+basl_status_t basl_program_parse_interface_declaration(
+    basl_program_state_t *program, size_t *cursor, int is_public);
+basl_status_t basl_program_parse_class_declaration(
+    basl_program_state_t *program, size_t *cursor, int is_public);
+
 /* compiler_strings.c — string/f-string parsing */
 basl_status_t basl_parser_parse_fstring_literal(
     basl_parser_state_t *state, const basl_token_t *token,
