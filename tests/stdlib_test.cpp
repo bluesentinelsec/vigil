@@ -516,4 +516,239 @@ TEST(BaslStdlibMathTest, Vec2WithScalarMath) {
     )"), 0);
 }
 
+/* ── new scalar functions ────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, InverseTrig) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // asin(0) == 0
+            if (math.abs(math.asin(0.0)) > eps) { return 1; }
+            // acos(1) == 0
+            if (math.abs(math.acos(1.0)) > eps) { return 2; }
+            // atan(0) == 0
+            if (math.abs(math.atan(0.0)) > eps) { return 3; }
+            // asin(1) ~= pi/2
+            if (math.abs(math.asin(1.0) - math.pi() / 2.0) > eps) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Deg2RadRad2Deg) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            if (math.abs(math.deg2rad(180.0) - math.pi()) > eps) { return 1; }
+            if (math.abs(math.rad2deg(math.pi()) - 180.0) > eps) { return 2; }
+            if (math.abs(math.deg2rad(0.0)) > eps) { return 3; }
+            if (math.abs(math.rad2deg(0.0)) > eps) { return 4; }
+            // roundtrip
+            if (math.abs(math.rad2deg(math.deg2rad(45.0)) - 45.0) > eps) { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Lerp) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.lerp(0.0, 10.0, 0.0) != 0.0) { return 1; }
+            if (math.lerp(0.0, 10.0, 1.0) != 10.0) { return 2; }
+            if (math.lerp(0.0, 10.0, 0.5) != 5.0) { return 3; }
+            if (math.lerp(10.0, 20.0, 0.25) != 12.5) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Normalize) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.normalize(5.0, 0.0, 10.0) != 0.5) { return 1; }
+            if (math.normalize(0.0, 0.0, 10.0) != 0.0) { return 2; }
+            if (math.normalize(10.0, 0.0, 10.0) != 1.0) { return 3; }
+            // degenerate range
+            if (math.normalize(5.0, 5.0, 5.0) != 0.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Wrap) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            if (math.abs(math.wrap(370.0, 0.0, 360.0) - 10.0) > eps) { return 1; }
+            if (math.abs(math.wrap(-10.0, 0.0, 360.0) - 350.0) > eps) { return 2; }
+            if (math.abs(math.wrap(5.0, 0.0, 10.0) - 5.0) > eps) { return 3; }
+            if (math.abs(math.wrap(0.0, 0.0, 360.0)) > eps) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Remap) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            if (math.remap(5.0, 0.0, 10.0, 0.0, 100.0) != 50.0) { return 1; }
+            if (math.remap(0.0, 0.0, 10.0, 0.0, 100.0) != 0.0) { return 2; }
+            if (math.remap(10.0, 0.0, 10.0, 0.0, 100.0) != 100.0) { return 3; }
+            if (math.remap(5.0, 0.0, 10.0, 100.0, 200.0) != 150.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Vec2 new methods ────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Vec2Normalize) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec2 v = math.Vec2(3.0, 4.0);
+            math.Vec2 n = v.normalize();
+            if (math.abs(n.length() - 1.0) > eps) { return 1; }
+            if (math.abs(n.x - 0.6) > eps) { return 2; }
+            if (math.abs(n.y - 0.8) > eps) { return 3; }
+            // zero vector normalizes to zero
+            math.Vec2 z = math.Vec2(0.0, 0.0);
+            math.Vec2 zn = z.normalize();
+            if (zn.x != 0.0) { return 4; }
+            if (zn.y != 0.0) { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec2AddSubScaleDistance) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec2 a = math.Vec2(1.0, 2.0);
+            math.Vec2 b = math.Vec2(3.0, 4.0);
+            math.Vec2 c = a.add(b);
+            if (c.x != 4.0) { return 1; }
+            if (c.y != 6.0) { return 2; }
+            math.Vec2 d = a.sub(b);
+            if (d.x != -2.0) { return 3; }
+            if (d.y != -2.0) { return 4; }
+            math.Vec2 s = a.scale(3.0);
+            if (s.x != 3.0) { return 5; }
+            if (s.y != 6.0) { return 6; }
+            f64 dist = a.distance(b);
+            if (math.abs(dist - 2.8284271247461903) > eps) { return 7; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Vec3 ────────────────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Vec3ConstructionAndFields) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec3 v = math.Vec3(1.0, 2.0, 3.0);
+            if (v.x != 1.0) { return 1; }
+            if (v.y != 2.0) { return 2; }
+            if (v.z != 3.0) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3Length) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec3 v = math.Vec3(1.0, 2.0, 2.0);
+            if (math.abs(v.length() - 3.0) > eps) { return 1; }
+            math.Vec3 z = math.Vec3(0.0, 0.0, 0.0);
+            if (z.length() != 0.0) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3DotAndCross) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec3 x = math.Vec3(1.0, 0.0, 0.0);
+            math.Vec3 y = math.Vec3(0.0, 1.0, 0.0);
+            // perpendicular: dot == 0
+            if (x.dot(y) != 0.0) { return 1; }
+            // x cross y == z
+            math.Vec3 z = x.cross(y);
+            if (z.x != 0.0) { return 2; }
+            if (z.y != 0.0) { return 3; }
+            if (z.z != 1.0) { return 4; }
+            // self dot
+            math.Vec3 v = math.Vec3(1.0, 2.0, 3.0);
+            if (v.dot(v) != 14.0) { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3NormalizeAddSubScaleDistance) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec3 a = math.Vec3(1.0, 2.0, 3.0);
+            math.Vec3 b = math.Vec3(4.0, 5.0, 6.0);
+            // normalize
+            math.Vec3 n = a.normalize();
+            if (math.abs(n.length() - 1.0) > eps) { return 1; }
+            // add
+            math.Vec3 c = a.add(b);
+            if (c.x != 5.0) { return 2; }
+            if (c.y != 7.0) { return 3; }
+            if (c.z != 9.0) { return 4; }
+            // sub
+            math.Vec3 d = a.sub(b);
+            if (d.x != -3.0) { return 5; }
+            if (d.y != -3.0) { return 6; }
+            if (d.z != -3.0) { return 7; }
+            // scale
+            math.Vec3 s = a.scale(2.0);
+            if (s.x != 2.0) { return 8; }
+            if (s.y != 4.0) { return 9; }
+            if (s.z != 6.0) { return 10; }
+            // distance
+            f64 dist = a.distance(b);
+            if (math.abs(dist - math.sqrt(27.0)) > eps) { return 11; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3MethodChaining) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // physics: pos += vel * dt
+            math.Vec3 pos = math.Vec3(0.0, 0.0, 0.0);
+            math.Vec3 vel = math.Vec3(10.0, 20.0, 30.0);
+            math.Vec3 new_pos = pos.add(vel.scale(0.1));
+            if (math.abs(new_pos.x - 1.0) > eps) { return 1; }
+            if (math.abs(new_pos.y - 2.0) > eps) { return 2; }
+            if (math.abs(new_pos.z - 3.0) > eps) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
 }  // namespace
