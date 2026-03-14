@@ -209,8 +209,79 @@ static const basl_native_module_function_t basl_math_functions[] = {
 #define BASL_MATH_FUNCTION_COUNT \
     (sizeof(basl_math_functions) / sizeof(basl_math_functions[0]))
 
+/* ── Vec2 class ──────────────────────────────────────────────────── */
+
+/*
+ * Vec2 methods receive self (the instance) as the first stack arg.
+ * self is at stack[base], additional args follow.
+ */
+
+static double basl_vec2_get_field(basl_vm_t *vm, size_t base, size_t idx) {
+    basl_value_t self_val = basl_vm_stack_get(vm, base);
+    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(self_val);
+    basl_value_t field;
+    basl_instance_object_get_field(obj, idx, &field);
+    return basl_nanbox_decode_double(field);
+}
+
+static basl_status_t basl_vec2_length(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x = basl_vec2_get_field(vm, base, 0U);
+    double y = basl_vec2_get_field(vm, base, 1U);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_math_push_f64(vm, sqrt(x * x + y * y), error);
+}
+
+static basl_status_t basl_vec2_dot(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    double x1 = basl_vec2_get_field(vm, base, 0U);
+    double y1 = basl_vec2_get_field(vm, base, 1U);
+    /* second arg is also a Vec2 instance */
+    basl_value_t other_val = basl_vm_stack_get(vm, base + 1U);
+    basl_object_t *other = (basl_object_t *)basl_nanbox_decode_ptr(other_val);
+    basl_value_t fx, fy;
+    basl_instance_object_get_field(other, 0U, &fx);
+    basl_instance_object_get_field(other, 1U, &fy);
+    double x2 = basl_nanbox_decode_double(fx);
+    double y2 = basl_nanbox_decode_double(fy);
+    basl_vm_stack_pop_n(vm, arg_count);
+    return basl_math_push_f64(vm, x1 * x2 + y1 * y2, error);
+}
+
+static const basl_native_class_field_t basl_vec2_fields[] = {
+    { "x", 1U, BASL_TYPE_F64 },
+    { "y", 1U, BASL_TYPE_F64 },
+};
+
+static const int basl_vec2_dot_params[] = { BASL_TYPE_OBJECT };
+
+static const basl_native_class_method_t basl_vec2_methods[] = {
+    { "length", 6U, basl_vec2_length, 0U, NULL,
+      BASL_TYPE_F64, 1U, NULL },
+    { "dot", 3U, basl_vec2_dot, 1U, basl_vec2_dot_params,
+      BASL_TYPE_F64, 1U, NULL },
+};
+
+static const basl_native_class_t basl_math_classes[] = {
+    {
+        "Vec2", 4U,
+        basl_vec2_fields, 2U,
+        basl_vec2_methods, 2U,
+        NULL
+    },
+};
+
+#define BASL_MATH_CLASS_COUNT \
+    (sizeof(basl_math_classes) / sizeof(basl_math_classes[0]))
+
 BASL_API const basl_native_module_t basl_stdlib_math = {
     "math", 4U,
     basl_math_functions,
-    BASL_MATH_FUNCTION_COUNT
+    BASL_MATH_FUNCTION_COUNT,
+    basl_math_classes,
+    BASL_MATH_CLASS_COUNT
 };
