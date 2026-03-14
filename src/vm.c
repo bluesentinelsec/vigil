@@ -104,7 +104,7 @@
 #if defined(__GNUC__) || defined(__clang__)
   #define BASL_VM_COMPUTED_GOTO 1
 #else
-  #define BASL_VM_COMPUTED_GOTO 1
+  #define BASL_VM_COMPUTED_GOTO 0
 #endif
 
 #define BASL_VM_INITIAL_STACK_CAPACITY  256U
