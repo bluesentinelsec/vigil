@@ -36,4 +36,5 @@ build_asan/
 build-release/
 build-profile/
 build-asan/
+build-ci-san/
 .cache/

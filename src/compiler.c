@@ -7629,6 +7629,7 @@ static basl_status_t basl_parser_parse_native_method_call(
     const basl_token_t *method_token,
     const basl_native_class_t *nc,
     const basl_native_class_method_t *method,
+    size_t class_index,
     basl_expression_result_t *out_result
 ) {
     basl_status_t status;
@@ -7734,10 +7735,15 @@ static basl_status_t basl_parser_parse_native_method_call(
 
     /* Set return type. */
     if (method->return_count <= 1U) {
-        basl_expression_result_set_type(
-            out_result,
-            basl_binding_type_primitive((basl_type_kind_t)method->return_type)
-        );
+        if (method->return_type == BASL_TYPE_OBJECT) {
+            basl_expression_result_set_type(
+                out_result, basl_binding_type_class(class_index));
+        } else {
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive((basl_type_kind_t)method->return_type)
+            );
+        }
     } else {
         basl_parser_type_t ret_types[2];
         size_t rc = method->return_count > 2U ? 2U : method->return_count;
@@ -8457,6 +8463,7 @@ static basl_status_t basl_parser_parse_postfix_suffixes(
                             state, field_token,
                             class_decl->native_class,
                             &class_decl->native_class->methods[method_index],
+                            out_result->type.object_index,
                             out_result);
                     } else {
                         status = basl_parser_parse_method_call(state, field_token, class_method, out_result);
