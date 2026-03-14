@@ -1216,13 +1216,18 @@ static const basl_native_class_method_t basl_quat_methods[] = {
  * Index = col * 4 + row.
  */
 
-/* Helper: get the data array object from a Mat4 instance at stack slot. */
+/* Helper: get the data array object from a Mat4 instance at stack slot.
+ * The returned pointer is borrowed — the instance on the stack keeps it alive.
+ */
 static basl_object_t *basl_mat4_get_data(basl_vm_t *vm, size_t slot) {
     basl_value_t self_val = basl_vm_stack_get(vm, slot);
     basl_object_t *inst = (basl_object_t *)basl_nanbox_decode_ptr(self_val);
     basl_value_t field;
+    basl_object_t *arr;
     basl_instance_object_get_field(inst, 0U, &field);
-    return (basl_object_t *)basl_nanbox_decode_ptr(field);
+    arr = (basl_object_t *)basl_nanbox_decode_ptr(field);
+    basl_value_release(&field);
+    return arr;
 }
 
 /* Helper: read f64 from mat4 data array at index. */
