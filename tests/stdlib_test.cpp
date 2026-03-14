@@ -905,4 +905,214 @@ TEST(BaslStdlibMathTest, Vec3Angle) {
     )"), 0);
 }
 
+/* ── Vec4 ────────────────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Vec4ConstructionAndFields) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec4 v = math.Vec4(1.0, 2.0, 3.0, 4.0);
+            if (v.x != 1.0) { return 1; }
+            if (v.y != 2.0) { return 2; }
+            if (v.z != 3.0) { return 3; }
+            if (v.w != 4.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec4LengthAndDot) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec4 v = math.Vec4(1.0, 2.0, 3.0, 4.0);
+            // length = sqrt(1+4+9+16) = sqrt(30)
+            if (math.abs(v.length() - math.sqrt(30.0)) > eps) { return 1; }
+            if (v.lengthSqr() != 30.0) { return 2; }
+            // perpendicular
+            math.Vec4 a = math.Vec4(1.0, 0.0, 0.0, 0.0);
+            math.Vec4 b = math.Vec4(0.0, 1.0, 0.0, 0.0);
+            if (a.dot(b) != 0.0) { return 3; }
+            // self dot
+            if (a.dot(a) != 1.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec4Arithmetic) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec4 a = math.Vec4(1.0, 2.0, 3.0, 4.0);
+            math.Vec4 b = math.Vec4(5.0, 6.0, 7.0, 8.0);
+            math.Vec4 c = a.add(b);
+            if (c.x != 6.0) { return 1; }
+            if (c.w != 12.0) { return 2; }
+            math.Vec4 d = a.sub(b);
+            if (d.x != -4.0) { return 3; }
+            math.Vec4 s = a.scale(2.0);
+            if (s.x != 2.0) { return 4; }
+            if (s.w != 8.0) { return 5; }
+            math.Vec4 n = a.negate();
+            if (n.x != -1.0) { return 6; }
+            if (n.w != -4.0) { return 7; }
+            // normalize
+            math.Vec4 u = a.normalize();
+            if (math.abs(u.length() - 1.0) > eps) { return 8; }
+            // distance
+            if (math.abs(a.distance(b) - math.sqrt(64.0)) > eps) { return 9; }
+            // lerp
+            math.Vec4 mid = a.lerp(b, 0.5);
+            if (mid.x != 3.0) { return 10; }
+            if (mid.w != 6.0) { return 11; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Quaternion ──────────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, QuaternionIdentity) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
+            if (math.abs(id.length() - 1.0) > eps) { return 1; }
+            // id * id = id
+            math.Quaternion r = id.multiply(id);
+            if (math.abs(r.w - 1.0) > eps) { return 2; }
+            if (math.abs(r.x) > eps) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionConjugateAndInverse) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Quaternion q = math.Quaternion(1.0, 2.0, 3.0, 4.0);
+            math.Quaternion c = q.conjugate();
+            if (c.x != -1.0) { return 1; }
+            if (c.y != -2.0) { return 2; }
+            if (c.z != -3.0) { return 3; }
+            if (c.w != 4.0) { return 4; }
+            // q * inverse(q) ~= identity
+            math.Quaternion qn = q.normalize();
+            math.Quaternion inv = qn.inverse();
+            math.Quaternion id = qn.multiply(inv);
+            if (math.abs(id.w - 1.0) > eps) { return 5; }
+            if (math.abs(id.x) > eps) { return 6; }
+            if (math.abs(id.y) > eps) { return 7; }
+            if (math.abs(id.z) > eps) { return 8; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionMultiply) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // 90 deg around Y then 90 deg around Y = 180 deg around Y
+            math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            math.Quaternion r180 = r90.multiply(r90);
+            // r180 should be (0, 1, 0, 0) or (0, -1, 0, 0)
+            if (math.abs(math.abs(r180.y) - 1.0) > eps) { return 1; }
+            if (math.abs(r180.x) > eps) { return 2; }
+            if (math.abs(r180.z) > eps) { return 3; }
+            if (math.abs(r180.w) > eps) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionFromAxisAngle) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            // 0 degrees -> identity
+            math.Quaternion r0 = id.fromAxisAngle(yaxis, 0.0);
+            if (math.abs(r0.w - 1.0) > eps) { return 1; }
+            if (math.abs(r0.x) > eps) { return 2; }
+            // 90 degrees around Y -> (0, sin(45), 0, cos(45))
+            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            if (math.abs(r90.length() - 1.0) > eps) { return 3; }
+            if (math.abs(r90.y - math.sin(math.deg2rad(45.0))) > eps) { return 4; }
+            if (math.abs(r90.w - math.cos(math.deg2rad(45.0))) > eps) { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionSlerp) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            // slerp t=0 -> identity
+            math.Quaternion s0 = id.slerp(r90, 0.0);
+            if (math.abs(s0.w - 1.0) > eps) { return 1; }
+            // slerp t=1 -> r90
+            math.Quaternion s1 = id.slerp(r90, 1.0);
+            if (math.abs(s1.y - r90.y) > eps) { return 2; }
+            // slerp t=0.5 -> 45 degrees
+            math.Quaternion s5 = id.slerp(r90, 0.5);
+            if (math.abs(s5.length() - 1.0) > eps) { return 3; }
+            // half of 90 = 45 deg -> y = sin(22.5 deg)
+            if (math.abs(s5.y - math.sin(math.deg2rad(22.5))) > eps) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionToEuler) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.01;
+            math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            math.Quaternion euler = r90.toEuler();
+            // yaw (euler.y) should be ~90 degrees
+            if (math.abs(math.rad2deg(euler.y) - 90.0) > eps) { return 1; }
+            // pitch and roll should be ~0
+            if (math.abs(euler.x) > eps) { return 2; }
+            if (math.abs(euler.z) > eps) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionDotAndNormalize) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Quaternion q = math.Quaternion(1.0, 2.0, 3.0, 4.0);
+            // dot with self = lengthSqr
+            if (math.abs(q.dot(q) - 30.0) > eps) { return 1; }
+            // normalize
+            math.Quaternion n = q.normalize();
+            if (math.abs(n.length() - 1.0) > eps) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
 }  // namespace
