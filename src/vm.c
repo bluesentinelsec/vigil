@@ -2760,6 +2760,16 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_MODULO_I64] = &&op_MODULO_I64,
             [BASL_OPCODE_EQUAL_I64] = &&op_EQUAL_I64,
             [BASL_OPCODE_NOT_EQUAL_I64] = &&op_NOT_EQUAL_I64,
+            [BASL_OPCODE_LOCALS_ADD_I64] = &&op_LOCALS_ADD_I64,
+            [BASL_OPCODE_LOCALS_SUBTRACT_I64] = &&op_LOCALS_SUBTRACT_I64,
+            [BASL_OPCODE_LOCALS_MULTIPLY_I64] = &&op_LOCALS_MULTIPLY_I64,
+            [BASL_OPCODE_LOCALS_MODULO_I64] = &&op_LOCALS_MODULO_I64,
+            [BASL_OPCODE_LOCALS_LESS_I64] = &&op_LOCALS_LESS_I64,
+            [BASL_OPCODE_LOCALS_LESS_EQUAL_I64] = &&op_LOCALS_LESS_EQUAL_I64,
+            [BASL_OPCODE_LOCALS_GREATER_I64] = &&op_LOCALS_GREATER_I64,
+            [BASL_OPCODE_LOCALS_GREATER_EQUAL_I64] = &&op_LOCALS_GREATER_EQUAL_I64,
+            [BASL_OPCODE_LOCALS_EQUAL_I64] = &&op_LOCALS_EQUAL_I64,
+            [BASL_OPCODE_LOCALS_NOT_EQUAL_I64] = &&op_LOCALS_NOT_EQUAL_I64,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -5659,6 +5669,132 @@ basl_status_t basl_vm_execute_function(
                     }
                     frame->ip += 1U;
                 }
+                VM_BREAK();
+            }
+
+            /* ── Superinstructions: LOCALS_<op>_I64 ───────────────
+               Fused GET_LOCAL + GET_LOCAL + <i64 op>.  Two u32
+               operands encode the local slot indices.  Result is
+               pushed directly — no intermediate stack traffic.
+               Saves 2 dispatches per occurrence. */
+            VM_CASE(LOCALS_ADD_I64)
+            VM_CASE(LOCALS_SUBTRACT_I64)
+            {
+                uint32_t idx_a, idx_b;
+                int64_t a, b, r;
+                BASL_VM_READ_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = vm->stack[frame->base_slot + idx_a].as.integer;
+                b = vm->stack[frame->base_slot + idx_b].as.integer;
+                if ((basl_opcode_t)code[frame->ip - 9U] == BASL_OPCODE_LOCALS_ADD_I64) {
+                    if ((b > 0 && a > INT64_MAX - b) ||
+                        (b < 0 && a < INT64_MIN - b)) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer overflow", error);
+                        goto cleanup;
+                    }
+                    r = a + b;
+                } else {
+                    if ((b < 0 && a > INT64_MAX + b) ||
+                        (b > 0 && a < INT64_MIN + b)) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer overflow", error);
+                        goto cleanup;
+                    }
+                    r = a - b;
+                }
+                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
+                vm->stack[vm->stack_count].as.integer = r;
+                vm->stack_count += 1U;
+                /* TO_I32 fusion */
+                if (frame->ip < code_size &&
+                    code[frame->ip] == BASL_OPCODE_TO_I32) {
+                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "i32 conversion overflow or invalid value", error);
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                }
+                VM_BREAK();
+            }
+            VM_CASE(LOCALS_MULTIPLY_I64)
+            VM_CASE(LOCALS_MODULO_I64)
+            {
+                uint32_t idx_a, idx_b;
+                int64_t a, b, r;
+                BASL_VM_READ_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = vm->stack[frame->base_slot + idx_a].as.integer;
+                b = vm->stack[frame->base_slot + idx_b].as.integer;
+                if ((basl_opcode_t)code[frame->ip - 9U] == BASL_OPCODE_LOCALS_MULTIPLY_I64) {
+                    if (a != 0 && b != 0 &&
+                        ((a > 0 && b > 0 && a > INT64_MAX / b) ||
+                         (a > 0 && b < 0 && b < INT64_MIN / a) ||
+                         (a < 0 && b > 0 && a < INT64_MIN / b) ||
+                         (a < 0 && b < 0 && a < INT64_MAX / b))) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "integer overflow", error);
+                        goto cleanup;
+                    }
+                    r = a * b;
+                } else {
+                    if (b == 0) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "division by zero", error);
+                        goto cleanup;
+                    }
+                    r = a % b;
+                }
+                vm->stack[vm->stack_count].kind = BASL_VALUE_INT;
+                vm->stack[vm->stack_count].as.integer = r;
+                vm->stack_count += 1U;
+                /* TO_I32 fusion */
+                if (frame->ip < code_size &&
+                    code[frame->ip] == BASL_OPCODE_TO_I32) {
+                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX) {
+                        status = basl_vm_fail_at_ip(vm,
+                            BASL_STATUS_INVALID_ARGUMENT,
+                            "i32 conversion overflow or invalid value", error);
+                        goto cleanup;
+                    }
+                    frame->ip += 1U;
+                }
+                VM_BREAK();
+            }
+            VM_CASE(LOCALS_LESS_I64)
+            VM_CASE(LOCALS_LESS_EQUAL_I64)
+            VM_CASE(LOCALS_GREATER_I64)
+            VM_CASE(LOCALS_GREATER_EQUAL_I64)
+            VM_CASE(LOCALS_EQUAL_I64)
+            VM_CASE(LOCALS_NOT_EQUAL_I64)
+            {
+                uint32_t idx_a, idx_b;
+                int64_t a, b;
+                bool result;
+                uint8_t op;
+                BASL_VM_READ_U32(code, frame->ip, idx_a);
+                BASL_VM_READ_RAW_U32(code, frame->ip, idx_b);
+                a = vm->stack[frame->base_slot + idx_a].as.integer;
+                b = vm->stack[frame->base_slot + idx_b].as.integer;
+                op = code[frame->ip - 9U];
+                switch ((basl_opcode_t)op) {
+                    case BASL_OPCODE_LOCALS_LESS_I64:          result = a < b;  break;
+                    case BASL_OPCODE_LOCALS_LESS_EQUAL_I64:    result = a <= b; break;
+                    case BASL_OPCODE_LOCALS_GREATER_I64:       result = a > b;  break;
+                    case BASL_OPCODE_LOCALS_GREATER_EQUAL_I64: result = a >= b; break;
+                    case BASL_OPCODE_LOCALS_EQUAL_I64:         result = a == b; break;
+                    case BASL_OPCODE_LOCALS_NOT_EQUAL_I64:     result = a != b; break;
+                    default: result = false; break;
+                }
+                vm->stack[vm->stack_count].kind = BASL_VALUE_BOOL;
+                vm->stack[vm->stack_count].as.boolean = result;
+                vm->stack_count += 1U;
                 VM_BREAK();
             }
             VM_CASE(NEGATE)
