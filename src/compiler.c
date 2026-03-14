@@ -56,7 +56,7 @@ static basl_status_t basl_parser_parse_switch_statement(
     basl_parser_state_t *state,
     basl_statement_result_t *out_result
 );
-static basl_status_t basl_program_require_non_void_type(
+basl_status_t basl_program_require_non_void_type(
     const basl_program_state_t *program,
     basl_source_span_t span,
     basl_parser_type_t type,
@@ -426,7 +426,7 @@ basl_status_t basl_compile_report(
     return BASL_STATUS_SYNTAX_ERROR;
 }
 
-static const basl_token_t *basl_program_token_at(
+const basl_token_t *basl_program_token_at(
     const basl_program_state_t *program,
     size_t index
 ) {
@@ -440,7 +440,7 @@ int basl_program_names_equal(
     size_t right_length
 );
 
-static const char *basl_program_token_text(
+const char *basl_program_token_text(
     const basl_program_state_t *program,
     const basl_token_t *token,
     size_t *out_length
@@ -479,7 +479,7 @@ static int basl_program_token_is_identifier_text(
     return basl_program_names_equal(token_text, token_length, text, text_length);
 }
 
-static basl_source_span_t basl_program_eof_span(const basl_program_state_t *program) {
+basl_source_span_t basl_program_eof_span(const basl_program_state_t *program) {
     basl_source_span_t span;
 
     basl_source_span_clear(&span);
@@ -750,7 +750,7 @@ static basl_status_t basl_program_add_module_import(
     return BASL_STATUS_OK;
 }
 
-static int basl_program_resolve_import_alias(
+int basl_program_resolve_import_alias(
     const basl_program_state_t *program,
     const char *alias,
     size_t alias_length,
@@ -912,7 +912,7 @@ static int basl_program_find_source_by_path(
     return 0;
 }
 
-static int basl_program_find_class_in_source(
+int basl_program_find_class_in_source(
     const basl_program_state_t *program,
     basl_source_id_t source_id,
     const char *name,
@@ -957,7 +957,7 @@ static int basl_program_find_class_in_source(
     return 0;
 }
 
-static int basl_program_find_interface_in_source(
+int basl_program_find_interface_in_source(
     const basl_program_state_t *program,
     basl_source_id_t source_id,
     const char *name,
@@ -1109,7 +1109,7 @@ static int basl_program_find_enum(
     return 0;
 }
 
-static int basl_program_find_enum_in_source(
+int basl_program_find_enum_in_source(
     const basl_program_state_t *program,
     basl_source_id_t source_id,
     const char *name,
@@ -2276,517 +2276,15 @@ basl_status_t basl_parser_emit_string_constant_text(
 }
 
 
-static int basl_program_is_class_public(const basl_class_decl_t *decl);
-static int basl_program_is_interface_public(const basl_interface_decl_t *decl);
-static int basl_program_is_enum_public(const basl_enum_decl_t *decl);
-static int basl_program_is_function_public(const basl_function_decl_t *decl);
-static int basl_program_is_constant_public(const basl_global_constant_t *decl);
-static int basl_program_is_global_public(const basl_global_variable_t *decl);
+int basl_program_is_class_public(const basl_class_decl_t *decl);
+int basl_program_is_interface_public(const basl_interface_decl_t *decl);
+int basl_program_is_enum_public(const basl_enum_decl_t *decl);
+int basl_program_is_function_public(const basl_function_decl_t *decl);
+int basl_program_is_constant_public(const basl_global_constant_t *decl);
+int basl_program_is_global_public(const basl_global_variable_t *decl);
 
-static basl_status_t basl_program_parse_type_name(
-    const basl_program_state_t *program,
-    const basl_token_t *token,
-    const char *unsupported_message,
-    basl_parser_type_t *out_type
-) {
-    const char *text;
-    size_t length;
-    basl_type_kind_t type_kind;
-    size_t object_index;
 
-    text = basl_program_token_text(program, token, &length);
-    type_kind = basl_type_kind_from_name(text, length);
-    if (
-        type_kind == BASL_TYPE_I32 ||
-        type_kind == BASL_TYPE_I64 ||
-        type_kind == BASL_TYPE_U8 ||
-        type_kind == BASL_TYPE_U32 ||
-        type_kind == BASL_TYPE_U64 ||
-        type_kind == BASL_TYPE_F64 ||
-        type_kind == BASL_TYPE_BOOL ||
-        type_kind == BASL_TYPE_STRING ||
-        type_kind == BASL_TYPE_ERR ||
-        type_kind == BASL_TYPE_VOID
-    ) {
-        *out_type = basl_binding_type_primitive(type_kind);
-        return BASL_STATUS_OK;
-    }
-    if (type_kind == BASL_TYPE_NIL) {
-        return basl_compile_report(program, token->span, unsupported_message);
-    }
-    if (
-        program->source != NULL &&
-        basl_program_find_class_in_source(
-            program,
-            program->source->id,
-            text,
-            length,
-            &object_index,
-            NULL
-        )
-    ) {
-        *out_type = basl_binding_type_class(object_index);
-        return BASL_STATUS_OK;
-    }
-    if (
-        program->source != NULL &&
-        basl_program_find_interface_in_source(
-            program,
-            program->source->id,
-            text,
-            length,
-            &object_index,
-            NULL
-        )
-    ) {
-        *out_type = basl_binding_type_interface(object_index);
-        return BASL_STATUS_OK;
-    }
-    if (
-        program->source != NULL &&
-        basl_program_find_enum_in_source(
-            program,
-            program->source->id,
-            text,
-            length,
-            &object_index,
-            NULL
-        )
-    ) {
-        *out_type = basl_binding_type_enum(object_index);
-        return BASL_STATUS_OK;
-    }
-
-    return basl_compile_report(program, token->span, unsupported_message);
-}
-
-/* Track whether a '>>' token was split and the second '>' is pending. */
-static int basl_type_close_pending = 0;
-
-/* Consume a closing '>' in a generic type context.  When the lexer has
-   produced a '>>' (SHIFT_RIGHT) token, consume the whole token and set
-   a pending flag so the outer type parser's next close-check succeeds
-   without consuming another token. */
-static int basl_program_consume_type_close(
-    const basl_program_state_t *program,
-    size_t *cursor
-) {
-    const basl_token_t *t;
-    if (basl_type_close_pending) {
-        basl_type_close_pending = 0;
-        return 1;
-    }
-    t = basl_program_token_at(program, *cursor);
-    if (t == NULL) {
-        return 0;
-    }
-    if (t->kind == BASL_TOKEN_GREATER) {
-        *cursor += 1U;
-        return 1;
-    }
-    if (t->kind == BASL_TOKEN_SHIFT_RIGHT) {
-        *cursor += 1U;
-        basl_type_close_pending = 1;
-        return 1;
-    }
-    return 0;
-}
-
-static basl_status_t basl_program_parse_type_reference(
-    const basl_program_state_t *program,
-    size_t *cursor,
-    const char *unsupported_message,
-    basl_parser_type_t *out_type
-) {
-    basl_status_t status;
-    const basl_token_t *token;
-    const basl_token_t *next_token;
-    const basl_token_t *member_token;
-    const char *name_text;
-    const char *member_text;
-    size_t name_length;
-    size_t member_length;
-    size_t object_index;
-    basl_source_id_t source_id;
-    basl_parser_type_t element_type;
-    basl_parser_type_t key_type;
-    basl_parser_type_t value_type;
-    basl_function_type_decl_t function_type;
-    basl_parser_type_t parsed_type;
-
-    memset(&function_type, 0, sizeof(function_type));
-    token = basl_program_token_at(program, *cursor);
-    if (token != NULL && token->kind == BASL_TOKEN_FN) {
-        *cursor += 1U;
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != BASL_TOKEN_LPAREN) {
-            function_type.is_any = 1;
-            function_type.return_type = basl_binding_type_primitive(BASL_TYPE_VOID);
-            status = basl_program_intern_function_type(
-                (basl_program_state_t *)program,
-                &function_type,
-                out_type
-            );
-            basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-            return status;
-        }
-
-        *cursor += 1U;
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token != NULL && next_token->kind != BASL_TOKEN_RPAREN) {
-            while (1) {
-                status = basl_program_parse_type_reference(
-                    program,
-                    cursor,
-                    unsupported_message,
-                    &parsed_type
-                );
-                if (status != BASL_STATUS_OK) {
-                    basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-                    return status;
-                }
-                status = basl_program_require_non_void_type(
-                    program,
-                    basl_program_token_at(program, *cursor - 1U)->span,
-                    parsed_type,
-                    "function type parameters cannot use type void"
-                );
-                if (status != BASL_STATUS_OK) {
-                    basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-                    return status;
-                }
-                status = basl_function_type_decl_add_param(
-                    (basl_program_state_t *)program,
-                    &function_type,
-                    parsed_type
-                );
-                if (status != BASL_STATUS_OK) {
-                    basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-                    return status;
-                }
-
-                next_token = basl_program_token_at(program, *cursor);
-                if (next_token != NULL && next_token->kind == BASL_TOKEN_COMMA) {
-                    *cursor += 1U;
-                    continue;
-                }
-                break;
-            }
-        }
-
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != BASL_TOKEN_RPAREN) {
-            basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-            return basl_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected ')' after function type parameters"
-            );
-        }
-        *cursor += 1U;
-
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != BASL_TOKEN_ARROW) {
-            status = basl_function_type_decl_add_return(
-                (basl_program_state_t *)program,
-                &function_type,
-                basl_binding_type_primitive(BASL_TYPE_VOID)
-            );
-            if (status != BASL_STATUS_OK) {
-                basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-                return status;
-            }
-        } else {
-            *cursor += 1U;
-            next_token = basl_program_token_at(program, *cursor);
-            if (next_token != NULL && next_token->kind == BASL_TOKEN_LPAREN) {
-                *cursor += 1U;
-                while (1) {
-                    status = basl_program_parse_type_reference(
-                        program,
-                        cursor,
-                        unsupported_message,
-                        &parsed_type
-                    );
-                    if (status != BASL_STATUS_OK) {
-                        basl_function_type_decl_free(
-                            (basl_program_state_t *)program,
-                            &function_type
-                        );
-                        return status;
-                    }
-                    status = basl_function_type_decl_add_return(
-                        (basl_program_state_t *)program,
-                        &function_type,
-                        parsed_type
-                    );
-                    if (status != BASL_STATUS_OK) {
-                        basl_function_type_decl_free(
-                            (basl_program_state_t *)program,
-                            &function_type
-                        );
-                        return status;
-                    }
-
-                    next_token = basl_program_token_at(program, *cursor);
-                    if (next_token != NULL && next_token->kind == BASL_TOKEN_COMMA) {
-                        *cursor += 1U;
-                        continue;
-                    }
-                    if (next_token != NULL && next_token->kind == BASL_TOKEN_RPAREN) {
-                        *cursor += 1U;
-                        break;
-                    }
-                    basl_function_type_decl_free(
-                        (basl_program_state_t *)program,
-                        &function_type
-                    );
-                    return basl_compile_report(
-                        program,
-                        next_token == NULL ? token->span : next_token->span,
-                        "expected ')' after function type returns"
-                    );
-                }
-            } else {
-                status = basl_program_parse_type_reference(
-                    program,
-                    cursor,
-                    unsupported_message,
-                    &parsed_type
-                );
-                if (status != BASL_STATUS_OK) {
-                    basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-                    return status;
-                }
-                status = basl_function_type_decl_add_return(
-                    (basl_program_state_t *)program,
-                    &function_type,
-                    parsed_type
-                );
-                if (status != BASL_STATUS_OK) {
-                    basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-                    return status;
-                }
-            }
-        }
-
-        status = basl_program_intern_function_type(
-            (basl_program_state_t *)program,
-            &function_type,
-            out_type
-        );
-        basl_function_type_decl_free((basl_program_state_t *)program, &function_type);
-        return status;
-    }
-
-    if (token == NULL || token->kind != BASL_TOKEN_IDENTIFIER) {
-        return basl_compile_report(
-            program,
-            token == NULL ? basl_program_eof_span(program) : token->span,
-            unsupported_message
-        );
-    }
-
-    name_text = basl_program_token_text(program, token, &name_length);
-    next_token = basl_program_token_at(program, *cursor + 1U);
-    if (
-        next_token != NULL &&
-        next_token->kind == BASL_TOKEN_LESS &&
-        basl_program_names_equal(name_text, name_length, "array", 5U)
-    ) {
-        element_type = basl_binding_type_invalid();
-        *cursor += 2U;
-        if (
-            basl_program_token_at(program, *cursor) != NULL &&
-            basl_program_token_at(program, *cursor)->kind == BASL_TOKEN_GREATER
-        ) {
-            return basl_compile_report(program, token->span, "array types require an element type");
-        }
-        if (
-            basl_program_token_at(program, *cursor) != NULL &&
-            basl_program_token_at(program, *cursor)->kind == BASL_TOKEN_SHIFT_RIGHT
-        ) {
-            return basl_compile_report(program, token->span, "array types require an element type");
-        }
-        status = basl_program_parse_type_reference(
-            program,
-            cursor,
-            unsupported_message,
-            &element_type
-        );
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-        if (!basl_program_consume_type_close(program, cursor)) {
-            next_token = basl_program_token_at(program, *cursor);
-            return basl_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected '>' after array element type"
-            );
-        }
-        return basl_program_intern_array_type((basl_program_state_t *)program, element_type, out_type);
-    }
-    if (
-        next_token != NULL &&
-        next_token->kind == BASL_TOKEN_LESS &&
-        basl_program_names_equal(name_text, name_length, "map", 3U)
-    ) {
-        *cursor += 2U;
-        key_type = basl_binding_type_invalid();
-        value_type = basl_binding_type_invalid();
-        status = basl_program_parse_type_reference(
-            program,
-            cursor,
-            unsupported_message,
-            &key_type
-        );
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-        if (!basl_parser_type_supports_map_key(key_type)) {
-            return basl_compile_report(
-                program,
-                token->span,
-                "map keys must use an integer, bool, string, or enum type"
-            );
-        }
-        next_token = basl_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != BASL_TOKEN_COMMA) {
-            return basl_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected ',' after map key type"
-            );
-        }
-        *cursor += 1U;
-        status = basl_program_parse_type_reference(
-            program,
-            cursor,
-            unsupported_message,
-            &value_type
-        );
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-        if (!basl_program_consume_type_close(program, cursor)) {
-            next_token = basl_program_token_at(program, *cursor);
-            return basl_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected '>' after map value type"
-            );
-        }
-        return basl_program_intern_map_type((basl_program_state_t *)program, key_type, value_type, out_type);
-    }
-
-    if (next_token == NULL || next_token->kind != BASL_TOKEN_DOT) {
-        status = basl_program_parse_type_name(program, token, unsupported_message, out_type);
-        if (status != BASL_STATUS_OK) {
-            return status;
-        }
-        *cursor += 1U;
-        return BASL_STATUS_OK;
-    }
-
-    member_token = basl_program_token_at(program, *cursor + 2U);
-    if (member_token == NULL || member_token->kind != BASL_TOKEN_IDENTIFIER) {
-        return basl_compile_report(
-            program,
-            next_token->span,
-            unsupported_message
-        );
-    }
-
-    if (!basl_program_resolve_import_alias(program, name_text, name_length, &source_id)) {
-        return basl_compile_report(program, token->span, unsupported_message);
-    }
-
-    member_text = basl_program_token_text(program, member_token, &member_length);
-    if (basl_program_find_class_in_source(
-            program,
-            source_id,
-            member_text,
-            member_length,
-            &object_index,
-            NULL
-        )) {
-        if (!basl_program_is_class_public(&program->classes[object_index])) {
-            return basl_compile_report(program, member_token->span, "module member is not public");
-        }
-        *out_type = basl_binding_type_class(object_index);
-        *cursor += 3U;
-        return BASL_STATUS_OK;
-    }
-    if (basl_program_find_interface_in_source(
-            program,
-            source_id,
-            member_text,
-            member_length,
-            &object_index,
-            NULL
-        )) {
-        if (!basl_program_is_interface_public(&program->interfaces[object_index])) {
-            return basl_compile_report(program, member_token->span, "module member is not public");
-        }
-        *out_type = basl_binding_type_interface(object_index);
-        *cursor += 3U;
-        return BASL_STATUS_OK;
-    }
-    if (basl_program_find_enum_in_source(
-            program,
-            source_id,
-            member_text,
-            member_length,
-            &object_index,
-            NULL
-        )) {
-        if (!basl_program_is_enum_public(&program->enums[object_index])) {
-            return basl_compile_report(program, member_token->span, "module member is not public");
-        }
-        *out_type = basl_binding_type_enum(object_index);
-        *cursor += 3U;
-        return BASL_STATUS_OK;
-    }
-
-    return basl_compile_report(program, member_token->span, unsupported_message);
-}
-
-static basl_status_t basl_program_parse_primitive_type_reference(
-    const basl_program_state_t *program,
-    size_t *cursor,
-    const char *unsupported_message,
-    basl_parser_type_t *out_type
-) {
-    basl_status_t status;
-    const basl_token_t *type_token;
-
-    type_token = basl_program_token_at(program, *cursor);
-    status = basl_program_parse_type_reference(program, cursor, unsupported_message, out_type);
-    if (status != BASL_STATUS_OK) {
-        return status;
-    }
-    if (
-        out_type->kind == BASL_TYPE_I32 ||
-        out_type->kind == BASL_TYPE_I64 ||
-        out_type->kind == BASL_TYPE_U8 ||
-        out_type->kind == BASL_TYPE_U32 ||
-        out_type->kind == BASL_TYPE_U64 ||
-        out_type->kind == BASL_TYPE_F64 ||
-        out_type->kind == BASL_TYPE_BOOL ||
-        out_type->kind == BASL_TYPE_STRING
-    ) {
-        return BASL_STATUS_OK;
-    }
-
-    return basl_compile_report(
-        program,
-        type_token == NULL ? basl_program_eof_span(program) : type_token->span,
-        unsupported_message
-    );
-}
-
-static basl_status_t basl_program_require_non_void_type(
+basl_status_t basl_program_require_non_void_type(
     const basl_program_state_t *program,
     basl_source_span_t span,
     basl_parser_type_t type,
@@ -2929,37 +2427,37 @@ static basl_status_t basl_program_parse_interface_method_return_types(
     return BASL_STATUS_OK;
 }
 
-static int basl_program_is_class_public(
+int basl_program_is_class_public(
     const basl_class_decl_t *decl
 ) {
     return decl != NULL && decl->is_public;
 }
 
-static int basl_program_is_interface_public(
+int basl_program_is_interface_public(
     const basl_interface_decl_t *decl
 ) {
     return decl != NULL && decl->is_public;
 }
 
-static int basl_program_is_enum_public(
+int basl_program_is_enum_public(
     const basl_enum_decl_t *decl
 ) {
     return decl != NULL && decl->is_public;
 }
 
-static int basl_program_is_function_public(
+int basl_program_is_function_public(
     const basl_function_decl_t *decl
 ) {
     return decl != NULL && decl->is_public;
 }
 
-static int basl_program_is_constant_public(
+int basl_program_is_constant_public(
     const basl_global_constant_t *decl
 ) {
     return decl != NULL && decl->is_public;
 }
 
-static int basl_program_is_global_public(
+int basl_program_is_global_public(
     const basl_global_variable_t *decl
 ) {
     return decl != NULL && decl->is_public;
@@ -3315,127 +2813,6 @@ static int basl_program_parse_optional_pub(
     return 0;
 }
 
-static int basl_program_skip_type_reference_syntax(
-    const basl_program_state_t *program,
-    size_t *cursor
-) {
-    const basl_token_t *token;
-
-    token = basl_program_token_at(program, *cursor);
-    if (token == NULL) {
-        return 0;
-    }
-
-    if (token->kind == BASL_TOKEN_FN) {
-        *cursor += 1U;
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL) {
-            return 0;
-        }
-        if (token->kind != BASL_TOKEN_LPAREN) {
-            return 1;
-        }
-
-        *cursor += 1U;
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL) {
-            return 0;
-        }
-        if (token->kind != BASL_TOKEN_RPAREN) {
-            while (1) {
-                if (!basl_program_skip_type_reference_syntax(program, cursor)) {
-                    return 0;
-                }
-                token = basl_program_token_at(program, *cursor);
-                if (token == NULL || token->kind != BASL_TOKEN_COMMA) {
-                    break;
-                }
-                *cursor += 1U;
-            }
-        }
-
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != BASL_TOKEN_RPAREN) {
-            return 0;
-        }
-        *cursor += 1U;
-
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != BASL_TOKEN_ARROW) {
-            return 1;
-        }
-        *cursor += 1U;
-
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL) {
-            return 0;
-        }
-        if (token->kind == BASL_TOKEN_LPAREN) {
-            *cursor += 1U;
-            token = basl_program_token_at(program, *cursor);
-            if (token == NULL) {
-                return 0;
-            }
-            if (token->kind != BASL_TOKEN_RPAREN) {
-                while (1) {
-                    if (!basl_program_skip_type_reference_syntax(program, cursor)) {
-                        return 0;
-                    }
-                    token = basl_program_token_at(program, *cursor);
-                    if (token == NULL || token->kind != BASL_TOKEN_COMMA) {
-                        break;
-                    }
-                    *cursor += 1U;
-                }
-            }
-
-            token = basl_program_token_at(program, *cursor);
-            if (token == NULL || token->kind != BASL_TOKEN_RPAREN) {
-                return 0;
-            }
-            *cursor += 1U;
-            return 1;
-        }
-
-        return basl_program_skip_type_reference_syntax(program, cursor);
-    }
-
-    if (token->kind != BASL_TOKEN_IDENTIFIER) {
-        return 0;
-    }
-    *cursor += 1U;
-
-    token = basl_program_token_at(program, *cursor);
-    if (token != NULL && token->kind == BASL_TOKEN_DOT) {
-        *cursor += 1U;
-        token = basl_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != BASL_TOKEN_IDENTIFIER) {
-            return 0;
-        }
-        *cursor += 1U;
-    }
-
-    token = basl_program_token_at(program, *cursor);
-    if (token != NULL && token->kind == BASL_TOKEN_LESS) {
-        *cursor += 1U;
-        if (!basl_program_skip_type_reference_syntax(program, cursor)) {
-            return 0;
-        }
-        token = basl_program_token_at(program, *cursor);
-        if (token != NULL && token->kind == BASL_TOKEN_COMMA) {
-            *cursor += 1U;
-            if (!basl_program_skip_type_reference_syntax(program, cursor)) {
-                return 0;
-            }
-            token = basl_program_token_at(program, *cursor);
-        }
-        if (!basl_program_consume_type_close(program, cursor)) {
-            return 0;
-        }
-    }
-
-    return 1;
-}
 
 static int basl_program_is_global_variable_declaration_start(
     const basl_program_state_t *program,
