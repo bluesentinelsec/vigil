@@ -59,6 +59,7 @@ TEST(BaslDebuggerTest, CreateAndDestroy) {
     dbgf_init(&f);
     dbgf_create_debugger(&f);
     EXPECT_NE(f.debugger, NULL);
+    dbgf_free(&f);
 }
 
 TEST(BaslDebuggerTest, AttachDetachDoesNotBreakExecution) {

@@ -51,11 +51,14 @@ static void parse_fail(int *basl_test_failed_, const char *input) {
 
 /* Emit helper. */
 static char *emit_json(int *basl_test_failed_, const basl_json_value_t *v) {
+    static char result[4096];
     char *str = NULL;
     size_t len = 0;
     basl_error_t error = {0};
     EXPECT_EQ(basl_json_emit(v, &str, &len, &error), BASL_STATUS_OK);
-    char *result = (char *)malloc(len + 1); memcpy(result, str, len); result[len] = 0;
+    if (len >= sizeof(result)) len = sizeof(result) - 1;
+    memcpy(result, str, len);
+    result[len] = '\0';
     free(str);
     return result;
 }

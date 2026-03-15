@@ -89,7 +89,8 @@ static char *RunAndCaptureStdout(int *basl_test_failed_, const char *source_text
     long sz = ftell(tmp);
     rewind(tmp);
     char *buf = (char *)calloc(1, (size_t)sz + 1);
-    fread(buf, 1, (size_t)sz, tmp);
+    size_t n = fread(buf, 1, (size_t)sz, tmp);
+    buf[n] = '\0';
     fclose(tmp);
     EXPECT_EQ(rc, 0);
     return buf;
@@ -107,7 +108,8 @@ static char *RunAndCaptureStderr(int *basl_test_failed_, const char *source_text
     long sz = ftell(tmp);
     rewind(tmp);
     char *buf = (char *)calloc(1, (size_t)sz + 1);
-    fread(buf, 1, (size_t)sz, tmp);
+    size_t n2 = fread(buf, 1, (size_t)sz, tmp);
+    buf[n2] = '\0';
     fclose(tmp);
     EXPECT_EQ(rc, 0);
     return buf;
@@ -124,6 +126,7 @@ TEST(BaslStdlibFmtTest, PrintlnOutputsStringWithNewline) {
         "        }\n"
         "    ");
     EXPECT_STREQ(out, "hello\n");
+    free(out);
 }
 
 TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline) {
@@ -136,6 +139,7 @@ TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline) {
         "        }\n"
         "    ");
     EXPECT_STREQ(out, "abcd");
+    free(out);
 }
 
 TEST(BaslStdlibFmtTest, EprintlnOutputsToStderr) {
@@ -147,6 +151,7 @@ TEST(BaslStdlibFmtTest, EprintlnOutputsToStderr) {
         "        }\n"
         "    ");
     EXPECT_STREQ(err, "oops\n");
+    free(err);
 }
 
 TEST(BaslStdlibFmtTest, PrintlnEmptyString) {
@@ -158,6 +163,7 @@ TEST(BaslStdlibFmtTest, PrintlnEmptyString) {
         "        }\n"
         "    ");
     EXPECT_STREQ(out, "\n");
+    free(out);
 }
 
 TEST(BaslStdlibFmtTest, PrintlnWithFString) {
@@ -170,6 +176,7 @@ TEST(BaslStdlibFmtTest, PrintlnWithFString) {
         "        }\n"
         "    ");
     EXPECT_STREQ(out, "val=42\n");
+    free(out);
 }
 
 TEST(BaslStdlibFmtTest, PrintlnWithVariable) {
@@ -182,6 +189,7 @@ TEST(BaslStdlibFmtTest, PrintlnWithVariable) {
         "        }\n"
         "    ");
     EXPECT_STREQ(out, "world\n");
+    free(out);
 }
 
 TEST(BaslStdlibFmtTest, PrintlnInLoop) {
@@ -195,6 +203,7 @@ TEST(BaslStdlibFmtTest, PrintlnInLoop) {
         "        }\n"
         "    ");
     EXPECT_STREQ(out, "0\n1\n2\n");
+    free(out);
 }
 
 /* ── math: constants ─────────────────────────────────────────────── */
