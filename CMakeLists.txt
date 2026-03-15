@@ -116,13 +116,15 @@ if(MSVC)
     endforeach()
 endif()
 
-add_executable(basl_cli
-    src/cli/main.c
-)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_executable(basl_cli
+        src/cli/main.c
+    )
 
-set_target_properties(basl_cli PROPERTIES OUTPUT_NAME basl)
-target_link_libraries(basl_cli PRIVATE basl)
-target_compile_features(basl_cli PRIVATE c_std_11)
+    set_target_properties(basl_cli PROPERTIES OUTPUT_NAME basl)
+    target_link_libraries(basl_cli PRIVATE basl)
+    target_compile_features(basl_cli PRIVATE c_std_11)
+endif()
 
 if(BASL_BUILD_TESTS)
     include(CTest)
