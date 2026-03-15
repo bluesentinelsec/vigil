@@ -110,6 +110,24 @@ BASL_API basl_status_t basl_platform_make_executable(
     basl_error_t *error
 );
 
+/*
+ * List files in a directory (non-recursive).
+ * Callback is called for each entry with its name and whether it's a directory.
+ * Return BASL_STATUS_OK from callback to continue, anything else to stop.
+ */
+typedef basl_status_t (*basl_platform_dir_callback_t)(
+    const char *name,
+    int is_dir,
+    void *user_data
+);
+
+BASL_API basl_status_t basl_platform_list_dir(
+    const char *path,
+    basl_platform_dir_callback_t callback,
+    void *user_data,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif
