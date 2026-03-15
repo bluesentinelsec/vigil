@@ -29,6 +29,7 @@ add_library(basl_core OBJECT
     src/binding.c
     src/checker.c
     src/chunk.c
+    src/cli_lib.c
     src/compiler.c
     src/dap.c
     src/debug_info.c
@@ -144,6 +145,7 @@ if(BASL_BUILD_TESTS)
         tests/binding_test.cpp
         tests/checker_test.cpp
         tests/chunk_test.cpp
+        tests/cli_lib_test.cpp
         tests/compiler_test.cpp
         tests/dap_test.cpp
         tests/debug_info_test.cpp
