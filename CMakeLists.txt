@@ -81,6 +81,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/args.c
     src/stdlib/fmt.c
     src/stdlib/math.c
+    src/stdlib/test.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
@@ -258,6 +259,14 @@ if(BASL_BUILD_TESTS)
         )
         set_tests_properties(
             BaslEmbedTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
+        add_test(
+            NAME BaslTestTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_test.py
+        )
+        set_tests_properties(
+            BaslTestTest
             PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
         )
     endif()

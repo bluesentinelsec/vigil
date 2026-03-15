@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "basl/basl.h"
 #include "basl/cli_lib.h"
@@ -949,6 +950,428 @@ static int cmd_fmt(const char *file_path, int check_only) {
     return fmt_one_file(file_path, check_only);
 }
 
+/* ── shared directory listing helpers ─────────────────────────────── */
+
+typedef struct { char name[256]; int is_dir; } dir_entry_t;
+typedef struct { dir_entry_t *items; size_t count; size_t cap; } dir_list_t;
+
+static basl_status_t dir_list_cb(const char *name, int is_dir, void *ud) {
+    dir_list_t *dl = ud;
+    if (dl->count == dl->cap) {
+        dl->cap = dl->cap ? dl->cap * 2 : 32;
+        dl->items = realloc(dl->items, dl->cap * sizeof(dir_entry_t));
+    }
+    snprintf(dl->items[dl->count].name, sizeof(dl->items[0].name), "%s", name);
+    dl->items[dl->count].is_dir = is_dir;
+    dl->count++;
+    return BASL_STATUS_OK;
+}
+
+/* ── test command ────────────────────────────────────────────────── */
+
+/* Simple string list for collecting test file paths and function names. */
+typedef struct { char **items; size_t count; size_t cap; } str_list_t;
+
+static void sl_add(str_list_t *sl, const char *s) {
+    if (sl->count == sl->cap) {
+        sl->cap = sl->cap ? sl->cap * 2 : 16;
+        sl->items = realloc(sl->items, sl->cap * sizeof(char *));
+    }
+    sl->items[sl->count++] = strdup(s);
+}
+
+static void sl_free(str_list_t *sl) {
+    for (size_t i = 0; i < sl->count; i++) free(sl->items[i]);
+    free(sl->items);
+    memset(sl, 0, sizeof(*sl));
+}
+
+/* Walk a directory recursively collecting *_test.basl files. */
+static void collect_test_files(str_list_t *out, const char *dir) {
+    basl_error_t err = {0};
+    dir_list_t dl = {NULL, 0, 0};
+    if (basl_platform_list_dir(dir, dir_list_cb, &dl, &err) != BASL_STATUS_OK) {
+        free(dl.items); return;
+    }
+    for (size_t i = 0; i < dl.count; i++) {
+        char full[4096];
+        basl_platform_path_join(dir, dl.items[i].name, full, sizeof(full), &err);
+        if (dl.items[i].is_dir) {
+            collect_test_files(out, full);
+        } else {
+            size_t len = strlen(dl.items[i].name);
+            if (len > 10 && strcmp(dl.items[i].name + len - 10, "_test.basl") == 0)
+                sl_add(out, full);
+        }
+    }
+    free(dl.items);
+}
+
+/* Scan a source file for top-level `fn test_*(...` function names. */
+static void scan_test_functions(
+    basl_runtime_t *runtime,
+    basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    str_list_t *out
+) {
+    basl_token_list_t tokens;
+    basl_diagnostic_list_t diags;
+    const basl_source_file_t *source;
+    size_t cursor = 0;
+    size_t brace_depth = 0;
+
+    source = basl_source_registry_get(registry, source_id);
+    if (!source) return;
+
+    basl_token_list_init(&tokens, runtime);
+    basl_diagnostic_list_init(&diags, runtime);
+    if (basl_lex_source(registry, source_id, &tokens, &diags, NULL) != BASL_STATUS_OK) {
+        basl_token_list_free(&tokens);
+        basl_diagnostic_list_free(&diags);
+        return;
+    }
+
+    while (1) {
+        const basl_token_t *tok = basl_token_list_get(&tokens, cursor);
+        if (!tok || tok->kind == BASL_TOKEN_EOF) break;
+        if (tok->kind == BASL_TOKEN_LBRACE) { brace_depth++; cursor++; continue; }
+        if (tok->kind == BASL_TOKEN_RBRACE) {
+            if (brace_depth) brace_depth--;
+            cursor++;
+            continue;
+        }
+        if (brace_depth == 0 && tok->kind == BASL_TOKEN_FN) {
+            const basl_token_t *name_tok = basl_token_list_get(&tokens, cursor + 1);
+            if (name_tok && name_tok->kind == BASL_TOKEN_IDENTIFIER) {
+                size_t len;
+                const char *text = source_token_text(source, name_tok, &len);
+                if (text && len > 5 && memcmp(text, "test_", 5) == 0) {
+                    char buf[256];
+                    if (len < sizeof(buf)) {
+                        memcpy(buf, text, len);
+                        buf[len] = '\0';
+                        sl_add(out, buf);
+                    }
+                }
+            }
+        }
+        cursor++;
+    }
+
+    basl_token_list_free(&tokens);
+    basl_diagnostic_list_free(&diags);
+}
+
+/* Check if filter matches a test name (|-separated substrings). */
+static int test_matches_filter(const char *name, const char *filter) {
+    const char *p = filter;
+    while (*p) {
+        const char *end = strchr(p, '|');
+        size_t len = end ? (size_t)(end - p) : strlen(p);
+        /* Trim leading/trailing spaces. */
+        while (len > 0 && p[0] == ' ') { p++; len--; }
+        while (len > 0 && p[len - 1] == ' ') len--;
+        if (len > 0 && len < 256) {
+            char part[256];
+            memcpy(part, p, len);
+            part[len] = '\0';
+            if (strstr(name, part)) return 1;
+        }
+        if (!end) break;
+        p = end + 1;
+    }
+    return 0;
+}
+
+/* Run a single test function by creating a synthetic main() wrapper. */
+static int run_one_test(
+    const char *test_file_path,
+    const char *original_source,
+    size_t original_length,
+    const char *test_name,
+    char *err_msg,
+    size_t err_msg_size
+) {
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_value_t result;
+    basl_source_id_t source_id = 0;
+    basl_object_t *function = NULL;
+    basl_status_t status;
+    int exit_code = 0;
+
+    /* Build synthetic source: original + main() that calls the test function. */
+    char wrapper[512];
+    snprintf(wrapper, sizeof(wrapper),
+        "\nfn main() -> i32 {\n"
+        "    test.T t = test.T();\n"
+        "    %s(t);\n"
+        "    return 0;\n"
+        "}\n", test_name);
+
+    size_t wrapper_len = strlen(wrapper);
+    size_t total_len = original_length + wrapper_len;
+    char *combined = malloc(total_len + 1);
+    if (!combined) {
+        snprintf(err_msg, err_msg_size, "out of memory");
+        return 1;
+    }
+    memcpy(combined, original_source, original_length);
+    memcpy(combined + original_length, wrapper, wrapper_len);
+    combined[total_len] = '\0';
+
+    if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+        snprintf(err_msg, err_msg_size, "runtime init failed");
+        free(combined);
+        return 1;
+    }
+    if (basl_vm_open(&vm, runtime, NULL, &error) != BASL_STATUS_OK) {
+        free(combined);
+        basl_runtime_close(&runtime);
+        snprintf(err_msg, err_msg_size, "vm init failed");
+        return 1;
+    }
+
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+    basl_value_init_nil(&result);
+
+    /* Register the combined source under the test file's path so imports resolve. */
+    if (basl_source_registry_register(&registry, test_file_path, strlen(test_file_path),
+            combined, total_len, &source_id, &error) != BASL_STATUS_OK) {
+        snprintf(err_msg, err_msg_size, "source registration failed");
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Recursively register imports. */
+    {
+        const basl_source_file_t *source = basl_source_registry_get(&registry, source_id);
+        basl_token_list_t tokens;
+        size_t cursor = 0, brace_depth = 0;
+
+        basl_token_list_init(&tokens, runtime);
+        basl_diagnostic_list_init(&diagnostics, runtime);
+        if (basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error) == BASL_STATUS_OK) {
+            while (1) {
+                const basl_token_t *tok = basl_token_list_get(&tokens, cursor);
+                if (!tok || tok->kind == BASL_TOKEN_EOF) break;
+                if (tok->kind == BASL_TOKEN_LBRACE) { brace_depth++; cursor++; continue; }
+                if (tok->kind == BASL_TOKEN_RBRACE) {
+                    if (brace_depth) brace_depth--;
+                    cursor++;
+                    continue;
+                }
+                if (brace_depth == 0 && tok->kind == BASL_TOKEN_IMPORT) {
+                    const basl_token_t *path_tok = basl_token_list_get(&tokens, cursor + 1);
+                    if (path_tok && (path_tok->kind == BASL_TOKEN_STRING_LITERAL ||
+                                     path_tok->kind == BASL_TOKEN_RAW_STRING_LITERAL)) {
+                        size_t import_len;
+                        const char *import_text = source_token_text(source, path_tok, &import_len);
+                        if (import_text && import_len >= 2 &&
+                            !basl_stdlib_is_native_module(import_text + 1, import_len - 2)) {
+                            basl_string_t import_path;
+                            basl_string_init(&import_path, runtime);
+                            if (resolve_import_path(runtime, basl_string_c_str(&source->path),
+                                    import_text + 1, import_len - 2, &import_path, &error) == BASL_STATUS_OK) {
+                                register_source_tree(&registry, basl_string_c_str(&import_path), NULL, &error);
+                            }
+                            basl_string_free(&import_path);
+                        }
+                    }
+                }
+                cursor++;
+            }
+        }
+        basl_token_list_free(&tokens);
+    }
+
+    {
+        basl_native_registry_t natives;
+        basl_native_registry_init(&natives);
+        basl_stdlib_register_all(&natives, &error);
+        status = basl_compile_source_with_natives(&registry, source_id, &natives,
+                                                   &function, &diagnostics, &error);
+        basl_native_registry_free(&natives);
+    }
+    if (status != BASL_STATUS_OK) {
+        if (basl_diagnostic_list_count(&diagnostics) != 0U) {
+            /* Capture first diagnostic as error message. */
+            snprintf(err_msg, err_msg_size, "compile error");
+        } else {
+            snprintf(err_msg, err_msg_size, "%s", basl_error_message(&error));
+        }
+        basl_object_release(&function);
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    status = basl_vm_execute_function(vm, function, &result, &error);
+    basl_object_release(&function);
+    if (status != BASL_STATUS_OK) {
+        snprintf(err_msg, err_msg_size, "%s", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+cleanup:
+    basl_value_release(&result);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+    free(combined);
+    return exit_code;
+}
+
+static int cmd_test(int argc, char **argv) {
+    int verbose = 0;
+    const char *filter = NULL;
+    str_list_t targets = {0};
+    str_list_t test_files = {0};
+    int total_pass = 0, total_fail = 0;
+    int exit_code = 0;
+
+    /* Parse args. */
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+            verbose = 1;
+        } else if (strcmp(argv[i], "-run") == 0 || strcmp(argv[i], "--run") == 0) {
+            if (++i >= argc) {
+                fprintf(stderr, "error: -run requires a pattern\n");
+                return 2;
+            }
+            filter = argv[i];
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            printf("Usage: basl test [--run pattern] [-v] [path...]\n\n"
+                   "Recursively finds and runs BASL test files (*_test.basl).\n"
+                   "In a project root, defaults to the ./test directory.\n\n"
+                   "Flags:\n"
+                   "  -v, --verbose    Print passing tests\n"
+                   "  -run, --run      Filter test names by substring\n");
+            return 0;
+        } else {
+            sl_add(&targets, argv[i]);
+        }
+    }
+
+    /* Default targets: if cwd has basl.toml and ./test exists, use ./test; else "." */
+    if (targets.count == 0) {
+        int is_dir = 0;
+        if (basl_platform_is_directory("test", &is_dir) == BASL_STATUS_OK && is_dir) {
+            FILE *f = fopen("basl.toml", "r");
+            if (f) {
+                fclose(f);
+                sl_add(&targets, "test");
+            } else {
+                sl_add(&targets, ".");
+            }
+        } else {
+            sl_add(&targets, ".");
+        }
+    }
+
+    /* Collect _test.basl files. */
+    for (size_t i = 0; i < targets.count; i++) {
+        int is_dir = 0;
+        basl_platform_is_directory(targets.items[i], &is_dir);
+        if (is_dir) {
+            collect_test_files(&test_files, targets.items[i]);
+        } else {
+            size_t len = strlen(targets.items[i]);
+            if (len > 10 && strcmp(targets.items[i] + len - 10, "_test.basl") == 0)
+                sl_add(&test_files, targets.items[i]);
+        }
+    }
+
+    if (test_files.count == 0) {
+        printf("no test files found\n");
+        sl_free(&targets);
+        sl_free(&test_files);
+        return 0;
+    }
+
+    /* Run tests. */
+    for (size_t fi = 0; fi < test_files.count; fi++) {
+        const char *tf = test_files.items[fi];
+        char *source = NULL;
+        size_t source_len = 0;
+        basl_error_t error = {0};
+
+        if (basl_platform_read_file(NULL, tf, &source, &source_len, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s: %s\n", tf, basl_error_message(&error));
+            exit_code = 1;
+            continue;
+        }
+
+        /* Discover test function names. */
+        str_list_t fn_names = {0};
+        {
+            basl_runtime_t *rt = NULL;
+            basl_source_registry_t reg;
+            basl_source_id_t sid = 0;
+            if (basl_runtime_open(&rt, NULL, NULL) == BASL_STATUS_OK) {
+                basl_source_registry_init(&reg, rt);
+                if (basl_source_registry_register(&reg, tf, strlen(tf),
+                        source, source_len, &sid, NULL) == BASL_STATUS_OK) {
+                    scan_test_functions(rt, &reg, sid, &fn_names);
+                }
+                basl_source_registry_free(&reg);
+                basl_runtime_close(&rt);
+            }
+        }
+
+        int file_failed = 0;
+        clock_t file_start = clock();
+
+        for (size_t ti = 0; ti < fn_names.count; ti++) {
+            const char *name = fn_names.items[ti];
+            if (filter && !test_matches_filter(name, filter)) continue;
+
+            clock_t t_start = clock();
+
+            char err_msg[512] = {0};
+            int result = run_one_test(tf, source, source_len, name, err_msg, sizeof(err_msg));
+
+            double elapsed = (double)(clock() - t_start) / CLOCKS_PER_SEC;
+
+            if (result == 0) {
+                total_pass++;
+                if (verbose)
+                    printf("=== RUN   %s\n--- PASS: %s (%.3fs)\n", name, name, elapsed);
+            } else {
+                total_fail++;
+                file_failed = 1;
+                printf("--- FAIL: %s (%s)\n    %s\n", name, tf, err_msg);
+            }
+        }
+
+        double file_elapsed = (double)(clock() - file_start) / CLOCKS_PER_SEC;
+
+        if (file_failed) {
+            printf("FAIL\t%s\t%.3fs\n", tf, file_elapsed);
+            exit_code = 1;
+        } else if (fn_names.count > 0) {
+            printf("ok  \t%s\t%.3fs\n", tf, file_elapsed);
+        }
+
+        sl_free(&fn_names);
+        free(source);
+    }
+
+    if (total_fail > 0)
+        printf("\nFAIL: %d passed, %d failed\n", total_pass, total_fail);
+    else if (total_pass > 0)
+        printf("\nPASS: %d passed\n", total_pass);
+
+    sl_free(&targets);
+    sl_free(&test_files);
+    return exit_code;
+}
+
 /* ── embed command ───────────────────────────────────────────────── */
 
 typedef struct { char **paths; char **rels; size_t count; size_t cap; } file_list_t;
@@ -967,21 +1390,6 @@ static void fl_add(file_list_t *fl, const char *path, const char *rel) {
 static void fl_free(file_list_t *fl) {
     for (size_t i = 0; i < fl->count; i++) { free(fl->paths[i]); free(fl->rels[i]); }
     free(fl->paths); free(fl->rels);
-}
-
-typedef struct { char name[256]; int is_dir; } dir_entry_t;
-typedef struct { dir_entry_t *items; size_t count; size_t cap; } dir_list_t;
-
-static basl_status_t dir_list_cb(const char *name, int is_dir, void *ud) {
-    dir_list_t *dl = ud;
-    if (dl->count == dl->cap) {
-        dl->cap = dl->cap ? dl->cap * 2 : 32;
-        dl->items = realloc(dl->items, dl->cap * sizeof(dir_entry_t));
-    }
-    snprintf(dl->items[dl->count].name, sizeof(dl->items[0].name), "%s", name);
-    dl->items[dl->count].is_dir = is_dir;
-    dl->count++;
-    return BASL_STATUS_OK;
 }
 
 static void collect_dir(file_list_t *fl, const char *dir, const char *rel_prefix) {
@@ -1241,6 +1649,11 @@ int main(int argc, char **argv) {
      * since embed needs rest-args (multiple file targets). */
     if (argc >= 3 && strcmp(argv[1], "embed") == 0) {
         return cmd_embed(argc, argv);
+    }
+
+    /* Handle "basl test [flags...] [path...]" before CLI parser. */
+    if (argc >= 2 && strcmp(argv[1], "test") == 0) {
+        return cmd_test(argc, argv);
     }
 
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
