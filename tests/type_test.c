@@ -1,8 +1,7 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-extern "C" {
+
 #include "basl/basl.h"
-}
 
 TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_INVALID), "invalid");

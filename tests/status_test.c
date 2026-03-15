@@ -1,21 +1,17 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstring>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
+
+static void ExpectClearedLocation(int *basl_test_failed_, const basl_source_location_t *location) {
+    EXPECT_EQ(location->source_id, 0U);
+    EXPECT_EQ(location->offset, 0U);
+    EXPECT_EQ(location->line, 0U);
+    EXPECT_EQ(location->column, 0U);
 }
 
-namespace {
-
-void ExpectClearedLocation(const basl_source_location_t &location) {
-    EXPECT_EQ(location.source_id, 0U);
-    EXPECT_EQ(location.offset, 0U);
-    EXPECT_EQ(location.line, 0U);
-    EXPECT_EQ(location.column, 0U);
-}
-
-}  // namespace
 
 TEST(BaslStatusTest, StatusNamesAreStable) {
     EXPECT_STREQ(basl_status_name(BASL_STATUS_OK), "ok");
@@ -27,7 +23,7 @@ TEST(BaslStatusTest, StatusNamesAreStable) {
 }
 
 TEST(BaslStatusTest, ErrorClearResetsSourceLocation) {
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
     error.type = BASL_STATUS_INTERNAL;
     error.value = "bad";
@@ -40,13 +36,13 @@ TEST(BaslStatusTest, ErrorClearResetsSourceLocation) {
     basl_error_clear(&error);
 
     EXPECT_EQ(error.type, BASL_STATUS_OK);
-    EXPECT_EQ(error.value, nullptr);
+    EXPECT_EQ(error.value, NULL);
     EXPECT_EQ(error.length, 0U);
-    ExpectClearedLocation(error.location);
+    ExpectClearedLocation(basl_test_failed_, &error.location);
 }
 
 TEST(BaslStatusTest, SourceLocationClearResetsFields) {
-    basl_source_location_t location = {};
+    basl_source_location_t location = {0};
 
     location.source_id = 3U;
     location.offset = 21U;
@@ -55,23 +51,23 @@ TEST(BaslStatusTest, SourceLocationClearResetsFields) {
 
     basl_source_location_clear(&location);
 
-    ExpectClearedLocation(location);
+    ExpectClearedLocation(basl_test_failed_, &location);
 }
 
 TEST(BaslStatusTest, ErrorLengthMatchesMessage) {
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
     error.type = BASL_STATUS_INVALID_ARGUMENT;
     error.value = "example";
-    error.length = std::strlen(error.value);
+    error.length = strlen(error.value);
 
     EXPECT_EQ(error.length, 7U);
 }
 
 TEST(BaslStatusTest, ErrorMessageFallsBackToKnownString) {
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    EXPECT_STREQ(basl_error_message(nullptr), "unknown error");
+    EXPECT_STREQ(basl_error_message(NULL), "unknown error");
     EXPECT_STREQ(basl_error_message(&error), "unknown error");
 
     error.value = "specific";

@@ -1,15 +1,12 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdio>
-#include <cstring>
+#include <stdio.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
 
-namespace {
-
-basl_source_id_t RegisterSource(
+static basl_source_id_t RegisterSource(int *basl_test_failed_,
     basl_source_registry_t *registry,
     const char *path,
     const char *text,
@@ -24,30 +21,29 @@ basl_source_id_t RegisterSource(
     return source_id;
 }
 
-const basl_token_t *TokenAt(const basl_token_list_t *tokens, size_t index) {
+static const basl_token_t *TokenAt(int *basl_test_failed_, const basl_token_list_t *tokens, size_t index) {
     const basl_token_t *token;
 
     token = basl_token_list_get(tokens, index);
-    EXPECT_NE(token, nullptr);
+    EXPECT_NE(token, NULL);
     return token;
 }
 
-}  // namespace
 
 TEST(BaslLexerTest, TokenizesSimpleFunction) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
     source_id = RegisterSource(
-        &registry,
+        basl_test_failed_, &registry,
         "simple.basl",
         "fn main() -> i32 { return 0; }",
         &error
@@ -59,18 +55,18 @@ TEST(BaslLexerTest, TokenizesSimpleFunction) {
     );
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
 
-    EXPECT_EQ(TokenAt(&tokens, 0)->kind, BASL_TOKEN_FN);
-    EXPECT_EQ(TokenAt(&tokens, 1)->kind, BASL_TOKEN_IDENTIFIER);
-    EXPECT_EQ(TokenAt(&tokens, 2)->kind, BASL_TOKEN_LPAREN);
-    EXPECT_EQ(TokenAt(&tokens, 3)->kind, BASL_TOKEN_RPAREN);
-    EXPECT_EQ(TokenAt(&tokens, 4)->kind, BASL_TOKEN_ARROW);
-    EXPECT_EQ(TokenAt(&tokens, 5)->kind, BASL_TOKEN_IDENTIFIER);
-    EXPECT_EQ(TokenAt(&tokens, 6)->kind, BASL_TOKEN_LBRACE);
-    EXPECT_EQ(TokenAt(&tokens, 7)->kind, BASL_TOKEN_RETURN);
-    EXPECT_EQ(TokenAt(&tokens, 8)->kind, BASL_TOKEN_INT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 9)->kind, BASL_TOKEN_SEMICOLON);
-    EXPECT_EQ(TokenAt(&tokens, 10)->kind, BASL_TOKEN_RBRACE);
-    EXPECT_EQ(TokenAt(&tokens, 11)->kind, BASL_TOKEN_EOF);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 0)->kind, BASL_TOKEN_FN);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 1)->kind, BASL_TOKEN_IDENTIFIER);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 2)->kind, BASL_TOKEN_LPAREN);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 3)->kind, BASL_TOKEN_RPAREN);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 4)->kind, BASL_TOKEN_ARROW);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 5)->kind, BASL_TOKEN_IDENTIFIER);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 6)->kind, BASL_TOKEN_LBRACE);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 7)->kind, BASL_TOKEN_RETURN);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 8)->kind, BASL_TOKEN_INT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 9)->kind, BASL_TOKEN_SEMICOLON);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 10)->kind, BASL_TOKEN_RBRACE);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 11)->kind, BASL_TOKEN_EOF);
 
     basl_token_list_free(&tokens);
     basl_diagnostic_list_free(&diagnostics);
@@ -79,19 +75,19 @@ TEST(BaslLexerTest, TokenizesSimpleFunction) {
 }
 
 TEST(BaslLexerTest, SkipsCommentsAndWhitespace) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
     source_id = RegisterSource(
-        &registry,
+        basl_test_failed_, &registry,
         "comments.basl",
         "// leading\nimport /* inner */ \"fmt\";\n",
         &error
@@ -102,10 +98,10 @@ TEST(BaslLexerTest, SkipsCommentsAndWhitespace) {
         BASL_STATUS_OK
     );
 
-    EXPECT_EQ(TokenAt(&tokens, 0)->kind, BASL_TOKEN_IMPORT);
-    EXPECT_EQ(TokenAt(&tokens, 1)->kind, BASL_TOKEN_STRING_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 2)->kind, BASL_TOKEN_SEMICOLON);
-    EXPECT_EQ(TokenAt(&tokens, 3)->kind, BASL_TOKEN_EOF);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 0)->kind, BASL_TOKEN_IMPORT);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 1)->kind, BASL_TOKEN_STRING_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 2)->kind, BASL_TOKEN_SEMICOLON);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 3)->kind, BASL_TOKEN_EOF);
 
     basl_token_list_free(&tokens);
     basl_diagnostic_list_free(&diagnostics);
@@ -114,19 +110,19 @@ TEST(BaslLexerTest, SkipsCommentsAndWhitespace) {
 }
 
 TEST(BaslLexerTest, TokenizesNumericAndStringLiteralForms) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
     source_id = RegisterSource(
-        &registry,
+        basl_test_failed_, &registry,
         "literals.basl",
         "0 0xFF 0b10 0o7 3.14 1e6 \"x\" `y` 'z' f\"hi {name}\"",
         &error
@@ -137,17 +133,17 @@ TEST(BaslLexerTest, TokenizesNumericAndStringLiteralForms) {
         BASL_STATUS_OK
     );
 
-    EXPECT_EQ(TokenAt(&tokens, 0)->kind, BASL_TOKEN_INT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 1)->kind, BASL_TOKEN_INT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 2)->kind, BASL_TOKEN_INT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 3)->kind, BASL_TOKEN_INT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 4)->kind, BASL_TOKEN_FLOAT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 5)->kind, BASL_TOKEN_FLOAT_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 6)->kind, BASL_TOKEN_STRING_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 7)->kind, BASL_TOKEN_RAW_STRING_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 8)->kind, BASL_TOKEN_CHAR_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 9)->kind, BASL_TOKEN_FSTRING_LITERAL);
-    EXPECT_EQ(TokenAt(&tokens, 10)->kind, BASL_TOKEN_EOF);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 0)->kind, BASL_TOKEN_INT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 1)->kind, BASL_TOKEN_INT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 2)->kind, BASL_TOKEN_INT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 3)->kind, BASL_TOKEN_INT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 4)->kind, BASL_TOKEN_FLOAT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 5)->kind, BASL_TOKEN_FLOAT_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 6)->kind, BASL_TOKEN_STRING_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 7)->kind, BASL_TOKEN_RAW_STRING_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 8)->kind, BASL_TOKEN_CHAR_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 9)->kind, BASL_TOKEN_FSTRING_LITERAL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 10)->kind, BASL_TOKEN_EOF);
 
     basl_token_list_free(&tokens);
     basl_diagnostic_list_free(&diagnostics);
@@ -156,30 +152,30 @@ TEST(BaslLexerTest, TokenizesNumericAndStringLiteralForms) {
 }
 
 TEST(BaslLexerTest, ReportsUnexpectedCharacter) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
     const basl_diagnostic_t *diagnostic;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
-    source_id = RegisterSource(&registry, "bad.basl", "@", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "bad.basl", "@", &error);
 
     EXPECT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
     EXPECT_EQ(error.type, BASL_STATUS_SYNTAX_ERROR);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "unexpected character"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "unexpected character"), 0);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
-    ASSERT_NE(diagnostic, nullptr);
+    ASSERT_NE(diagnostic, NULL);
     EXPECT_EQ(diagnostic->severity, BASL_DIAGNOSTIC_ERROR);
     EXPECT_EQ(diagnostic->span.source_id, source_id);
     EXPECT_EQ(diagnostic->span.start_offset, 0U);
@@ -193,19 +189,19 @@ TEST(BaslLexerTest, ReportsUnexpectedCharacter) {
 }
 
 TEST(BaslLexerTest, ReportsUnterminatedStringAndBlockComment) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
 
-    source_id = RegisterSource(&registry, "string.basl", "\"unterminated", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "string.basl", "\"unterminated", &error);
     EXPECT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
@@ -217,7 +213,7 @@ TEST(BaslLexerTest, ReportsUnterminatedStringAndBlockComment) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(&registry, "comment.basl", "/* never closes", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "comment.basl", "/* never closes", &error);
     EXPECT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
@@ -235,19 +231,19 @@ TEST(BaslLexerTest, ReportsUnterminatedStringAndBlockComment) {
 }
 
 TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
 
-    source_id = RegisterSource(&registry, "badnum1.basl", "0x", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "badnum1.basl", "0x", &error);
     EXPECT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
@@ -259,7 +255,7 @@ TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(&registry, "badnum2.basl", "0b129", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "badnum2.basl", "0b129", &error);
     EXPECT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
@@ -271,7 +267,7 @@ TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(&registry, "badnum3.basl", "0o78", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "badnum3.basl", "0o78", &error);
     EXPECT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
@@ -289,25 +285,25 @@ TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals) {
 }
 
 TEST(BaslLexerTest, TokenizesNilKeyword) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
     basl_token_list_t tokens;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_token_list_init(&tokens, runtime);
-    source_id = RegisterSource(&registry, "nil.basl", "nil", &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "nil.basl", "nil", &error);
 
     ASSERT_EQ(
         basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
         BASL_STATUS_OK
     );
-    EXPECT_EQ(TokenAt(&tokens, 0)->kind, BASL_TOKEN_NIL);
-    EXPECT_EQ(TokenAt(&tokens, 1)->kind, BASL_TOKEN_EOF);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 0)->kind, BASL_TOKEN_NIL);
+    EXPECT_EQ(TokenAt(basl_test_failed_, &tokens, 1)->kind, BASL_TOKEN_EOF);
 
     basl_token_list_free(&tokens);
     basl_diagnostic_list_free(&diagnostics);

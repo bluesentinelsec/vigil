@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(basl VERSION 0.1.3 LANGUAGES C CXX)
+project(basl VERSION 0.1.3 LANGUAGES C)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -145,64 +145,47 @@ endif()
 
 if(BASL_BUILD_TESTS)
     include(CTest)
-    include(FetchContent)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-    find_package(GTest CONFIG QUIET)
-    if(NOT GTest_FOUND)
-        FetchContent_Declare(
-            googletest
-            URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        )
-        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-        FetchContent_MakeAvailable(googletest)
-    endif()
-
     add_executable(basl_tests
-        tests/array_test.cpp
-        tests/basl_new_test.cpp
-        tests/binding_test.cpp
-        tests/checker_test.cpp
-        tests/chunk_test.cpp
-        tests/cli_lib_test.cpp
-        tests/compiler_test.cpp
-        tests/dap_test.cpp
-        tests/doc_test.cpp
-        tests/debug_info_test.cpp
-        tests/debugger_test.cpp
-        tests/diagnostic_test.cpp
-        tests/json_test.cpp
-        tests/lexer_test.cpp
-        tests/log_test.cpp
-        tests/toml_test.cpp
-        tests/map_test.cpp
-        tests/platform_test.cpp
-        tests/runtime_test.cpp
-        tests/source_test.cpp
-        tests/stdlib_test.cpp
-        tests/string_test.cpp
-        tests/status_test.cpp
-        tests/symbol_test.cpp
-        tests/token_test.cpp
-        tests/type_test.cpp
-        tests/value_test.cpp
-        tests/vm_test.cpp
+        tests/test_main.c
+        tests/array_test.c
+        tests/basl_new_test.c
+        tests/binding_test.c
+        tests/checker_test.c
+        tests/chunk_test.c
+        tests/cli_lib_test.c
+        tests/compiler_test.c
+        tests/dap_test.c
+        tests/doc_test.c
+        tests/debug_info_test.c
+        tests/debugger_test.c
+        tests/diagnostic_test.c
+        tests/json_test.c
+        tests/lexer_test.c
+        tests/log_test.c
+        tests/toml_test.c
+        tests/map_test.c
+        tests/platform_test.c
+        tests/runtime_test.c
+        tests/source_test.c
+        tests/stdlib_test.c
+        tests/string_test.c
+        tests/status_test.c
+        tests/symbol_test.c
+        tests/token_test.c
+        tests/type_test.c
+        tests/value_test.c
+        tests/vm_test.c
     )
 
-    target_link_libraries(basl_tests PRIVATE basl GTest::gtest_main)
-    target_include_directories(basl_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_features(basl_tests PRIVATE cxx_std_17)
+    target_link_libraries(basl_tests PRIVATE basl)
+    target_include_directories(basl_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    )
 
-    include(GoogleTest)
-    if(CMAKE_CROSSCOMPILING)
-        # gtest_discover_tests runs the binary at build time, which fails
-        # for cross-compiled targets (Android, iOS).  Register a single
-        # CTest entry that runs the whole binary instead.
-        add_test(NAME basl_tests COMMAND basl_tests)
-    else()
-        gtest_discover_tests(basl_tests)
-    endif()
+    add_test(NAME basl_tests COMMAND basl_tests)
 
     if (NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         add_test(

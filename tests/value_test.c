@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -15,35 +12,34 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-}  // namespace
 
 TEST(BaslValueTest, ImmediateValuesRoundTrip) {
     basl_value_t value;
 
     basl_value_init_nil(&value);
     EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_NIL);
-    EXPECT_EQ(basl_value_as_object(&value), nullptr);
+    EXPECT_EQ(basl_value_as_object(&value), NULL);
 
     basl_value_init_bool(&value, true);
     EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_BOOL);
@@ -64,34 +60,34 @@ TEST(BaslValueTest, ImmediateValuesRoundTrip) {
 }
 
 TEST(BaslValueTest, StringObjectStartsWithOneReferenceAndExposesText) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *object = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *object = NULL;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "hello", &object, &error),
         BASL_STATUS_OK
     );
 
-    ASSERT_NE(object, nullptr);
+    ASSERT_NE(object, NULL);
     EXPECT_EQ(basl_object_type(object), BASL_OBJECT_STRING);
     EXPECT_EQ(basl_object_ref_count(object), 1U);
     EXPECT_EQ(basl_string_object_length(object), 5U);
     EXPECT_STREQ(basl_string_object_c_str(object), "hello");
 
     basl_object_release(&object);
-    EXPECT_EQ(object, nullptr);
+    EXPECT_EQ(object, NULL);
     basl_runtime_close(&runtime);
 }
 
 TEST(BaslValueTest, ObjectRetainAndReleaseUpdateReferenceCount) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *left = nullptr;
-    basl_object_t *right = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *left = NULL;
+    basl_object_t *right = NULL;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "hello", &left, &error),
         BASL_STATUS_OK
@@ -102,35 +98,35 @@ TEST(BaslValueTest, ObjectRetainAndReleaseUpdateReferenceCount) {
     EXPECT_EQ(basl_object_ref_count(left), 2U);
 
     basl_object_release(&left);
-    EXPECT_EQ(left, nullptr);
-    ASSERT_NE(right, nullptr);
+    EXPECT_EQ(left, NULL);
+    ASSERT_NE(right, NULL);
     EXPECT_EQ(basl_object_ref_count(right), 1U);
 
     basl_object_release(&right);
-    EXPECT_EQ(right, nullptr);
+    EXPECT_EQ(right, NULL);
     basl_runtime_close(&runtime);
 }
 
 TEST(BaslValueTest, ValueInitObjectTransfersOwnershipAndCopyRetains) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *object = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *object = NULL;
     basl_value_t value;
     basl_value_t copy;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "value", &object, &error),
         BASL_STATUS_OK
     );
 
     basl_value_init_object(&value, &object);
-    EXPECT_EQ(object, nullptr);
-    ASSERT_NE(basl_value_as_object(&value), nullptr);
+    EXPECT_EQ(object, NULL);
+    ASSERT_NE(basl_value_as_object(&value), NULL);
     EXPECT_EQ(basl_object_ref_count(basl_value_as_object(&value)), 1U);
 
     copy = basl_value_copy(&value);
-    ASSERT_NE(basl_value_as_object(&copy), nullptr);
+    ASSERT_NE(basl_value_as_object(&copy), NULL);
     EXPECT_EQ(basl_object_ref_count(basl_value_as_object(&value)), 2U);
 
     basl_value_release(&value);
@@ -149,16 +145,16 @@ TEST(BaslValueTest, ValueReleaseOnImmediateResetsToNil) {
     basl_value_release(&value);
 
     EXPECT_EQ(basl_value_kind(&value), BASL_VALUE_NIL);
-    EXPECT_EQ(basl_value_as_object(&value), nullptr);
+    EXPECT_EQ(basl_value_as_object(&value), NULL);
 }
 
 TEST(BaslValueTest, StringObjectUsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *object = nullptr;
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t options = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *object = NULL;
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
@@ -176,7 +172,7 @@ TEST(BaslValueTest, StringObjectUsesRuntimeAllocatorHooks) {
     EXPECT_GE(stats.allocate_calls, 3);
 
     basl_object_release(&object);
-    EXPECT_EQ(object, nullptr);
+    EXPECT_EQ(object, NULL);
     EXPECT_GE(stats.deallocate_calls, 2);
 
     basl_runtime_close(&runtime);
@@ -184,51 +180,51 @@ TEST(BaslValueTest, StringObjectUsesRuntimeAllocatorHooks) {
 }
 
 TEST(BaslValueTest, StringObjectValidatesArguments) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *object = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *object = NULL;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
 
     EXPECT_EQ(
-        basl_string_object_new(nullptr, "hello", 5U, &object, &error),
+        basl_string_object_new(NULL, "hello", 5U, &object, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "runtime must not be null"), 0);
 
     EXPECT_EQ(
-        basl_string_object_new(runtime, nullptr, 0U, &object, &error),
+        basl_string_object_new(runtime, NULL, 0U, &object, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "string object value must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "string object value must not be null"), 0);
 
     EXPECT_EQ(
-        basl_string_object_new(runtime, "hello", 5U, nullptr, &error),
+        basl_string_object_new(runtime, "hello", 5U, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "out_object must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "out_object must not be null"), 0);
 
     basl_runtime_close(&runtime);
 }
 
 TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_value_t value;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_int(&value, 42);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &value, {}, nullptr, &error),
+        basl_chunk_write_constant(&chunk, &value, (basl_source_span_t){0}, NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -236,15 +232,15 @@ TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
         BASL_STATUS_OK
     );
 
-    ASSERT_NE(function, nullptr);
+    ASSERT_NE(function, NULL);
     EXPECT_EQ(basl_object_type(function), BASL_OBJECT_FUNCTION);
     EXPECT_EQ(basl_object_ref_count(function), 1U);
     EXPECT_STREQ(basl_function_object_name(function), "main");
     EXPECT_EQ(basl_function_object_arity(function), 0U);
-    ASSERT_NE(basl_function_object_chunk(function), nullptr);
+    ASSERT_NE(basl_function_object_chunk(function), NULL);
     EXPECT_EQ(basl_chunk_constant_count(basl_function_object_chunk(function)), 1U);
 
-    EXPECT_EQ(chunk.runtime, nullptr);
+    EXPECT_EQ(chunk.runtime, NULL);
     EXPECT_EQ(basl_chunk_code_size(&chunk), 0U);
     EXPECT_EQ(basl_chunk_constant_count(&chunk), 0U);
 
@@ -253,30 +249,30 @@ TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
 }
 
 TEST(BaslValueTest, FunctionObjectValidatesArguments) {
-    basl_runtime_t *runtime = nullptr;
-    basl_runtime_t *other_runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_runtime_t *other_runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_runtime_open(&other_runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&other_runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, other_runtime);
 
     EXPECT_EQ(
-        basl_function_object_new(nullptr, "main", 4U, 0U, 1U, &chunk, &function, &error),
+        basl_function_object_new(NULL, "main", 4U, 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, nullptr, 0U, 0U, 1U, &chunk, &function, &error),
+        basl_function_object_new(runtime, NULL, 0U, 0U, 1U, &chunk, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, 0U, 1U, nullptr, &function, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, 1U, NULL, &function, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, nullptr, &error),
+        basl_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
@@ -284,9 +280,9 @@ TEST(BaslValueTest, FunctionObjectValidatesArguments) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
+    ASSERT_NE(error.value, NULL);
     EXPECT_EQ(
-        std::strcmp(error.value, "function object chunk runtime must match runtime"),
+        strcmp(error.value, "function object chunk runtime must match runtime"),
         0
     );
 
@@ -296,13 +292,13 @@ TEST(BaslValueTest, FunctionObjectValidatesArguments) {
 }
 
 TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *instance = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *instance = NULL;
     basl_value_t fields[2];
     basl_value_t field_value;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_value_init_int(&fields[0], 3);
     basl_value_init_bool(&fields[1], true);
 
@@ -310,7 +306,7 @@ TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields) {
         basl_instance_object_new(runtime, 3U, fields, 2U, &instance, &error),
         BASL_STATUS_OK
     );
-    ASSERT_NE(instance, nullptr);
+    ASSERT_NE(instance, NULL);
     EXPECT_EQ(basl_object_type(instance), BASL_OBJECT_INSTANCE);
     EXPECT_EQ(basl_instance_object_class_index(instance), 3U);
     EXPECT_EQ(basl_instance_object_field_count(instance), 2U);
@@ -340,14 +336,14 @@ TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields) {
 }
 
 TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
-    basl_object_t *array_object = nullptr;
-    basl_object_t *map_object = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_object_t *array_object = NULL;
+    basl_object_t *map_object = NULL;
     basl_value_t items[2];
     basl_value_t value;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_value_init_int(&items[0], 3);
     basl_value_init_int(&items[1], 7);
 
@@ -355,7 +351,7 @@ TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
         basl_array_object_new(runtime, items, 2U, &array_object, &error),
         BASL_STATUS_OK
     );
-    ASSERT_NE(array_object, nullptr);
+    ASSERT_NE(array_object, NULL);
     EXPECT_EQ(basl_object_type(array_object), BASL_OBJECT_ARRAY);
     EXPECT_EQ(basl_array_object_length(array_object), 2U);
 
@@ -378,7 +374,7 @@ TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     basl_value_release(&value);
 
     ASSERT_EQ(basl_map_object_new(runtime, &map_object, &error), BASL_STATUS_OK);
-    ASSERT_NE(map_object, nullptr);
+    ASSERT_NE(map_object, NULL);
     EXPECT_EQ(basl_object_type(map_object), BASL_OBJECT_MAP);
     EXPECT_EQ(basl_map_object_count(map_object), 0U);
 

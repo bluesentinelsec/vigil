@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -15,44 +12,43 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-}  // namespace
 
 TEST(BaslStringTest, InitStartsEmptyAndNullTerminated) {
     basl_string_t string;
 
-    basl_string_init(&string, nullptr);
+    basl_string_init(&string, NULL);
 
     EXPECT_EQ(basl_string_length(&string), 0U);
     EXPECT_STREQ(basl_string_c_str(&string), "");
 }
 
 TEST(BaslStringTest, AssignCstrSetsLengthAndTerminator) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
 
     ASSERT_EQ(
@@ -68,21 +64,21 @@ TEST(BaslStringTest, AssignCstrSetsLengthAndTerminator) {
 }
 
 TEST(BaslStringTest, AppendPreservesExistingContents) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
 
     ASSERT_EQ(basl_string_assign_cstr(&string, "bas", &error), BASL_STATUS_OK);
     ASSERT_EQ(basl_string_append_cstr(&string, "l", &error), BASL_STATUS_OK);
     ASSERT_EQ(
-        basl_string_append(&string, " runtime", std::strlen(" runtime"), &error),
+        basl_string_append(&string, " runtime", strlen(" runtime"), &error),
         BASL_STATUS_OK
     );
 
-    EXPECT_EQ(basl_string_length(&string), std::strlen("basl runtime"));
+    EXPECT_EQ(basl_string_length(&string), strlen("basl runtime"));
     EXPECT_STREQ(basl_string_c_str(&string), "basl runtime");
     EXPECT_EQ(string.bytes.data[basl_string_length(&string)], '\0');
 
@@ -91,12 +87,12 @@ TEST(BaslStringTest, AppendPreservesExistingContents) {
 }
 
 TEST(BaslStringTest, ClearResetsToEmptyButKeepsUsableStorage) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
     size_t capacity;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
     ASSERT_EQ(basl_string_assign_cstr(&string, "hello", &error), BASL_STATUS_OK);
     capacity = string.bytes.capacity;
@@ -115,18 +111,18 @@ TEST(BaslStringTest, ClearResetsToEmptyButKeepsUsableStorage) {
 }
 
 TEST(BaslStringTest, FreeResetsWholeString) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
     ASSERT_EQ(basl_string_assign_cstr(&string, "hello", &error), BASL_STATUS_OK);
 
     basl_string_free(&string);
 
-    EXPECT_EQ(string.bytes.runtime, nullptr);
-    EXPECT_EQ(string.bytes.data, nullptr);
+    EXPECT_EQ(string.bytes.runtime, NULL);
+    EXPECT_EQ(string.bytes.data, NULL);
     EXPECT_EQ(string.bytes.length, 0U);
     EXPECT_EQ(string.bytes.capacity, 0U);
     EXPECT_STREQ(basl_string_c_str(&string), "");
@@ -135,12 +131,12 @@ TEST(BaslStringTest, FreeResetsWholeString) {
 }
 
 TEST(BaslStringTest, CompareAndEqualsUseLexicographicOrder) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t left;
     basl_string_t right;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&left, runtime);
     basl_string_init(&right, runtime);
 
@@ -158,11 +154,11 @@ TEST(BaslStringTest, CompareAndEqualsUseLexicographicOrder) {
 }
 
 TEST(BaslStringTest, ReservePreparesStorageAndTerminator) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
 
     ASSERT_EQ(basl_string_reserve(&string, 32U, &error), BASL_STATUS_OK);
@@ -175,12 +171,12 @@ TEST(BaslStringTest, ReservePreparesStorageAndTerminator) {
 }
 
 TEST(BaslStringTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t options = {};
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
@@ -211,49 +207,49 @@ TEST(BaslStringTest, UsesRuntimeAllocatorHooks) {
 
 TEST(BaslStringTest, RejectsMissingRuntimeForMutation) {
     basl_string_t string;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    basl_string_init(&string, nullptr);
+    basl_string_init(&string, NULL);
 
     EXPECT_EQ(
         basl_string_assign_cstr(&string, "hello", &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "string runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "string runtime must not be null"), 0);
 }
 
 TEST(BaslStringTest, RejectsNullValueEvenForEmptyOperations) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
 
     EXPECT_EQ(
-        basl_string_assign(&string, nullptr, 0U, &error),
+        basl_string_assign(&string, NULL, 0U, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "string value must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "string value must not be null"), 0);
 
     EXPECT_EQ(
-        basl_string_append(&string, nullptr, 0U, &error),
+        basl_string_append(&string, NULL, 0U, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "string value must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "string value must not be null"), 0);
 
     EXPECT_EQ(
-        basl_string_assign_cstr(&string, nullptr, &error),
+        basl_string_assign_cstr(&string, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_string_append_cstr(&string, nullptr, &error),
+        basl_string_append_cstr(&string, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
 
@@ -262,13 +258,13 @@ TEST(BaslStringTest, RejectsNullValueEvenForEmptyOperations) {
 }
 
 TEST(BaslStringTest, SelfAppendIsSafe) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_string_t string;
     const char *value;
     size_t length;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_string_init(&string, runtime);
     ASSERT_EQ(basl_string_assign_cstr(&string, "echo", &error), BASL_STATUS_OK);
 

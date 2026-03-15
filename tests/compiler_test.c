@@ -1,19 +1,16 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstring>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct TestSource {
     const char *path;
     const char *text;
 };
 
-basl_source_id_t RegisterSource(
+static basl_source_id_t RegisterSource(int *basl_test_failed_,
     basl_source_registry_t *registry,
     const char *path,
     const char *text,
@@ -28,28 +25,28 @@ basl_source_id_t RegisterSource(
     return source_id;
 }
 
-int64_t CompileAndRun(const char *source_text) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
-    basl_error_t error = {};
+static int64_t CompileAndRun(int *basl_test_failed_, const char *source_text) {
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_value_t result;
     basl_source_id_t source_id;
     int64_t output = 0;
 
-    EXPECT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
-    source_id = RegisterSource(&registry, "main.basl", source_text, &error);
+    source_id = RegisterSource(basl_test_failed_, &registry, "main.basl", source_text, &error);
 
     EXPECT_EQ(
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_OK
     );
-    EXPECT_NE(function, nullptr);
+    EXPECT_NE(function, NULL);
     EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
 
     basl_value_init_nil(&result);
@@ -69,36 +66,36 @@ int64_t CompileAndRun(const char *source_text) {
     return output;
 }
 
-int64_t CompileAndRun(
-    const TestSource *sources,
+static int64_t CompileAndRunMulti(int *basl_test_failed_,
+    const struct TestSource *sources,
     size_t source_count,
     const char *entry_path
 ) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_value_t result;
     basl_source_id_t source_id = 0U;
     int64_t output = 0;
     size_t index;
 
-    EXPECT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    EXPECT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
     for (index = 0U; index < source_count; index += 1U) {
-        RegisterSource(&registry, sources[index].path, sources[index].text, &error);
+        RegisterSource(basl_test_failed_, &registry, sources[index].path, sources[index].text, &error);
     }
 
     for (index = 1U; index <= basl_source_registry_count(&registry); index += 1U) {
         const basl_source_file_t *source =
             basl_source_registry_get(&registry, (basl_source_id_t)index);
 
-        if (source != nullptr && std::strcmp(basl_string_c_str(&source->path), entry_path) == 0) {
+        if (source != NULL && strcmp(basl_string_c_str(&source->path), entry_path) == 0) {
             source_id = source->id;
             break;
         }
@@ -109,7 +106,7 @@ int64_t CompileAndRun(
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_OK
     );
-    EXPECT_NE(function, nullptr);
+    EXPECT_NE(function, NULL);
     EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
 
     basl_value_init_nil(&result);
@@ -129,12 +126,10 @@ int64_t CompileAndRun(
     return output;
 }
 
-}  // namespace
 
 TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 x = 1 + 2 * 3;"
             "    x = (x + 4) / 2;"
             "    return x;"
@@ -146,8 +141,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn scale(f64 value) -> f64 {"
+        CompileAndRun(basl_test_failed_, "fn scale(f64 value) -> f64 {"
             "    value *= 2.0;"
             "    value++;"
             "    return value;"
@@ -166,8 +160,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    const f64 scaled = f64(4) / 2.0;"
             "    const string label = string(5) + string(true);"
             "    i32 truncated = i32(scaled + 3.8);"
@@ -183,8 +176,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
     EXPECT_EQ(
-        CompileAndRun(
-            "const u8 LIMIT = u8(12);"
+        CompileAndRun(basl_test_failed_, "const u8 LIMIT = u8(12);"
             "fn double_i64(i64 value) -> i64 {"
             "    return value * i64(2);"
             "}"
@@ -209,8 +201,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
     EXPECT_EQ(
-        CompileAndRun(
-            "class Holder {"
+        CompileAndRun(basl_test_failed_, "class Holder {"
             "    fn(i32, i32) -> i32 op;"
             "}"
             "fn add(i32 a, i32 b) -> i32 {"
@@ -238,8 +229,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 factor = 10;"
             "    fn(i32) -> i32 scale = fn(i32 x) -> i32 {"
             "        return x * factor;"
@@ -259,8 +249,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunc
 
 TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn fail(bool bad) -> err {"
+        CompileAndRun(basl_test_failed_, "fn fail(bool bad) -> err {"
             "    if (bad) {"
             "        return err(\"boom\", err.arg);"
             "    }"
@@ -292,8 +281,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn divide(i32 a, i32 b) -> (i32, err) {"
+        CompileAndRun(basl_test_failed_, "fn divide(i32 a, i32 b) -> (i32, err) {"
             "    if (b == 0) {"
             "        return (0, err(\"division by zero\", err.arg));"
             "    }"
@@ -317,8 +305,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    i32 i = 0;"
             "    while (i < 5) {"
@@ -338,8 +325,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    bool ready = 1 + 1 == 2;"
             "    if (ready != false) {"
             "        return 7;"
@@ -353,8 +339,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesDirectFunctionCalls) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn add(i32 left, i32 right) -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn add(i32 left, i32 right) -> i32 {"
             "    return left + right;"
             "}"
             "fn is_ten(i32 value) -> bool {"
@@ -374,8 +359,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesDirectFunctionCalls) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn sum_to(i32 value) -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn sum_to(i32 value) -> i32 {"
             "    if (value == 0) {"
             "        return 0;"
             "    }"
@@ -391,8 +375,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn panic_bool() -> bool {"
+        CompileAndRun(basl_test_failed_, "fn panic_bool() -> bool {"
             "    i32 x = 1 / 0;"
             "    return x == 0;"
             "}"
@@ -411,8 +394,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
     EXPECT_EQ(
-        CompileAndRun(
-            "const i32 MASK = (1 << 3) | 1;"
+        CompileAndRun(basl_test_failed_, "const i32 MASK = (1 << 3) | 1;"
             "const i32 PICK = true ? MASK : 0;"
             "fn main() -> i32 {"
             "    i32 bits = PICK ^ 2;"
@@ -425,8 +407,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    i32 i = 0;"
             "    while (i < 8) {"
@@ -451,8 +432,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    for (i32 i = 0; i < 5; i++) {"
             "        sum += i;"
@@ -466,8 +446,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    for (i32 i = 0; i < 6; i++) {"
             "        if (i == 2) {"
@@ -486,7 +465,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/math.basl",
             "pub fn add(i32 left, i32 right) -> i32 {"
@@ -502,11 +481,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/lib/math.basl",
             "pub fn inc(i32 value) -> i32 {"
@@ -529,22 +508,22 @@ TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, RejectsUnregisteredImportedSource) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "import \"missing\";"
@@ -570,7 +549,7 @@ TEST(BaslCompilerTest, RejectsUnregisteredImportedSource) {
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/config.basl",
             "pub const i32 LIMIT = 7;"
@@ -584,11 +563,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/config.basl",
             "pub const i32 BASE = 2 + 3 * 4;"
@@ -606,13 +585,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 14);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 14);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) {
     EXPECT_EQ(
-        CompileAndRun(
-            "class Pair {"
+        CompileAndRun(basl_test_failed_, "class Pair {"
             "    i32 left;"
             "    i32 right;"
             "}"
@@ -630,7 +608,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) 
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/model.basl",
             "pub class Counter {"
@@ -653,13 +631,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
     EXPECT_EQ(
-        CompileAndRun(
-            "class Counter {"
+        CompileAndRun(basl_test_failed_, "class Counter {"
             "    i32 value;"
             "    fn bump(i32 delta) -> i32 {"
             "        self.value = self.value + delta;"
@@ -681,8 +658,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
     EXPECT_EQ(
-        CompileAndRun(
-            "f64 scale = 1.5;"
+        CompileAndRun(basl_test_failed_, "f64 scale = 1.5;"
             "class Counter {"
             "    f64 value;"
             "    fn init(f64 value) -> void {"
@@ -707,8 +683,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors) {
     EXPECT_EQ(
-        CompileAndRun(
-            "class Counter {"
+        CompileAndRun(basl_test_failed_, "class Counter {"
             "    i32 value;"
             "    i32 doubled;"
             "    fn init(i32 value) -> void {"
@@ -727,8 +702,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
     EXPECT_EQ(
-        CompileAndRun(
-            "class Connection {"
+        CompileAndRun(basl_test_failed_, "class Connection {"
             "    pub i32 port;"
             "    fn init(i32 port) -> err {"
             "        if (port < 0) {"
@@ -754,7 +728,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/model.basl",
             "pub class Counter {"
@@ -778,11 +752,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 11);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 11);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/models.basl",
             "pub class Counter {"
@@ -802,11 +776,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/model.basl",
             "pub interface Reader {"
@@ -841,11 +815,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/model.basl",
             "pub const i32 OFFSET = 2;"
@@ -873,17 +847,17 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 19);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 19);
 }
 
 TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/math.basl",
             "pub fn add(i32 left, i32 right) -> i32 {"
@@ -899,12 +873,12 @@ TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
         }
     };
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
     for (size_t index = 0U; index < sizeof(sources) / sizeof(sources[0]); index += 1U) {
-        source_id = RegisterSource(&registry, sources[index].path, sources[index].text, &error);
+        source_id = RegisterSource(basl_test_failed_, &registry, sources[index].path, sources[index].text, &error);
     }
 
     EXPECT_EQ(
@@ -924,7 +898,7 @@ TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/alpha.basl",
             "pub const i32 VALUE = 4;"
@@ -949,11 +923,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 13);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/contracts.basl",
             "pub interface Reader {"
@@ -986,11 +960,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 9);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 9);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/config.basl",
             "pub const i32 BASE = 7;"
@@ -1005,13 +979,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpression
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 8);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
     EXPECT_EQ(
-        CompileAndRun(
-            "enum Color {"
+        CompileAndRun(basl_test_failed_, "enum Color {"
             "    Red,"
             "    Green = 3,"
             "    Blue"
@@ -1033,358 +1006,358 @@ TEST(BaslCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesStringsAndStringConstants) {
-    const char *source = R"(
-const string PREFIX = "he" + 'l';
+    const char *source = "\n"
+        "const string PREFIX = \"he\" + 'l';\n"
+        "\n"
+        "fn make_message() -> string {\n"
+        "    return PREFIX + `lo`;\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    string message = make_message();\n"
+        "    if (message == \"hello\" && message != \"world\") {\n"
+        "        return 12;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
+        "";
 
-fn make_message() -> string {
-    return PREFIX + `lo`;
-}
-
-fn main() -> i32 {
-    string message = make_message();
-    if (message == "hello" && message != "world") {
-        return 12;
-    }
-    return 0;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 12);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 12);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "labels.basl",
-            R"(
-pub const string GREETING = "ba" + "sl";
-
-pub fn render(string suffix) -> string {
-    return GREETING + suffix;
-}
-)"
+            "\n"
+        "pub const string GREETING = \"ba\" + \"sl\";\n"
+        "\n"
+        "pub fn render(string suffix) -> string {\n"
+        "    return GREETING + suffix;\n"
+        "}\n"
+        ""
         },
         {
             "main.basl",
-            R"(
-import "labels";
-
-fn main() -> i32 {
-    string value = labels.render(" vm");
-    if (value == "basl vm") {
-        return 15;
-    }
-    return 0;
-}
-)"
+            "\n"
+        "import \"labels\";\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    string value = labels.render(\" vm\");\n"
+        "    if (value == \"basl vm\") {\n"
+        "        return 15;\n"
+        "    }\n"
+        "    return 0;\n"
+        "}\n"
+        ""
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, sizeof(sources) / sizeof(sources[0]), "main.basl"), 15);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, sizeof(sources) / sizeof(sources[0]), "main.basl"), 15);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
-    const char *source = R"(
-fn main() -> i32 {
-    string value = "  basl vm  ";
-    string trimmed = value.trim();
-    array<string> parts = "a,b,c".split(",");
-    array<u8> bytes = "AZ".bytes();
-    i32 split_hits = 0;
-    i32 byte_sum = 0;
-    i32 index, bool found = value.index_of("asl");
-    string sub, err sub_err = trimmed.substr(0, 4);
-    string ch, err ch_err = value.char_at(2);
-    string missing, err missing_err = trimmed.char_at(99);
+    const char *source = "\n"
+        "fn main() -> i32 {\n"
+        "    string value = \"  basl vm  \";\n"
+        "    string trimmed = value.trim();\n"
+        "    array<string> parts = \"a,b,c\".split(\",\");\n"
+        "    array<u8> bytes = \"AZ\".bytes();\n"
+        "    i32 split_hits = 0;\n"
+        "    i32 byte_sum = 0;\n"
+        "    i32 index, bool found = value.index_of(\"asl\");\n"
+        "    string sub, err sub_err = trimmed.substr(0, 4);\n"
+        "    string ch, err ch_err = value.char_at(2);\n"
+        "    string missing, err missing_err = trimmed.char_at(99);\n"
+        "\n"
+        "    for part in parts {\n"
+        "        if (part == \"b\" || part == \"c\") {\n"
+        "            split_hits++;\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    for byte in bytes {\n"
+        "        byte_sum += i32(byte);\n"
+        "    }\n"
+        "\n"
+        "    if (value.len() == 11 &&\n"
+        "        value.contains(\"sl\") &&\n"
+        "        value.starts_with(\"  b\") &&\n"
+        "        value.ends_with(\"  \") &&\n"
+        "        trimmed == \"basl vm\" &&\n"
+        "        trimmed.to_upper() == \"BASL VM\" &&\n"
+        "        trimmed.to_lower() == \"basl vm\" &&\n"
+        "        value.replace(\"vm\", \"bytecode\") == \"  basl bytecode  \" &&\n"
+        "        index == 3 &&\n"
+        "        found == true &&\n"
+        "        sub == \"basl\" &&\n"
+        "        sub_err == ok &&\n"
+        "        ch == \"b\" &&\n"
+        "        ch_err == ok &&\n"
+        "        missing == \"\" &&\n"
+        "        missing_err != ok &&\n"
+        "        split_hits == 2 &&\n"
+        "        byte_sum == 155) {\n"
+        "        return 19;\n"
+        "    }\n"
+        "\n"
+        "    return 0;\n"
+        "}\n"
+        "";
 
-    for part in parts {
-        if (part == "b" || part == "c") {
-            split_hits++;
-        }
-    }
-
-    for byte in bytes {
-        byte_sum += i32(byte);
-    }
-
-    if (value.len() == 11 &&
-        value.contains("sl") &&
-        value.starts_with("  b") &&
-        value.ends_with("  ") &&
-        trimmed == "basl vm" &&
-        trimmed.to_upper() == "BASL VM" &&
-        trimmed.to_lower() == "basl vm" &&
-        value.replace("vm", "bytecode") == "  basl bytecode  " &&
-        index == 3 &&
-        found == true &&
-        sub == "basl" &&
-        sub_err == ok &&
-        ch == "b" &&
-        ch_err == ok &&
-        missing == "" &&
-        missing_err != ok &&
-        split_hits == 2 &&
-        byte_sum == 155) {
-        return 19;
-    }
-
-    return 0;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 19);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 19);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesArrayBuiltInMethods) {
-    const char *source = R"(
-fn main() -> i32 {
-    array<i32> nums = [1, 2];
-    nums.push(3);
-    i32 hit, err hit_err = nums.get(1);
-    err set_err = nums.set(0, 5);
-    array<i32> prefix = nums.slice(0, 2);
-    i32 popped, err pop_err = nums.pop();
-    i32 missing, err missing_err = nums.get(99);
+    const char *source = "\n"
+        "fn main() -> i32 {\n"
+        "    array<i32> nums = [1, 2];\n"
+        "    nums.push(3);\n"
+        "    i32 hit, err hit_err = nums.get(1);\n"
+        "    err set_err = nums.set(0, 5);\n"
+        "    array<i32> prefix = nums.slice(0, 2);\n"
+        "    i32 popped, err pop_err = nums.pop();\n"
+        "    i32 missing, err missing_err = nums.get(99);\n"
+        "\n"
+        "    if (nums.len() == 2 &&\n"
+        "        hit == 2 &&\n"
+        "        hit_err == ok &&\n"
+        "        set_err == ok &&\n"
+        "        prefix.contains(5) &&\n"
+        "        prefix.contains(2) &&\n"
+        "        popped == 3 &&\n"
+        "        pop_err == ok &&\n"
+        "        missing == 0 &&\n"
+        "        missing_err != ok) {\n"
+        "        return 23;\n"
+        "    }\n"
+        "\n"
+        "    return 0;\n"
+        "}\n"
+        "";
 
-    if (nums.len() == 2 &&
-        hit == 2 &&
-        hit_err == ok &&
-        set_err == ok &&
-        prefix.contains(5) &&
-        prefix.contains(2) &&
-        popped == 3 &&
-        pop_err == ok &&
-        missing == 0 &&
-        missing_err != ok) {
-        return 23;
-    }
-
-    return 0;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 23);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 23);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesMapBuiltInMethods) {
-    const char *source = R"(
-fn main() -> i32 {
-    map<i32, string> labels = {1: "a", 2: "b"};
-    string first, bool found_first = labels.get(1);
-    err set_err = labels.set(3, "c");
-    string removed, bool removed_ok = labels.remove(2);
-    string missing, bool missing_ok = labels.get(99);
-    i32 key_sum = 0;
-    i32 value_hits = 0;
+    const char *source = "\n"
+        "fn main() -> i32 {\n"
+        "    map<i32, string> labels = {1: \"a\", 2: \"b\"};\n"
+        "    string first, bool found_first = labels.get(1);\n"
+        "    err set_err = labels.set(3, \"c\");\n"
+        "    string removed, bool removed_ok = labels.remove(2);\n"
+        "    string missing, bool missing_ok = labels.get(99);\n"
+        "    i32 key_sum = 0;\n"
+        "    i32 value_hits = 0;\n"
+        "\n"
+        "    for key in labels.keys() {\n"
+        "        key_sum += key;\n"
+        "    }\n"
+        "\n"
+        "    for value in labels.values() {\n"
+        "        if (value == \"a\" || value == \"c\") {\n"
+        "            value_hits++;\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    if (labels.len() == 2 &&\n"
+        "        first == \"a\" &&\n"
+        "        found_first == true &&\n"
+        "        set_err == ok &&\n"
+        "        removed == \"b\" &&\n"
+        "        removed_ok == true &&\n"
+        "        missing == \"\" &&\n"
+        "        missing_ok == false &&\n"
+        "        labels.has(1) &&\n"
+        "        labels.has(3) &&\n"
+        "        !labels.has(2) &&\n"
+        "        key_sum == 4 &&\n"
+        "        value_hits == 2) {\n"
+        "        return 29;\n"
+        "    }\n"
+        "\n"
+        "    return 0;\n"
+        "}\n"
+        "";
 
-    for key in labels.keys() {
-        key_sum += key;
-    }
-
-    for value in labels.values() {
-        if (value == "a" || value == "c") {
-            value_hits++;
-        }
-    }
-
-    if (labels.len() == 2 &&
-        first == "a" &&
-        found_first == true &&
-        set_err == ok &&
-        removed == "b" &&
-        removed_ok == true &&
-        missing == "" &&
-        missing_ok == false &&
-        labels.has(1) &&
-        labels.has(3) &&
-        !labels.has(2) &&
-        key_sum == 4 &&
-        value_hits == 2) {
-        return 29;
-    }
-
-    return 0;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 29);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 29);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals) {
-    const char *source = R"(
-fn empty_nums() -> array<i32> {
-    return [];
-}
+    const char *source = "\n"
+        "fn empty_nums() -> array<i32> {\n"
+        "    return [];\n"
+        "}\n"
+        "\n"
+        "fn empty_labels() -> map<i32, string> {\n"
+        "    return {};\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    array<i32> nums = [];\n"
+        "    map<i32, string> labels = {};\n"
+        "\n"
+        "    nums = empty_nums();\n"
+        "    labels = empty_labels();\n"
+        "    nums = [];\n"
+        "    labels = {};\n"
+        "\n"
+        "    if (nums.len() == 0 && labels.len() == 0) {\n"
+        "        return 17;\n"
+        "    }\n"
+        "\n"
+        "    return 0;\n"
+        "}\n"
+        "";
 
-fn empty_labels() -> map<i32, string> {
-    return {};
-}
-
-fn main() -> i32 {
-    array<i32> nums = [];
-    map<i32, string> labels = {};
-
-    nums = empty_nums();
-    labels = empty_labels();
-    nums = [];
-    labels = {};
-
-    if (nums.len() == 0 && labels.len() == 0) {
-        return 17;
-    }
-
-    return 0;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 17);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 17);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
-    const char *source = R"(
-class Counter {
-    i32 value;
+    const char *source = "\n"
+        "class Counter {\n"
+        "    i32 value;\n"
+        "\n"
+        "    fn bump() -> void {\n"
+        "        self.value++;\n"
+        "        return;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "fn touch(Counter counter) -> void {\n"
+        "    counter.bump();\n"
+        "}\n"
+        "\n"
+        "fn reset(bool flag) -> void {\n"
+        "    if (flag) {\n"
+        "        return;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    Counter counter = Counter(4);\n"
+        "    touch(counter);\n"
+        "    reset(false);\n"
+        "    counter.bump();\n"
+        "    return counter.value;\n"
+        "}\n"
+        "";
 
-    fn bump() -> void {
-        self.value++;
-        return;
-    }
-}
-
-fn touch(Counter counter) -> void {
-    counter.bump();
-}
-
-fn reset(bool flag) -> void {
-    if (flag) {
-        return;
-    }
-}
-
-fn main() -> i32 {
-    Counter counter = Counter(4);
-    touch(counter);
-    reset(false);
-    counter.bump();
-    return counter.value;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 6);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 6);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments) {
-    const char *source = R"(
-i32 state = 0;
+    const char *source = "\n"
+        "i32 state = 0;\n"
+        "\n"
+        "fn push(i32 value) -> void {\n"
+        "    state = state * 10 + value;\n"
+        "}\n"
+        "\n"
+        "fn next() -> i32 {\n"
+        "    state = state + 1;\n"
+        "    return state;\n"
+        "}\n"
+        "\n"
+        "fn run() -> void {\n"
+        "    defer push(next());\n"
+        "    defer push(next());\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    run();\n"
+        "    return state;\n"
+        "}\n"
+        "";
 
-fn push(i32 value) -> void {
-    state = state * 10 + value;
-}
-
-fn next() -> i32 {
-    state = state + 1;
-    return state;
-}
-
-fn run() -> void {
-    defer push(next());
-    defer push(next());
-}
-
-fn main() -> i32 {
-    run();
-    return state;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 221);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 221);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain) {
-    const char *source = R"(
-class Counter {
-    i32 value;
+    const char *source = "\n"
+        "class Counter {\n"
+        "    i32 value;\n"
+        "\n"
+        "    fn bump(i32 delta) -> void {\n"
+        "        self.value += delta;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "fn run(Counter counter) -> i32 {\n"
+        "    defer counter.bump(2);\n"
+        "    defer counter.bump(3);\n"
+        "    return 7;\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    Counter counter = Counter(4);\n"
+        "    i32 result = run(counter);\n"
+        "    return counter.value * 10 + result;\n"
+        "}\n"
+        "";
 
-    fn bump(i32 delta) -> void {
-        self.value += delta;
-    }
-}
-
-fn run(Counter counter) -> i32 {
-    defer counter.bump(2);
-    defer counter.bump(3);
-    return 7;
-}
-
-fn main() -> i32 {
-    Counter counter = Counter(4);
-    i32 result = run(counter);
-    return counter.value * 10 + result;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 97);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 97);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesDeferredInterfaceCalls) {
-    const char *source = R"(
-interface Reader {
-    fn read() -> i32;
-}
+    const char *source = "\n"
+        "interface Reader {\n"
+        "    fn read() -> i32;\n"
+        "}\n"
+        "\n"
+        "i32 state = 0;\n"
+        "\n"
+        "class Counter implements Reader {\n"
+        "    i32 value;\n"
+        "\n"
+        "    fn read() -> i32 {\n"
+        "        state = state * 10 + self.value;\n"
+        "        return self.value;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "fn run(Reader reader) -> void {\n"
+        "    defer reader.read();\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    run(Counter(8));\n"
+        "    return state;\n"
+        "}\n"
+        "";
 
-i32 state = 0;
-
-class Counter implements Reader {
-    i32 value;
-
-    fn read() -> i32 {
-        state = state * 10 + self.value;
-        return self.value;
-    }
-}
-
-fn run(Reader reader) -> void {
-    defer reader.read();
-}
-
-fn main() -> i32 {
-    run(Counter(8));
-    return state;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 8);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 8);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesDeferredInitConstructors) {
-    const char *source = R"(
-i32 state = 0;
+    const char *source = "\n"
+        "i32 state = 0;\n"
+        "\n"
+        "class Counter {\n"
+        "    i32 value;\n"
+        "\n"
+        "    fn init(i32 value) -> void {\n"
+        "        self.value = value;\n"
+        "        state = state * 10 + value;\n"
+        "    }\n"
+        "}\n"
+        "\n"
+        "fn run() -> void {\n"
+        "    defer Counter(2);\n"
+        "    defer Counter(3);\n"
+        "}\n"
+        "\n"
+        "fn main() -> i32 {\n"
+        "    run();\n"
+        "    return state;\n"
+        "}\n"
+        "";
 
-class Counter {
-    i32 value;
-
-    fn init(i32 value) -> void {
-        self.value = value;
-        state = state * 10 + value;
-    }
-}
-
-fn run() -> void {
-    defer Counter(2);
-    defer Counter(3);
-}
-
-fn main() -> i32 {
-    run();
-    return state;
-}
-)";
-
-    EXPECT_EQ(CompileAndRun(source), 32);
+    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 32);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/lib.basl",
             "pub i32 counter = 3;"
@@ -1402,11 +1375,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 8);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 8);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/lib.basl",
             "pub i32 counter = 3;"
@@ -1422,11 +1395,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) 
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 6);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 6);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/lib.basl",
             "pub array<i32> nums = [];"
@@ -1443,13 +1416,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 5);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 5);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
     EXPECT_EQ(
-        CompileAndRun(
-            "class Counter {"
+        CompileAndRun(basl_test_failed_, "class Counter {"
             "    i32 value;"
             "}"
             "i32 total = 2;"
@@ -1467,8 +1439,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields
 
 TEST(BaslCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    string name = \"Alice\";"
             "    i32 age = 30;"
             "    f64 pi = 3.14159;"
@@ -1484,7 +1455,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/contracts.basl",
             "pub interface Reader {"
@@ -1517,22 +1488,22 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 3U, "/project/main.basl"), 13);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 13);
 }
 
 TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(
+    RegisterSource(basl_test_failed_, 
         &registry,
         "/project/model.basl",
         "pub class Counter {"
@@ -1546,7 +1517,7 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
         "}",
         &error
     );
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "import \"model\";"
@@ -1573,18 +1544,18 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
 }
 
 TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(
+    RegisterSource(basl_test_failed_, 
         &registry,
         "/project/model.basl",
         "pub class Counter {"
@@ -1598,7 +1569,7 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
         "}",
         &error
     );
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "import \"model\";"
@@ -1625,7 +1596,7 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/colors.basl",
             "pub enum Color {"
@@ -1654,11 +1625,11 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 2);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 2);
 }
 
 TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions) {
-    const TestSource sources[] = {
+    const struct TestSource sources[] = {
         {
             "/project/config.basl",
             "pub const i32 BASE = 1 << 4;"
@@ -1674,22 +1645,22 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressio
         }
     };
 
-    EXPECT_EQ(CompileAndRun(sources, 2U, "/project/main.basl"), 17);
+    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 17);
 }
 
 TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "const i32 LIMIT = 1;"
@@ -1716,18 +1687,18 @@ TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
 }
 
 TEST(BaslCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "enum Color { Red, Blue }"
@@ -1754,18 +1725,18 @@ TEST(BaslCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
 }
 
 TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(
+    RegisterSource(basl_test_failed_, 
         &registry,
         "/project/lib.basl",
         "fn hidden() -> i32 {"
@@ -1774,7 +1745,7 @@ TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
         "i32 value = 3;",
         &error
     );
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "import \"lib\";"
@@ -1800,24 +1771,24 @@ TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
 }
 
 TEST(BaslCompilerTest, RejectsAssignmentToImportedConstants) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(
+    RegisterSource(basl_test_failed_, 
         &registry,
         "/project/lib.basl",
         "pub const i32 LIMIT = 3;",
         &error
     );
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "/project/main.basl",
         "import \"lib\";"
@@ -1844,18 +1815,18 @@ TEST(BaslCompilerTest, RejectsAssignmentToImportedConstants) {
 }
 
 TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "missing_interface_method.basl",
         "interface Reader { fn read() -> i32; }"
@@ -1884,18 +1855,18 @@ TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods) {
 }
 
 TEST(BaslCompilerTest, RejectsNonVoidInitMethods) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_init.basl",
         "class Counter {"
@@ -1926,18 +1897,18 @@ TEST(BaslCompilerTest, RejectsNonVoidInitMethods) {
 }
 
 TEST(BaslCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "wrong_interface_signature.basl",
         "interface Reader { fn read() -> i32; }"
@@ -1969,18 +1940,18 @@ TEST(BaslCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
 }
 
 TEST(BaslCompilerTest, RejectsUnknownClassFields) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "missing_field.basl",
         "class Pair { i32 left; }"
@@ -2007,18 +1978,18 @@ TEST(BaslCompilerTest, RejectsUnknownClassFields) {
 }
 
 TEST(BaslCompilerTest, RejectsUnknownClassMethods) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "missing_method.basl",
         "class Pair { i32 left; }"
@@ -2045,19 +2016,19 @@ TEST(BaslCompilerTest, RejectsUnknownClassMethods) {
 }
 
 TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
     const basl_diagnostic_t *diagnostic;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "string_type.basl",
         "fn main() -> string { return 1; }",
@@ -2069,14 +2040,14 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressio
     );
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
-    ASSERT_NE(diagnostic, nullptr);
+    ASSERT_NE(diagnostic, NULL);
     EXPECT_STREQ(
         basl_string_c_str(&diagnostic->message),
         "main entrypoint must declare return type i32"
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "void_return_value.basl",
         "fn helper() -> void { return 1; }"
@@ -2094,7 +2065,7 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressio
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bool_return.basl",
         "fn main() -> i32 { return true; }",
@@ -2111,7 +2082,7 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressio
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "nil_return.basl",
         "fn main() -> i32 { return nil; }",
@@ -2128,7 +2099,7 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressio
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "float_return.basl",
         "fn main() -> i32 { return 3.14; }",
@@ -2150,18 +2121,18 @@ TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressio
 }
 
 TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "mixed_numeric.basl",
         "fn main() -> i32 { f64 x = 1.0 + 2; return 0; }",
@@ -2184,8 +2155,7 @@ TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i64 signed_large = 3000000000;"
             "    u64 huge = 9223372036854775808;"
             "    u64 max = 18446744073709551615;"
@@ -2201,18 +2171,18 @@ TEST(BaslCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
 }
 
 TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "uninit.basl",
         "fn main() -> i32 { i32 x; return 0; }",
@@ -2229,7 +2199,7 @@ TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "unknown.basl",
         "fn main() -> i32 { x = 1; return 0; }",
@@ -2246,7 +2216,7 @@ TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "condition.basl",
         "fn main() -> i32 { if (1) { return 1; } return 0; }",
@@ -2263,7 +2233,7 @@ TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "type.basl",
         "fn main() -> i32 { bool ready = 1; return 0; }",
@@ -2285,18 +2255,18 @@ TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
 }
 
 TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "main_params.basl",
         "fn main(i32 value) -> i32 { return value; }",
@@ -2316,7 +2286,7 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "arg_count.basl",
         "fn add(i32 left, i32 right) -> i32 { return left + right; }"
@@ -2334,7 +2304,7 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "arg_type.basl",
         "fn truthy(bool ready) -> i32 {"
@@ -2355,7 +2325,7 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "unknown_call.basl",
         "fn main() -> i32 { return missing(1); }",
@@ -2377,18 +2347,18 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
 }
 
 TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "logical_type.basl",
         "fn main() -> i32 { if (1 && true) { return 1; } return 0; }",
@@ -2405,7 +2375,7 @@ TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) 
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "break_outside.basl",
         "fn main() -> i32 { break; return 0; }",
@@ -2422,7 +2392,7 @@ TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) 
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "continue_outside.basl",
         "fn main() -> i32 { continue; return 0; }",
@@ -2444,18 +2414,18 @@ TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) 
 }
 
 TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "missing_return.basl",
         "fn choose(bool ready) -> i32 {"
@@ -2479,7 +2449,7 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "missing_main_return.basl",
         "fn main() -> i32 {"
@@ -2500,7 +2470,7 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "void_missing_value.basl",
         "fn helper(bool ready) -> void {"
@@ -2517,12 +2487,11 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
     );
     EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
     basl_object_release(&function);
-    function = nullptr;
+    function = NULL;
 
     basl_diagnostic_list_clear(&diagnostics);
     EXPECT_EQ(
-        CompileAndRun(
-            "fn choose(bool ready) -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn choose(bool ready) -> i32 {"
             "    if (ready) {"
                 "        return 1;"
             "    } else {"
@@ -2537,8 +2506,7 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
     );
 
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    i32 value = 7;"
             "    {"
             "        i32 value = 2;"
@@ -2555,18 +2523,18 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
 }
 
 TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "void_local.basl",
         "fn helper() -> void {}"
@@ -2584,7 +2552,7 @@ TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "void_param.basl",
         "fn bad(void value) -> i32 { return 0; }"
@@ -2602,7 +2570,7 @@ TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "void_global.basl",
         "void state = nil;"
@@ -2620,7 +2588,7 @@ TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "void_field.basl",
         "class Bad { void value; }"
@@ -2643,18 +2611,18 @@ TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
 }
 
 TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_defer.basl",
         "fn main() -> i32 {"
@@ -2680,18 +2648,18 @@ TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression) {
 }
 
 TEST(BaslCompilerTest, RejectsAssignmentToConstLocal) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "const_assign.basl",
         "fn main() -> i32 {"
@@ -2718,8 +2686,7 @@ TEST(BaslCompilerTest, RejectsAssignmentToConstLocal) {
 
 TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    array<i32> nums = [1, 2, 3];"
             "    map<i32, i32> scores = {1: 4, 2: 5};"
             "    map<bool, i32> flags = {true: 3, false: 1};"
@@ -2737,8 +2704,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignme
 
 TEST(BaslCompilerTest, CompilesAndExecutesForInOverArraysAndMaps) {
     EXPECT_EQ(
-        CompileAndRun(
-            "fn main() -> i32 {"
+        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
             "    array<i32> nums = [2, 4, 6, 8];"
             "    map<string, i32> scores = {\"a\": 1, \"b\": 3, \"c\": 5};"
             "    i32 sum = 0;"
@@ -2764,18 +2730,18 @@ TEST(BaslCompilerTest, CompilesAndExecutesForInOverArraysAndMaps) {
 }
 
 TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_array_for_in.basl",
         "fn main() -> i32 {"
@@ -2798,7 +2764,7 @@ TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_non_iterable_for_in.basl",
         "fn main() -> i32 {"
@@ -2826,18 +2792,18 @@ TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
 }
 
 TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_array_index.basl",
         "fn main() -> i32 {"
@@ -2857,7 +2823,7 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_map_index.basl",
         "fn main() -> i32 {"
@@ -2877,7 +2843,7 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_map_key_type.basl",
         "fn main() -> i32 {"
@@ -2897,7 +2863,7 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_index_compound_type.basl",
         "fn main() -> i32 {"
@@ -2923,18 +2889,18 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
 }
 
 TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_conv.basl",
         "fn main() -> i32 {"
@@ -2959,18 +2925,18 @@ TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
 }
 
 TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_any_call.basl",
         "fn add(i32 a, i32 b) -> i32 {"
@@ -2993,7 +2959,7 @@ TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignat
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_function_assign.basl",
         "fn log_name(string name) -> void {}"
@@ -3019,18 +2985,18 @@ TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignat
 }
 
 TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_err_ctor.basl",
         "fn main() -> i32 {"
@@ -3050,7 +3016,7 @@ TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
     );
 
     basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_err_method.basl",
         "fn main() -> i32 {"
@@ -3075,18 +3041,18 @@ TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
 }
 
 TEST(BaslCompilerTest, RejectsInvalidGuardBindings) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad_guard.basl",
         "fn divide(i32 a, i32 b) -> (i32, err) {"
@@ -3107,7 +3073,7 @@ TEST(BaslCompilerTest, RejectsInvalidGuardBindings) {
         basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
-    EXPECT_EQ(function, nullptr);
+    EXPECT_EQ(function, NULL);
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
         basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
@@ -3120,19 +3086,19 @@ TEST(BaslCompilerTest, RejectsInvalidGuardBindings) {
 }
 
 TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_source_id_t source_id;
     const basl_diagnostic_t *diagnostic;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(
+    source_id = RegisterSource(basl_test_failed_, 
         &registry,
         "bad.basl",
         "fn helper() -> i32 { return 1; }",
@@ -3143,7 +3109,7 @@ TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
         BASL_STATUS_SYNTAX_ERROR
     );
     diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
-    ASSERT_NE(diagnostic, nullptr);
+    ASSERT_NE(diagnostic, NULL);
     EXPECT_STREQ(
         basl_string_c_str(&diagnostic->message),
         "expected top-level function 'main'"

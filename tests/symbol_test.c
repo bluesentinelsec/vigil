@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -15,52 +12,51 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-}  // namespace
 
 TEST(BaslSymbolTest, InitStartsEmpty) {
     basl_symbol_table_t table;
 
-    basl_symbol_table_init(&table, nullptr);
+    basl_symbol_table_init(&table, NULL);
 
-    EXPECT_EQ(table.runtime, nullptr);
+    EXPECT_EQ(table.runtime, NULL);
     EXPECT_EQ(table.count, 0U);
     EXPECT_EQ(table.capacity, 0U);
-    EXPECT_EQ(table.strings, nullptr);
+    EXPECT_EQ(table.strings, NULL);
     EXPECT_EQ(basl_symbol_table_count(&table), 0U);
     EXPECT_FALSE(basl_symbol_table_is_valid(&table, BASL_SYMBOL_INVALID));
-    EXPECT_EQ(basl_symbol_table_c_str(&table, BASL_SYMBOL_INVALID), nullptr);
+    EXPECT_EQ(basl_symbol_table_c_str(&table, BASL_SYMBOL_INVALID), NULL);
     EXPECT_EQ(basl_symbol_table_length(&table, BASL_SYMBOL_INVALID), 0U);
 }
 
 TEST(BaslSymbolTest, InternReturnsStableSymbolForSameText) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_symbol_table_t table;
     basl_symbol_t first;
     basl_symbol_t second;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_symbol_table_init(&table, runtime);
 
     ASSERT_EQ(
@@ -76,7 +72,7 @@ TEST(BaslSymbolTest, InternReturnsStableSymbolForSameText) {
     EXPECT_EQ(first, 1U);
     EXPECT_EQ(basl_symbol_table_count(&table), 1U);
     EXPECT_TRUE(basl_symbol_table_is_valid(&table, first));
-    ASSERT_NE(basl_symbol_table_c_str(&table, first), nullptr);
+    ASSERT_NE(basl_symbol_table_c_str(&table, first), NULL);
     EXPECT_STREQ(basl_symbol_table_c_str(&table, first), "alpha");
     EXPECT_EQ(basl_symbol_table_length(&table, first), 5U);
 
@@ -85,13 +81,13 @@ TEST(BaslSymbolTest, InternReturnsStableSymbolForSameText) {
 }
 
 TEST(BaslSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_symbol_table_t table;
     basl_symbol_t alpha;
     basl_symbol_t beta;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_symbol_table_init(&table, runtime);
 
     ASSERT_EQ(
@@ -110,20 +106,20 @@ TEST(BaslSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup) {
     EXPECT_STREQ(basl_symbol_table_c_str(&table, beta), "beta");
     EXPECT_EQ(basl_symbol_table_length(&table, alpha), 5U);
     EXPECT_EQ(basl_symbol_table_length(&table, beta), 4U);
-    EXPECT_EQ(basl_symbol_table_c_str(&table, 3U), nullptr);
+    EXPECT_EQ(basl_symbol_table_c_str(&table, 3U), NULL);
 
     basl_symbol_table_free(&table);
     basl_runtime_close(&runtime);
 }
 
 TEST(BaslSymbolTest, ClearKeepsTableReusable) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_symbol_table_t table;
     basl_symbol_t symbol;
     size_t capacity;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_symbol_table_init(&table, runtime);
 
     ASSERT_EQ(
@@ -139,7 +135,7 @@ TEST(BaslSymbolTest, ClearKeepsTableReusable) {
     basl_symbol_table_clear(&table);
     EXPECT_EQ(basl_symbol_table_count(&table), 0U);
     EXPECT_EQ(table.capacity, capacity);
-    EXPECT_EQ(basl_symbol_table_c_str(&table, 1U), nullptr);
+    EXPECT_EQ(basl_symbol_table_c_str(&table, 1U), NULL);
 
     ASSERT_EQ(
         basl_symbol_table_intern_cstr(&table, "gamma", &symbol, &error),
@@ -153,19 +149,19 @@ TEST(BaslSymbolTest, ClearKeepsTableReusable) {
 }
 
 TEST(BaslSymbolTest, GrowthPreservesInternedNames) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_symbol_table_t table;
     char name[32];
     size_t index;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_symbol_table_init(&table, runtime);
 
     for (index = 0U; index < 128U; index += 1U) {
         basl_symbol_t symbol;
 
-        std::snprintf(name, sizeof(name), "name-%zu", index);
+        snprintf(name, sizeof(name), "name-%zu", index);
         ASSERT_EQ(
             basl_symbol_table_intern_cstr(&table, name, &symbol, &error),
             BASL_STATUS_OK
@@ -176,9 +172,9 @@ TEST(BaslSymbolTest, GrowthPreservesInternedNames) {
     for (index = 0U; index < 128U; index += 1U) {
         basl_symbol_t symbol;
 
-        std::snprintf(name, sizeof(name), "name-%zu", index);
-        symbol = static_cast<basl_symbol_t>(index + 1U);
-        ASSERT_NE(basl_symbol_table_c_str(&table, symbol), nullptr);
+        snprintf(name, sizeof(name), "name-%zu", index);
+        symbol = (basl_symbol_t)(index + 1U);
+        ASSERT_NE(basl_symbol_table_c_str(&table, symbol), NULL);
         EXPECT_STREQ(basl_symbol_table_c_str(&table, symbol), name);
     }
 
@@ -187,13 +183,13 @@ TEST(BaslSymbolTest, GrowthPreservesInternedNames) {
 }
 
 TEST(BaslSymbolTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_symbol_table_t table;
     basl_symbol_t symbol;
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t options = {};
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
@@ -223,24 +219,24 @@ TEST(BaslSymbolTest, UsesRuntimeAllocatorHooks) {
 
 TEST(BaslSymbolTest, RejectsMissingRuntimeAndInvalidArguments) {
     basl_symbol_table_t table;
-    basl_error_t error = {};
+    basl_error_t error = {0};
     basl_symbol_t symbol;
 
-    basl_symbol_table_init(&table, nullptr);
+    basl_symbol_table_init(&table, NULL);
 
     EXPECT_EQ(
         basl_symbol_table_intern_cstr(&table, "alpha", &symbol, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "symbol table runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "symbol table runtime must not be null"), 0);
 
     EXPECT_EQ(
-        basl_symbol_table_intern(nullptr, "alpha", 5U, &symbol, &error),
+        basl_symbol_table_intern(NULL, "alpha", 5U, &symbol, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "symbol table must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "symbol table must not be null"), 0);
 }

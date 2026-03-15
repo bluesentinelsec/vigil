@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdio>
-#include <cstring>
+#include <stdio.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct CaptureState {
     int call_count;
@@ -19,15 +16,15 @@ struct CaptureState {
 };
 
 void CaptureHandler(void *user_data, const basl_log_record_t *record) {
-    CaptureState *state = static_cast<CaptureState *>(user_data);
+    struct CaptureState *state = (struct CaptureState *)(user_data);
 
     state->call_count += 1;
     state->level = record->level;
-    std::snprintf(state->message, sizeof(state->message), "%s", record->message);
+    snprintf(state->message, sizeof(state->message), "%s", record->message);
     state->field_count = record->field_count;
     if (record->field_count != 0U) {
-        std::snprintf(state->field_key, sizeof(state->field_key), "%s", record->fields[0].key);
-        std::snprintf(
+        snprintf(state->field_key, sizeof(state->field_key), "%s", record->fields[0].key);
+        snprintf(
             state->field_value,
             sizeof(state->field_value),
             "%s",
@@ -36,23 +33,22 @@ void CaptureHandler(void *user_data, const basl_log_record_t *record) {
     }
 }
 
-}  // namespace
 
 TEST(BaslLogTest, LoggerInitSetsDefaultConfiguration) {
-    basl_logger_t logger = {};
+    basl_logger_t logger = {0};
 
     basl_logger_init(&logger);
 
     EXPECT_EQ(logger.minimum_level, BASL_LOG_INFO);
-    EXPECT_NE(logger.handler, nullptr);
-    EXPECT_EQ(logger.user_data, nullptr);
+    EXPECT_NE(logger.handler, NULL);
+    EXPECT_EQ(logger.user_data, NULL);
 }
 
 TEST(BaslLogTest, LoggerPassesStructuredRecordsToCustomHandler) {
-    CaptureState state = {};
-    basl_logger_t logger = {};
+    struct CaptureState state = {0};
+    basl_logger_t logger = {0};
     basl_log_field_t field = {"path", "/tmp/example.basl"};
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
     basl_logger_init(&logger);
     logger.minimum_level = BASL_LOG_DEBUG;
@@ -66,15 +62,15 @@ TEST(BaslLogTest, LoggerPassesStructuredRecordsToCustomHandler) {
     EXPECT_EQ(state.call_count, 1);
     EXPECT_EQ(state.level, BASL_LOG_INFO);
     EXPECT_STREQ(state.message, "compiled");
-    EXPECT_EQ(state.field_count, static_cast<size_t>(1));
+    EXPECT_EQ(state.field_count, (size_t)(1));
     EXPECT_STREQ(state.field_key, "path");
     EXPECT_STREQ(state.field_value, "/tmp/example.basl");
 }
 
 TEST(BaslLogTest, LoggerFiltersMessagesBelowMinimumLevel) {
-    CaptureState state = {};
-    basl_logger_t logger = {};
-    basl_error_t error = {};
+    struct CaptureState state = {0};
+    basl_logger_t logger = {0};
+    basl_error_t error = {0};
 
     basl_logger_init(&logger);
     logger.minimum_level = BASL_LOG_WARNING;
@@ -91,11 +87,11 @@ TEST(BaslLogTest, LoggerFiltersMessagesBelowMinimumLevel) {
 }
 
 TEST(BaslLogTest, RuntimeUsesConfiguredLogger) {
-    CaptureState state = {};
-    basl_logger_t logger = {};
-    basl_runtime_options_t options = {};
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    struct CaptureState state = {0};
+    basl_logger_t logger = {0};
+    basl_runtime_options_t options = {0};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
 
     basl_logger_init(&logger);
     logger.minimum_level = BASL_LOG_DEBUG;
@@ -105,8 +101,8 @@ TEST(BaslLogTest, RuntimeUsesConfiguredLogger) {
     options.logger = &logger;
 
     ASSERT_EQ(basl_runtime_open(&runtime, &options, &error), BASL_STATUS_OK);
-    ASSERT_NE(runtime, nullptr);
-    ASSERT_NE(basl_runtime_logger(runtime), nullptr);
+    ASSERT_NE(runtime, NULL);
+    ASSERT_NE(basl_runtime_logger(runtime), NULL);
 
     EXPECT_EQ(
         basl_logger_warning(basl_runtime_logger(runtime), "runtime logger", &error),
@@ -120,21 +116,21 @@ TEST(BaslLogTest, RuntimeUsesConfiguredLogger) {
 }
 
 TEST(BaslLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
-    basl_runtime_t *runtime = nullptr;
-    basl_logger_t logger = {};
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_logger_t logger = {0};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_logger_init(&logger);
-    logger.minimum_level = static_cast<basl_log_level_t>(999);
+    logger.minimum_level = (basl_log_level_t)(999);
 
     EXPECT_EQ(
         basl_runtime_set_logger(runtime, &logger, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "logger minimum_level is invalid"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "logger minimum_level is invalid"), 0);
 
     basl_runtime_close(&runtime);
 }
@@ -143,7 +139,7 @@ TEST(BaslLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
 TEST(BaslLogTest, FatalAlwaysTerminates) {
     EXPECT_DEATH(
         {
-            basl_logger_fatal(nullptr, "fatal test message", nullptr, 0U);
+            basl_logger_fatal(NULL, "fatal test message", NULL, 0U);
         },
         "fatal test message"
     );

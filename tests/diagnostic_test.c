@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -15,49 +12,48 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-}  // namespace
 
 TEST(BaslDiagnosticTest, InitStartsEmpty) {
     basl_diagnostic_list_t list;
 
-    basl_diagnostic_list_init(&list, nullptr);
+    basl_diagnostic_list_init(&list, NULL);
 
-    EXPECT_EQ(list.runtime, nullptr);
-    EXPECT_EQ(list.items, nullptr);
+    EXPECT_EQ(list.runtime, NULL);
+    EXPECT_EQ(list.items, NULL);
     EXPECT_EQ(list.count, 0U);
     EXPECT_EQ(list.capacity, 0U);
 }
 
 TEST(BaslDiagnosticTest, AppendCopiesMessageAndSpan) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_diagnostic_list_t list;
     basl_source_span_t span = {7U, 2U, 5U};
     const basl_diagnostic_t *diagnostic;
     char message[] = "unexpected token";
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_diagnostic_list_init(&list, runtime);
 
     ASSERT_EQ(
@@ -66,7 +62,7 @@ TEST(BaslDiagnosticTest, AppendCopiesMessageAndSpan) {
             BASL_DIAGNOSTIC_ERROR,
             span,
             message,
-            std::strlen(message),
+            strlen(message),
             &error
         ),
         BASL_STATUS_OK
@@ -74,7 +70,7 @@ TEST(BaslDiagnosticTest, AppendCopiesMessageAndSpan) {
 
     message[0] = 'X';
     diagnostic = basl_diagnostic_list_get(&list, 0U);
-    ASSERT_NE(diagnostic, nullptr);
+    ASSERT_NE(diagnostic, NULL);
     EXPECT_EQ(diagnostic->severity, BASL_DIAGNOSTIC_ERROR);
     EXPECT_EQ(diagnostic->span.source_id, 7U);
     EXPECT_EQ(diagnostic->span.start_offset, 2U);
@@ -86,14 +82,14 @@ TEST(BaslDiagnosticTest, AppendCopiesMessageAndSpan) {
 }
 
 TEST(BaslDiagnosticTest, ClearDropsItemsButKeepsListUsable) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_diagnostic_list_t list;
     size_t capacity;
     basl_source_span_t warning_span = {1U, 0U, 1U};
     basl_source_span_t note_span = {1U, 1U, 2U};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_diagnostic_list_init(&list, runtime);
 
     ASSERT_EQ(
@@ -130,10 +126,10 @@ TEST(BaslDiagnosticTest, ClearDropsItemsButKeepsListUsable) {
 
 TEST(BaslDiagnosticTest, RejectsMissingRuntime) {
     basl_diagnostic_list_t list;
-    basl_error_t error = {};
+    basl_error_t error = {0};
     basl_source_span_t span = {0U, 0U, 0U};
 
-    basl_diagnostic_list_init(&list, nullptr);
+    basl_diagnostic_list_init(&list, NULL);
 
     EXPECT_EQ(
         basl_diagnostic_list_append_cstr(
@@ -146,17 +142,17 @@ TEST(BaslDiagnosticTest, RejectsMissingRuntime) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "diagnostic list runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "diagnostic list runtime must not be null"), 0);
 }
 
 TEST(BaslDiagnosticTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_diagnostic_list_t list;
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t options = {};
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t options = {0};
     basl_source_span_t error_span = {1U, 0U, 1U};
     basl_source_span_t note_span = {1U, 2U, 3U};
     basl_source_span_t warning_span = {1U, 4U, 5U};
@@ -230,12 +226,12 @@ TEST(BaslDiagnosticTest, UsesRuntimeAllocatorHooks) {
 }
 
 TEST(BaslDiagnosticTest, FreeResetsWholeList) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_diagnostic_list_t list;
     basl_source_span_t span = {1U, 0U, 1U};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_diagnostic_list_init(&list, runtime);
     ASSERT_EQ(
         basl_diagnostic_list_append_cstr(
@@ -250,8 +246,8 @@ TEST(BaslDiagnosticTest, FreeResetsWholeList) {
 
     basl_diagnostic_list_free(&list);
 
-    EXPECT_EQ(list.runtime, nullptr);
-    EXPECT_EQ(list.items, nullptr);
+    EXPECT_EQ(list.runtime, NULL);
+    EXPECT_EQ(list.items, NULL);
     EXPECT_EQ(list.count, 0U);
     EXPECT_EQ(list.capacity, 0U);
     basl_runtime_close(&runtime);
@@ -264,15 +260,15 @@ TEST(BaslDiagnosticTest, SeverityNamesAreStable) {
 }
 
 TEST(BaslDiagnosticTest, FormatIncludesPathLineColumnSeverityAndMessage) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_source_id_t source_id = 0U;
     basl_diagnostic_list_t list;
     basl_string_t output;
     basl_source_span_t span;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&list, runtime);
     basl_string_init(&output, runtime);

@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -15,29 +12,29 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-basl_source_span_t Span(basl_source_id_t source_id, size_t start, size_t end) {
-    basl_source_span_t span = {};
+static basl_source_span_t Span(basl_source_id_t source_id, size_t start, size_t end) {
+    basl_source_span_t span = {0};
 
     span.source_id = source_id;
     span.start_offset = start;
@@ -45,30 +42,29 @@ basl_source_span_t Span(basl_source_id_t source_id, size_t start, size_t end) {
     return span;
 }
 
-}  // namespace
 
 TEST(BaslChunkTest, InitStartsEmpty) {
     basl_chunk_t chunk;
 
-    basl_chunk_init(&chunk, nullptr);
+    basl_chunk_init(&chunk, NULL);
 
-    EXPECT_EQ(chunk.runtime, nullptr);
+    EXPECT_EQ(chunk.runtime, NULL);
     EXPECT_EQ(basl_chunk_code_size(&chunk), 0U);
     EXPECT_EQ(basl_chunk_constant_count(&chunk), 0U);
-    EXPECT_EQ(basl_chunk_code(&chunk), nullptr);
-    EXPECT_EQ(basl_chunk_constant(&chunk, 0U), nullptr);
+    EXPECT_EQ(basl_chunk_code(&chunk), NULL);
+    EXPECT_EQ(basl_chunk_constant(&chunk, 0U), NULL);
     EXPECT_EQ(basl_chunk_span_at(&chunk, 0U).source_id, 0U);
 }
 
 TEST(BaslChunkTest, WriteOpcodeAndBytesTrackSourceSpans) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
     const uint8_t *code;
     basl_source_span_t opcode_span = Span(1U, 10U, 11U);
     basl_source_span_t operand_span = Span(1U, 12U, 16U);
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
 
     ASSERT_EQ(
@@ -81,7 +77,7 @@ TEST(BaslChunkTest, WriteOpcodeAndBytesTrackSourceSpans) {
     );
 
     code = basl_chunk_code(&chunk);
-    ASSERT_NE(code, nullptr);
+    ASSERT_NE(code, NULL);
     ASSERT_EQ(basl_chunk_code_size(&chunk), 5U);
     EXPECT_EQ(code[0], (uint8_t)BASL_OPCODE_RETURN);
     EXPECT_EQ(code[1], 0x12U);
@@ -97,15 +93,15 @@ TEST(BaslChunkTest, WriteOpcodeAndBytesTrackSourceSpans) {
 }
 
 TEST(BaslChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
-    basl_object_t *object = nullptr;
+    basl_object_t *object = NULL;
     basl_value_t value;
     const basl_value_t *stored;
     size_t index = SIZE_MAX;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "hello", &object, &error),
@@ -113,7 +109,7 @@ TEST(BaslChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
     );
 
     basl_value_init_object(&value, &object);
-    ASSERT_EQ(object, nullptr);
+    ASSERT_EQ(object, NULL);
 
     ASSERT_EQ(
         basl_chunk_add_constant(&chunk, &value, &index, &error),
@@ -123,8 +119,8 @@ TEST(BaslChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
     EXPECT_EQ(index, 0U);
     EXPECT_EQ(basl_chunk_constant_count(&chunk), 1U);
     stored = basl_chunk_constant(&chunk, index);
-    ASSERT_NE(stored, nullptr);
-    ASSERT_NE(basl_value_as_object(stored), nullptr);
+    ASSERT_NE(stored, NULL);
+    ASSERT_NE(basl_value_as_object(stored), NULL);
     EXPECT_EQ(basl_object_ref_count(basl_value_as_object(stored)), 2U);
     EXPECT_STREQ(
         basl_string_object_c_str(basl_value_as_object(stored)),
@@ -139,14 +135,14 @@ TEST(BaslChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
 }
 
 TEST(BaslChunkTest, WriteConstantEncodesInstructionAndConstantIndex) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
     basl_value_t value;
     size_t index = SIZE_MAX;
     const uint8_t *code;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_int(&value, 42);
 
@@ -158,7 +154,7 @@ TEST(BaslChunkTest, WriteConstantEncodesInstructionAndConstantIndex) {
     ASSERT_EQ(index, 0U);
     ASSERT_EQ(basl_chunk_code_size(&chunk), 5U);
     code = basl_chunk_code(&chunk);
-    ASSERT_NE(code, nullptr);
+    ASSERT_NE(code, NULL);
     EXPECT_EQ(code[0], (uint8_t)BASL_OPCODE_CONSTANT);
     EXPECT_EQ(code[1], 0U);
     EXPECT_EQ(code[2], 0U);
@@ -172,19 +168,19 @@ TEST(BaslChunkTest, WriteConstantEncodesInstructionAndConstantIndex) {
 }
 
 TEST(BaslChunkTest, DisassembleFormatsOpcodesAndConstants) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
     basl_string_t output;
     basl_value_t value;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_string_init(&output, runtime);
     basl_value_init_int(&value, 123);
 
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &value, Span(1U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &value, Span(1U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -193,8 +189,8 @@ TEST(BaslChunkTest, DisassembleFormatsOpcodesAndConstants) {
     );
     ASSERT_EQ(basl_chunk_disassemble(&chunk, &output, &error), BASL_STATUS_OK);
 
-    EXPECT_NE(std::strstr(basl_string_c_str(&output), "0000 CONSTANT 0 123"), nullptr);
-    EXPECT_NE(std::strstr(basl_string_c_str(&output), "0005 RETURN"), nullptr);
+    EXPECT_NE(strstr(basl_string_c_str(&output), "0000 CONSTANT 0 123"), NULL);
+    EXPECT_NE(strstr(basl_string_c_str(&output), "0005 RETURN"), NULL);
 
     basl_string_free(&output);
     basl_chunk_free(&chunk);
@@ -202,13 +198,13 @@ TEST(BaslChunkTest, DisassembleFormatsOpcodesAndConstants) {
 }
 
 TEST(BaslChunkTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
     basl_value_t value;
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t options = {};
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
@@ -222,7 +218,7 @@ TEST(BaslChunkTest, UsesRuntimeAllocatorHooks) {
     basl_value_init_int(&value, 1);
 
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &value, Span(1U, 0U, 1U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &value, Span(1U, 0U, 1U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -239,19 +235,19 @@ TEST(BaslChunkTest, UsesRuntimeAllocatorHooks) {
 
 TEST(BaslChunkTest, RejectsMissingRuntimeForMutation) {
     basl_chunk_t chunk;
-    basl_error_t error = {};
+    basl_error_t error = {0};
     basl_value_t value;
 
-    basl_chunk_init(&chunk, nullptr);
+    basl_chunk_init(&chunk, NULL);
     basl_value_init_nil(&value);
 
     EXPECT_EQ(
-        basl_chunk_add_constant(&chunk, &value, nullptr, &error),
+        basl_chunk_add_constant(&chunk, &value, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "chunk runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "chunk runtime must not be null"), 0);
 
     EXPECT_EQ(
         basl_chunk_write_opcode(&chunk, BASL_OPCODE_RETURN, Span(0U, 0U, 0U), &error),
@@ -260,25 +256,25 @@ TEST(BaslChunkTest, RejectsMissingRuntimeForMutation) {
 }
 
 TEST(BaslChunkTest, RejectsMissingArguments) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_chunk_t chunk;
     basl_string_t output;
     basl_value_t value;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_string_init(&output, runtime);
     basl_value_init_nil(&value);
 
     EXPECT_EQ(
-        basl_chunk_add_constant(&chunk, nullptr, nullptr, &error),
+        basl_chunk_add_constant(&chunk, NULL, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
+    ASSERT_NE(error.value, NULL);
     EXPECT_EQ(
-        std::strcmp(error.value, "chunk constant requires value and out_index"),
+        strcmp(error.value, "chunk constant requires value and out_index"),
         0
     );
 
