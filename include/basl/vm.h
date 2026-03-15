@@ -53,6 +53,23 @@ BASL_API basl_status_t basl_vm_stack_push(
     basl_vm_t *vm, const basl_value_t *value, basl_error_t *error);
 BASL_API void basl_vm_stack_pop_n(basl_vm_t *vm, size_t count);
 
+/* Debug hook — set by debugger, NULL when not debugging. */
+BASL_API void basl_vm_set_debug_hook(
+    basl_vm_t *vm,
+    int (*hook)(basl_vm_t *vm, void *userdata),
+    void *userdata
+);
+
+/* Frame inspection for debugger. */
+BASL_API const basl_chunk_t *basl_vm_frame_chunk(
+    const basl_vm_t *vm, size_t frame_index);
+BASL_API size_t basl_vm_frame_ip(
+    const basl_vm_t *vm, size_t frame_index);
+BASL_API size_t basl_vm_frame_base_slot(
+    const basl_vm_t *vm, size_t frame_index);
+BASL_API const basl_object_t *basl_vm_frame_function(
+    const basl_vm_t *vm, size_t frame_index);
+
 #ifdef __cplusplus
 }
 #endif
