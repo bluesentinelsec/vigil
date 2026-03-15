@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "basl/debug_info.h"
 #include "basl/diagnostic.h"
 #include "basl/export.h"
 #include "basl/runtime.h"
@@ -126,6 +127,23 @@ BASL_API basl_status_t basl_compile_source_with_natives(
     const basl_native_registry_t *natives,
     basl_object_t **out_function,
     basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error
+);
+
+/**
+ * Compile with debug symbol table output.
+ * If out_symbols is non-NULL, it will be populated with all program-level
+ * symbol definitions (functions, classes, interfaces, enums, fields,
+ * methods, globals). The caller must free it with
+ * basl_debug_symbol_table_free().
+ */
+BASL_API basl_status_t basl_compile_source_with_debug_info(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    const basl_native_registry_t *natives,
+    basl_object_t **out_function,
+    basl_diagnostic_list_t *diagnostics,
+    basl_debug_symbol_table_t *out_symbols,
     basl_error_t *error
 );
 

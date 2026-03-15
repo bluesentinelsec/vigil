@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "basl/array.h"
+#include "basl/debug_info.h"
 #include "basl/export.h"
 #include "basl/source.h"
 #include "basl/status.h"
@@ -202,6 +203,7 @@ typedef struct basl_chunk {
     basl_value_t *constants;
     size_t constant_count;
     size_t constant_capacity;
+    basl_debug_local_table_t debug_locals;
 } basl_chunk_t;
 
 BASL_API void basl_chunk_init(basl_chunk_t *chunk, basl_runtime_t *runtime);

@@ -362,6 +362,7 @@ void basl_chunk_init(basl_chunk_t *chunk, basl_runtime_t *runtime) {
     memset(chunk, 0, sizeof(*chunk));
     chunk->runtime = runtime;
     basl_byte_buffer_init(&chunk->code, runtime);
+    basl_debug_local_table_init(&chunk->debug_locals, runtime);
 }
 
 void basl_chunk_clear(basl_chunk_t *chunk) {
@@ -399,6 +400,8 @@ void basl_chunk_free(basl_chunk_t *chunk) {
     if (chunk->runtime != NULL) {
         basl_runtime_free(chunk->runtime, &memory);
     }
+
+    basl_debug_local_table_free(&chunk->debug_locals);
 
     memset(chunk, 0, sizeof(*chunk));
 }
