@@ -87,6 +87,7 @@ jobs:
 
       - name: Test (Simulator)
         run: |
+          codesign --force --sign - build/basl_tests
           RUNTIME=$(xcrun simctl list runtimes iOS available -j | python3 -c "import sys,json; rts=json.load(sys.stdin)['runtimes']; print(rts[-1]['identifier'])")
           UDID=$(xcrun simctl create basl_test "iPhone 16" "$RUNTIME")
           xcrun simctl boot "$UDID"
