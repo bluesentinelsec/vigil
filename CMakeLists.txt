@@ -176,7 +176,7 @@ if(BASL_BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(basl_tests)
 
-    if (NOT EMSCRIPTEN)
+    if (NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         add_test(
             NAME BaslSyntaxIntegrationTest
             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
