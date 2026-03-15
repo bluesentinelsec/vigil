@@ -25,7 +25,8 @@ static std::string read_all(FILE *f) {
     long size = ftell(f);
     fseek(f, 0, SEEK_SET);
     std::string result(size, '\0');
-    fread(&result[0], 1, size, f);
+    size_t n = fread(&result[0], 1, size, f);
+    result.resize(n);
     return result;
 }
 
