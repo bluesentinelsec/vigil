@@ -2853,6 +2853,15 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_STRING_TO_LOWER] = &&op_STRING_TO_LOWER,
             [BASL_OPCODE_STRING_TO_UPPER] = &&op_STRING_TO_UPPER,
             [BASL_OPCODE_STRING_TRIM] = &&op_STRING_TRIM,
+            [BASL_OPCODE_STRING_TRIM_LEFT] = &&op_STRING_TRIM_LEFT,
+            [BASL_OPCODE_STRING_TRIM_RIGHT] = &&op_STRING_TRIM_RIGHT,
+            [BASL_OPCODE_STRING_REPEAT] = &&op_STRING_REPEAT,
+            [BASL_OPCODE_STRING_REVERSE] = &&op_STRING_REVERSE,
+            [BASL_OPCODE_STRING_IS_EMPTY] = &&op_STRING_IS_EMPTY,
+            [BASL_OPCODE_STRING_COUNT] = &&op_STRING_COUNT,
+            [BASL_OPCODE_STRING_LAST_INDEX_OF] = &&op_STRING_LAST_INDEX_OF,
+            [BASL_OPCODE_STRING_TRIM_PREFIX] = &&op_STRING_TRIM_PREFIX,
+            [BASL_OPCODE_STRING_TRIM_SUFFIX] = &&op_STRING_TRIM_SUFFIX,
             [BASL_OPCODE_SUBTRACT] = &&op_SUBTRACT,
             [BASL_OPCODE_TO_F64] = &&op_TO_F64,
             [BASL_OPCODE_TO_I32] = &&op_TO_I32,
@@ -5077,6 +5086,343 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 VM_BREAK();
+
+            /* ── New string methods ──────────────────────────────── */
+
+            VM_CASE(STRING_TRIM_LEFT)
+            VM_CASE(STRING_TRIM_RIGHT) {
+                basl_opcode_t string_opcode = (basl_opcode_t)code[frame->ip];
+                const char *text;
+                size_t length;
+
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string method requires a string receiver", error
+                    );
+                    goto cleanup;
+                }
+
+                if (string_opcode == BASL_OPCODE_STRING_TRIM_LEFT) {
+                    size_t start = 0U;
+                    while (start < length && isspace((unsigned char)text[start])) {
+                        start += 1U;
+                    }
+                    status = basl_vm_new_string_value(
+                        vm, text + start, length - start, &value, error
+                    );
+                } else {
+                    size_t end = length;
+                    while (end > 0U && isspace((unsigned char)text[end - 1U])) {
+                        end -= 1U;
+                    }
+                    status = basl_vm_new_string_value(vm, text, end, &value, error);
+                }
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    goto cleanup;
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_REVERSE) {
+                const char *text;
+                size_t length;
+
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string method requires a string receiver", error
+                    );
+                    goto cleanup;
+                }
+
+                {
+                    void *memory = NULL;
+                    char *buffer;
+                    size_t i;
+
+                    status = basl_runtime_alloc(vm->runtime, length + 1U, &memory, error);
+                    if (status == BASL_STATUS_OK) {
+                        buffer = (char *)memory;
+                        for (i = 0U; i < length; i += 1U) {
+                            buffer[i] = text[length - 1U - i];
+                        }
+                        buffer[length] = '\0';
+                        status = basl_vm_new_string_value(vm, buffer, length, &value, error);
+                        basl_runtime_free(vm->runtime, &memory);
+                    }
+                }
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    goto cleanup;
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_IS_EMPTY) {
+                const char *text;
+                size_t length;
+
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string method requires a string receiver", error
+                    );
+                    goto cleanup;
+                }
+
+                BASL_VM_VALUE_RELEASE(&left);
+                basl_value_init_bool(&value, length == 0U);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_REPEAT) {
+                const char *text;
+                size_t length;
+                int64_t count;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &length) ||
+                    !basl_nanbox_is_int(right)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string repeat() requires an i32 count", error
+                    );
+                    goto cleanup;
+                }
+
+                count = basl_value_as_int(&right);
+                BASL_VM_VALUE_RELEASE(&right);
+
+                if (count <= 0) {
+                    status = basl_vm_new_string_value(vm, "", 0U, &value, error);
+                } else {
+                    size_t total = length * (size_t)count;
+                    void *memory = NULL;
+                    char *buffer;
+                    int64_t i;
+
+                    status = basl_runtime_alloc(vm->runtime, total + 1U, &memory, error);
+                    if (status == BASL_STATUS_OK) {
+                        buffer = (char *)memory;
+                        for (i = 0; i < count; i += 1) {
+                            memcpy(buffer + (size_t)i * length, text, length);
+                        }
+                        buffer[total] = '\0';
+                        status = basl_vm_new_string_value(vm, buffer, total, &value, error);
+                        basl_runtime_free(vm->runtime, &memory);
+                    }
+                }
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    goto cleanup;
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_COUNT) {
+                const char *text;
+                size_t text_length;
+                const char *needle;
+                size_t needle_length;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &text_length) ||
+                    !basl_vm_get_string_parts(&right, &needle, &needle_length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string count() requires a string argument", error
+                    );
+                    goto cleanup;
+                }
+
+                {
+                    int64_t n = 0;
+                    if (needle_length > 0U && needle_length <= text_length) {
+                        const char *p = text;
+                        const char *end = text + text_length;
+                        while (p <= end - needle_length) {
+                            if (memcmp(p, needle, needle_length) == 0) {
+                                n += 1;
+                                p += needle_length;
+                            } else {
+                                p += 1;
+                            }
+                        }
+                    }
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    basl_value_init_int(&value, n);
+                    status = basl_vm_push(vm, &value, error);
+                    BASL_VM_VALUE_RELEASE(&value);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                }
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_LAST_INDEX_OF) {
+                const char *text;
+                size_t text_length;
+                const char *needle;
+                size_t needle_length;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &text_length) ||
+                    !basl_vm_get_string_parts(&right, &needle, &needle_length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string last_index_of() requires a string argument", error
+                    );
+                    goto cleanup;
+                }
+
+                {
+                    int64_t found_index = -1;
+                    if (needle_length > 0U && needle_length <= text_length) {
+                        size_t i = text_length - needle_length;
+                        for (;;) {
+                            if (memcmp(text + i, needle, needle_length) == 0) {
+                                found_index = (int64_t)i;
+                                break;
+                            }
+                            if (i == 0U) break;
+                            i -= 1U;
+                        }
+                    }
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    basl_value_init_int(&value, found_index >= 0 ? found_index : 0);
+                    status = basl_vm_push(vm, &value, error);
+                    if (status == BASL_STATUS_OK) {
+                        basl_value_t found_val;
+                        basl_value_init_bool(&found_val, found_index >= 0);
+                        status = basl_vm_push(vm, &found_val, error);
+                        BASL_VM_VALUE_RELEASE(&found_val);
+                    }
+                    BASL_VM_VALUE_RELEASE(&value);
+                    if (status != BASL_STATUS_OK) {
+                        goto cleanup;
+                    }
+                }
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_TRIM_PREFIX)
+            VM_CASE(STRING_TRIM_SUFFIX) {
+                basl_opcode_t string_opcode = (basl_opcode_t)code[frame->ip];
+                const char *text;
+                size_t text_length;
+                const char *prefix;
+                size_t prefix_length;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &text_length) ||
+                    !basl_vm_get_string_parts(&right, &prefix, &prefix_length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "string method requires a string argument", error
+                    );
+                    goto cleanup;
+                }
+
+                if (string_opcode == BASL_OPCODE_STRING_TRIM_PREFIX) {
+                    if (prefix_length <= text_length &&
+                        memcmp(text, prefix, prefix_length) == 0) {
+                        status = basl_vm_new_string_value(
+                            vm, text + prefix_length,
+                            text_length - prefix_length, &value, error
+                        );
+                    } else {
+                        status = basl_vm_new_string_value(
+                            vm, text, text_length, &value, error
+                        );
+                    }
+                } else {
+                    if (prefix_length <= text_length &&
+                        memcmp(text + text_length - prefix_length,
+                               prefix, prefix_length) == 0) {
+                        status = basl_vm_new_string_value(
+                            vm, text, text_length - prefix_length, &value, error
+                        );
+                    } else {
+                        status = basl_vm_new_string_value(
+                            vm, text, text_length, &value, error
+                        );
+                    }
+                }
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    goto cleanup;
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                BASL_VM_VALUE_RELEASE(&right);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+
             VM_CASE(GET_MAP_KEY_AT)
                 frame->ip += 1U;
                 right = basl_vm_pop_or_nil(vm);

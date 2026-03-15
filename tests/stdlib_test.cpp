@@ -1577,4 +1577,110 @@ TEST(BaslStdlibMathTest, Mat4Frustum) {
     )"), 0);
 }
 
+/* ── String trim_left / trim_right ────────────────────────────────── */
+
+TEST(BaslStdlibStringTest, TrimLeftAndTrimRight) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    string s = "  hello  ";
+    if (s.trim_left() != "hello  ") { return 1; }
+    if (s.trim_right() != "  hello") { return 2; }
+    if ("nowhitespace".trim_left() != "nowhitespace") { return 3; }
+    if ("nowhitespace".trim_right() != "nowhitespace") { return 4; }
+    if ("   ".trim_left() != "") { return 5; }
+    if ("   ".trim_right() != "") { return 6; }
+    return 0;
+}
+    )"), 0);
+}
+
+/* ── String reverse ──────────────────────────────────────────────── */
+
+TEST(BaslStdlibStringTest, Reverse) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    if ("hello".reverse() != "olleh") { return 1; }
+    if ("".reverse() != "") { return 2; }
+    if ("a".reverse() != "a") { return 3; }
+    if ("abcd".reverse() != "dcba") { return 4; }
+    return 0;
+}
+    )"), 0);
+}
+
+/* ── String is_empty ─────────────────────────────────────────────── */
+
+TEST(BaslStdlibStringTest, IsEmpty) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    if ("".is_empty() != true) { return 1; }
+    if ("x".is_empty() != false) { return 2; }
+    if (" ".is_empty() != false) { return 3; }
+    return 0;
+}
+    )"), 0);
+}
+
+/* ── String repeat ───────────────────────────────────────────────── */
+
+TEST(BaslStdlibStringTest, Repeat) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    if ("abc".repeat(i32(3)) != "abcabcabc") { return 1; }
+    if ("x".repeat(i32(0)) != "") { return 2; }
+    if ("hi".repeat(i32(1)) != "hi") { return 3; }
+    if ("".repeat(i32(5)) != "") { return 4; }
+    return 0;
+}
+    )"), 0);
+}
+
+/* ── String count ────────────────────────────────────────────────── */
+
+TEST(BaslStdlibStringTest, Count) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    if ("abcabcabc".count("abc") != i32(3)) { return 1; }
+    if ("hello".count("x") != i32(0)) { return 2; }
+    if ("aaa".count("a") != i32(3)) { return 3; }
+    if ("aaaa".count("aa") != i32(2)) { return 4; }
+    return 0;
+}
+    )"), 0);
+}
+
+/* ── String last_index_of ────────────────────────────────────────── */
+
+TEST(BaslStdlibStringTest, LastIndexOf) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    i32 idx, bool found = "hello world".last_index_of("o");
+    if (idx != i32(7)) { return 1; }
+    if (found != true) { return 2; }
+    i32 idx2, bool found2 = "hello".last_index_of("xyz");
+    if (found2 != false) { return 3; }
+    i32 idx3, bool found3 = "abcabc".last_index_of("abc");
+    if (idx3 != i32(3)) { return 4; }
+    if (found3 != true) { return 5; }
+    return 0;
+}
+    )"), 0);
+}
+
+/* ── String trim_prefix / trim_suffix ────────────────────────────── */
+
+TEST(BaslStdlibStringTest, TrimPrefixAndTrimSuffix) {
+    EXPECT_EQ(RunWithStdlib(R"(
+fn main() -> i32 {
+    if ("hello world".trim_prefix("hello ") != "world") { return 1; }
+    if ("hello world".trim_suffix(" world") != "hello") { return 2; }
+    if ("hello".trim_prefix("xyz") != "hello") { return 3; }
+    if ("hello".trim_suffix("xyz") != "hello") { return 4; }
+    if ("hello".trim_prefix("hello") != "") { return 5; }
+    if ("hello".trim_suffix("hello") != "") { return 6; }
+    return 0;
+}
+    )"), 0);
+}
+
 }  // namespace

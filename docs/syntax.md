@@ -667,6 +667,15 @@ These are heavily used and part of everyday BASL style.
 | `s.substr(start, len)` | `(string, err)` |
 | `s.bytes()` | `array<u8>` |
 | `s.char_at(i)` | `(string, err)` |
+| `s.trim_left()` | `string` |
+| `s.trim_right()` | `string` |
+| `s.reverse()` | `string` |
+| `s.is_empty()` | `bool` |
+| `s.repeat(n)` | `string` |
+| `s.count(sub)` | `i32` |
+| `s.last_index_of(sub)` | `(i32, bool)` |
+| `s.trim_prefix(prefix)` | `string` |
+| `s.trim_suffix(suffix)` | `string` |
 
 ### Array
 
