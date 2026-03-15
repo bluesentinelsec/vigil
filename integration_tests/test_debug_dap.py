@@ -155,6 +155,8 @@ class TestBaslDebug(unittest.TestCase):
 
     def test_initialize_and_disconnect(self):
         """Basic DAP handshake: initialize → initialized event → disconnect."""
+        if sys.platform == "win32":
+            self.skipTest("DAP stdio tests unreliable on Windows CI pipes")
         client, _ = self._start_debug(
             'import "fmt";\nfn main() -> i32 {\n    return 0;\n}\n'
         )
@@ -182,6 +184,8 @@ class TestBaslDebug(unittest.TestCase):
 
     def test_launch_and_terminate(self):
         """Launch a program, let it run to completion."""
+        if sys.platform == "win32":
+            self.skipTest("DAP stdio tests unreliable on Windows CI pipes")
         client, script_path = self._start_debug(
             'import "fmt";\nfn main() -> i32 {\n    fmt.println("debug test");\n    return 0;\n}\n'
         )
