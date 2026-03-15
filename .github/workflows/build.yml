@@ -74,21 +74,23 @@ jobs:
 
       - name: Configure (Simulator, universal binary)
         run: >
-          cmake -S . -B build -G Xcode
+          cmake -S . -B build
           -DCMAKE_SYSTEM_NAME=iOS
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_SYSROOT=iphonesimulator
           -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
           -DBASL_BUILD_TESTS=ON
+          -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build build --config Release -- -sdk iphonesimulator
+        run: cmake --build build --config Release
 
       - name: Test (Simulator)
         run: |
           RUNTIME=$(xcrun simctl list runtimes iOS available -j | python3 -c "import sys,json; rts=json.load(sys.stdin)['runtimes']; print(rts[-1]['identifier'])")
           UDID=$(xcrun simctl create basl_test "iPhone 16" "$RUNTIME")
           xcrun simctl boot "$UDID"
-          xcrun simctl spawn "$UDID" build/Release-iphonesimulator/basl_tests
+          xcrun simctl spawn "$UDID" "$(pwd)/build/basl_tests"
           xcrun simctl shutdown "$UDID"
           xcrun simctl delete "$UDID"
 

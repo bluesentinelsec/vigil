@@ -174,7 +174,14 @@ if(BASL_BUILD_TESTS)
     target_compile_features(basl_tests PRIVATE cxx_std_17)
 
     include(GoogleTest)
-    gtest_discover_tests(basl_tests)
+    if(CMAKE_CROSSCOMPILING)
+        # gtest_discover_tests runs the binary at build time, which fails
+        # for cross-compiled targets (Android, iOS).  Register a single
+        # CTest entry that runs the whole binary instead.
+        add_test(NAME basl_tests COMMAND basl_tests)
+    else()
+        gtest_discover_tests(basl_tests)
+    endif()
 
     if (NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         add_test(

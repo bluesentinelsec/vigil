@@ -139,11 +139,7 @@ TEST(BaslLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
     basl_runtime_close(&runtime);
 }
 
-#if defined(__EMSCRIPTEN__)
-TEST(BaslLogTest, FatalIsSkippedOnEmscripten) {
-    GTEST_SKIP() << "fatal logging death tests are not supported on Emscripten";
-}
-#else
+#if GTEST_HAS_DEATH_TEST
 TEST(BaslLogTest, FatalAlwaysTerminates) {
     EXPECT_DEATH(
         {
