@@ -3,6 +3,12 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _MSC_VER
+#define cli_strdup _strdup
+#else
+#define cli_strdup strdup
+#endif
+
 #include "basl/basl.h"
 #include "basl/cli_lib.h"
 #include "basl/dap.h"
@@ -977,7 +983,7 @@ static void sl_add(str_list_t *sl, const char *s) {
         sl->cap = sl->cap ? sl->cap * 2 : 16;
         sl->items = realloc(sl->items, sl->cap * sizeof(char *));
     }
-    sl->items[sl->count++] = strdup(s);
+    sl->items[sl->count++] = cli_strdup(s);
 }
 
 static void sl_free(str_list_t *sl) {
@@ -1382,8 +1388,8 @@ static void fl_add(file_list_t *fl, const char *path, const char *rel) {
         fl->paths = realloc(fl->paths, fl->cap * sizeof(char *));
         fl->rels = realloc(fl->rels, fl->cap * sizeof(char *));
     }
-    fl->paths[fl->count] = strdup(path);
-    fl->rels[fl->count] = strdup(rel);
+    fl->paths[fl->count] = cli_strdup(path);
+    fl->rels[fl->count] = cli_strdup(rel);
     fl->count++;
 }
 
