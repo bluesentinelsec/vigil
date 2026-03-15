@@ -171,10 +171,20 @@ basl_status_t basl_platform_mkdir_p(const char *path, basl_error_t *error) {
 }
 
 basl_status_t basl_platform_remove(const char *path, basl_error_t *error) {
+    DWORD attr;
     if (!path) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
                                "platform: NULL path");
         return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    attr = GetFileAttributesA(path);
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (_rmdir(path) != 0) {
+            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                                   "platform: rmdir failed");
+            return BASL_STATUS_INTERNAL;
+        }
+        return BASL_STATUS_OK;
     }
     if (remove(path) != 0) {
         basl_error_set_literal(error, BASL_STATUS_INTERNAL,
