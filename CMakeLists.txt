@@ -43,6 +43,7 @@ add_library(basl_core OBJECT
     src/diagnostic.c
     src/json.c
     src/jsonrpc.c
+    src/toml.c
     src/lexer.c
     src/log.c
     src/map.c
@@ -156,6 +157,7 @@ if(BASL_BUILD_TESTS)
         tests/json_test.cpp
         tests/lexer_test.cpp
         tests/log_test.cpp
+        tests/toml_test.cpp
         tests/map_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp
