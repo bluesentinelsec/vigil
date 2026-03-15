@@ -6,6 +6,7 @@
 #include "basl/cli_lib.h"
 #include "basl/dap.h"
 #include "basl/doc.h"
+#include "basl/fmt.h"
 #include "basl/package.h"
 #include "basl/stdlib.h"
 #include "basl/toml.h"
@@ -848,6 +849,105 @@ static int try_run_packaged(int argc, char **argv) {
     }
 }
 
+/* ── fmt command ─────────────────────────────────────────────────── */
+
+static int fmt_one_file(const char *file_path, int check_only) {
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_source_registry_t registry;
+    basl_source_id_t source_id = 0U;
+    basl_token_list_t tokens;
+    basl_diagnostic_list_t diagnostics;
+    const basl_source_file_t *source;
+    char *formatted = NULL;
+    size_t formatted_len = 0;
+    int exit_code = 0;
+
+    if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
+        return 1;
+    }
+
+    basl_source_registry_init(&registry, runtime);
+    basl_token_list_init(&tokens, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    /* Read and register source. */
+    {
+        char *file_text = NULL;
+        size_t file_length = 0;
+        if (basl_platform_read_file(NULL, file_path, &file_text, &file_length, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
+        if (basl_source_registry_register(&registry, file_path, strlen(file_path),
+                file_text, file_length, &source_id, &error) != BASL_STATUS_OK) {
+            free(file_text);
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
+        free(file_text);
+    }
+
+    source = basl_source_registry_get(&registry, source_id);
+    if (source == NULL) {
+        fprintf(stderr, "error: failed to retrieve source\n");
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Lex. */
+    if (basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error[fmt]: %s: %s\n", file_path, basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Format. */
+    if (basl_fmt(basl_string_c_str(&source->text), basl_string_length(&source->text),
+                 &tokens, &formatted, &formatted_len, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error[fmt]: %s: %s\n", file_path, basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Compare. */
+    {
+        const char *orig = basl_string_c_str(&source->text);
+        size_t orig_len = basl_string_length(&source->text);
+        if (formatted_len == orig_len && memcmp(orig, formatted, orig_len) == 0) {
+            /* Already formatted. */
+            goto cleanup;
+        }
+    }
+
+    if (check_only) {
+        /* In check mode, print the filename and return failure. */
+        fprintf(stderr, "%s\n", file_path);
+        exit_code = 1;
+    } else {
+        /* Write back. */
+        if (basl_platform_write_file(file_path, formatted, formatted_len, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            exit_code = 1;
+        }
+    }
+
+cleanup:
+    free(formatted);
+    basl_token_list_free(&tokens);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+    return exit_code;
+}
+
+static int cmd_fmt(const char *file_path, int check_only) {
+    return fmt_one_file(file_path, check_only);
+}
+
 /* ── package command ─────────────────────────────────────────────── */
 
 static int cmd_package(const char *entry_path, const char *output_path,
@@ -970,6 +1070,8 @@ int main(int argc, char **argv) {
     const char *debug_file = NULL;
     const char *doc_file = NULL;
     const char *doc_symbol = NULL;
+    const char *fmt_file = NULL;
+    int fmt_check = 0;
     const char *pkg_entry = NULL;
     const char *pkg_output = NULL;
     const char *pkg_key = NULL;
@@ -1011,6 +1113,10 @@ int main(int argc, char **argv) {
     cmd = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
     basl_cli_add_positional(cmd, "file", "Source file to document", &doc_file);
     basl_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. Point or Point.x)", &doc_symbol);
+
+    cmd = basl_cli_add_command(&cli, "fmt", "Format BASL source files");
+    basl_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
+    basl_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
@@ -1063,6 +1169,13 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return cmd_doc(doc_file, doc_symbol);
+        }
+        if (strcmp(matched_name, "fmt") == 0) {
+            if (fmt_file == NULL) {
+                fprintf(stderr, "error: missing file argument\n");
+                return 2;
+            }
+            return cmd_fmt(fmt_file, fmt_check);
         }
         if (strcmp(matched_name, "package") == 0) {
             return cmd_package(pkg_entry, pkg_output, pkg_key, pkg_inspect);

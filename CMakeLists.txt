@@ -33,6 +33,7 @@ add_library(basl_core OBJECT
     src/compiler.c
     src/dap.c
     src/doc.c
+    src/fmt.c
     src/package.c
     src/debug_info.c
     src/debugger.c
@@ -240,6 +241,14 @@ if(BASL_BUILD_TESTS)
         )
         set_tests_properties(
             BaslPackageTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
+        add_test(
+            NAME BaslFmtTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_fmt.py
+        )
+        set_tests_properties(
+            BaslFmtTest
             PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
         )
     endif()
