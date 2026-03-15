@@ -1,8 +1,7 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-extern "C" {
+
 #include "basl/basl.h"
-}
 
 TEST(BaslTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_STREQ(basl_type_kind_name(BASL_TYPE_INVALID), "invalid");
@@ -225,4 +224,11 @@ TEST(BaslTypeTest, FunctionSignaturesValidateAndCheckArguments) {
     EXPECT_FALSE(
         basl_function_signature_accepts_arguments(&signature, invalid_arguments, 2U)
     );
+}
+
+void register_type_tests(void) {
+    REGISTER_TEST(BaslTypeTest, KindNamesAndParsingAreStable);
+    REGISTER_TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes);
+    REGISTER_TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules);
+    REGISTER_TEST(BaslTypeTest, FunctionSignaturesValidateAndCheckArguments);
 }

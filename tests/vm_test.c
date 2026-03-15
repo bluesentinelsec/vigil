@@ -1,13 +1,10 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -15,29 +12,29 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-basl_source_span_t Span(basl_source_id_t source_id, size_t start, size_t end) {
-    basl_source_span_t span = {};
+static basl_source_span_t Span(basl_source_id_t source_id, size_t start, size_t end) {
+    basl_source_span_t span = {0};
 
     span.source_id = source_id;
     span.start_offset = start;
@@ -45,10 +42,9 @@ basl_source_span_t Span(basl_source_id_t source_id, size_t start, size_t end) {
     return span;
 }
 
-}  // namespace
 
 TEST(BaslVmTest, OptionsInitClearsFields) {
-    basl_vm_options_t options = {};
+    basl_vm_options_t options = {0};
 
     options.initial_stack_capacity = 99U;
     basl_vm_options_init(&options);
@@ -56,38 +52,38 @@ TEST(BaslVmTest, OptionsInitClearsFields) {
 }
 
 TEST(BaslVmTest, OpenAndCloseVm) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_NE(vm, nullptr);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_NE(vm, NULL);
     EXPECT_EQ(basl_vm_runtime(vm), runtime);
     EXPECT_EQ(basl_vm_stack_depth(vm), 0U);
     EXPECT_EQ(basl_vm_frame_depth(vm), 0U);
 
     basl_vm_close(&vm);
-    EXPECT_EQ(vm, nullptr);
+    EXPECT_EQ(vm, NULL);
     basl_runtime_close(&runtime);
 }
 
 TEST(BaslVmTest, ExecutesConstantAndReturn) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_int(&constant, 42);
     basl_value_init_nil(&result);
 
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(1U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(1U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -108,14 +104,14 @@ TEST(BaslVmTest, ExecutesConstantAndReturn) {
 }
 
 TEST(BaslVmTest, ExecutesLiteralOpcodes) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
@@ -150,27 +146,27 @@ TEST(BaslVmTest, ExecutesLiteralOpcodes) {
 }
 
 TEST(BaslVmTest, RejectsArithmeticOverflow) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     basl_value_init_int(&constant, INT64_MAX);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(5U, 0U, 1U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(5U, 0U, 1U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
     basl_value_init_int(&constant, 1);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(5U, 2U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(5U, 2U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -187,9 +183,9 @@ TEST(BaslVmTest, RejectsArithmeticOverflow) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
+    ASSERT_NE(error.value, NULL);
     EXPECT_EQ(
-        std::strcmp(error.value, "integer arithmetic overflow or invalid operation"),
+        strcmp(error.value, "integer arithmetic overflow or invalid operation"),
         0
     );
 
@@ -199,21 +195,21 @@ TEST(BaslVmTest, RejectsArithmeticOverflow) {
 }
 
 TEST(BaslVmTest, RejectsNegateOverflow) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     basl_value_init_int(&constant, INT64_MIN);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(6U, 0U, 1U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(6U, 0U, 1U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
@@ -231,9 +227,9 @@ TEST(BaslVmTest, RejectsNegateOverflow) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
+    ASSERT_NE(error.value, NULL);
     EXPECT_EQ(
-        std::strcmp(error.value, "integer arithmetic overflow or invalid operation"),
+        strcmp(error.value, "integer arithmetic overflow or invalid operation"),
         0
     );
 
@@ -243,16 +239,16 @@ TEST(BaslVmTest, RejectsNegateOverflow) {
 }
 
 TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
-    basl_object_t *object = nullptr;
+    basl_object_t *object = NULL;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "hello", &object, &error),
@@ -262,7 +258,7 @@ TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime) {
     basl_value_init_object(&constant, &object);
     basl_value_init_nil(&result);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(3U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(3U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
@@ -272,7 +268,7 @@ TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime) {
     );
 
     ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
-    ASSERT_NE(basl_value_as_object(&result), nullptr);
+    ASSERT_NE(basl_value_as_object(&result), NULL);
     EXPECT_EQ(basl_object_ref_count(basl_value_as_object(&result)), 2U);
 
     basl_chunk_free(&chunk);
@@ -288,20 +284,20 @@ TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime) {
 }
 
 TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
-    basl_object_t *left_object = nullptr;
-    basl_object_t *right_object = nullptr;
-    basl_object_t *expected_object = nullptr;
+    basl_object_t *left_object = NULL;
+    basl_object_t *right_object = NULL;
+    basl_object_t *expected_object = NULL;
     basl_value_t left;
     basl_value_t right;
     basl_value_t expected;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     ASSERT_EQ(basl_string_object_new_cstr(runtime, "ba", &left_object, &error), BASL_STATUS_OK);
     ASSERT_EQ(basl_string_object_new_cstr(runtime, "sl", &right_object, &error), BASL_STATUS_OK);
@@ -316,11 +312,11 @@ TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue) {
     basl_value_init_nil(&result);
 
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &left, Span(3U, 0U, 1U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &left, Span(3U, 0U, 1U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &right, Span(3U, 2U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &right, Span(3U, 2U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -328,7 +324,7 @@ TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue) {
         BASL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &expected, Span(3U, 6U, 10U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &expected, Span(3U, 6U, 10U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -355,26 +351,26 @@ TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue) {
 }
 
 TEST(BaslVmTest, SupportsFloatArithmeticAndNegation) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     basl_value_init_float(&constant, 1.5);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(7U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(7U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_init_float(&constant, 2.0);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(7U, 4U, 7U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(7U, 4U, 7U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -401,43 +397,43 @@ TEST(BaslVmTest, SupportsFloatArithmeticAndNegation) {
 }
 
 TEST(BaslVmTest, RejectsMissingArguments) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     EXPECT_EQ(
-        basl_vm_open(nullptr, runtime, nullptr, &error),
+        basl_vm_open(NULL, runtime, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "out_vm must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "out_vm must not be null"), 0);
 
     EXPECT_EQ(
-        basl_vm_open(&vm, nullptr, nullptr, &error),
+        basl_vm_open(&vm, NULL, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "runtime must not be null"), 0);
 
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     EXPECT_EQ(
-        basl_vm_execute(vm, nullptr, &result, &error),
+        basl_vm_execute(vm, NULL, &result, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_vm_execute(vm, &chunk, nullptr, &error),
+        basl_vm_execute(vm, &chunk, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(
-        basl_vm_execute_function(vm, nullptr, nullptr, &error),
+        basl_vm_execute_function(vm, NULL, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
 
@@ -447,14 +443,14 @@ TEST(BaslVmTest, RejectsMissingArguments) {
 }
 
 TEST(BaslVmTest, ReportsUnsupportedOpcodeAndSourceId) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
@@ -468,8 +464,8 @@ TEST(BaslVmTest, ReportsUnsupportedOpcodeAndSourceId) {
         BASL_STATUS_UNSUPPORTED
     );
     EXPECT_EQ(error.type, BASL_STATUS_UNSUPPORTED);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "unsupported opcode"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "unsupported opcode"), 0);
     EXPECT_EQ(error.location.source_id, 9U);
     EXPECT_EQ(error.location.offset, 10U);
 
@@ -479,16 +475,16 @@ TEST(BaslVmTest, ReportsUnsupportedOpcodeAndSourceId) {
 }
 
 TEST(BaslVmTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t runtime_options = {};
-    basl_vm_options_t vm_options = {};
+    basl_error_t error = {0};
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t runtime_options = {0};
+    basl_vm_options_t vm_options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
@@ -506,7 +502,7 @@ TEST(BaslVmTest, UsesRuntimeAllocatorHooks) {
     basl_value_init_nil(&result);
 
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(1U, 0U, 1U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(1U, 0U, 1U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -525,22 +521,22 @@ TEST(BaslVmTest, UsesRuntimeAllocatorHooks) {
 }
 
 TEST(BaslVmTest, ExecutesFunctionObjectEntry) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_int(&constant, 99);
     basl_value_init_nil(&result);
 
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(4U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(4U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -568,14 +564,14 @@ TEST(BaslVmTest, ExecutesFunctionObjectEntry) {
 }
 
 TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
-    basl_object_t *object = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_object_t *object = NULL;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "hello", &object, &error),
         BASL_STATUS_OK
@@ -587,8 +583,8 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "function must be a function object"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "function must be a function object"), 0);
 
     basl_object_release(&object);
     basl_vm_close(&vm);
@@ -596,15 +592,15 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject) {
 }
 
 TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
-    basl_object_t *function = nullptr;
+    basl_object_t *function = NULL;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
@@ -622,9 +618,9 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
+    ASSERT_NE(error.value, NULL);
     EXPECT_EQ(
-        std::strcmp(error.value, "top-level execute_function requires a zero-arity function"),
+        strcmp(error.value, "top-level execute_function requires a zero-arity function"),
         0
     );
 
@@ -634,21 +630,21 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
 }
 
 TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     basl_value_init_float(&constant, 5.9);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -672,7 +668,7 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     basl_chunk_clear(&chunk);
     basl_value_init_bool(&constant, true);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(9U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(9U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -686,7 +682,7 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
 
     ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
     ASSERT_EQ(basl_value_kind(&result), BASL_VALUE_OBJECT);
-    ASSERT_NE(basl_value_as_object(&result), nullptr);
+    ASSERT_NE(basl_value_as_object(&result), NULL);
     EXPECT_EQ(basl_object_type(basl_value_as_object(&result)), BASL_OBJECT_STRING);
     EXPECT_STREQ(basl_string_object_c_str(basl_value_as_object(&result)), "true");
     basl_value_release(&result);
@@ -694,7 +690,7 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     basl_chunk_clear(&chunk);
     basl_value_init_float(&constant, 255.9);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 5U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 5U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -714,7 +710,7 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     basl_chunk_clear(&chunk);
     basl_value_init_int(&constant, 42);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 2U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 2U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -734,7 +730,7 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
     basl_chunk_clear(&chunk);
     basl_value_init_float(&constant, -1.0);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 4U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 4U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -751,8 +747,8 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "u32 conversion overflow or invalid value"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "u32 conversion overflow or invalid value"), 0);
 
     basl_chunk_free(&chunk);
     basl_vm_close(&vm);
@@ -760,27 +756,27 @@ TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes) {
 }
 
 TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     basl_value_init_uint(&constant, UINT64_C(9223372036854775808));
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
     basl_value_init_uint(&constant, UINT64_C(2));
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(13U, 4U, 5U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 4U, 5U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -800,7 +796,7 @@ TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic) {
     basl_chunk_clear(&chunk);
     basl_value_init_uint(&constant, UINT64_C(9223372036854775808));
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(14U, 0U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(14U, 0U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
@@ -824,29 +820,29 @@ TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic) {
 }
 
 TEST(BaslVmTest, SupportsErrorOpcodes) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
     basl_value_t constant;
     basl_value_t result;
-    basl_object_t *object = nullptr;
-    basl_error_t error = {};
+    basl_object_t *object = NULL;
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     ASSERT_EQ(basl_string_object_new_cstr(runtime, "boom", &object, &error), BASL_STATUS_OK);
     basl_value_init_object(&constant, &object);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 4U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 4U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
     basl_value_init_int(&constant, 9);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(10U, 5U, 6U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(10U, 5U, 6U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -871,13 +867,13 @@ TEST(BaslVmTest, SupportsErrorOpcodes) {
     ASSERT_EQ(basl_string_object_new_cstr(runtime, "boom", &object, &error), BASL_STATUS_OK);
     basl_value_init_object(&constant, &object);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 4U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 4U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
     basl_value_init_int(&constant, 9);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(11U, 5U, 6U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(11U, 5U, 6U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -900,7 +896,7 @@ TEST(BaslVmTest, SupportsErrorOpcodes) {
 
     ASSERT_EQ(basl_vm_execute(vm, &chunk, &result, &error), BASL_STATUS_OK);
     ASSERT_EQ(basl_value_kind(&result), BASL_VALUE_OBJECT);
-    ASSERT_NE(basl_value_as_object(&result), nullptr);
+    ASSERT_NE(basl_value_as_object(&result), NULL);
     EXPECT_EQ(basl_object_type(basl_value_as_object(&result)), BASL_OBJECT_STRING);
     EXPECT_STREQ(basl_string_object_c_str(basl_value_as_object(&result)), "boom");
 
@@ -911,27 +907,27 @@ TEST(BaslVmTest, SupportsErrorOpcodes) {
 }
 
 TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
-    basl_runtime_t *runtime = nullptr;
-    basl_vm_t *vm = nullptr;
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
     basl_chunk_t chunk;
-    basl_object_t *key_object = nullptr;
+    basl_object_t *key_object = NULL;
     basl_value_t constant;
     basl_value_t result;
-    basl_error_t error = {};
+    basl_error_t error = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
     basl_chunk_init(&chunk, runtime);
     basl_value_init_nil(&result);
 
     basl_value_init_int(&constant, 4);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 1U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 1U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_init_int(&constant, 6);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(12U, 2U, 3U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 2U, 3U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -942,7 +938,7 @@ TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
     ASSERT_EQ(basl_chunk_write_u32(&chunk, 2U, Span(12U, 8U, 9U), &error), BASL_STATUS_OK);
     basl_value_init_int(&constant, 1);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(12U, 10U, 11U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(12U, 10U, 11U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -963,13 +959,13 @@ TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
     ASSERT_EQ(basl_string_object_new_cstr(runtime, "answer", &key_object, &error), BASL_STATUS_OK);
     basl_value_init_object(&constant, &key_object);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 6U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 6U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
     basl_value_init_int(&constant, 9);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(13U, 7U, 8U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 7U, 8U), NULL, &error),
         BASL_STATUS_OK
     );
     ASSERT_EQ(
@@ -981,7 +977,7 @@ TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
     ASSERT_EQ(basl_string_object_new_cstr(runtime, "answer", &key_object, &error), BASL_STATUS_OK);
     basl_value_init_object(&constant, &key_object);
     ASSERT_EQ(
-        basl_chunk_write_constant(&chunk, &constant, Span(13U, 15U, 21U), nullptr, &error),
+        basl_chunk_write_constant(&chunk, &constant, Span(13U, 15U, 21U), NULL, &error),
         BASL_STATUS_OK
     );
     basl_value_release(&constant);
@@ -1002,4 +998,26 @@ TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
     basl_chunk_free(&chunk);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
+}
+
+void register_vm_tests(void) {
+    REGISTER_TEST(BaslVmTest, OptionsInitClearsFields);
+    REGISTER_TEST(BaslVmTest, OpenAndCloseVm);
+    REGISTER_TEST(BaslVmTest, ExecutesConstantAndReturn);
+    REGISTER_TEST(BaslVmTest, ExecutesLiteralOpcodes);
+    REGISTER_TEST(BaslVmTest, RejectsArithmeticOverflow);
+    REGISTER_TEST(BaslVmTest, RejectsNegateOverflow);
+    REGISTER_TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime);
+    REGISTER_TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue);
+    REGISTER_TEST(BaslVmTest, SupportsFloatArithmeticAndNegation);
+    REGISTER_TEST(BaslVmTest, RejectsMissingArguments);
+    REGISTER_TEST(BaslVmTest, ReportsUnsupportedOpcodeAndSourceId);
+    REGISTER_TEST(BaslVmTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslVmTest, ExecutesFunctionObjectEntry);
+    REGISTER_TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject);
+    REGISTER_TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint);
+    REGISTER_TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes);
+    REGISTER_TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic);
+    REGISTER_TEST(BaslVmTest, SupportsErrorOpcodes);
+    REGISTER_TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes);
 }

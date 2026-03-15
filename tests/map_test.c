@@ -1,14 +1,11 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-extern "C" {
+
 #include "basl/basl.h"
-}
-
-namespace {
 
 struct AllocatorStats {
     int allocate_calls;
@@ -16,36 +13,35 @@ struct AllocatorStats {
     int deallocate_calls;
 };
 
-void *CountedAllocate(void *user_data, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedAllocate(void *user_data, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
-    return std::calloc(1U, size);
+    return calloc(1U, size);
 }
 
-void *CountedReallocate(void *user_data, void *memory, size_t size) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
-    return std::realloc(memory, size);
+    return realloc(memory, size);
 }
 
-void CountedDeallocate(void *user_data, void *memory) {
-    AllocatorStats *stats = static_cast<AllocatorStats *>(user_data);
+static void CountedDeallocate(void *user_data, void *memory) {
+    struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
-    std::free(memory);
+    free(memory);
 }
 
-}  // namespace
 
 TEST(BaslMapTest, InitStartsEmpty) {
     basl_map_t map;
 
-    basl_map_init(&map, nullptr);
+    basl_map_init(&map, NULL);
 
-    EXPECT_EQ(map.runtime, nullptr);
-    EXPECT_EQ(map.entries, nullptr);
+    EXPECT_EQ(map.runtime, NULL);
+    EXPECT_EQ(map.entries, NULL);
     EXPECT_EQ(map.count, 0U);
     EXPECT_EQ(map.capacity, 0U);
     EXPECT_EQ(map.tombstone_count, 0U);
@@ -53,13 +49,13 @@ TEST(BaslMapTest, InitStartsEmpty) {
 }
 
 TEST(BaslMapTest, SetAndGetImmediateValue) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
     basl_value_t value;
     const basl_value_t *stored;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
     basl_value_init_int(&value, 42);
 
@@ -68,7 +64,7 @@ TEST(BaslMapTest, SetAndGetImmediateValue) {
     EXPECT_TRUE(basl_map_contains_cstr(&map, "answer"));
 
     stored = basl_map_get_cstr(&map, "answer");
-    ASSERT_NE(stored, nullptr);
+    ASSERT_NE(stored, NULL);
     EXPECT_EQ(basl_value_kind(stored), BASL_VALUE_INT);
     EXPECT_EQ(basl_value_as_int(stored), 42);
 
@@ -77,8 +73,8 @@ TEST(BaslMapTest, SetAndGetImmediateValue) {
 }
 
 TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
     basl_value_t int_key;
     basl_value_t uint_key;
@@ -86,7 +82,7 @@ TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys) {
     basl_value_t value;
     const basl_value_t *stored;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
 
     basl_value_init_int(&int_key, 7);
@@ -100,13 +96,13 @@ TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys) {
     ASSERT_EQ(basl_map_set_value(&map, &bool_key, &value, &error), BASL_STATUS_OK);
 
     stored = basl_map_get_value(&map, &int_key);
-    ASSERT_NE(stored, nullptr);
+    ASSERT_NE(stored, NULL);
     EXPECT_EQ(basl_value_as_int(stored), 42);
     stored = basl_map_get_value(&map, &uint_key);
-    ASSERT_NE(stored, nullptr);
+    ASSERT_NE(stored, NULL);
     EXPECT_EQ(basl_value_as_int(stored), 77);
     stored = basl_map_get_value(&map, &bool_key);
-    ASSERT_NE(stored, nullptr);
+    ASSERT_NE(stored, NULL);
     EXPECT_EQ(basl_value_as_int(stored), 99);
     EXPECT_TRUE(basl_map_contains_value(&map, &int_key));
     EXPECT_TRUE(basl_map_contains_value(&map, &uint_key));
@@ -118,16 +114,16 @@ TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys) {
 }
 
 TEST(BaslMapTest, OverwriteReleasesPreviousObjectValue) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
-    basl_object_t *first = nullptr;
-    basl_object_t *second = nullptr;
-    basl_object_t *held = nullptr;
+    basl_object_t *first = NULL;
+    basl_object_t *second = NULL;
+    basl_object_t *held = NULL;
     basl_value_t first_value;
     basl_value_t second_value;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "first", &first, &error),
@@ -138,7 +134,7 @@ TEST(BaslMapTest, OverwriteReleasesPreviousObjectValue) {
     basl_value_release(&first_value);
 
     held = basl_value_as_object(basl_map_get_cstr(&map, "key"));
-    ASSERT_NE(held, nullptr);
+    ASSERT_NE(held, NULL);
     basl_object_retain(held);
     EXPECT_EQ(basl_object_ref_count(held), 2U);
 
@@ -163,15 +159,15 @@ TEST(BaslMapTest, OverwriteReleasesPreviousObjectValue) {
 }
 
 TEST(BaslMapTest, RemoveReportsPresenceAndReleasesValue) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
-    basl_object_t *object = nullptr;
-    basl_object_t *held = nullptr;
+    basl_object_t *object = NULL;
+    basl_object_t *held = NULL;
     basl_value_t value;
     int removed;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
     ASSERT_EQ(
         basl_string_object_new_cstr(runtime, "value", &object, &error),
@@ -182,7 +178,7 @@ TEST(BaslMapTest, RemoveReportsPresenceAndReleasesValue) {
     basl_value_release(&value);
 
     held = basl_value_as_object(basl_map_get_cstr(&map, "key"));
-    ASSERT_NE(held, nullptr);
+    ASSERT_NE(held, NULL);
     basl_object_retain(held);
 
     removed = 0;
@@ -208,20 +204,20 @@ TEST(BaslMapTest, RemoveReportsPresenceAndReleasesValue) {
 }
 
 TEST(BaslMapTest, GrowthPreservesInsertedValues) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
     char key[32];
     size_t index;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
 
     for (index = 0U; index < 128U; index += 1U) {
         basl_value_t value;
 
-        std::snprintf(key, sizeof(key), "key-%zu", index);
-        basl_value_init_int(&value, static_cast<int64_t>(index));
+        snprintf(key, sizeof(key), "key-%zu", index);
+        basl_value_init_int(&value, (int64_t)(index));
         ASSERT_EQ(basl_map_set_cstr(&map, key, &value, &error), BASL_STATUS_OK);
     }
 
@@ -229,10 +225,10 @@ TEST(BaslMapTest, GrowthPreservesInsertedValues) {
     for (index = 0U; index < 128U; index += 1U) {
         const basl_value_t *stored;
 
-        std::snprintf(key, sizeof(key), "key-%zu", index);
+        snprintf(key, sizeof(key), "key-%zu", index);
         stored = basl_map_get_cstr(&map, key);
-        ASSERT_NE(stored, nullptr);
-        EXPECT_EQ(basl_value_as_int(stored), static_cast<int64_t>(index));
+        ASSERT_NE(stored, NULL);
+        EXPECT_EQ(basl_value_as_int(stored), (int64_t)(index));
     }
 
     basl_map_free(&map);
@@ -240,13 +236,13 @@ TEST(BaslMapTest, GrowthPreservesInsertedValues) {
 }
 
 TEST(BaslMapTest, ClearKeepsMapReusable) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
     basl_value_t value;
     size_t capacity;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
 
     basl_value_init_bool(&value, true);
@@ -262,7 +258,7 @@ TEST(BaslMapTest, ClearKeepsMapReusable) {
 
     basl_value_init_int(&value, 7);
     ASSERT_EQ(basl_map_set_cstr(&map, "c", &value, &error), BASL_STATUS_OK);
-    ASSERT_NE(basl_map_get_cstr(&map, "c"), nullptr);
+    ASSERT_NE(basl_map_get_cstr(&map, "c"), NULL);
     EXPECT_EQ(basl_value_as_int(basl_map_get_cstr(&map, "c")), 7);
 
     basl_map_free(&map);
@@ -270,13 +266,13 @@ TEST(BaslMapTest, ClearKeepsMapReusable) {
 }
 
 TEST(BaslMapTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = nullptr;
-    basl_error_t error = {};
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
     basl_map_t map;
     basl_value_t value;
-    AllocatorStats stats = {};
-    basl_allocator_t allocator = {};
-    basl_runtime_options_t options = {};
+    struct AllocatorStats stats = {0};
+    basl_allocator_t allocator = {0};
+    basl_runtime_options_t options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
@@ -303,10 +299,10 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
     basl_map_t map;
     basl_value_t value;
     basl_value_t key;
-    basl_error_t error = {};
+    basl_error_t error = {0};
     int removed;
 
-    basl_map_init(&map, nullptr);
+    basl_map_init(&map, NULL);
     basl_value_init_int(&value, 1);
 
     EXPECT_EQ(
@@ -314,16 +310,16 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "map runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "map runtime must not be null"), 0);
 
     EXPECT_EQ(
-        basl_map_set(&map, nullptr, 0U, &value, &error),
+        basl_map_set(&map, NULL, 0U, &value, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "map runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "map runtime must not be null"), 0);
 
     removed = 0;
     EXPECT_EQ(
@@ -331,11 +327,11 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "map runtime must not be null"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "map runtime must not be null"), 0);
 
-    basl_runtime_t *runtime = nullptr;
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    basl_runtime_t *runtime = NULL;
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_map_init(&map, runtime);
     basl_value_init_float(&key, 1.5);
     EXPECT_EQ(
@@ -343,8 +339,20 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
-    ASSERT_NE(error.value, nullptr);
-    EXPECT_EQ(std::strcmp(error.value, "map key must be an integer, bool, or string"), 0);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "map key must be an integer, bool, or string"), 0);
     basl_map_free(&map);
     basl_runtime_close(&runtime);
+}
+
+void register_map_tests(void) {
+    REGISTER_TEST(BaslMapTest, InitStartsEmpty);
+    REGISTER_TEST(BaslMapTest, SetAndGetImmediateValue);
+    REGISTER_TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys);
+    REGISTER_TEST(BaslMapTest, OverwriteReleasesPreviousObjectValue);
+    REGISTER_TEST(BaslMapTest, RemoveReportsPresenceAndReleasesValue);
+    REGISTER_TEST(BaslMapTest, GrowthPreservesInsertedValues);
+    REGISTER_TEST(BaslMapTest, ClearKeepsMapReusable);
+    REGISTER_TEST(BaslMapTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments);
 }

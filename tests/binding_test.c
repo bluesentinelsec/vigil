@@ -1,19 +1,18 @@
-#include <gtest/gtest.h>
+#include "basl_test.h"
 
-extern "C" {
+
 #include "basl/basl.h"
 #include "internal/basl_binding.h"
-}
 
 TEST(BaslBindingTest, FunctionTableTracksDeclarationsAndRejectsDuplicates) {
-    basl_runtime_t *runtime = nullptr;
+    basl_runtime_t *runtime = NULL;
     basl_binding_function_table_t table;
-    basl_binding_function_t function = {};
-    basl_binding_function_t duplicate = {};
-    basl_error_t error = {};
+    basl_binding_function_t function = {0};
+    basl_binding_function_t duplicate = {0};
+    basl_error_t error = {0};
     size_t index = 0U;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_binding_function_table_init(&table, runtime);
 
     basl_binding_function_init(&function);
@@ -28,7 +27,7 @@ TEST(BaslBindingTest, FunctionTableTracksDeclarationsAndRejectsDuplicates) {
     EXPECT_EQ(index, 0U);
     EXPECT_EQ(table.count, 1U);
     EXPECT_TRUE(
-        basl_binding_function_table_find(&table, "main", 4U, &index, nullptr)
+        basl_binding_function_table_find(&table, "main", 4U, &index, NULL)
     );
     EXPECT_EQ(index, 0U);
 
@@ -37,7 +36,7 @@ TEST(BaslBindingTest, FunctionTableTracksDeclarationsAndRejectsDuplicates) {
     duplicate.name_length = 4U;
     duplicate.return_type = basl_binding_type_primitive(BASL_TYPE_I32);
     EXPECT_EQ(
-        basl_binding_function_table_append(&table, &duplicate, nullptr, &error),
+        basl_binding_function_table_append(&table, &duplicate, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
 
@@ -47,12 +46,12 @@ TEST(BaslBindingTest, FunctionTableTracksDeclarationsAndRejectsDuplicates) {
 }
 
 TEST(BaslBindingTest, FunctionParametersRejectDuplicates) {
-    basl_runtime_t *runtime = nullptr;
-    basl_binding_function_t function = {};
-    basl_error_t error = {};
-    basl_source_span_t span = {};
+    basl_runtime_t *runtime = NULL;
+    basl_binding_function_t function = {0};
+    basl_error_t error = {0};
+    basl_source_span_t span = {0};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_binding_function_init(&function);
     function.name = "sum";
     function.name_length = 3U;
@@ -87,14 +86,14 @@ TEST(BaslBindingTest, FunctionParametersRejectDuplicates) {
 }
 
 TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
-    basl_runtime_t *runtime = nullptr;
+    basl_runtime_t *runtime = NULL;
     basl_binding_scope_stack_t stack;
-    basl_error_t error = {};
+    basl_error_t error = {0};
     size_t index = 0U;
     size_t popped_count = 0U;
     basl_binding_type_t local_type = basl_binding_type_invalid();
 
-    ASSERT_EQ(basl_runtime_open(&runtime, nullptr, &error), BASL_STATUS_OK);
+    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
     basl_binding_scope_stack_init(&stack, runtime);
 
     ASSERT_EQ(
@@ -139,7 +138,7 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
     EXPECT_TRUE(
         basl_binding_type_equal(local_type, basl_binding_type_primitive(BASL_TYPE_BOOL))
     );
-    ASSERT_NE(basl_binding_scope_stack_local_at(&stack, index), nullptr);
+    ASSERT_NE(basl_binding_scope_stack_local_at(&stack, index), NULL);
     EXPECT_TRUE(basl_binding_scope_stack_local_at(&stack, index)->is_const);
 
     basl_binding_scope_stack_end_scope(&stack, &popped_count);
@@ -172,4 +171,10 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
 
     basl_binding_scope_stack_free(&stack);
     basl_runtime_close(&runtime);
+}
+
+void register_binding_tests(void) {
+    REGISTER_TEST(BaslBindingTest, FunctionTableTracksDeclarationsAndRejectsDuplicates);
+    REGISTER_TEST(BaslBindingTest, FunctionParametersRejectDuplicates);
+    REGISTER_TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals);
 }
