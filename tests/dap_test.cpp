@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 #include <cstring>
 
+/* Suppress MSVC C4996 for tmpfile — it's standard C and fine for tests. */
+#ifdef _MSC_VER
+#pragma warning(disable : 4996)
+#endif
+
 extern "C" {
 #include "basl/dap.h"
 #include "basl/json.h"
