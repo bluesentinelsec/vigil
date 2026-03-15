@@ -253,6 +253,9 @@ struct basl_vm {
     basl_vm_frame_t *frames;
     size_t frame_count;
     size_t frame_capacity;
+    /* Debug hook — NULL when no debugger attached (zero overhead). */
+    int (*debug_hook)(basl_vm_t *vm, void *userdata);
+    void *debug_hook_userdata;
 };
 
 static basl_status_t basl_vm_fail_at_ip(
@@ -2588,6 +2591,40 @@ void basl_vm_stack_pop_n(basl_vm_t *vm, size_t count) {
     }
 }
 
+void basl_vm_set_debug_hook(
+    basl_vm_t *vm,
+    int (*hook)(basl_vm_t *vm, void *userdata),
+    void *userdata
+) {
+    if (vm == NULL) return;
+    vm->debug_hook = hook;
+    vm->debug_hook_userdata = userdata;
+}
+
+const basl_chunk_t *basl_vm_frame_chunk(
+    const basl_vm_t *vm, size_t frame_index
+) {
+    if (vm == NULL || frame_index >= vm->frame_count) return NULL;
+    return vm->frames[frame_index].chunk;
+}
+
+size_t basl_vm_frame_ip(const basl_vm_t *vm, size_t frame_index) {
+    if (vm == NULL || frame_index >= vm->frame_count) return 0U;
+    return vm->frames[frame_index].ip;
+}
+
+size_t basl_vm_frame_base_slot(const basl_vm_t *vm, size_t frame_index) {
+    if (vm == NULL || frame_index >= vm->frame_count) return 0U;
+    return vm->frames[frame_index].base_slot;
+}
+
+const basl_object_t *basl_vm_frame_function(
+    const basl_vm_t *vm, size_t frame_index
+) {
+    if (vm == NULL || frame_index >= vm->frame_count) return NULL;
+    return vm->frames[frame_index].function;
+}
+
 basl_status_t basl_vm_execute(
     basl_vm_t *vm,
     const basl_chunk_t *chunk,
@@ -2875,6 +2912,12 @@ basl_status_t basl_vm_execute_function(
 
         #define VM_DISPATCH() \
             do { \
+                if (vm->debug_hook != NULL) { \
+                    if (vm->debug_hook(vm, vm->debug_hook_userdata) != 0) { \
+                        status = BASL_STATUS_OK; \
+                        goto cleanup; \
+                    } \
+                } \
                 if (dispatch_table[code[frame->ip]] == NULL) { \
                     status = basl_vm_fail_at_ip( \
                         vm, BASL_STATUS_UNSUPPORTED, \
@@ -2904,6 +2947,12 @@ basl_status_t basl_vm_execute_function(
         #define VM_BREAK() break
         #define VM_BREAK_RELOAD() break
 
+        if (vm->debug_hook != NULL) {
+            if (vm->debug_hook(vm, vm->debug_hook_userdata) != 0) {
+                status = BASL_STATUS_OK;
+                goto cleanup;
+            }
+        }
         switch ((basl_opcode_t)code[frame->ip]) {
 #endif
 
