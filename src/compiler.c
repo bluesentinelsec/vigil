@@ -6187,6 +6187,7 @@ static basl_status_t basl_parser_declare_local_symbol(
     basl_status_t status;
     const char *name;
     size_t name_length;
+    size_t slot;
 
     name = basl_parser_token_text(state, name_token, &name_length);
     status = basl_binding_scope_stack_declare_local(
@@ -6205,8 +6206,22 @@ static basl_status_t basl_parser_declare_local_symbol(
             "local variable is already declared in this scope"
         );
     }
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
 
-    return status;
+    /* Record debug info for this local. */
+    slot = basl_binding_scope_stack_count(&state->locals) - 1U;
+    (void)basl_debug_local_table_add(
+        &state->chunk.debug_locals,
+        name,
+        name_length,
+        slot,
+        basl_chunk_code_size(&state->chunk),
+        state->program->error
+    );
+
+    return BASL_STATUS_OK;
 }
 
 static int basl_parser_token_is_discard_identifier(
@@ -6965,12 +6980,25 @@ static basl_status_t basl_parser_end_scope(basl_parser_state_t *state) {
     basl_source_span_t span;
     size_t popped_count;
     size_t index;
+    size_t locals_before;
+    size_t end_ip;
 
     if (basl_binding_scope_stack_depth(&state->locals) == 0U) {
         return BASL_STATUS_OK;
     }
 
+    locals_before = basl_binding_scope_stack_count(&state->locals);
     basl_binding_scope_stack_end_scope(&state->locals, &popped_count);
+
+    end_ip = basl_chunk_code_size(&state->chunk);
+    if (popped_count > 0U) {
+        basl_debug_local_table_close_scope(
+            &state->chunk.debug_locals,
+            locals_before - popped_count,
+            end_ip
+        );
+    }
+
     for (index = 0U; index < popped_count; index += 1U) {
         span = basl_parser_fallback_span(state);
         status = basl_parser_emit_opcode(state, BASL_OPCODE_POP, span);
@@ -15275,4 +15303,198 @@ basl_status_t basl_compile_source_with_natives(
         diagnostics,
         error
     );
+}
+
+/* ── Debug symbol table extraction ───────────────────────────────── */
+
+static basl_status_t basl_compile_emit_symbols(
+    const basl_program_state_t *program,
+    basl_debug_symbol_table_t *out_symbols,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    size_t i;
+    size_t j;
+    size_t class_sym_index;
+
+    if (out_symbols == NULL) return BASL_STATUS_OK;
+
+    /* Functions. */
+    for (i = 0U; i < program->functions.count; i += 1U) {
+        const basl_binding_function_t *fn = &program->functions.functions[i];
+        if (fn->is_local) continue;
+        status = basl_debug_symbol_table_add(
+            out_symbols, BASL_DEBUG_SYMBOL_FUNCTION,
+            fn->name, fn->name_length, fn->name_span,
+            fn->is_public, SIZE_MAX, error
+        );
+        if (status != BASL_STATUS_OK) return status;
+    }
+
+    /* Classes with fields and methods. */
+    for (i = 0U; i < program->class_count; i += 1U) {
+        const basl_class_decl_t *cls = &program->classes[i];
+        if (cls->native_class != NULL) continue;
+        class_sym_index = out_symbols->count;
+        status = basl_debug_symbol_table_add(
+            out_symbols, BASL_DEBUG_SYMBOL_CLASS,
+            cls->name, cls->name_length, cls->name_span,
+            cls->is_public, SIZE_MAX, error
+        );
+        if (status != BASL_STATUS_OK) return status;
+        for (j = 0U; j < cls->field_count; j += 1U) {
+            const basl_class_field_t *f = &cls->fields[j];
+            status = basl_debug_symbol_table_add(
+                out_symbols, BASL_DEBUG_SYMBOL_FIELD,
+                f->name, f->name_length, f->name_span,
+                f->is_public, class_sym_index, error
+            );
+            if (status != BASL_STATUS_OK) return status;
+        }
+        for (j = 0U; j < cls->method_count; j += 1U) {
+            const basl_class_method_t *m = &cls->methods[j];
+            status = basl_debug_symbol_table_add(
+                out_symbols, BASL_DEBUG_SYMBOL_METHOD,
+                m->name, m->name_length, m->name_span,
+                m->is_public, class_sym_index, error
+            );
+            if (status != BASL_STATUS_OK) return status;
+        }
+    }
+
+    /* Interfaces. */
+    for (i = 0U; i < program->interface_count; i += 1U) {
+        const basl_interface_decl_t *iface = &program->interfaces[i];
+        status = basl_debug_symbol_table_add(
+            out_symbols, BASL_DEBUG_SYMBOL_INTERFACE,
+            iface->name, iface->name_length, iface->name_span,
+            iface->is_public, SIZE_MAX, error
+        );
+        if (status != BASL_STATUS_OK) return status;
+    }
+
+    /* Enums with members. */
+    for (i = 0U; i < program->enum_count; i += 1U) {
+        const basl_enum_decl_t *en = &program->enums[i];
+        size_t enum_sym_index = out_symbols->count;
+        status = basl_debug_symbol_table_add(
+            out_symbols, BASL_DEBUG_SYMBOL_ENUM,
+            en->name, en->name_length, en->name_span,
+            en->is_public, SIZE_MAX, error
+        );
+        if (status != BASL_STATUS_OK) return status;
+        for (j = 0U; j < en->member_count; j += 1U) {
+            const basl_enum_member_t *m = &en->members[j];
+            status = basl_debug_symbol_table_add(
+                out_symbols, BASL_DEBUG_SYMBOL_ENUM_MEMBER,
+                m->name, m->name_length, m->name_span,
+                1, enum_sym_index, error
+            );
+            if (status != BASL_STATUS_OK) return status;
+        }
+    }
+
+    /* Global constants. */
+    for (i = 0U; i < program->constant_count; i += 1U) {
+        const basl_global_constant_t *c = &program->constants[i];
+        status = basl_debug_symbol_table_add(
+            out_symbols, BASL_DEBUG_SYMBOL_GLOBAL_CONST,
+            c->name, c->name_length, c->name_span,
+            c->is_public, SIZE_MAX, error
+        );
+        if (status != BASL_STATUS_OK) return status;
+    }
+
+    /* Global variables. */
+    for (i = 0U; i < program->global_count; i += 1U) {
+        const basl_global_variable_t *g = &program->globals[i];
+        status = basl_debug_symbol_table_add(
+            out_symbols, BASL_DEBUG_SYMBOL_GLOBAL_VAR,
+            g->name, g->name_length, g->name_span,
+            g->is_public, SIZE_MAX, error
+        );
+        if (status != BASL_STATUS_OK) return status;
+    }
+
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_compile_source_with_debug_info(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    const basl_native_registry_t *natives,
+    basl_object_t **out_function,
+    basl_diagnostic_list_t *diagnostics,
+    basl_debug_symbol_table_t *out_symbols,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_program_state_t program;
+    const basl_source_file_t *source;
+
+    basl_error_clear(error);
+    if (out_function != NULL) {
+        *out_function = NULL;
+    }
+
+    status = basl_compile_validate_inputs(
+        registry, diagnostics, out_function,
+        BASL_COMPILE_MODE_BUILD_ENTRYPOINT, error
+    );
+    if (status != BASL_STATUS_OK) return status;
+
+    source = basl_source_registry_get(registry, source_id);
+    if (source == NULL) {
+        basl_error_set_literal(
+            error, BASL_STATUS_INVALID_ARGUMENT,
+            "source_id must reference a registered source file"
+        );
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    memset(&program, 0, sizeof(program));
+    program.registry = registry;
+    program.diagnostics = diagnostics;
+    program.error = error;
+    program.natives = natives;
+    basl_binding_function_table_init(&program.functions, registry->runtime);
+    basl_program_set_module_context(&program, source, NULL);
+
+    status = basl_program_parse_source(&program, source_id);
+    if (status != BASL_STATUS_OK) {
+        basl_program_free(&program);
+        return status;
+    }
+
+    basl_program_set_module_context(&program, source, NULL);
+    if (!program.functions.has_main) {
+        status = basl_compile_report(
+            &program, basl_program_eof_span(&program),
+            "expected top-level function 'main'"
+        );
+        basl_program_free(&program);
+        return status;
+    }
+
+    status = basl_compile_all_functions(&program);
+    if (status != BASL_STATUS_OK) {
+        basl_program_free(&program);
+        return status;
+    }
+
+    /* Extract symbols before freeing the program state. */
+    status = basl_compile_emit_symbols(&program, out_symbols, error);
+    if (status != BASL_STATUS_OK) {
+        basl_program_free(&program);
+        return status;
+    }
+
+    status = basl_compile_attach_entrypoint(&program, out_function);
+    if (status != BASL_STATUS_OK) {
+        basl_program_free(&program);
+        return status;
+    }
+
+    basl_program_free(&program);
+    return BASL_STATUS_OK;
 }

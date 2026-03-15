@@ -30,6 +30,7 @@ add_library(basl_core OBJECT
     src/checker.c
     src/chunk.c
     src/compiler.c
+    src/debug_info.c
     src/compiler_program.c
     src/compiler_builtins.c
     src/compiler_strings.c
@@ -140,6 +141,7 @@ if(BASL_BUILD_TESTS)
         tests/checker_test.cpp
         tests/chunk_test.cpp
         tests/compiler_test.cpp
+        tests/debug_info_test.cpp
         tests/diagnostic_test.cpp
         tests/lexer_test.cpp
         tests/log_test.cpp
