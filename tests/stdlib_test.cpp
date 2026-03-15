@@ -1293,4 +1293,288 @@ TEST(BaslStdlibMathTest, StaticMethodChaining) {
     )"), 0);
 }
 
+/* ── Vec2 angle/rotate ───────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Vec2AngleAndRotate) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec2 v = math.Vec2(1.0, 0.0);
+            if (math.abs(v.angle()) > eps) { return 1; }
+            math.Vec2 up = math.Vec2(0.0, 1.0);
+            if (math.abs(up.angle() - math.pi() / 2.0) > eps) { return 2; }
+            // rotate (1,0) by 90 degrees -> (0,1)
+            math.Vec2 r = v.rotate(math.pi() / 2.0);
+            if (math.abs(r.x) > eps) { return 3; }
+            if (math.abs(r.y - 1.0) > eps) { return 4; }
+            // rotate by 180 -> (-1, 0)
+            math.Vec2 r2 = v.rotate(math.pi());
+            if (math.abs(r2.x + 1.0) > eps) { return 5; }
+            if (math.abs(r2.y) > eps) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Vec3 transform/rotateByQuaternion/unproject ─────────────────── */
+
+TEST(BaslStdlibMathTest, Vec3Transform) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec3 p = math.Vec3(1.0, 2.0, 3.0);
+            // Identity transform
+            math.Mat4 id = math.Mat4.identity();
+            math.Vec3 r = p.transform(id);
+            if (math.abs(r.x - 1.0) > eps) { return 1; }
+            if (math.abs(r.y - 2.0) > eps) { return 2; }
+            if (math.abs(r.z - 3.0) > eps) { return 3; }
+            // Translation
+            math.Mat4 t = id.translate(math.Vec3(10.0, 20.0, 30.0));
+            math.Vec3 r2 = p.transform(t);
+            if (math.abs(r2.x - 11.0) > eps) { return 4; }
+            if (math.abs(r2.y - 22.0) > eps) { return 5; }
+            if (math.abs(r2.z - 33.0) > eps) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3RotateByQuaternion) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec3 fwd = math.Vec3(0.0, 0.0, 1.0);
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            // 90 deg around Y: (0,0,1) -> (1,0,0)
+            math.Quaternion q = math.Quaternion.fromAxisAngle(yaxis, math.pi() / 2.0);
+            math.Vec3 r = fwd.rotateByQuaternion(q);
+            if (math.abs(r.x - 1.0) > eps) { return 1; }
+            if (math.abs(r.y) > eps) { return 2; }
+            if (math.abs(r.z) > eps) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3Unproject) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.01;
+            math.Mat4 proj = math.Mat4.perspective(math.deg2rad(90.0), 1.0, 0.1, 100.0);
+            math.Mat4 view = math.Mat4.identity();
+            // Center of screen (0.5, 0.5) at near plane (z=0)
+            math.Vec3 near = math.Vec3(0.5, 0.5, 0.0).unproject(proj, view);
+            // Should be near origin on near plane
+            if (math.abs(near.x) > eps) { return 1; }
+            if (math.abs(near.y) > eps) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Quaternion fromEuler/toMat4 ─────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, QuaternionFromEuler) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // Zero euler -> identity quaternion
+            math.Quaternion q0 = math.Quaternion.fromEuler(0.0, 0.0, 0.0);
+            if (math.abs(q0.w - 1.0) > eps) { return 1; }
+            if (math.abs(q0.x) > eps) { return 2; }
+            // 90 deg pitch -> unit quaternion
+            math.Quaternion qp = math.Quaternion.fromEuler(math.pi() / 2.0, 0.0, 0.0);
+            if (math.abs(qp.length() - 1.0) > eps) { return 3; }
+            // fromEuler produces unit quaternions
+            math.Quaternion q = math.Quaternion.fromEuler(0.1, 0.2, 0.3);
+            if (math.abs(q.length() - 1.0) > eps) { return 4; }
+            // 180 deg yaw: should be (0, sin(90), 0, cos(90)) = (0, 1, 0, 0)
+            math.Quaternion qy = math.Quaternion.fromEuler(0.0, math.pi(), 0.0);
+            if (math.abs(math.abs(qy.y) - 1.0) > eps) { return 5; }
+            if (math.abs(qy.x) > eps) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionToMat4) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // Identity quaternion -> identity matrix
+            math.Quaternion qi = math.Quaternion(0.0, 0.0, 0.0, 1.0);
+            math.Mat4 m = qi.toMat4();
+            if (math.abs(m.get(0, 0) - 1.0) > eps) { return 1; }
+            if (math.abs(m.get(1, 1) - 1.0) > eps) { return 2; }
+            if (math.abs(m.get(2, 2) - 1.0) > eps) { return 3; }
+            if (math.abs(m.get(3, 3) - 1.0) > eps) { return 4; }
+            if (math.abs(m.get(0, 1)) > eps) { return 5; }
+            // 90 deg around Y: should rotate (0,0,1) to (1,0,0)
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            math.Quaternion q90 = math.Quaternion.fromAxisAngle(yaxis, math.pi() / 2.0);
+            math.Mat4 rm = q90.toMat4();
+            math.Vec3 fwd = math.Vec3(0.0, 0.0, 1.0);
+            math.Vec3 r = fwd.transform(rm);
+            if (math.abs(r.x - 1.0) > eps) { return 6; }
+            if (math.abs(r.y) > eps) { return 7; }
+            if (math.abs(r.z) > eps) { return 8; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Mat4 new methods ────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Mat4Trace) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            if (math.abs(math.Mat4.identity().trace() - 4.0) > eps) { return 1; }
+            math.Mat4 s = math.Mat4.identity().scale(2.0);
+            if (math.abs(s.trace() - 8.0) > eps) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4Invert) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // Invert identity = identity
+            math.Mat4 id = math.Mat4.identity();
+            math.Mat4 inv = id.invert();
+            if (math.abs(inv.get(0, 0) - 1.0) > eps) { return 1; }
+            if (math.abs(inv.get(0, 1)) > eps) { return 2; }
+            // Invert scale(2) = scale(0.5)
+            math.Mat4 s = id.scale(2.0);
+            math.Mat4 si = s.invert();
+            if (math.abs(si.get(0, 0) - 0.5) > eps) { return 3; }
+            // M * M^-1 = I
+            math.Mat4 prod = s.multiply(si);
+            if (math.abs(prod.get(0, 0) - 1.0) > eps) { return 4; }
+            if (math.abs(prod.get(0, 1)) > eps) { return 5; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4TranslateAndScaleV) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Mat4 id = math.Mat4.identity();
+            // Translate
+            math.Mat4 t = id.translate(math.Vec3(10.0, 20.0, 30.0));
+            if (math.abs(t.get(0, 3) - 10.0) > eps) { return 1; }
+            if (math.abs(t.get(1, 3) - 20.0) > eps) { return 2; }
+            if (math.abs(t.get(2, 3) - 30.0) > eps) { return 3; }
+            // ScaleV
+            math.Mat4 s = id.scaleV(math.Vec3(2.0, 3.0, 4.0));
+            if (math.abs(s.get(0, 0) - 2.0) > eps) { return 4; }
+            if (math.abs(s.get(1, 1) - 3.0) > eps) { return 5; }
+            if (math.abs(s.get(2, 2) - 4.0) > eps) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4RotateXYZ) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Mat4 id = math.Mat4.identity();
+            // RotateX 90: (0,1,0) -> (0,0,1)
+            math.Mat4 rx = id.rotateX(math.pi() / 2.0);
+            math.Vec3 up = math.Vec3(0.0, 1.0, 0.0);
+            math.Vec3 r1 = up.transform(rx);
+            if (math.abs(r1.y) > eps) { return 1; }
+            if (math.abs(r1.z - 1.0) > eps) { return 2; }
+            // RotateY 90: (0,0,1) -> (1,0,0)
+            math.Mat4 ry = id.rotateY(math.pi() / 2.0);
+            math.Vec3 fwd = math.Vec3(0.0, 0.0, 1.0);
+            math.Vec3 r2 = fwd.transform(ry);
+            if (math.abs(r2.x - 1.0) > eps) { return 3; }
+            if (math.abs(r2.z) > eps) { return 4; }
+            // RotateZ 90: (1,0,0) -> (0,1,0)
+            math.Mat4 rz = id.rotateZ(math.pi() / 2.0);
+            math.Vec3 right = math.Vec3(1.0, 0.0, 0.0);
+            math.Vec3 r3 = right.transform(rz);
+            if (math.abs(r3.x) > eps) { return 5; }
+            if (math.abs(r3.y - 1.0) > eps) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4LookAt) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec3 eye = math.Vec3(0.0, 0.0, 5.0);
+            math.Vec3 target = math.Vec3.zero();
+            math.Vec3 up = math.Vec3(0.0, 1.0, 0.0);
+            math.Mat4 view = math.Mat4.lookAt(eye, target, up);
+            // Eye at (0,0,5) looking at origin: the view matrix should
+            // translate the eye to origin in view space
+            math.Vec3 eyeView = eye.transform(view);
+            if (math.abs(eyeView.x) > eps) { return 1; }
+            if (math.abs(eyeView.y) > eps) { return 2; }
+            // Target should be at (0,0,-5) in view space
+            math.Vec3 targetView = target.transform(view);
+            if (math.abs(targetView.x) > eps) { return 3; }
+            if (math.abs(targetView.y) > eps) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4PerspectiveAndOrtho) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            // Perspective: 90 deg FOV, aspect 1, near 0.1, far 100
+            math.Mat4 p = math.Mat4.perspective(math.deg2rad(90.0), 1.0, 0.1, 100.0);
+            // With 90 deg FOV and aspect 1: m[0][0] = m[1][1] = 1.0
+            if (math.abs(p.get(0, 0) - 1.0) > eps) { return 1; }
+            if (math.abs(p.get(1, 1) - 1.0) > eps) { return 2; }
+            if (p.get(3, 3) != 0.0) { return 3; }
+            // Ortho: symmetric [-1,1] box
+            math.Mat4 o = math.Mat4.ortho(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
+            if (math.abs(o.get(0, 0) - 1.0) > eps) { return 4; }
+            if (math.abs(o.get(1, 1) - 1.0) > eps) { return 5; }
+            if (math.abs(o.get(3, 3) - 1.0) > eps) { return 6; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4Frustum) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Mat4 f = math.Mat4.frustum(-1.0, 1.0, -1.0, 1.0, 1.0, 100.0);
+            // Symmetric frustum: m[0][0] = 2*near/(right-left) = 2*1/2 = 1
+            if (math.abs(f.get(0, 0) - 1.0) > eps) { return 1; }
+            if (math.abs(f.get(1, 1) - 1.0) > eps) { return 2; }
+            if (f.get(3, 2) != -1.0) { return 3; }
+            return 0;
+        }
+    )"), 0);
+}
+
 }  // namespace

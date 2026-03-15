@@ -7655,6 +7655,26 @@ static basl_status_t basl_parser_parse_native_call(
     return BASL_STATUS_OK;
 }
 
+/* Resolve the return class index for a native method.
+ * If return_class_name is set, look it up; otherwise use class_index. */
+static size_t basl_parser_resolve_return_class(
+    const basl_parser_state_t *state,
+    const basl_native_class_method_t *method,
+    size_t class_index
+) {
+    size_t k;
+    if (method->return_class_name != NULL) {
+        for (k = 0U; k < state->program->class_count; k++) {
+            if (state->program->classes[k].name_length == method->return_class_name_length &&
+                memcmp(state->program->classes[k].name, method->return_class_name,
+                       method->return_class_name_length) == 0) {
+                return k;
+            }
+        }
+    }
+    return class_index;
+}
+
 /* Parse a static method call on a native class: no self on the stack. */
 static basl_status_t basl_parser_parse_native_static_method_call(
     basl_parser_state_t *state,
@@ -7777,7 +7797,8 @@ static basl_status_t basl_parser_parse_native_static_method_call(
     if (method->return_count <= 1U) {
         if (method->return_type == BASL_TYPE_OBJECT) {
             basl_expression_result_set_type(
-                out_result, basl_binding_type_class(class_index));
+                out_result, basl_binding_type_class(
+                    basl_parser_resolve_return_class(state, method, class_index)));
         } else {
             basl_expression_result_set_type(
                 out_result,
@@ -7910,7 +7931,8 @@ static basl_status_t basl_parser_parse_native_method_call(
     if (method->return_count <= 1U) {
         if (method->return_type == BASL_TYPE_OBJECT) {
             basl_expression_result_set_type(
-                out_result, basl_binding_type_class(class_index));
+                out_result, basl_binding_type_class(
+                    basl_parser_resolve_return_class(state, method, class_index)));
         } else {
             basl_expression_result_set_type(
                 out_result,
