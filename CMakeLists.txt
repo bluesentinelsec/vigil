@@ -133,6 +133,7 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Andr
 
     set_target_properties(basl_cli PROPERTIES OUTPUT_NAME basl)
     target_link_libraries(basl_cli PRIVATE basl)
+    target_include_directories(basl_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(basl_cli PRIVATE c_std_11)
 endif()
 
@@ -154,6 +155,7 @@ if(BASL_BUILD_TESTS)
 
     add_executable(basl_tests
         tests/array_test.cpp
+        tests/basl_new_test.cpp
         tests/binding_test.cpp
         tests/checker_test.cpp
         tests/chunk_test.cpp

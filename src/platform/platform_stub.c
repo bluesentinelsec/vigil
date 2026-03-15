@@ -59,3 +59,22 @@ basl_status_t basl_platform_remove(const char *path, basl_error_t *error) {
                            "file I/O is not supported on this platform");
     return BASL_STATUS_UNSUPPORTED;
 }
+
+basl_status_t basl_platform_path_join(
+    const char *base, const char *child,
+    char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    (void)base; (void)child; (void)out_buf; (void)buf_size;
+    basl_error_set_literal(error, BASL_STATUS_UNSUPPORTED,
+                           "file I/O is not supported on this platform");
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_readline(
+    const char *prompt, char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    (void)prompt; (void)out_buf; (void)buf_size;
+    basl_error_set_literal(error, BASL_STATUS_UNSUPPORTED,
+                           "stdin is not supported on this platform");
+    return BASL_STATUS_UNSUPPORTED;
+}
