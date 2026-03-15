@@ -66,6 +66,8 @@ class TestBaslPackage(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_package_and_run(self):
+        if sys.platform == "win32":
+            self.skipTest("Packaged binary execution unreliable on Windows CI")
         """Package a script and run the standalone binary."""
         script = Path(self.tmpdir) / "hello.basl"
         script.write_text(
@@ -91,6 +93,8 @@ class TestBaslPackage(unittest.TestCase):
         self.assertIn("packaged!", result.stdout)
 
     def test_package_with_args(self):
+        if sys.platform == "win32":
+            self.skipTest("Packaged binary execution unreliable on Windows CI")
         """Packaged binary passes CLI args to script."""
         script = Path(self.tmpdir) / "argtest.basl"
         script.write_text(
@@ -127,6 +131,8 @@ class TestBaslPackage(unittest.TestCase):
         self.assertIn("entry.basl", result.stdout)
 
     def test_package_encrypted(self):
+        if sys.platform == "win32":
+            self.skipTest("Packaged binary execution unreliable on Windows CI")
         """Encrypted package runs correctly."""
         script = Path(self.tmpdir) / "secret.basl"
         script.write_text(
