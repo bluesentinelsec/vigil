@@ -81,9 +81,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
 # ── Platform abstraction layer ──────────────────────────────────────
 if(WIN32)
     target_sources(basl PRIVATE src/platform/platform_win32.c)
-elseif(EMSCRIPTEN)
-    target_sources(basl PRIVATE src/platform/platform_stub.c)
-elseif(UNIX)
+elseif(UNIX OR EMSCRIPTEN)
     target_sources(basl PRIVATE src/platform/platform_posix.c)
 else()
     target_sources(basl PRIVATE src/platform/platform_stub.c)
