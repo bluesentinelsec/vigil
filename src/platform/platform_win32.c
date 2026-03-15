@@ -245,3 +245,26 @@ basl_status_t basl_platform_readline(
     }
     return BASL_STATUS_OK;
 }
+
+basl_status_t basl_platform_self_exe(
+    char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    DWORD len;
+    if (out_buf == NULL || buf_size == 0) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null buffer"; error->length = 11; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    len = GetModuleFileNameA(NULL, out_buf, (DWORD)buf_size);
+    if (len == 0 || len >= (DWORD)buf_size) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "GetModuleFileName failed"; error->length = 24; }
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_platform_make_executable(
+    const char *path, basl_error_t *error
+) {
+    (void)path; (void)error;
+    return BASL_STATUS_OK; /* no-op on Windows */
+}

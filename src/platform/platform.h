@@ -93,6 +93,23 @@ BASL_API basl_status_t basl_platform_readline(
     basl_error_t *error
 );
 
+/*
+ * Get the path to the currently running executable.
+ */
+BASL_API basl_status_t basl_platform_self_exe(
+    char *out_buf,
+    size_t buf_size,
+    basl_error_t *error
+);
+
+/*
+ * Make a file executable (no-op on Windows).
+ */
+BASL_API basl_status_t basl_platform_make_executable(
+    const char *path,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif

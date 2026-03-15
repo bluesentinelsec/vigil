@@ -256,6 +256,9 @@ struct basl_vm {
     /* Debug hook — NULL when no debugger attached (zero overhead). */
     int (*debug_hook)(basl_vm_t *vm, void *userdata);
     void *debug_hook_userdata;
+    /* Script arguments for args.get(). */
+    const char *const *argv;
+    size_t argc;
 };
 
 static basl_status_t basl_vm_fail_at_ip(
@@ -2599,6 +2602,25 @@ void basl_vm_set_debug_hook(
     if (vm == NULL) return;
     vm->debug_hook = hook;
     vm->debug_hook_userdata = userdata;
+}
+
+void basl_vm_set_args(
+    basl_vm_t *vm,
+    const char *const *argv,
+    size_t argc
+) {
+    if (vm == NULL) return;
+    vm->argv = argv;
+    vm->argc = argc;
+}
+
+void basl_vm_get_args(
+    const basl_vm_t *vm,
+    const char *const **out_argv,
+    size_t *out_argc
+) {
+    if (out_argv != NULL) *out_argv = vm != NULL ? vm->argv : NULL;
+    if (out_argc != NULL) *out_argc = vm != NULL ? vm->argc : 0;
 }
 
 const basl_chunk_t *basl_vm_frame_chunk(

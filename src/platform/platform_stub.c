@@ -78,3 +78,18 @@ basl_status_t basl_platform_readline(
                            "stdin is not supported on this platform");
     return BASL_STATUS_UNSUPPORTED;
 }
+
+basl_status_t basl_platform_self_exe(
+    char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    (void)out_buf; (void)buf_size;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_make_executable(
+    const char *path, basl_error_t *error
+) {
+    (void)path; (void)error;
+    return BASL_STATUS_OK;
+}

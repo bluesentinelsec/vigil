@@ -6,6 +6,7 @@
 #include "basl/cli_lib.h"
 #include "basl/dap.h"
 #include "basl/doc.h"
+#include "basl/package.h"
 #include "basl/stdlib.h"
 #include "basl/toml.h"
 #include "platform/platform.h"
@@ -282,7 +283,7 @@ static int register_source_tree(
 
 /* ── run command ─────────────────────────────────────────────────── */
 
-static int cmd_run(const char *script_path) {
+static int cmd_run(const char *script_path, const char *const *script_argv, size_t script_argc) {
     basl_runtime_t *runtime = NULL;
     basl_vm_t *vm = NULL;
     basl_error_t error = {0};
@@ -335,6 +336,7 @@ static int cmd_run(const char *script_path) {
         goto cleanup;
     }
 
+    basl_vm_set_args(vm, script_argv, script_argc);
     status = basl_vm_execute_function(vm, function, &result, &error);
     basl_object_release(&function);
     if (status != BASL_STATUS_OK) {
@@ -734,25 +736,267 @@ cleanup:
     return exit_code;
 }
 
+/* ── packaged binary runner ───────────────────────────────────────── */
+
+static int try_run_packaged(int argc, char **argv) {
+    basl_package_bundle_t bundle;
+    basl_error_t error = {0};
+    basl_status_t status;
+    size_t i;
+    const char *entry_src = NULL;
+
+    status = basl_package_read_self(&bundle, &error);
+    if (status != BASL_STATUS_OK) {
+        /* Check if it's just "not a packaged binary" vs a real error. */
+        if (error.value != NULL && (
+            strcmp(basl_error_message(&error), "not a packaged binary") == 0 ||
+            strcmp(basl_error_message(&error), "no bundle trailer") == 0))
+            return -1; /* not packaged, continue as normal CLI */
+        fprintf(stderr, "error[package]: %s\n", basl_error_message(&error));
+        return 1;
+    }
+
+    /* Find entry.basl. */
+    for (i = 0; i < bundle.file_count; i++) {
+        if (strcmp(bundle.paths[i], "entry.basl") == 0) {
+            entry_src = bundle.contents[i];
+            break;
+        }
+    }
+    if (entry_src == NULL) {
+        fprintf(stderr, "error[package]: entry.basl not found in bundle\n");
+        basl_package_bundle_free(&bundle);
+        return 1;
+    }
+
+    /* Compile and run. */
+    {
+        basl_runtime_t *runtime = NULL;
+        basl_vm_t *vm = NULL;
+        basl_source_registry_t registry;
+        basl_diagnostic_list_t diagnostics;
+        basl_source_id_t source_id = 0;
+        basl_object_t *function = NULL;
+        basl_value_t result;
+        int exit_code = 0;
+
+        if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            basl_package_bundle_free(&bundle);
+            return 1;
+        }
+        if (basl_vm_open(&vm, runtime, NULL, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            basl_runtime_close(&runtime);
+            basl_package_bundle_free(&bundle);
+            return 1;
+        }
+
+        basl_source_registry_init(&registry, runtime);
+        basl_diagnostic_list_init(&diagnostics, runtime);
+        basl_value_init_nil(&result);
+
+        /* Register all bundled files as sources. */
+        for (i = 0; i < bundle.file_count; i++) {
+            basl_source_id_t sid = 0;
+            basl_source_registry_register(&registry,
+                bundle.paths[i], strlen(bundle.paths[i]),
+                bundle.contents[i], bundle.content_lengths[i],
+                &sid, &error);
+            if (strcmp(bundle.paths[i], "entry.basl") == 0)
+                source_id = sid;
+        }
+
+        {
+            basl_native_registry_t natives;
+            basl_native_registry_init(&natives);
+            basl_stdlib_register_all(&natives, &error);
+            status = basl_compile_source_with_natives(&registry, source_id, &natives,
+                                                       &function, &diagnostics, &error);
+            basl_native_registry_free(&natives);
+        }
+        if (status != BASL_STATUS_OK) {
+            if (basl_diagnostic_list_count(&diagnostics) != 0U)
+                print_diagnostics(&registry, &diagnostics);
+            else
+                print_error(&registry, "compile failed", &error);
+            exit_code = 1;
+        } else {
+            /* Pass remaining argv as script args. */
+            if (argc > 1)
+                basl_vm_set_args(vm, (const char *const *)&argv[1], (size_t)(argc - 1));
+            else
+                basl_vm_set_args(vm, NULL, 0);
+
+            status = basl_vm_execute_function(vm, function, &result, &error);
+            if (status != BASL_STATUS_OK) {
+                print_error(&registry, "execution failed", &error);
+                exit_code = 1;
+            } else if (basl_value_kind(&result) == BASL_VALUE_INT) {
+                exit_code = (int)basl_value_as_int(&result);
+            }
+        }
+
+        basl_object_release(&function);
+        basl_value_release(&result);
+        basl_diagnostic_list_free(&diagnostics);
+        basl_source_registry_free(&registry);
+        basl_vm_close(&vm);
+        basl_runtime_close(&runtime);
+        basl_package_bundle_free(&bundle);
+        return exit_code;
+    }
+}
+
+/* ── package command ─────────────────────────────────────────────── */
+
+static int cmd_package(const char *entry_path, const char *output_path,
+                        const char *key, int inspect) {
+    basl_error_t error = {0};
+
+    if (inspect) {
+        /* Inspect mode. */
+        const char *target = entry_path ? entry_path : output_path;
+        basl_package_bundle_t bundle;
+        size_t i;
+        if (target == NULL) {
+            fprintf(stderr, "error: --inspect requires a binary path\n");
+            return 2;
+        }
+        if (basl_package_read(target, &bundle, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error[package]: %s\n", basl_error_message(&error));
+            return 1;
+        }
+        printf("ENTRY\n  entry.basl\n\nFILES\n");
+        for (i = 0; i < bundle.file_count; i++)
+            printf("  %s\n", bundle.paths[i]);
+        basl_package_bundle_free(&bundle);
+        return 0;
+    }
+
+    /* Build mode. */
+    {
+        basl_runtime_t *runtime = NULL;
+        basl_source_registry_t registry;
+        basl_source_id_t source_id = 0;
+        const char *script_path;
+        char out_path[4096];
+        basl_package_file_t *pkg_files = NULL;
+        size_t pkg_count = 0;
+        size_t pkg_cap = 8;
+        size_t i;
+
+        script_path = entry_path ? entry_path : "main.basl";
+
+        if (output_path != NULL) {
+            snprintf(out_path, sizeof(out_path), "%s", output_path);
+        } else {
+            /* Derive from script name. */
+            const char *base = script_path;
+            const char *p;
+            size_t blen;
+            for (p = script_path; *p; p++) {
+                if (*p == '/' || *p == '\\') base = p + 1;
+            }
+            blen = strlen(base);
+            if (blen > 5 && memcmp(base + blen - 5, ".basl", 5) == 0)
+                blen -= 5;
+            snprintf(out_path, sizeof(out_path), "%.*s", (int)blen, base);
+        }
+
+        if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            return 1;
+        }
+
+        basl_source_registry_init(&registry, runtime);
+
+        /* Register source tree (walks imports). */
+        if (!register_source_tree(&registry, script_path, &source_id, &error)) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            basl_source_registry_free(&registry);
+            basl_runtime_close(&runtime);
+            return 1;
+        }
+
+        /* Collect all registered sources as package files. */
+        pkg_cap = basl_source_registry_count(&registry) + 1;
+        pkg_files = (basl_package_file_t *)calloc(pkg_cap, sizeof(basl_package_file_t));
+        if (pkg_files == NULL) {
+            basl_source_registry_free(&registry);
+            basl_runtime_close(&runtime);
+            return 1;
+        }
+
+        for (i = 1; i <= basl_source_registry_count(&registry); i++) {
+            const basl_source_file_t *src = basl_source_registry_get(&registry, (basl_source_id_t)i);
+            if (src == NULL) continue;
+
+            if ((basl_source_id_t)i == source_id) {
+                pkg_files[pkg_count].path = "entry.basl";
+                pkg_files[pkg_count].path_length = 10;
+            } else {
+                pkg_files[pkg_count].path = basl_string_c_str(&src->path);
+                pkg_files[pkg_count].path_length = basl_string_length(&src->path);
+            }
+            pkg_files[pkg_count].data = basl_string_c_str(&src->text);
+            pkg_files[pkg_count].data_length = basl_string_length(&src->text);
+            pkg_count++;
+        }
+
+        if (basl_package_build(out_path, pkg_files, pkg_count,
+                                key, key ? strlen(key) : 0, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error[package]: %s\n", basl_error_message(&error));
+            free(pkg_files);
+            basl_source_registry_free(&registry);
+            basl_runtime_close(&runtime);
+            return 1;
+        }
+
+        printf("packaged %zu file(s) -> %s\n", pkg_count, out_path);
+        free(pkg_files);
+        basl_source_registry_free(&registry);
+        basl_runtime_close(&runtime);
+        return 0;
+    }
+}
+
 /* ── main ────────────────────────────────────────────────────────── */
 
 int main(int argc, char **argv) {
     basl_cli_t cli;
-    const char *run_file = NULL;
     const char *check_file = NULL;
     const char *new_name = NULL;
     const char *debug_file = NULL;
     const char *doc_file = NULL;
     const char *doc_symbol = NULL;
+    const char *pkg_entry = NULL;
+    const char *pkg_output = NULL;
+    const char *pkg_key = NULL;
+    int pkg_inspect = 0;
     int new_lib = 0;
     basl_error_t error = {0};
     const basl_cli_command_t *matched;
     basl_cli_command_t *cmd;
 
+    /* Check if this is a packaged binary. */
+    {
+        int rc = try_run_packaged(argc, argv);
+        if (rc >= 0) return rc;
+    }
+
+    /* Handle "basl run <file> [args...]" before CLI parser since run
+     * needs to pass through arbitrary script arguments. */
+    if (argc >= 3 && strcmp(argv[1], "run") == 0) {
+        const char *const *script_argv = argc > 3 ? (const char *const *)&argv[3] : NULL;
+        size_t script_argc = argc > 3 ? (size_t)(argc - 3) : 0;
+        return cmd_run(argv[2], script_argv, script_argc);
+    }
+
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
 
     cmd = basl_cli_add_command(&cli, "run", "Run a BASL script");
-    basl_cli_add_positional(cmd, "file", "Script file to run", &run_file);
+    basl_cli_add_positional(cmd, "file", "Script file to run", NULL);
 
     cmd = basl_cli_add_command(&cli, "check", "Type-check a BASL script");
     basl_cli_add_positional(cmd, "file", "Script file to check", &check_file);
@@ -767,6 +1011,12 @@ int main(int argc, char **argv) {
     cmd = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
     basl_cli_add_positional(cmd, "file", "Source file to document", &doc_file);
     basl_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. Point or Point.x)", &doc_symbol);
+
+    cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
+    basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
+    basl_cli_add_string_flag(cmd, "output", 'o', "Output path", &pkg_output);
+    basl_cli_add_string_flag(cmd, "key", 'k', "XOR encryption key for obfuscation", &pkg_key);
+    basl_cli_add_bool_flag(cmd, "inspect", 'i', "Inspect a packaged binary", &pkg_inspect);
 
     if (basl_cli_parse(&cli, argc, argv, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
@@ -787,11 +1037,8 @@ int main(int argc, char **argv) {
         basl_cli_free(&cli);
 
         if (strcmp(matched_name, "run") == 0) {
-            if (run_file == NULL) {
-                fprintf(stderr, "error: missing file argument\n");
-                return 2;
-            }
-            return cmd_run(run_file);
+            /* Handled above before CLI parse. */
+            return 0;
         }
         if (strcmp(matched_name, "check") == 0) {
             if (check_file == NULL) {
@@ -816,6 +1063,9 @@ int main(int argc, char **argv) {
                 return 2;
             }
             return cmd_doc(doc_file, doc_symbol);
+        }
+        if (strcmp(matched_name, "package") == 0) {
+            return cmd_package(pkg_entry, pkg_output, pkg_key, pkg_inspect);
         }
     }
 
