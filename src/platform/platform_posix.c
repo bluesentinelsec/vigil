@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
 
@@ -294,5 +295,185 @@ basl_status_t basl_platform_list_dir(
         if (s != BASL_STATUS_OK) break;
     }
     closedir(d);
+    return BASL_STATUS_OK;
+}
+
+/* ── Environment variables ───────────────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_getenv(
+    const char *name, char **out_value, int *out_found, basl_error_t *error
+) {
+    const char *val;
+    (void)error;
+    if (!name || !out_value || !out_found) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    val = getenv(name);
+    if (val) {
+        *out_value = strdup(val);
+        *out_found = 1;
+    } else {
+        *out_value = NULL;
+        *out_found = 0;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_setenv(
+    const char *name, const char *value, basl_error_t *error
+) {
+    if (!name || !value) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (setenv(name, value, 1) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "setenv failed"; error->length = 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+/* ── OS information ──────────────────────────────────────────────── */
+
+BASL_API const char *basl_platform_os_name(void) {
+#if defined(__APPLE__)
+    return "darwin";
+#elif defined(__linux__)
+    return "linux";
+#elif defined(__FreeBSD__)
+    return "freebsd";
+#elif defined(__OpenBSD__)
+    return "openbsd";
+#elif defined(__NetBSD__)
+    return "netbsd";
+#elif defined(__ANDROID__)
+    return "android";
+#else
+    return "posix";
+#endif
+}
+
+BASL_API basl_status_t basl_platform_getcwd(
+    char **out_path, basl_error_t *error
+) {
+    char buf[4096];
+    if (!out_path) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (!getcwd(buf, sizeof(buf))) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "getcwd failed"; error->length = 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_path = strdup(buf);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_temp_dir(
+    char **out_path, basl_error_t *error
+) {
+    const char *tmp;
+    if (!out_path) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    tmp = getenv("TMPDIR");
+    if (!tmp) tmp = "/tmp";
+    *out_path = strdup(tmp);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_hostname(
+    char **out_name, basl_error_t *error
+) {
+    char buf[256];
+    if (!out_name) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (gethostname(buf, sizeof(buf)) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "gethostname failed"; error->length = 18; }
+        return BASL_STATUS_INTERNAL;
+    }
+    buf[sizeof(buf) - 1] = '\0';
+    *out_name = strdup(buf);
+    return BASL_STATUS_OK;
+}
+
+/* ── Process execution ───────────────────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_exec(
+    const char *const *argv,
+    char **out_stdout, char **out_stderr, int *out_exit_code,
+    basl_error_t *error
+) {
+    int stdout_pipe[2], stderr_pipe[2];
+    pid_t pid;
+
+    if (!argv || !argv[0] || !out_stdout || !out_stderr || !out_exit_code) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "pipe failed"; error->length = 11; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        close(stdout_pipe[0]); close(stdout_pipe[1]);
+        close(stderr_pipe[0]); close(stderr_pipe[1]);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "fork failed"; error->length = 11; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    if (pid == 0) {
+        /* Child. */
+        close(stdout_pipe[0]);
+        close(stderr_pipe[0]);
+        dup2(stdout_pipe[1], STDOUT_FILENO);
+        dup2(stderr_pipe[1], STDERR_FILENO);
+        close(stdout_pipe[1]);
+        close(stderr_pipe[1]);
+        execvp(argv[0], (char *const *)argv);
+        _exit(127);
+    }
+
+    /* Parent. */
+    close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
+
+    {
+        /* Read both pipes. Simple sequential read (sufficient for test harness). */
+        char *bufs[2] = {NULL, NULL};
+        size_t lens[2] = {0, 0};
+        size_t caps[2] = {0, 0};
+        int fds[2] = {stdout_pipe[0], stderr_pipe[0]};
+        int i;
+        int status = 0;
+
+        for (i = 0; i < 2; i++) {
+            char tmp[4096];
+            ssize_t n;
+            while ((n = read(fds[i], tmp, sizeof(tmp))) > 0) {
+                if (lens[i] + (size_t)n >= caps[i]) {
+                    caps[i] = (lens[i] + (size_t)n) * 2 + 1;
+                    bufs[i] = realloc(bufs[i], caps[i]);
+                }
+                memcpy(bufs[i] + lens[i], tmp, (size_t)n);
+                lens[i] += (size_t)n;
+            }
+            close(fds[i]);
+            if (!bufs[i]) bufs[i] = calloc(1, 1);
+            bufs[i][lens[i]] = '\0';
+        }
+
+        waitpid(pid, &status, 0);
+        *out_stdout = bufs[0];
+        *out_stderr = bufs[1];
+        *out_exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+    }
     return BASL_STATUS_OK;
 }

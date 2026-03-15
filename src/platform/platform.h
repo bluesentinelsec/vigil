@@ -128,6 +128,71 @@ BASL_API basl_status_t basl_platform_list_dir(
     basl_error_t *error
 );
 
+/* ── Environment variables ───────────────────────────────────────── */
+
+/**
+ * Get an environment variable.  Returns BASL_STATUS_OK and sets
+ * *out_value to the value (caller must free with free()) and
+ * *out_found to 1 if found, or *out_found to 0 if not found.
+ */
+BASL_API basl_status_t basl_platform_getenv(
+    const char *name,
+    char **out_value,
+    int *out_found,
+    basl_error_t *error
+);
+
+/**
+ * Set an environment variable.  Uses setenv on POSIX, _putenv_s on
+ * Windows.  Returns BASL_STATUS_UNSUPPORTED on stub.
+ */
+BASL_API basl_status_t basl_platform_setenv(
+    const char *name,
+    const char *value,
+    basl_error_t *error
+);
+
+/* ── OS information ──────────────────────────────────────────────── */
+
+/** Return a static string identifying the OS: "linux", "darwin", "windows", etc. */
+BASL_API const char *basl_platform_os_name(void);
+
+/** Get the current working directory.  Caller must free *out_path. */
+BASL_API basl_status_t basl_platform_getcwd(
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Get the system temporary directory path.  Caller must free *out_path. */
+BASL_API basl_status_t basl_platform_temp_dir(
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Get the machine hostname.  Caller must free *out_name. */
+BASL_API basl_status_t basl_platform_hostname(
+    char **out_name,
+    basl_error_t *error
+);
+
+/* ── Process execution ───────────────────────────────────────────── */
+
+/**
+ * Execute a child process and capture its output.
+ *
+ * argv is a NULL-terminated array of strings (argv[0] = program).
+ * On success, *out_stdout and *out_stderr are allocated strings the
+ * caller must free, and *out_exit_code is the child's exit status.
+ * Returns BASL_STATUS_UNSUPPORTED on stub/embedded platforms.
+ */
+BASL_API basl_status_t basl_platform_exec(
+    const char *const *argv,
+    char **out_stdout,
+    char **out_stderr,
+    int *out_exit_code,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif

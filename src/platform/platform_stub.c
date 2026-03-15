@@ -104,3 +104,57 @@ basl_status_t basl_platform_list_dir(
     if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
     return BASL_STATUS_UNSUPPORTED;
 }
+
+/* ── Environment variables ───────────────────────────────────────── */
+
+basl_status_t basl_platform_getenv(
+    const char *name, char **out_value, int *out_found, basl_error_t *error
+) {
+    (void)name; (void)out_value; (void)out_found;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_setenv(
+    const char *name, const char *value, basl_error_t *error
+) {
+    (void)name; (void)value;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+/* ── OS information ──────────────────────────────────────────────── */
+
+const char *basl_platform_os_name(void) {
+    return "unknown";
+}
+
+basl_status_t basl_platform_getcwd(char **out_path, basl_error_t *error) {
+    (void)out_path;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_temp_dir(char **out_path, basl_error_t *error) {
+    (void)out_path;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_hostname(char **out_name, basl_error_t *error) {
+    (void)out_name;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+/* ── Process execution ───────────────────────────────────────────── */
+
+basl_status_t basl_platform_exec(
+    const char *const *argv,
+    char **out_stdout, char **out_stderr, int *out_exit_code,
+    basl_error_t *error
+) {
+    (void)argv; (void)out_stdout; (void)out_stderr; (void)out_exit_code;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}

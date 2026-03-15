@@ -296,3 +296,197 @@ basl_status_t basl_platform_list_dir(
     FindClose(h);
     return BASL_STATUS_OK;
 }
+
+/* ── Environment variables ───────────────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_getenv(
+    const char *name, char **out_value, int *out_found, basl_error_t *error
+) {
+    char buf[32767]; /* max env var size on Windows */
+    DWORD len;
+    (void)error;
+    if (!name || !out_value || !out_found) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    len = GetEnvironmentVariableA(name, buf, sizeof(buf));
+    if (len == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND) {
+        *out_value = NULL;
+        *out_found = 0;
+    } else {
+        *out_value = _strdup(buf);
+        *out_found = 1;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_setenv(
+    const char *name, const char *value, basl_error_t *error
+) {
+    if (!name || !value) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (_putenv_s(name, value) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "setenv failed"; error->length = 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+/* ── OS information ──────────────────────────────────────────────── */
+
+BASL_API const char *basl_platform_os_name(void) {
+    return "windows";
+}
+
+BASL_API basl_status_t basl_platform_getcwd(
+    char **out_path, basl_error_t *error
+) {
+    char buf[4096];
+    if (!out_path) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (!_getcwd(buf, sizeof(buf))) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "getcwd failed"; error->length = 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_path = _strdup(buf);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_temp_dir(
+    char **out_path, basl_error_t *error
+) {
+    char buf[MAX_PATH + 1];
+    DWORD len;
+    if (!out_path) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    len = GetTempPathA(sizeof(buf), buf);
+    if (len == 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "GetTempPath failed"; error->length = 18; }
+        return BASL_STATUS_INTERNAL;
+    }
+    /* Remove trailing backslash if present. */
+    if (len > 0 && (buf[len - 1] == '\\' || buf[len - 1] == '/'))
+        buf[len - 1] = '\0';
+    *out_path = _strdup(buf);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_hostname(
+    char **out_name, basl_error_t *error
+) {
+    char buf[256];
+    DWORD size = sizeof(buf);
+    if (!out_name) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (!GetComputerNameA(buf, &size)) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "GetComputerName failed"; error->length = 22; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_name = _strdup(buf);
+    return BASL_STATUS_OK;
+}
+
+/* ── Process execution ───────────────────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_exec(
+    const char *const *argv,
+    char **out_stdout, char **out_stderr, int *out_exit_code,
+    basl_error_t *error
+) {
+    HANDLE stdout_rd = NULL, stdout_wr = NULL;
+    HANDLE stderr_rd = NULL, stderr_wr = NULL;
+    SECURITY_ATTRIBUTES sa;
+    PROCESS_INFORMATION pi;
+    STARTUPINFOA si;
+    char cmdline[32768];
+    size_t pos = 0;
+    int i;
+    DWORD exit_code;
+
+    if (!argv || !argv[0] || !out_stdout || !out_stderr || !out_exit_code) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    /* Build command line. */
+    for (i = 0; argv[i]; i++) {
+        if (i > 0 && pos < sizeof(cmdline) - 1) cmdline[pos++] = ' ';
+        {
+            size_t len = strlen(argv[i]);
+            if (pos + len < sizeof(cmdline) - 1) {
+                memcpy(cmdline + pos, argv[i], len);
+                pos += len;
+            }
+        }
+    }
+    cmdline[pos] = '\0';
+
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    if (!CreatePipe(&stdout_rd, &stdout_wr, &sa, 0) ||
+        !CreatePipe(&stderr_rd, &stderr_wr, &sa, 0)) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "CreatePipe failed"; error->length = 17; }
+        return BASL_STATUS_INTERNAL;
+    }
+    SetHandleInformation(stdout_rd, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(stderr_rd, HANDLE_FLAG_INHERIT, 0);
+
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = stdout_wr;
+    si.hStdError = stderr_wr;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+    memset(&pi, 0, sizeof(pi));
+    if (!CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        CloseHandle(stdout_rd); CloseHandle(stdout_wr);
+        CloseHandle(stderr_rd); CloseHandle(stderr_wr);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "CreateProcess failed"; error->length = 20; }
+        return BASL_STATUS_INTERNAL;
+    }
+    CloseHandle(stdout_wr);
+    CloseHandle(stderr_wr);
+
+    /* Read pipes. */
+    {
+        char *bufs[2] = {NULL, NULL};
+        size_t lens[2] = {0, 0};
+        size_t caps[2] = {0, 0};
+        HANDLE handles[2] = {stdout_rd, stderr_rd};
+        int idx;
+        for (idx = 0; idx < 2; idx++) {
+            char tmp[4096];
+            DWORD n;
+            while (ReadFile(handles[idx], tmp, sizeof(tmp), &n, NULL) && n > 0) {
+                if (lens[idx] + n >= caps[idx]) {
+                    caps[idx] = (lens[idx] + n) * 2 + 1;
+                    bufs[idx] = realloc(bufs[idx], caps[idx]);
+                }
+                memcpy(bufs[idx] + lens[idx], tmp, n);
+                lens[idx] += n;
+            }
+            CloseHandle(handles[idx]);
+            if (!bufs[idx]) bufs[idx] = calloc(1, 1);
+            bufs[idx][lens[idx]] = '\0';
+        }
+        WaitForSingleObject(pi.hProcess, INFINITE);
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+        *out_stdout = bufs[0];
+        *out_stderr = bufs[1];
+        *out_exit_code = (int)exit_code;
+    }
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return BASL_STATUS_OK;
+}
