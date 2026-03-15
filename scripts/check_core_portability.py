@@ -61,7 +61,7 @@ def main() -> int:
     core_dirs = [root / "src", root / "include" / "basl"]
     core_globs = ["*.c", "*.h"]
     # Exclude the CLI — it's allowed to have platform code.
-    exclude = {root / "src" / "cli", root / "src" / "stdlib"}
+    exclude = {root / "src" / "cli", root / "src" / "stdlib", root / "src" / "platform"}
 
     errors: list[str] = []
     for d in core_dirs:

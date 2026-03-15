@@ -78,6 +78,17 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/math.c
 )
 
+# ── Platform abstraction layer ──────────────────────────────────────
+if(WIN32)
+    target_sources(basl PRIVATE src/platform/platform_win32.c)
+elseif(EMSCRIPTEN)
+    target_sources(basl PRIVATE src/platform/platform_stub.c)
+elseif(UNIX)
+    target_sources(basl PRIVATE src/platform/platform_posix.c)
+else()
+    target_sources(basl PRIVATE src/platform/platform_stub.c)
+endif()
+
 target_include_directories(basl
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -159,6 +170,7 @@ if(BASL_BUILD_TESTS)
         tests/log_test.cpp
         tests/toml_test.cpp
         tests/map_test.cpp
+        tests/platform_test.cpp
         tests/runtime_test.cpp
         tests/source_test.cpp
         tests/stdlib_test.cpp
