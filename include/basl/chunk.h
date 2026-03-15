@@ -180,7 +180,17 @@ typedef enum basl_opcode {
        Increments local by delta, compares against constant limit using
        cmp (0=LT,1=LE,2=GT,3=GE,4=NE), jumps back if true. */
     BASL_OPCODE_FORLOOP_I32 = 132,
-    BASL_OPCODE_CALL_NATIVE = 133
+    BASL_OPCODE_CALL_NATIVE = 133,
+
+    BASL_OPCODE_STRING_TRIM_LEFT = 134,
+    BASL_OPCODE_STRING_TRIM_RIGHT = 135,
+    BASL_OPCODE_STRING_REPEAT = 136,
+    BASL_OPCODE_STRING_REVERSE = 137,
+    BASL_OPCODE_STRING_IS_EMPTY = 138,
+    BASL_OPCODE_STRING_COUNT = 139,
+    BASL_OPCODE_STRING_LAST_INDEX_OF = 140,
+    BASL_OPCODE_STRING_TRIM_PREFIX = 141,
+    BASL_OPCODE_STRING_TRIM_SUFFIX = 142
 } basl_opcode_t;
 
 typedef struct basl_chunk {
