@@ -93,3 +93,14 @@ basl_status_t basl_platform_make_executable(
     (void)path; (void)error;
     return BASL_STATUS_OK;
 }
+
+basl_status_t basl_platform_list_dir(
+    const char *path,
+    basl_platform_dir_callback_t callback,
+    void *user_data,
+    basl_error_t *error
+) {
+    (void)path; (void)callback; (void)user_data;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}

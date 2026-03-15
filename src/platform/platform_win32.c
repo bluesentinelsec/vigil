@@ -268,3 +268,31 @@ basl_status_t basl_platform_make_executable(
     (void)path; (void)error;
     return BASL_STATUS_OK; /* no-op on Windows */
 }
+
+basl_status_t basl_platform_list_dir(
+    const char *path,
+    basl_platform_dir_callback_t callback,
+    void *user_data,
+    basl_error_t *error
+) {
+    char pattern[4096];
+    snprintf(pattern, sizeof(pattern), "%s\\*", path);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "failed to open directory"; error->length = 24; }
+        return BASL_STATUS_INTERNAL;
+    }
+    do {
+        if (fd.cFileName[0] == '.' &&
+            (fd.cFileName[1] == '\0' ||
+             (fd.cFileName[1] == '.' && fd.cFileName[2] == '\0'))) {
+            continue;
+        }
+        int is_dir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        basl_status_t s = callback(fd.cFileName, is_dir, user_data);
+        if (s != BASL_STATUS_OK) break;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return BASL_STATUS_OK;
+}

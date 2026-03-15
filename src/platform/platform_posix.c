@@ -270,3 +270,29 @@ basl_status_t basl_platform_make_executable(
     chmod(path, 0755);
     return BASL_STATUS_OK;
 }
+
+basl_status_t basl_platform_list_dir(
+    const char *path,
+    basl_platform_dir_callback_t callback,
+    void *user_data,
+    basl_error_t *error
+) {
+    DIR *d = opendir(path);
+    if (!d) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "failed to open directory"; error->length = 24; }
+        return BASL_STATUS_INTERNAL;
+    }
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.' &&
+            (ent->d_name[1] == '\0' ||
+             (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))) {
+            continue;
+        }
+        int is_dir = (ent->d_type == DT_DIR);
+        basl_status_t s = callback(ent->d_name, is_dir, user_data);
+        if (s != BASL_STATUS_OK) break;
+    }
+    closedir(d);
+    return BASL_STATUS_OK;
+}

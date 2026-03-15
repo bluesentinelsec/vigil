@@ -6,6 +6,7 @@
 #include "basl/cli_lib.h"
 #include "basl/dap.h"
 #include "basl/doc.h"
+#include "basl/embed.h"
 #include "basl/fmt.h"
 #include "basl/package.h"
 #include "basl/stdlib.h"
@@ -948,6 +949,147 @@ static int cmd_fmt(const char *file_path, int check_only) {
     return fmt_one_file(file_path, check_only);
 }
 
+/* ── embed command ───────────────────────────────────────────────── */
+
+typedef struct { char **paths; char **rels; size_t count; size_t cap; } file_list_t;
+
+static void fl_add(file_list_t *fl, const char *path, const char *rel) {
+    if (fl->count == fl->cap) {
+        fl->cap = fl->cap ? fl->cap * 2 : 16;
+        fl->paths = realloc(fl->paths, fl->cap * sizeof(char *));
+        fl->rels = realloc(fl->rels, fl->cap * sizeof(char *));
+    }
+    fl->paths[fl->count] = strdup(path);
+    fl->rels[fl->count] = strdup(rel);
+    fl->count++;
+}
+
+static void fl_free(file_list_t *fl) {
+    for (size_t i = 0; i < fl->count; i++) { free(fl->paths[i]); free(fl->rels[i]); }
+    free(fl->paths); free(fl->rels);
+}
+
+typedef struct { char name[256]; int is_dir; } dir_entry_t;
+typedef struct { dir_entry_t *items; size_t count; size_t cap; } dir_list_t;
+
+static basl_status_t dir_list_cb(const char *name, int is_dir, void *ud) {
+    dir_list_t *dl = ud;
+    if (dl->count == dl->cap) {
+        dl->cap = dl->cap ? dl->cap * 2 : 32;
+        dl->items = realloc(dl->items, dl->cap * sizeof(dir_entry_t));
+    }
+    snprintf(dl->items[dl->count].name, sizeof(dl->items[0].name), "%s", name);
+    dl->items[dl->count].is_dir = is_dir;
+    dl->count++;
+    return BASL_STATUS_OK;
+}
+
+static void collect_dir(file_list_t *fl, const char *dir, const char *rel_prefix) {
+    basl_error_t err = {0};
+    dir_list_t dl = {NULL, 0, 0};
+    if (basl_platform_list_dir(dir, dir_list_cb, &dl, &err) != BASL_STATUS_OK) {
+        free(dl.items); return;
+    }
+    for (size_t i = 0; i < dl.count; i++) {
+        char full[4096], rel[4096];
+        basl_platform_path_join(dir, dl.items[i].name, full, sizeof(full), &err);
+        if (rel_prefix[0])
+            snprintf(rel, sizeof(rel), "%s/%s", rel_prefix, dl.items[i].name);
+        else
+            snprintf(rel, sizeof(rel), "%s", dl.items[i].name);
+        if (dl.items[i].is_dir) collect_dir(fl, full, rel);
+        else fl_add(fl, full, rel);
+    }
+    free(dl.items);
+}
+
+static int cmd_embed(int argc, char **argv) {
+    const char *output = NULL;
+    const char **targets = NULL;
+    size_t target_count = 0;
+    basl_error_t error = {0};
+
+    for (int i = 2; i < argc; i++) {
+        if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc)
+            output = argv[++i];
+        else {
+            targets = realloc(targets, (target_count + 1) * sizeof(char *));
+            targets[target_count++] = argv[i];
+        }
+    }
+    if (target_count == 0) {
+        fprintf(stderr, "usage: basl embed <file|dir...> [-o output.basl]\n");
+        free(targets); return 2;
+    }
+
+    /* Collect files: expand directories recursively. */
+    file_list_t fl = {NULL, NULL, 0, 0};
+    for (size_t i = 0; i < target_count; i++) {
+        int is_dir = 0;
+        basl_platform_is_directory(targets[i], &is_dir);
+        if (is_dir) {
+            collect_dir(&fl, targets[i], "");
+        } else {
+            /* Use basename as relative path. */
+            const char *base = targets[i];
+            for (const char *p = targets[i]; *p; p++)
+                if (*p == '/' || *p == '\\') base = p + 1;
+            fl_add(&fl, targets[i], base);
+        }
+    }
+
+    if (fl.count == 0) {
+        fprintf(stderr, "error: no files found\n");
+        fl_free(&fl); free(targets); return 1;
+    }
+
+    char *text = NULL;
+    size_t text_len = 0;
+    basl_status_t status;
+
+    if (fl.count == 1 && target_count == 1) {
+        int is_dir = 0;
+        basl_platform_is_directory(targets[0], &is_dir);
+        if (!is_dir) {
+            status = basl_embed_single(fl.paths[0], &text, &text_len, &error);
+        } else {
+            status = basl_embed_multi((const char **)fl.paths, (const char **)fl.rels,
+                                      fl.count, &text, &text_len, &error);
+        }
+    } else {
+        status = basl_embed_multi((const char **)fl.paths, (const char **)fl.rels,
+                                  fl.count, &text, &text_len, &error);
+    }
+
+    if (status != BASL_STATUS_OK) {
+        fprintf(stderr, "error: %s\n", basl_error_message(&error));
+        fl_free(&fl); free(targets); return 1;
+    }
+
+    /* Determine output path. */
+    char out_path[4096];
+    if (output) {
+        snprintf(out_path, sizeof(out_path), "%s", output);
+    } else if (fl.count == 1 && target_count == 1) {
+        /* Single file: strip ext, add .basl */
+        const char *base = fl.rels[0];
+        const char *dot = strrchr(base, '.');
+        size_t nlen = dot ? (size_t)(dot - base) : strlen(base);
+        snprintf(out_path, sizeof(out_path), "%.*s.basl", (int)nlen, base);
+    } else {
+        snprintf(out_path, sizeof(out_path), "assets.basl");
+    }
+
+    if (basl_platform_write_file(out_path, text, text_len, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error: %s\n", basl_error_message(&error));
+        free(text); fl_free(&fl); free(targets); return 1;
+    }
+
+    printf("embedded %zu file(s) -> %s\n", fl.count, out_path);
+    free(text); fl_free(&fl); free(targets);
+    return 0;
+}
+
 /* ── package command ─────────────────────────────────────────────── */
 
 static int cmd_package(const char *entry_path, const char *output_path,
@@ -1093,6 +1235,12 @@ int main(int argc, char **argv) {
         const char *const *script_argv = argc > 3 ? (const char *const *)&argv[3] : NULL;
         size_t script_argc = argc > 3 ? (size_t)(argc - 3) : 0;
         return cmd_run(argv[2], script_argv, script_argc);
+    }
+
+    /* Handle "basl embed <file|dir...> [-o output]" before CLI parser
+     * since embed needs rest-args (multiple file targets). */
+    if (argc >= 3 && strcmp(argv[1], "embed") == 0) {
+        return cmd_embed(argc, argv);
     }
 
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
