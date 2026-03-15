@@ -738,11 +738,6 @@ cleanup:
 
 int main(int argc, char **argv) {
     basl_cli_t cli;
-    basl_cli_command_t *cmd_run_def;
-    basl_cli_command_t *cmd_check_def;
-    basl_cli_command_t *cmd_new_def;
-    basl_cli_command_t *cmd_debug_def;
-    basl_cli_command_t *cmd_doc_def;
     const char *run_file = NULL;
     const char *check_file = NULL;
     const char *new_name = NULL;
@@ -752,25 +747,26 @@ int main(int argc, char **argv) {
     int new_lib = 0;
     basl_error_t error = {0};
     const basl_cli_command_t *matched;
+    basl_cli_command_t *cmd;
 
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
 
-    cmd_run_def = basl_cli_add_command(&cli, "run", "Run a BASL script");
-    basl_cli_add_positional(cmd_run_def, "file", "Script file to run", &run_file);
+    cmd = basl_cli_add_command(&cli, "run", "Run a BASL script");
+    basl_cli_add_positional(cmd, "file", "Script file to run", &run_file);
 
-    cmd_check_def = basl_cli_add_command(&cli, "check", "Type-check a BASL script");
-    basl_cli_add_positional(cmd_check_def, "file", "Script file to check", &check_file);
+    cmd = basl_cli_add_command(&cli, "check", "Type-check a BASL script");
+    basl_cli_add_positional(cmd, "file", "Script file to check", &check_file);
 
-    cmd_new_def = basl_cli_add_command(&cli, "new", "Create a new BASL project");
-    basl_cli_add_positional(cmd_new_def, "name", "Project name", &new_name);
-    basl_cli_add_bool_flag(cmd_new_def, "lib", 'l', "Create a library project", &new_lib);
+    cmd = basl_cli_add_command(&cli, "new", "Create a new BASL project");
+    basl_cli_add_positional(cmd, "name", "Project name", &new_name);
+    basl_cli_add_bool_flag(cmd, "lib", 'l', "Create a library project", &new_lib);
 
-    cmd_debug_def = basl_cli_add_command(&cli, "debug", "Start DAP debug server for a BASL script");
-    basl_cli_add_positional(cmd_debug_def, "file", "Script file to debug", &debug_file);
+    cmd = basl_cli_add_command(&cli, "debug", "Start DAP debug server for a BASL script");
+    basl_cli_add_positional(cmd, "file", "Script file to debug", &debug_file);
 
-    cmd_doc_def = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
-    basl_cli_add_positional(cmd_doc_def, "file", "Source file to document", &doc_file);
-    basl_cli_add_positional(cmd_doc_def, "symbol", "Symbol to look up (e.g. Point or Point.x)", &doc_symbol);
+    cmd = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
+    basl_cli_add_positional(cmd, "file", "Source file to document", &doc_file);
+    basl_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. Point or Point.x)", &doc_symbol);
 
     if (basl_cli_parse(&cli, argc, argv, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
@@ -785,38 +781,42 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    basl_cli_free(&cli);
+    /* Save matched command name before freeing CLI (name is a string literal). */
+    {
+        const char *matched_name = matched->name;
+        basl_cli_free(&cli);
 
-    if (matched == cmd_run_def) {
-        if (run_file == NULL) {
-            fprintf(stderr, "error: missing file argument\n");
-            return 2;
+        if (strcmp(matched_name, "run") == 0) {
+            if (run_file == NULL) {
+                fprintf(stderr, "error: missing file argument\n");
+                return 2;
+            }
+            return cmd_run(run_file);
         }
-        return cmd_run(run_file);
-    }
-    if (matched == cmd_check_def) {
-        if (check_file == NULL) {
-            fprintf(stderr, "error: missing file argument\n");
-            return 2;
+        if (strcmp(matched_name, "check") == 0) {
+            if (check_file == NULL) {
+                fprintf(stderr, "error: missing file argument\n");
+                return 2;
+            }
+            return cmd_check(check_file);
         }
-        return cmd_check(check_file);
-    }
-    if (matched == cmd_new_def) {
-        return cmd_new(new_name, new_lib);
-    }
-    if (matched == cmd_debug_def) {
-        if (debug_file == NULL) {
-            fprintf(stderr, "error: missing file argument\n");
-            return 2;
+        if (strcmp(matched_name, "new") == 0) {
+            return cmd_new(new_name, new_lib);
         }
-        return cmd_debug(debug_file);
-    }
-    if (matched == cmd_doc_def) {
-        if (doc_file == NULL) {
-            fprintf(stderr, "error: missing file argument\n");
-            return 2;
+        if (strcmp(matched_name, "debug") == 0) {
+            if (debug_file == NULL) {
+                fprintf(stderr, "error: missing file argument\n");
+                return 2;
+            }
+            return cmd_debug(debug_file);
         }
-        return cmd_doc(doc_file, doc_symbol);
+        if (strcmp(matched_name, "doc") == 0) {
+            if (doc_file == NULL) {
+                fprintf(stderr, "error: missing file argument\n");
+                return 2;
+            }
+            return cmd_doc(doc_file, doc_symbol);
+        }
     }
 
     return 0;
