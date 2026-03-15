@@ -1023,7 +1023,7 @@ TEST(BaslStdlibMathTest, QuaternionMultiply) {
             // 90 deg around Y then 90 deg around Y = 180 deg around Y
             math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
             math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
-            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            math.Quaternion r90 = math.Quaternion.fromAxisAngle(yaxis, math.deg2rad(90.0));
             math.Quaternion r180 = r90.multiply(r90);
             // r180 should be (0, 1, 0, 0) or (0, -1, 0, 0)
             if (math.abs(math.abs(r180.y) - 1.0) > eps) { return 1; }
@@ -1043,11 +1043,11 @@ TEST(BaslStdlibMathTest, QuaternionFromAxisAngle) {
             math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
             math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
             // 0 degrees -> identity
-            math.Quaternion r0 = id.fromAxisAngle(yaxis, 0.0);
+            math.Quaternion r0 = math.Quaternion.fromAxisAngle(yaxis, 0.0);
             if (math.abs(r0.w - 1.0) > eps) { return 1; }
             if (math.abs(r0.x) > eps) { return 2; }
             // 90 degrees around Y -> (0, sin(45), 0, cos(45))
-            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            math.Quaternion r90 = math.Quaternion.fromAxisAngle(yaxis, math.deg2rad(90.0));
             if (math.abs(r90.length() - 1.0) > eps) { return 3; }
             if (math.abs(r90.y - math.sin(math.deg2rad(45.0))) > eps) { return 4; }
             if (math.abs(r90.w - math.cos(math.deg2rad(45.0))) > eps) { return 5; }
@@ -1063,7 +1063,7 @@ TEST(BaslStdlibMathTest, QuaternionSlerp) {
             f64 eps = 0.000001;
             math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
             math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
-            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            math.Quaternion r90 = math.Quaternion.fromAxisAngle(yaxis, math.deg2rad(90.0));
             // slerp t=0 -> identity
             math.Quaternion s0 = id.slerp(r90, 0.0);
             if (math.abs(s0.w - 1.0) > eps) { return 1; }
@@ -1087,7 +1087,7 @@ TEST(BaslStdlibMathTest, QuaternionToEuler) {
             f64 eps = 0.01;
             math.Quaternion id = math.Quaternion(0.0, 0.0, 0.0, 1.0);
             math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
-            math.Quaternion r90 = id.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            math.Quaternion r90 = math.Quaternion.fromAxisAngle(yaxis, math.deg2rad(90.0));
             math.Quaternion euler = r90.toEuler();
             // yaw (euler.y) should be ~90 degrees
             if (math.abs(math.rad2deg(euler.y) - 90.0) > eps) { return 1; }
@@ -1137,9 +1137,7 @@ TEST(BaslStdlibMathTest, Mat4Identity) {
     EXPECT_EQ(RunWithStdlib(R"(
         import "math";
         fn main() -> i32 {
-            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
-            math.Mat4 m = math.Mat4(z);
-            math.Mat4 id = m.identity();
+            math.Mat4 id = math.Mat4.identity();
             if (id.get(0, 0) != 1.0) { return 1; }
             if (id.get(1, 1) != 1.0) { return 2; }
             if (id.get(2, 2) != 1.0) { return 3; }
@@ -1155,8 +1153,7 @@ TEST(BaslStdlibMathTest, Mat4GetSetTranspose) {
     EXPECT_EQ(RunWithStdlib(R"(
         import "math";
         fn main() -> i32 {
-            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
-            math.Mat4 id = math.Mat4(z).identity();
+            math.Mat4 id = math.Mat4.identity();
             // set(0,1) = 5 -> get(0,1) = 5
             math.Mat4 m = id.set(0, 1, 5.0);
             if (m.get(0, 1) != 5.0) { return 1; }
@@ -1175,8 +1172,7 @@ TEST(BaslStdlibMathTest, Mat4MultiplyAndDeterminant) {
         import "math";
         fn main() -> i32 {
             f64 eps = 0.000001;
-            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
-            math.Mat4 id = math.Mat4(z).identity();
+            math.Mat4 id = math.Mat4.identity();
             // id * id = id
             math.Mat4 r = id.multiply(id);
             if (r.get(0, 0) != 1.0) { return 1; }
@@ -1195,14 +1191,103 @@ TEST(BaslStdlibMathTest, Mat4AddAndScale) {
     EXPECT_EQ(RunWithStdlib(R"(
         import "math";
         fn main() -> i32 {
-            array<f64> z = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
-            math.Mat4 id = math.Mat4(z).identity();
+            math.Mat4 id = math.Mat4.identity();
             math.Mat4 sum = id.add(id);
             if (sum.get(0, 0) != 2.0) { return 1; }
             if (sum.get(0, 1) != 0.0) { return 2; }
             math.Mat4 s = id.scale(3.0);
             if (s.get(0, 0) != 3.0) { return 3; }
             if (s.get(1, 1) != 3.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+/* ── Static methods ──────────────────────────────────────────────── */
+
+TEST(BaslStdlibMathTest, Vec2StaticZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec2 z = math.Vec2.zero();
+            if (z.x != 0.0) { return 1; }
+            if (z.y != 0.0) { return 2; }
+            math.Vec2 o = math.Vec2.one();
+            if (o.x != 1.0) { return 3; }
+            if (o.y != 1.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec3StaticZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec3 z = math.Vec3.zero();
+            if (z.x != 0.0) { return 1; }
+            if (z.y != 0.0) { return 2; }
+            if (z.z != 0.0) { return 3; }
+            math.Vec3 o = math.Vec3.one();
+            if (o.x != 1.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Vec4StaticZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Vec4 z = math.Vec4.zero();
+            if (z.x != 0.0) { return 1; }
+            if (z.w != 0.0) { return 2; }
+            math.Vec4 o = math.Vec4.one();
+            if (o.x != 1.0) { return 3; }
+            if (o.w != 1.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, Mat4StaticIdentity) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            math.Mat4 id = math.Mat4.identity();
+            if (id.get(0, 0) != 1.0) { return 1; }
+            if (id.get(1, 1) != 1.0) { return 2; }
+            if (id.get(0, 1) != 0.0) { return 3; }
+            if (id.determinant() != 1.0) { return 4; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, QuaternionStaticFromAxisAngle) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            f64 eps = 0.000001;
+            math.Vec3 yaxis = math.Vec3(0.0, 1.0, 0.0);
+            math.Quaternion q = math.Quaternion.fromAxisAngle(yaxis, math.deg2rad(90.0));
+            if (math.abs(q.length() - 1.0) > eps) { return 1; }
+            if (math.abs(q.y - math.sin(math.deg2rad(45.0))) > eps) { return 2; }
+            return 0;
+        }
+    )"), 0);
+}
+
+TEST(BaslStdlibMathTest, StaticMethodChaining) {
+    EXPECT_EQ(RunWithStdlib(R"(
+        import "math";
+        fn main() -> i32 {
+            // Static factory -> instance method chain
+            math.Vec3 v = math.Vec3.one().scale(3.0);
+            if (v.x != 3.0) { return 1; }
+            if (v.y != 3.0) { return 2; }
+            math.Mat4 m = math.Mat4.identity().scale(2.0);
+            if (m.get(0, 0) != 2.0) { return 3; }
             return 0;
         }
     )"), 0);
