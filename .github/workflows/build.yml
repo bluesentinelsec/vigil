@@ -87,11 +87,12 @@ jobs:
 
       - name: Test (Simulator)
         run: |
-          codesign --force --sign - build/basl_tests
+          TEST_BIN="$(find build -name basl_tests -type f | head -1)"
+          codesign --force --sign - "$TEST_BIN"
           RUNTIME=$(xcrun simctl list runtimes iOS available -j | python3 -c "import sys,json; rts=json.load(sys.stdin)['runtimes']; print(rts[-1]['identifier'])")
           UDID=$(xcrun simctl create basl_test "iPhone 16" "$RUNTIME")
           xcrun simctl boot "$UDID"
-          xcrun simctl spawn "$UDID" "$(pwd)/build/basl_tests"
+          xcrun simctl spawn "$UDID" "$(pwd)/$TEST_BIN"
           xcrun simctl shutdown "$UDID"
           xcrun simctl delete "$UDID"
 
