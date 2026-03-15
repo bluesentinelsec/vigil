@@ -24,8 +24,6 @@ protected:
 
 /* ── File read/write round-trip ──────────────────────────────────── */
 
-#ifndef __EMSCRIPTEN__
-
 TEST_F(PlatformTest, WriteAndReadFile) {
     const char *path = "test_platform_rw.tmp";
     const char *content = "hello platform";
@@ -185,8 +183,6 @@ TEST_F(PlatformTest, WriteEmptyFile) {
     basl_platform_remove(path, &error);
 }
 
-#endif /* !__EMSCRIPTEN__ */
-
 /* ── Stub contract tests (always compiled) ───────────────────────── */
 
 /* These verify the stub returns UNSUPPORTED.  On native builds we
@@ -196,10 +192,6 @@ TEST_F(PlatformTest, WriteEmptyFile) {
 TEST_F(PlatformTest, FileExistsReturnsValidStatus) {
     int exists = 0;
     basl_status_t s = basl_platform_file_exists(".", &exists);
-#ifdef __EMSCRIPTEN__
-    EXPECT_EQ(s, BASL_STATUS_UNSUPPORTED);
-#else
     EXPECT_EQ(s, BASL_STATUS_OK);
-    EXPECT_EQ(exists, 1);  /* "." always exists on native */
-#endif
+    EXPECT_EQ(exists, 1);  /* "." always exists */
 }
