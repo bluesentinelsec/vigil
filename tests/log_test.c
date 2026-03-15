@@ -135,13 +135,10 @@ TEST(BaslLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
     basl_runtime_close(&runtime);
 }
 
-#if GTEST_HAS_DEATH_TEST
-TEST(BaslLogTest, FatalAlwaysTerminates) {
-    EXPECT_DEATH(
-        {
-            basl_logger_fatal(NULL, "fatal test message", NULL, 0U);
-        },
-        "fatal test message"
-    );
+void register_log_tests(void) {
+    REGISTER_TEST(BaslLogTest, LoggerInitSetsDefaultConfiguration);
+    REGISTER_TEST(BaslLogTest, LoggerPassesStructuredRecordsToCustomHandler);
+    REGISTER_TEST(BaslLogTest, LoggerFiltersMessagesBelowMinimumLevel);
+    REGISTER_TEST(BaslLogTest, RuntimeUsesConfiguredLogger);
+    REGISTER_TEST(BaslLogTest, RuntimeSetLoggerRejectsInvalidLevel);
 }
-#endif

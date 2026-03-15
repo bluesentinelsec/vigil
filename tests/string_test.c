@@ -279,3 +279,17 @@ TEST(BaslStringTest, SelfAppendIsSafe) {
     basl_string_free(&string);
     basl_runtime_close(&runtime);
 }
+
+void register_string_tests(void) {
+    REGISTER_TEST(BaslStringTest, InitStartsEmptyAndNullTerminated);
+    REGISTER_TEST(BaslStringTest, AssignCstrSetsLengthAndTerminator);
+    REGISTER_TEST(BaslStringTest, AppendPreservesExistingContents);
+    REGISTER_TEST(BaslStringTest, ClearResetsToEmptyButKeepsUsableStorage);
+    REGISTER_TEST(BaslStringTest, FreeResetsWholeString);
+    REGISTER_TEST(BaslStringTest, CompareAndEqualsUseLexicographicOrder);
+    REGISTER_TEST(BaslStringTest, ReservePreparesStorageAndTerminator);
+    REGISTER_TEST(BaslStringTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslStringTest, RejectsMissingRuntimeForMutation);
+    REGISTER_TEST(BaslStringTest, RejectsNullValueEvenForEmptyOperations);
+    REGISTER_TEST(BaslStringTest, SelfAppendIsSafe);
+}

@@ -279,3 +279,21 @@ TEST_F(BaslDocTest, ModuleNameFromPath) {
 }
 
 #undef F
+
+void register_doc_tests(void) {
+    REGISTER_TEST_F(BaslDocTest, ModuleViewShowsAllPublicSymbols);
+    REGISTER_TEST_F(BaslDocTest, ClassWithFieldsAndMethods);
+    REGISTER_TEST_F(BaslDocTest, InterfaceWithMethods);
+    REGISTER_TEST_F(BaslDocTest, EnumWithVariants);
+    REGISTER_TEST_F(BaslDocTest, VariableDeclaration);
+    REGISTER_TEST_F(BaslDocTest, SymbolLookupFunction);
+    REGISTER_TEST_F(BaslDocTest, SymbolLookupClassMember);
+    REGISTER_TEST_F(BaslDocTest, SymbolLookupClassMethod);
+    REGISTER_TEST_F(BaslDocTest, SymbolLookupInterfaceMethod);
+    REGISTER_TEST_F(BaslDocTest, MissingSymbolReturnsError);
+    REGISTER_TEST_F(BaslDocTest, ComplexReturnTypes);
+    REGISTER_TEST_F(BaslDocTest, GenericTypes);
+    REGISTER_TEST_F(BaslDocTest, PrivateDeclarationsHidden);
+    REGISTER_TEST_F(BaslDocTest, EmptyFileShowsModuleOnly);
+    REGISTER_TEST_F(BaslDocTest, ModuleNameFromPath);
+}

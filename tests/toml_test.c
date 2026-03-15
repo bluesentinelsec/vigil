@@ -400,3 +400,48 @@ TEST_F(TomlTest, GetPathMissing) {
     toml_parse_helper(FIXTURE(TomlTest), "a = 1", basl_test_failed_);
     EXPECT_EQ(basl_toml_table_get_path(FIXTURE(TomlTest)->root, "x.y.z"), NULL);
 }
+
+void register_toml_tests(void) {
+    REGISTER_TEST_F(TomlTest, StringValue);
+    REGISTER_TEST_F(TomlTest, IntegerValue);
+    REGISTER_TEST_F(TomlTest, NegativeInteger);
+    REGISTER_TEST_F(TomlTest, HexOctBin);
+    REGISTER_TEST_F(TomlTest, IntegerUnderscores);
+    REGISTER_TEST_F(TomlTest, FloatValue);
+    REGISTER_TEST_F(TomlTest, FloatExponent);
+    REGISTER_TEST_F(TomlTest, FloatInfNan);
+    REGISTER_TEST_F(TomlTest, BoolValues);
+    REGISTER_TEST_F(TomlTest, BasicStringEscapes);
+    REGISTER_TEST_F(TomlTest, UnicodeEscape);
+    REGISTER_TEST_F(TomlTest, LiteralString);
+    REGISTER_TEST_F(TomlTest, MultilineBasicString);
+    REGISTER_TEST_F(TomlTest, MultilineLiteralString);
+    REGISTER_TEST_F(TomlTest, MultilineLineContinuation);
+    REGISTER_TEST_F(TomlTest, EmptyStrings);
+    REGISTER_TEST_F(TomlTest, SimpleTable);
+    REGISTER_TEST_F(TomlTest, NestedTable);
+    REGISTER_TEST_F(TomlTest, DottedKeys);
+    REGISTER_TEST_F(TomlTest, InlineTable);
+    REGISTER_TEST_F(TomlTest, QuotedKey);
+    REGISTER_TEST_F(TomlTest, SimpleArray);
+    REGISTER_TEST_F(TomlTest, StringArray);
+    REGISTER_TEST_F(TomlTest, MultilineArray);
+    REGISTER_TEST_F(TomlTest, NestedArray);
+    REGISTER_TEST_F(TomlTest, ArrayOfTables);
+    REGISTER_TEST_F(TomlTest, OffsetDateTime);
+    REGISTER_TEST_F(TomlTest, OffsetDateTimeWithOffset);
+    REGISTER_TEST_F(TomlTest, LocalDateTime);
+    REGISTER_TEST_F(TomlTest, LocalDate);
+    REGISTER_TEST_F(TomlTest, LocalTime);
+    REGISTER_TEST_F(TomlTest, FractionalSeconds);
+    REGISTER_TEST_F(TomlTest, Comments);
+    REGISTER_TEST_F(TomlTest, DuplicateKeyError);
+    REGISTER_TEST_F(TomlTest, UnterminatedString);
+    REGISTER_TEST_F(TomlTest, EmitRoundTrip);
+    REGISTER_TEST_F(TomlTest, EmitTable);
+    REGISTER_TEST_F(TomlTest, BaslToml);
+    REGISTER_TEST_F(TomlTest, ManualConstruction);
+    REGISTER_TEST_F(TomlTest, CustomAllocator);
+    REGISTER_TEST_F(TomlTest, TableIteration);
+    REGISTER_TEST_F(TomlTest, GetPathMissing);
+}

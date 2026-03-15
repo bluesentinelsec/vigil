@@ -237,3 +237,13 @@ TEST(BaslSourceTest, ResolvesOffsetToLineAndColumn) {
     basl_source_registry_free(&registry);
     basl_runtime_close(&runtime);
 }
+
+void register_source_tests(void) {
+    REGISTER_TEST(BaslSourceTest, InitStartsEmpty);
+    REGISTER_TEST(BaslSourceTest, RegisterCopiesOwnedPathAndText);
+    REGISTER_TEST(BaslSourceTest, MultipleRegistrationsUseStableSourceIds);
+    REGISTER_TEST(BaslSourceTest, RejectsMissingRuntime);
+    REGISTER_TEST(BaslSourceTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslSourceTest, FreeResetsWholeRegistry);
+    REGISTER_TEST(BaslSourceTest, ResolvesOffsetToLineAndColumn);
+}

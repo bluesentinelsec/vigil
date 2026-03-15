@@ -498,3 +498,55 @@ TEST(BaslJsonTest, EmitControlCharacters) {
     EXPECT_STREQ(out, "\"\\u0001\"");
     basl_json_free(&v);
 }
+
+void register_json_tests(void) {
+    REGISTER_TEST(BaslJsonTest, NullValue);
+    REGISTER_TEST(BaslJsonTest, BoolValues);
+    REGISTER_TEST(BaslJsonTest, NumberValues);
+    REGISTER_TEST(BaslJsonTest, StringValue);
+    REGISTER_TEST(BaslJsonTest, StringWithEmbeddedNull);
+    REGISTER_TEST(BaslJsonTest, EmptyArray);
+    REGISTER_TEST(BaslJsonTest, ArrayPushAndGet);
+    REGISTER_TEST(BaslJsonTest, EmptyObject);
+    REGISTER_TEST(BaslJsonTest, ObjectSetAndGet);
+    REGISTER_TEST(BaslJsonTest, ObjectReplaceKey);
+    REGISTER_TEST(BaslJsonTest, ObjectEntryIteration);
+    REGISTER_TEST(BaslJsonTest, ParseNull);
+    REGISTER_TEST(BaslJsonTest, ParseBool);
+    REGISTER_TEST(BaslJsonTest, ParseIntegers);
+    REGISTER_TEST(BaslJsonTest, ParseFloats);
+    REGISTER_TEST(BaslJsonTest, ParseExponent);
+    REGISTER_TEST(BaslJsonTest, ParseString);
+    REGISTER_TEST(BaslJsonTest, ParseEmptyString);
+    REGISTER_TEST(BaslJsonTest, ParseStringEscapes);
+    REGISTER_TEST(BaslJsonTest, ParseStringUnicodeEscape);
+    REGISTER_TEST(BaslJsonTest, ParseStringUnicodeMultibyte);
+    REGISTER_TEST(BaslJsonTest, ParseStringUnicode3Byte);
+    REGISTER_TEST(BaslJsonTest, ParseStringSurrogatePair);
+    REGISTER_TEST(BaslJsonTest, ParseEmptyArray);
+    REGISTER_TEST(BaslJsonTest, ParseArray);
+    REGISTER_TEST(BaslJsonTest, ParseNestedArray);
+    REGISTER_TEST(BaslJsonTest, ParseEmptyObject);
+    REGISTER_TEST(BaslJsonTest, ParseObject);
+    REGISTER_TEST(BaslJsonTest, ParseNestedObject);
+    REGISTER_TEST(BaslJsonTest, ParseWhitespace);
+    REGISTER_TEST(BaslJsonTest, ParseErrorEmpty);
+    REGISTER_TEST(BaslJsonTest, ParseErrorTrailing);
+    REGISTER_TEST(BaslJsonTest, ParseErrorBadToken);
+    REGISTER_TEST(BaslJsonTest, ParseErrorUntermString);
+    REGISTER_TEST(BaslJsonTest, ParseErrorBadEscape);
+    REGISTER_TEST(BaslJsonTest, ParseErrorBadUnicode);
+    REGISTER_TEST(BaslJsonTest, ParseErrorMissingSurrogate);
+    REGISTER_TEST(BaslJsonTest, ParseErrorBadSurrogate);
+    REGISTER_TEST(BaslJsonTest, ParseErrorArrayNoClose);
+    REGISTER_TEST(BaslJsonTest, ParseErrorObjectNoClose);
+    REGISTER_TEST(BaslJsonTest, ParseErrorObjectNoColon);
+    REGISTER_TEST(BaslJsonTest, ParseErrorObjectBadKey);
+    REGISTER_TEST(BaslJsonTest, ParseErrorNumberLeadingZero);
+    REGISTER_TEST(BaslJsonTest, RoundtripComplex);
+    REGISTER_TEST(BaslJsonTest, RoundtripEscapes);
+    REGISTER_TEST(BaslJsonTest, CustomAllocator);
+    REGISTER_TEST(BaslJsonTest, NullSafety);
+    REGISTER_TEST(BaslJsonTest, InvalidArguments);
+    REGISTER_TEST(BaslJsonTest, EmitControlCharacters);
+}

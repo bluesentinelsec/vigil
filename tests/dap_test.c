@@ -247,3 +247,12 @@ TEST(BaslDapTest, LaunchAndBreakpoint) {
     fclose(in);
     fclose(out);
 }
+
+void register_dap_tests(void) {
+    REGISTER_TEST(BaslJsonRpcTest, ReadWriteRoundtrip);
+    REGISTER_TEST(BaslJsonRpcTest, ReadMultipleMessages);
+    REGISTER_TEST(BaslJsonRpcTest, ReadEofReturnsError);
+    REGISTER_TEST(BaslDapTest, CreateAndDestroy);
+    REGISTER_TEST(BaslDapTest, InitializeAndDisconnect);
+    REGISTER_TEST(BaslDapTest, LaunchAndBreakpoint);
+}

@@ -1,28 +1,16 @@
 /*
  * basl_test.h — Minimal C11 test harness with a GoogleTest-compatible API.
  *
- * Single-header, no dependencies beyond C11 stdlib.
- * Replaces GoogleTest for the BASL project so the entire build
- * (including tests) requires only a C compiler.
+ * Single-header, no dependencies beyond C11 stdlib.  No compiler
+ * extensions — registration is explicit rather than automatic.
  *
  * Usage:
  *   #define BASL_TEST_IMPLEMENTATION   // in exactly ONE .c file
  *   #include "basl_test.h"
  *
- * Supported macros:
- *   TEST(suite, name)           — define a test case
- *   TEST_F(fixture, name)       — define a test with setup/teardown
- *   EXPECT_EQ, ASSERT_EQ       — integer/pointer equality
- *   EXPECT_NE, ASSERT_NE       — inequality
- *   EXPECT_TRUE, ASSERT_TRUE   — boolean true
- *   EXPECT_FALSE               — boolean false
- *   EXPECT_STREQ               — string equality (strcmp == 0)
- *   EXPECT_STRNE               — string inequality
- *   EXPECT_GE, EXPECT_GT       — greater-or-equal, greater-than
- *   EXPECT_LT, EXPECT_LE       — less-than, less-or-equal
- *   EXPECT_DOUBLE_EQ           — double equality (within 4 ULP)
- *   EXPECT_NEAR                — double near (within abs tolerance)
- *   EXPECT_DEATH(stmt, pattern) — statement causes non-zero exit
+ * Each test file defines tests with TEST() / TEST_F() and provides a
+ * register function that calls REGISTER_TEST / REGISTER_TEST_F for
+ * each test.  test_main.c calls all register functions before running.
  */
 #ifndef BASL_TEST_H
 #define BASL_TEST_H
@@ -55,68 +43,46 @@ typedef struct basl_test_entry {
 #define BASL_TEST_MAX 2048
 #endif
 
-/* Global test state — defined in the implementation section. */
 extern basl_test_entry_t basl_test_entries_[];
 extern int basl_test_count_;
 extern void *basl_test_fixture_ptr_;
 
-static inline int basl_test_register_(
+static inline void basl_test_register_(
     const char *suite, const char *name, basl_test_fn_t fn,
     basl_test_fixture_fn_t setup, basl_test_fixture_fn_t teardown,
     size_t fixture_size
 ) {
     if (basl_test_count_ < BASL_TEST_MAX) {
-        basl_test_entry_t *e = &basl_test_entries_[basl_test_count_];
+        basl_test_entry_t *e = &basl_test_entries_[basl_test_count_++];
         e->suite = suite;
         e->name = name;
         e->fn = fn;
         e->setup = setup;
         e->teardown = teardown;
         e->fixture_size = fixture_size;
-        basl_test_count_++;
     }
-    return 0;
 }
 
-/* ── Auto-registration: constructor portability ──────────────────── */
+/* ── Explicit registration macros ────────────────────────────────── */
 
-#ifdef _MSC_VER
-  /* MSVC: place function pointer in CRT startup section. */
-  #pragma section(".CRT$XCU", read)
-  #define BASL_TEST_CTOR_(fn_name)                                            \
-      static void fn_name(void);                                              \
-      __declspec(allocate(".CRT$XCU"))                                        \
-      static void (*fn_name##_ptr_)(void) = fn_name;                          \
-      static void fn_name(void)
-#else
-  #define BASL_TEST_CTOR_(fn_name)                                            \
-      __attribute__((constructor)) static void fn_name(void)
-#endif
+#define REGISTER_TEST(suite, name)                                            \
+    basl_test_register_(#suite, #name, basl_test_##suite##_##name##_body_,    \
+                        NULL, NULL, 0)
 
-/* ── TEST() macro ────────────────────────────────────────────────── */
+#define REGISTER_TEST_F(fixture, name)                                        \
+    basl_test_register_(#fixture, #name,                                      \
+                        basl_test_##fixture##_##name##_body_,                  \
+                        fixture##_SetUp, fixture##_TearDown,                  \
+                        sizeof(fixture))
+
+/* ── TEST() / TEST_F() — define the test body ────────────────────── */
 
 #define TEST(suite, name)                                                     \
-    static void basl_test_##suite##_##name##_body_(int *basl_test_failed_);   \
-    BASL_TEST_CTOR_(basl_test_##suite##_##name##_ctor_) {                     \
-        basl_test_register_(                                                  \
-            #suite, #name, basl_test_##suite##_##name##_body_,                \
-            NULL, NULL, 0);                                                   \
-    }                                                                         \
     static void basl_test_##suite##_##name##_body_(int *basl_test_failed_)
 
-/* ── TEST_F() macro ──────────────────────────────────────────────── */
-
 #define TEST_F(fixture, name)                                                 \
-    static void basl_test_##fixture##_##name##_body_(int *basl_test_failed_); \
-    BASL_TEST_CTOR_(basl_test_##fixture##_##name##_ctor_) {                   \
-        basl_test_register_(                                                  \
-            #fixture, #name, basl_test_##fixture##_##name##_body_,            \
-            fixture##_SetUp, fixture##_TearDown,                              \
-            sizeof(fixture));                                                 \
-    }                                                                         \
     static void basl_test_##fixture##_##name##_body_(int *basl_test_failed_)
 
-/* Fixture access: use FIXTURE(Type) inside TEST_F body to get pointer. */
 #define FIXTURE(type) ((type *)basl_test_fixture_ptr_)
 
 /* ── Assertion helpers ───────────────────────────────────────────── */
@@ -261,11 +227,6 @@ static inline int basl_test_register_(
     }                                                                         \
 } while (0)
 
-/*
- * EXPECT_DEATH: re-executes the current test binary with an env var
- * that triggers just the death-test statement.  On platforms without
- * process support, the test is skipped.
- */
 #define EXPECT_DEATH(stmt, pattern) do {                                      \
     (void)(pattern);                                                          \
     fprintf(stderr, "  [SKIPPED] EXPECT_DEATH not supported in C harness\n");\
@@ -303,7 +264,6 @@ static int basl_test_run_all_(void) {
 
         printf("[ RUN      ] %s\n", fullname);
 
-        /* Allocate fixture if needed. */
         if (e->fixture_size > 0) {
             basl_test_fixture_ptr_ = calloc(1, e->fixture_size);
             if (e->setup) e->setup(basl_test_fixture_ptr_);
@@ -311,7 +271,6 @@ static int basl_test_run_all_(void) {
 
         e->fn(&test_failed);
 
-        /* Teardown fixture. */
         if (e->fixture_size > 0) {
             if (e->teardown) e->teardown(basl_test_fixture_ptr_);
             free(basl_test_fixture_ptr_);
@@ -335,10 +294,6 @@ static int basl_test_run_all_(void) {
         printf("[  FAILED  ] %d test(s).\n", failed);
 
     return failed > 0 ? 1 : 0;
-}
-
-int main(void) {
-    return basl_test_run_all_();
 }
 
 #endif /* BASL_TEST_IMPLEMENTATION */

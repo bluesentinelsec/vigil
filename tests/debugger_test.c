@@ -252,3 +252,11 @@ TEST(BaslDebuggerTest, NoDebuggerAttachedRunsNormally) {
     dbgf_free(&f);
 }
 
+void register_debugger_tests(void) {
+    REGISTER_TEST(BaslDebuggerTest, CreateAndDestroy);
+    REGISTER_TEST(BaslDebuggerTest, AttachDetachDoesNotBreakExecution);
+    REGISTER_TEST(BaslDebuggerTest, BreakpointHitsCorrectLine);
+    REGISTER_TEST(BaslDebuggerTest, ClearBreakpointStopsHitting);
+    REGISTER_TEST(BaslDebuggerTest, FrameCountDuringCallback);
+    REGISTER_TEST(BaslDebuggerTest, NoDebuggerAttachedRunsNormally);
+}

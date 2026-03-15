@@ -224,3 +224,15 @@ TEST(BaslArrayTest, DetectsAppendOverflow) {
     buffer.capacity = 0U;
     basl_runtime_close(&runtime);
 }
+
+void register_array_tests(void) {
+    REGISTER_TEST(BaslArrayTest, InitStartsEmpty);
+    REGISTER_TEST(BaslArrayTest, ReserveAllocatesAndPreservesLength);
+    REGISTER_TEST(BaslArrayTest, ResizeZeroInitializesNewBytes);
+    REGISTER_TEST(BaslArrayTest, AppendAddsBytesInOrder);
+    REGISTER_TEST(BaslArrayTest, ClearKeepsCapacityButResetsLength);
+    REGISTER_TEST(BaslArrayTest, FreeResetsWholeBuffer);
+    REGISTER_TEST(BaslArrayTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslArrayTest, RejectsMissingRuntime);
+    REGISTER_TEST(BaslArrayTest, DetectsAppendOverflow);
+}

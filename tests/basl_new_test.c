@@ -233,3 +233,13 @@ TEST_F(BaslNewTest, ReadlineNullArgs) {
 }
 
 #undef ERR
+
+void register_basl_new_tests(void) {
+    REGISTER_TEST_F(BaslNewTest, PathJoinBasic);
+    REGISTER_TEST_F(BaslNewTest, PathJoinTrailingSlash);
+    REGISTER_TEST_F(BaslNewTest, PathJoinOverflow);
+    REGISTER_TEST_F(BaslNewTest, PathJoinNull);
+    REGISTER_TEST_F(BaslNewTest, AppProjectStructure);
+    REGISTER_TEST_F(BaslNewTest, LibProjectStructure);
+    REGISTER_TEST_F(BaslNewTest, ReadlineNullArgs);
+}

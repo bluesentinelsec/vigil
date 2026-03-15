@@ -225,3 +225,10 @@ TEST(BaslTypeTest, FunctionSignaturesValidateAndCheckArguments) {
         basl_function_signature_accepts_arguments(&signature, invalid_arguments, 2U)
     );
 }
+
+void register_type_tests(void) {
+    REGISTER_TEST(BaslTypeTest, KindNamesAndParsingAreStable);
+    REGISTER_TEST(BaslTypeTest, AssignabilityRequiresMatchingValidTypes);
+    REGISTER_TEST(BaslTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules);
+    REGISTER_TEST(BaslTypeTest, FunctionSignaturesValidateAndCheckArguments);
+}

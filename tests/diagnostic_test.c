@@ -317,3 +317,14 @@ TEST(BaslDiagnosticTest, FormatIncludesPathLineColumnSeverityAndMessage) {
     basl_source_registry_free(&registry);
     basl_runtime_close(&runtime);
 }
+
+void register_diagnostic_tests(void) {
+    REGISTER_TEST(BaslDiagnosticTest, InitStartsEmpty);
+    REGISTER_TEST(BaslDiagnosticTest, AppendCopiesMessageAndSpan);
+    REGISTER_TEST(BaslDiagnosticTest, ClearDropsItemsButKeepsListUsable);
+    REGISTER_TEST(BaslDiagnosticTest, RejectsMissingRuntime);
+    REGISTER_TEST(BaslDiagnosticTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslDiagnosticTest, FreeResetsWholeList);
+    REGISTER_TEST(BaslDiagnosticTest, SeverityNamesAreStable);
+    REGISTER_TEST(BaslDiagnosticTest, FormatIncludesPathLineColumnSeverityAndMessage);
+}

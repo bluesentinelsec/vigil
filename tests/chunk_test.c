@@ -282,3 +282,14 @@ TEST(BaslChunkTest, RejectsMissingArguments) {
     basl_chunk_free(&chunk);
     basl_runtime_close(&runtime);
 }
+
+void register_chunk_tests(void) {
+    REGISTER_TEST(BaslChunkTest, InitStartsEmpty);
+    REGISTER_TEST(BaslChunkTest, WriteOpcodeAndBytesTrackSourceSpans);
+    REGISTER_TEST(BaslChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree);
+    REGISTER_TEST(BaslChunkTest, WriteConstantEncodesInstructionAndConstantIndex);
+    REGISTER_TEST(BaslChunkTest, DisassembleFormatsOpcodesAndConstants);
+    REGISTER_TEST(BaslChunkTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslChunkTest, RejectsMissingRuntimeForMutation);
+    REGISTER_TEST(BaslChunkTest, RejectsMissingArguments);
+}

@@ -399,3 +399,17 @@ TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     basl_object_release(&map_object);
     basl_runtime_close(&runtime);
 }
+
+void register_value_tests(void) {
+    REGISTER_TEST(BaslValueTest, ImmediateValuesRoundTrip);
+    REGISTER_TEST(BaslValueTest, StringObjectStartsWithOneReferenceAndExposesText);
+    REGISTER_TEST(BaslValueTest, ObjectRetainAndReleaseUpdateReferenceCount);
+    REGISTER_TEST(BaslValueTest, ValueInitObjectTransfersOwnershipAndCopyRetains);
+    REGISTER_TEST(BaslValueTest, ValueReleaseOnImmediateResetsToNil);
+    REGISTER_TEST(BaslValueTest, StringObjectUsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslValueTest, StringObjectValidatesArguments);
+    REGISTER_TEST(BaslValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata);
+    REGISTER_TEST(BaslValueTest, FunctionObjectValidatesArguments);
+    REGISTER_TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields);
+    REGISTER_TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues);
+}

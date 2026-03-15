@@ -260,3 +260,15 @@ TEST(BaslRuntimeTest, RuntimeReallocRejectsUnsupportedAllocator) {
     basl_runtime_free(runtime, &memory);
     basl_runtime_close(&runtime);
 }
+
+void register_runtime_tests(void) {
+    REGISTER_TEST(BaslRuntimeTest, RuntimeOpensAndClosesWithDefaultAllocator);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeOpenValidatesArguments);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeUsesCustomAllocatorHooks);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeOptionsInitClearsFields);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeRejectsIncompleteAllocator);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeAllocAndFreeClearPointer);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeAllocReportsOutOfMemory);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeReallocUsesAllocatorWhenAvailable);
+    REGISTER_TEST(BaslRuntimeTest, RuntimeReallocRejectsUnsupportedAllocator);
+}

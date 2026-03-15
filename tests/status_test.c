@@ -73,3 +73,11 @@ TEST(BaslStatusTest, ErrorMessageFallsBackToKnownString) {
     error.value = "specific";
     EXPECT_STREQ(basl_error_message(&error), "specific");
 }
+
+void register_status_tests(void) {
+    REGISTER_TEST(BaslStatusTest, StatusNamesAreStable);
+    REGISTER_TEST(BaslStatusTest, ErrorClearResetsSourceLocation);
+    REGISTER_TEST(BaslStatusTest, SourceLocationClearResetsFields);
+    REGISTER_TEST(BaslStatusTest, ErrorLengthMatchesMessage);
+    REGISTER_TEST(BaslStatusTest, ErrorMessageFallsBackToKnownString);
+}

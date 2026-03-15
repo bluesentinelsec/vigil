@@ -240,3 +240,13 @@ TEST(BaslSymbolTest, RejectsMissingRuntimeAndInvalidArguments) {
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "symbol table must not be null"), 0);
 }
+
+void register_symbol_tests(void) {
+    REGISTER_TEST(BaslSymbolTest, InitStartsEmpty);
+    REGISTER_TEST(BaslSymbolTest, InternReturnsStableSymbolForSameText);
+    REGISTER_TEST(BaslSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup);
+    REGISTER_TEST(BaslSymbolTest, ClearKeepsTableReusable);
+    REGISTER_TEST(BaslSymbolTest, GrowthPreservesInternedNames);
+    REGISTER_TEST(BaslSymbolTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslSymbolTest, RejectsMissingRuntimeAndInvalidArguments);
+}

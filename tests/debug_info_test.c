@@ -295,3 +295,12 @@ TEST(BaslDebugInfoTest, SymbolTableContainsInterface) {
     dif_free(&f);
 }
 
+void register_debug_info_tests(void) {
+    REGISTER_TEST(BaslDebugInfoTest, SymbolTableContainsMainFunction);
+    REGISTER_TEST(BaslDebugInfoTest, SymbolTableContainsClassAndMembers);
+    REGISTER_TEST(BaslDebugInfoTest, SymbolTableContainsEnumAndMembers);
+    REGISTER_TEST(BaslDebugInfoTest, SymbolTableContainsGlobals);
+    REGISTER_TEST(BaslDebugInfoTest, LocalTableBasic);
+    REGISTER_TEST(BaslDebugInfoTest, ChunkContainsDebugLocals);
+    REGISTER_TEST(BaslDebugInfoTest, SymbolTableContainsInterface);
+}

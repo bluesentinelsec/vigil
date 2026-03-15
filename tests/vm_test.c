@@ -999,3 +999,25 @@ TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes) {
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
 }
+
+void register_vm_tests(void) {
+    REGISTER_TEST(BaslVmTest, OptionsInitClearsFields);
+    REGISTER_TEST(BaslVmTest, OpenAndCloseVm);
+    REGISTER_TEST(BaslVmTest, ExecutesConstantAndReturn);
+    REGISTER_TEST(BaslVmTest, ExecutesLiteralOpcodes);
+    REGISTER_TEST(BaslVmTest, RejectsArithmeticOverflow);
+    REGISTER_TEST(BaslVmTest, RejectsNegateOverflow);
+    REGISTER_TEST(BaslVmTest, ReturnedObjectSurvivesChunkLifetime);
+    REGISTER_TEST(BaslVmTest, ConcatenatesAndComparesStringsByValue);
+    REGISTER_TEST(BaslVmTest, SupportsFloatArithmeticAndNegation);
+    REGISTER_TEST(BaslVmTest, RejectsMissingArguments);
+    REGISTER_TEST(BaslVmTest, ReportsUnsupportedOpcodeAndSourceId);
+    REGISTER_TEST(BaslVmTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslVmTest, ExecutesFunctionObjectEntry);
+    REGISTER_TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject);
+    REGISTER_TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint);
+    REGISTER_TEST(BaslVmTest, SupportsConversionsAndBitwiseNotOpcodes);
+    REGISTER_TEST(BaslVmTest, ExecutesUnsignedIntegerArithmetic);
+    REGISTER_TEST(BaslVmTest, SupportsErrorOpcodes);
+    REGISTER_TEST(BaslVmTest, ExecutesArrayAndMapIndexOpcodes);
+}

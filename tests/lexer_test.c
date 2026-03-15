@@ -310,3 +310,13 @@ TEST(BaslLexerTest, TokenizesNilKeyword) {
     basl_source_registry_free(&registry);
     basl_runtime_close(&runtime);
 }
+
+void register_lexer_tests(void) {
+    REGISTER_TEST(BaslLexerTest, TokenizesSimpleFunction);
+    REGISTER_TEST(BaslLexerTest, SkipsCommentsAndWhitespace);
+    REGISTER_TEST(BaslLexerTest, TokenizesNumericAndStringLiteralForms);
+    REGISTER_TEST(BaslLexerTest, ReportsUnexpectedCharacter);
+    REGISTER_TEST(BaslLexerTest, ReportsUnterminatedStringAndBlockComment);
+    REGISTER_TEST(BaslLexerTest, ReportsInvalidPrefixedNumericLiterals);
+    REGISTER_TEST(BaslLexerTest, TokenizesNilKeyword);
+}

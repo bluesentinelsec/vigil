@@ -179,3 +179,10 @@ TEST(BaslCheckerTest, ValidatesArguments) {
     basl_source_registry_free(&registry);
     basl_runtime_close(&runtime);
 }
+
+void register_checker_tests(void) {
+    REGISTER_TEST(BaslCheckerTest, ValidatesWellTypedProgramWithoutDiagnostics);
+    REGISTER_TEST(BaslCheckerTest, ReportsSemanticErrorsWithoutProducingEntrypoint);
+    REGISTER_TEST(BaslCheckerTest, ReportsMissingReturnOnSomePaths);
+    REGISTER_TEST(BaslCheckerTest, ValidatesArguments);
+}

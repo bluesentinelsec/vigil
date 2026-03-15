@@ -27,3 +27,8 @@ TEST(BaslTokenTest, ListInitAndFreeResetState) {
     EXPECT_EQ(list.count, 0U);
     EXPECT_EQ(list.capacity, 0U);
 }
+
+void register_token_tests(void) {
+    REGISTER_TEST(BaslTokenTest, KindNamesAreStable);
+    REGISTER_TEST(BaslTokenTest, ListInitAndFreeResetState);
+}

@@ -296,3 +296,26 @@ TEST(BaslCliLibTest, CustomAllocator) {
     EXPECT_GT(g_cli_allocs, 0U);
     basl_cli_free(&cli);
 }
+
+void register_cli_lib_tests(void) {
+    REGISTER_TEST(BaslCliLibTest, InitAndFree);
+    REGISTER_TEST(BaslCliLibTest, MatchesSubcommand);
+    REGISTER_TEST(BaslCliLibTest, UnknownCommandFails);
+    REGISTER_TEST(BaslCliLibTest, BoolFlagLong);
+    REGISTER_TEST(BaslCliLibTest, BoolFlagShort);
+    REGISTER_TEST(BaslCliLibTest, StringFlagWithEquals);
+    REGISTER_TEST(BaslCliLibTest, StringFlagWithSpace);
+    REGISTER_TEST(BaslCliLibTest, ShortStringFlagAttached);
+    REGISTER_TEST(BaslCliLibTest, ShortStringFlagSeparate);
+    REGISTER_TEST(BaslCliLibTest, PositionalArg);
+    REGISTER_TEST(BaslCliLibTest, PositionalAndFlags);
+    REGISTER_TEST(BaslCliLibTest, GlobalFlag);
+    REGISTER_TEST(BaslCliLibTest, GlobalPositionalNoSubcommands);
+    REGISTER_TEST(BaslCliLibTest, DoubleDashStopsFlagParsing);
+    REGISTER_TEST(BaslCliLibTest, UnknownFlagFails);
+    REGISTER_TEST(BaslCliLibTest, MissingFlagValueFails);
+    REGISTER_TEST(BaslCliLibTest, ExtraPositionalFails);
+    REGISTER_TEST(BaslCliLibTest, HelpFlagReturnsOk);
+    REGISTER_TEST(BaslCliLibTest, CommandHelpFlagReturnsOk);
+    REGISTER_TEST(BaslCliLibTest, CustomAllocator);
+}

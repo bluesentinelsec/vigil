@@ -344,3 +344,15 @@ TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments) {
     basl_map_free(&map);
     basl_runtime_close(&runtime);
 }
+
+void register_map_tests(void) {
+    REGISTER_TEST(BaslMapTest, InitStartsEmpty);
+    REGISTER_TEST(BaslMapTest, SetAndGetImmediateValue);
+    REGISTER_TEST(BaslMapTest, SupportsIntegerUnsignedAndBoolKeys);
+    REGISTER_TEST(BaslMapTest, OverwriteReleasesPreviousObjectValue);
+    REGISTER_TEST(BaslMapTest, RemoveReportsPresenceAndReleasesValue);
+    REGISTER_TEST(BaslMapTest, GrowthPreservesInsertedValues);
+    REGISTER_TEST(BaslMapTest, ClearKeepsMapReusable);
+    REGISTER_TEST(BaslMapTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(BaslMapTest, RejectsMissingRuntimeAndInvalidArguments);
+}

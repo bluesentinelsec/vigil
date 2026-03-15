@@ -172,3 +172,9 @@ TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals) {
     basl_binding_scope_stack_free(&stack);
     basl_runtime_close(&runtime);
 }
+
+void register_binding_tests(void) {
+    REGISTER_TEST(BaslBindingTest, FunctionTableTracksDeclarationsAndRejectsDuplicates);
+    REGISTER_TEST(BaslBindingTest, FunctionParametersRejectDuplicates);
+    REGISTER_TEST(BaslBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals);
+}

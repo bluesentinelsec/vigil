@@ -188,3 +188,16 @@ TEST_F(PlatformTest, FileExistsReturnsValidStatus) {
     EXPECT_EQ(s, BASL_STATUS_OK);
     EXPECT_EQ(exists, 1);  /* "." always exists */
 }
+
+void register_platform_tests(void) {
+    REGISTER_TEST_F(PlatformTest, WriteAndReadFile);
+    REGISTER_TEST_F(PlatformTest, ReadNonexistent);
+    REGISTER_TEST_F(PlatformTest, FileExists);
+    REGISTER_TEST_F(PlatformTest, MkdirAndIsDirectory);
+    REGISTER_TEST_F(PlatformTest, MkdirP);
+    REGISTER_TEST_F(PlatformTest, IsDirectoryOnFile);
+    REGISTER_TEST_F(PlatformTest, ReadFileCustomAllocator);
+    REGISTER_TEST_F(PlatformTest, NullArgs);
+    REGISTER_TEST_F(PlatformTest, WriteEmptyFile);
+    REGISTER_TEST_F(PlatformTest, FileExistsReturnsValidStatus);
+}
