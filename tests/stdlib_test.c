@@ -4,6 +4,7 @@
 #define dup    _dup
 #define dup2   _dup2
 #define fileno _fileno
+#define close  _close
 #else
 #include <unistd.h>
 #endif

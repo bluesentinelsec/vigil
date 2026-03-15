@@ -74,6 +74,7 @@ TEST_F(BaslDocTest, ModuleViewShowsAllPublicSymbols) {
     EXPECT_TRUE(strstr(out, "CONSTANTS\n  answer i32\n    Mathematical answer.") != NULL);
     EXPECT_TRUE(strstr(out, "FUNCTIONS\n  add(i32 a, i32 b) -> i32\n    Adds two numbers.") != NULL);
     EXPECT_TRUE(strstr(out, "hidden_fn") == NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, ClassWithFieldsAndMethods) {
@@ -101,6 +102,7 @@ TEST_F(BaslDocTest, ClassWithFieldsAndMethods) {
     EXPECT_TRUE(strstr(out, "Methods\n      format(string label) -> string\n        Formats the point name.") != NULL);
     EXPECT_TRUE(strstr(out, "hidden") == NULL);
     EXPECT_TRUE(strstr(out, "secret") == NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, InterfaceWithMethods) {
@@ -115,6 +117,7 @@ TEST_F(BaslDocTest, InterfaceWithMethods) {
     EXPECT_TRUE(strstr(out, "A named formatter.") != NULL);
     EXPECT_TRUE(strstr(out, "format(string label) -> string") != NULL);
     EXPECT_TRUE(strstr(out, "Formats a label.") != NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, EnumWithVariants) {
@@ -129,6 +132,7 @@ TEST_F(BaslDocTest, EnumWithVariants) {
     EXPECT_TRUE(strstr(out, "ENUMS\n  Color") != NULL);
     EXPECT_TRUE(strstr(out, "Primary colors.") != NULL);
     EXPECT_TRUE(strstr(out, "Variants\n      Red\n      Green\n      Blue") != NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, VariableDeclaration) {
@@ -137,6 +141,7 @@ TEST_F(BaslDocTest, VariableDeclaration) {
         "pub i32 count = 0;\n", NULL);
 
     EXPECT_TRUE(strstr(out, "VARIABLES\n  count i32\n    A mutable counter.") != NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, SymbolLookupFunction) {
@@ -149,6 +154,7 @@ TEST_F(BaslDocTest, SymbolLookupFunction) {
 
     EXPECT_TRUE(strstr(out, "add(i32 a, i32 b) -> i32") != NULL);
     EXPECT_TRUE(strstr(out, "Adds two numbers.") != NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, SymbolLookupClassMember) {
@@ -164,6 +170,7 @@ TEST_F(BaslDocTest, SymbolLookupClassMember) {
         "Point.x");
 
     EXPECT_STREQ(out, "Point.x i32\n\nX coordinate.\n");
+    free(out);
 }
 
 TEST_F(BaslDocTest, SymbolLookupClassMethod) {
@@ -177,6 +184,7 @@ TEST_F(BaslDocTest, SymbolLookupClassMethod) {
         "Point.size");
 
     EXPECT_STREQ(out, "Point.size() -> i32\n\nMeasures size.\n");
+    free(out);
 }
 
 TEST_F(BaslDocTest, SymbolLookupInterfaceMethod) {
@@ -188,6 +196,7 @@ TEST_F(BaslDocTest, SymbolLookupInterfaceMethod) {
         "Formatter.format");
 
     EXPECT_STREQ(out, "Formatter.format(string label) -> string\n\nFormats a label.\n");
+    free(out);
 }
 
 TEST_F(BaslDocTest, MissingSymbolReturnsError) {
@@ -217,6 +226,7 @@ TEST_F(BaslDocTest, ComplexReturnTypes) {
         "}\n", NULL);
 
     EXPECT_TRUE(strstr(out, "get_pair() -> (i32, err)") != NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, GenericTypes) {
@@ -225,6 +235,7 @@ TEST_F(BaslDocTest, GenericTypes) {
         "}\n", NULL);
 
     EXPECT_TRUE(strstr(out, "process(array<string> items, map<string, i32> counts) -> void") != NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, PrivateDeclarationsHidden) {
@@ -248,6 +259,7 @@ TEST_F(BaslDocTest, PrivateDeclarationsHidden) {
     EXPECT_TRUE(strstr(out, "private") == NULL);
     EXPECT_TRUE(strstr(out, "Private") == NULL);
     EXPECT_TRUE(strstr(out, "PRIVATE") == NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, EmptyFileShowsModuleOnly) {
@@ -255,6 +267,7 @@ TEST_F(BaslDocTest, EmptyFileShowsModuleOnly) {
     EXPECT_TRUE(strstr(out, "MODULE\n  test") != NULL);
     EXPECT_TRUE(strstr(out, "SUMMARY") == NULL);
     EXPECT_TRUE(strstr(out, "FUNCTIONS") == NULL);
+    free(out);
 }
 
 TEST_F(BaslDocTest, ModuleNameFromPath) {

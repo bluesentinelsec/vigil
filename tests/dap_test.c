@@ -27,11 +27,13 @@ static void write_message(FILE *f, const char *json) {
 static char *read_all(FILE *f) {
     long size;
     char *buf;
+    size_t n;
     fseek(f, 0, SEEK_END);
     size = ftell(f);
     fseek(f, 0, SEEK_SET);
     buf = (char *)calloc(1, (size_t)size + 1);
-    (void)fread(buf, 1, (size_t)size, f);
+    n = fread(buf, 1, (size_t)size, f);
+    buf[n] = '\0';
     return buf;
 }
 
@@ -160,6 +162,7 @@ TEST(BaslDapTest, InitializeAndDisconnect) {
     EXPECT_TRUE(strstr(output, "\"event\":\"initialized\"") != NULL);
 
     basl_dap_server_destroy(&server);
+    free(output);
     basl_source_registry_free(&registry);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);
@@ -238,6 +241,7 @@ TEST(BaslDapTest, LaunchAndBreakpoint) {
     EXPECT_TRUE(strstr(output, "\"event\":\"terminated\"") != NULL);
 
     basl_dap_server_destroy(&server);
+    free(output);
     basl_object_release(&function);
     basl_diagnostic_list_free(&diagnostics);
     basl_native_registry_free(&natives);
