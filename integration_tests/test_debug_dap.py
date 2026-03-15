@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -115,12 +116,39 @@ class TestBaslDebug(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         self.proc = proc
+
+        # Watchdog: kill the process if the test takes too long.
+        def _watchdog():
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        self._timer = threading.Timer(10.0, _watchdog)
+        self._timer.start()
+
         return DAPClient(proc), script_path
 
     def tearDown(self):
+        if hasattr(self, "_timer"):
+            self._timer.cancel()
         if hasattr(self, "proc") and self.proc.poll() is None:
-            self.proc.kill()
-            self.proc.wait()
+            try:
+                self.proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                self.proc.kill()
+            except Exception:
+                pass
+            try:
+                self.proc.wait(timeout=3)
+            except Exception:
+                pass
         if hasattr(self, "tmpdir"):
             import shutil
             shutil.rmtree(self.tmpdir, ignore_errors=True)
