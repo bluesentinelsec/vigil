@@ -11,8 +11,8 @@ BASL_BIN = os.environ.get("BASL_BIN", "basl")
 
 def fmt(source, *extra_args):
     """Write source to a temp file, run basl fmt, return the result."""
-    with tempfile.NamedTemporaryFile(suffix=".basl", mode="w", delete=False) as f:
-        f.write(source)
+    with tempfile.NamedTemporaryFile(suffix=".basl", mode="wb", delete=False) as f:
+        f.write(source.encode("utf-8"))
         path = f.name
     try:
         result = subprocess.run(
@@ -21,8 +21,8 @@ def fmt(source, *extra_args):
         )
         if result.returncode != 0 and "--check" not in extra_args:
             raise RuntimeError(f"basl fmt failed: {result.stderr}")
-        with open(path) as f:
-            return f.read(), result
+        with open(path, "rb") as f:
+            return f.read().decode("utf-8"), result
     finally:
         os.unlink(path)
 
