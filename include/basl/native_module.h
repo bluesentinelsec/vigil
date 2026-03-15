@@ -60,6 +60,8 @@ typedef struct basl_native_class_method {
     size_t return_count;
     const int *return_types;
     int is_static;              /* 1 = no self argument */
+    const char *return_class_name;      /* non-NULL: resolve to this class */
+    size_t return_class_name_length;
 } basl_native_class_method_t;
 
 typedef struct basl_native_class {
