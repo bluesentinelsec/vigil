@@ -37,7 +37,7 @@ def write_sources(root: Path, sources: dict[str, str]) -> None:
 
 def run_basl(root: Path, entry: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [*resolve_basl_command(), str(root / entry)],
+        [*resolve_basl_command(), "run", str(root / entry)],
         capture_output=True, text=True, cwd=REPO_ROOT, check=False,
     )
 

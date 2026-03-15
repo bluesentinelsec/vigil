@@ -180,3 +180,55 @@ basl_status_t basl_platform_remove(const char *path, basl_error_t *error) {
     }
     return BASL_STATUS_OK;
 }
+
+basl_status_t basl_platform_path_join(
+    const char *base, const char *child,
+    char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    size_t blen, clen, total;
+    int need_sep;
+    if (!base || !child || !out_buf || buf_size == 0) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "platform: NULL argument");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    blen = strlen(base);
+    clen = strlen(child);
+    need_sep = (blen > 0 && base[blen - 1] != '/' && base[blen - 1] != '\\') ? 1 : 0;
+    total = blen + (size_t)need_sep + clen;
+    if (total >= buf_size) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "platform: path too long");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    memcpy(out_buf, base, blen);
+    if (need_sep) out_buf[blen] = '/';
+    memcpy(out_buf + blen + (size_t)need_sep, child, clen);
+    out_buf[total] = '\0';
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_platform_readline(
+    const char *prompt, char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    size_t len;
+    if (!out_buf || buf_size == 0) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "platform: NULL argument");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (prompt) {
+        fputs(prompt, stdout);
+        fflush(stdout);
+    }
+    if (!fgets(out_buf, (int)buf_size, stdin)) {
+        out_buf[0] = '\0';
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "platform: EOF on stdin");
+        return BASL_STATUS_INTERNAL;
+    }
+    len = strlen(out_buf);
+    while (len > 0 && (out_buf[len - 1] == '\n' || out_buf[len - 1] == '\r')) {
+        out_buf[--len] = '\0';
+    }
+    return BASL_STATUS_OK;
+}

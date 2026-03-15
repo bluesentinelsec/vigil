@@ -72,6 +72,27 @@ BASL_API basl_status_t basl_platform_remove(
     basl_error_t *error
 );
 
+/** Join two path segments with the platform separator.  Always uses '/'. */
+BASL_API basl_status_t basl_platform_path_join(
+    const char *base,
+    const char *child,
+    char *out_buf,
+    size_t buf_size,
+    basl_error_t *error
+);
+
+/**
+ * Read a line from stdin.  Strips trailing newline.
+ * If prompt is non-NULL, prints it to stdout first.
+ * Returns BASL_STATUS_INTERNAL on EOF.
+ */
+BASL_API basl_status_t basl_platform_readline(
+    const char *prompt,
+    char *out_buf,
+    size_t buf_size,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif
