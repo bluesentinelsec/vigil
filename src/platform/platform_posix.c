@@ -8,6 +8,10 @@
 #include <unistd.h>
 #include <dirent.h>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 #include "internal/basl_internal.h"
 
 /* ── Allocator helpers ───────────────────────────────────────────── */
@@ -230,5 +234,39 @@ basl_status_t basl_platform_readline(
     while (len > 0 && (out_buf[len - 1] == '\n' || out_buf[len - 1] == '\r')) {
         out_buf[--len] = '\0';
     }
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_platform_self_exe(
+    char *out_buf, size_t buf_size, basl_error_t *error
+) {
+    if (out_buf == NULL || buf_size == 0) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null buffer"; error->length = 11; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+#ifdef __APPLE__
+    uint32_t size = (uint32_t)buf_size;
+    if (_NSGetExecutablePath(out_buf, &size) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "buffer too small"; error->length = 16; }
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+#else
+    ssize_t len = readlink("/proc/self/exe", out_buf, buf_size - 1);
+    if (len < 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "readlink failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+    out_buf[len] = '\0';
+    return BASL_STATUS_OK;
+#endif
+}
+
+basl_status_t basl_platform_make_executable(
+    const char *path, basl_error_t *error
+) {
+    (void)error;
+    if (path == NULL) return BASL_STATUS_INVALID_ARGUMENT;
+    chmod(path, 0755);
     return BASL_STATUS_OK;
 }

@@ -60,6 +60,18 @@ BASL_API void basl_vm_set_debug_hook(
     void *userdata
 );
 
+BASL_API void basl_vm_set_args(
+    basl_vm_t *vm,
+    const char *const *argv,
+    size_t argc
+);
+
+BASL_API void basl_vm_get_args(
+    const basl_vm_t *vm,
+    const char *const **out_argv,
+    size_t *out_argc
+);
+
 /* Frame inspection for debugger. */
 BASL_API const basl_chunk_t *basl_vm_frame_chunk(
     const basl_vm_t *vm, size_t frame_index);

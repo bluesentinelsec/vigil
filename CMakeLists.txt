@@ -33,6 +33,7 @@ add_library(basl_core OBJECT
     src/compiler.c
     src/dap.c
     src/doc.c
+    src/package.c
     src/debug_info.c
     src/debugger.c
     src/compiler_program.c
@@ -75,6 +76,7 @@ set_target_properties(basl_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # platform-specific headers; the core (basl_core) stays pure C11.
 add_library(basl ${BASL_LIBRARY_TYPE}
     $<TARGET_OBJECTS:basl_core>
+    src/stdlib/args.c
     src/stdlib/fmt.c
     src/stdlib/math.c
 )
@@ -230,6 +232,14 @@ if(BASL_BUILD_TESTS)
         )
         set_tests_properties(
             BaslDocTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
+        add_test(
+            NAME BaslPackageTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_package.py
+        )
+        set_tests_properties(
+            BaslPackageTest
             PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
         )
     endif()
