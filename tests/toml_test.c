@@ -11,12 +11,14 @@ typedef struct TomlTest {
     basl_error_t error;
 } TomlTest;
 
-void TomlTest_SetUp(TomlTest *self) {
+void TomlTest_SetUp(void *p) {
+    TomlTest *self = (TomlTest *)p;
     self->root = NULL;
     memset(&self->error, 0, sizeof(self->error));
 }
 
-void TomlTest_TearDown(TomlTest *self) {
+void TomlTest_TearDown(void *p) {
+    TomlTest *self = (TomlTest *)p;
     basl_toml_free(&self->root);
     basl_error_clear(&self->error);
 }

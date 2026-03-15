@@ -10,8 +10,8 @@ typedef struct BaslNewTest {
     basl_error_t error;
 } BaslNewTest;
 
-static void BaslNewTest_SetUp(BaslNewTest *self) { memset(self, 0, sizeof(*self)); }
-static void BaslNewTest_TearDown(BaslNewTest *self) { basl_error_clear(&self->error); }
+static void BaslNewTest_SetUp(void *p) { memset(p, 0, sizeof(BaslNewTest)); }
+static void BaslNewTest_TearDown(void *p) { basl_error_clear(&((BaslNewTest *)p)->error); }
 
 static void remove_project(const char *name, basl_error_t *error) {
     char path[4096];

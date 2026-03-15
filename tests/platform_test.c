@@ -16,8 +16,8 @@ typedef struct PlatformTest {
     basl_error_t error;
 } PlatformTest;
 
-static void PlatformTest_SetUp(PlatformTest *self) { memset(self, 0, sizeof(*self)); }
-static void PlatformTest_TearDown(PlatformTest *self) { basl_error_clear(&self->error); }
+static void PlatformTest_SetUp(void *p) { memset(p, 0, sizeof(PlatformTest)); }
+static void PlatformTest_TearDown(void *p) { basl_error_clear(&((PlatformTest *)p)->error); }
 
 /* ── File read/write round-trip ──────────────────────────────────── */
 

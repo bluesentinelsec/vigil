@@ -17,7 +17,8 @@ typedef struct BaslDocTest {
     basl_error_t error;
 } BaslDocTest;
 
-static void BaslDocTest_SetUp(BaslDocTest *self) {
+static void BaslDocTest_SetUp(void *p) {
+    BaslDocTest *self = (BaslDocTest *)p;
     memset(self, 0, sizeof(*self));
     basl_runtime_open(&self->runtime, NULL, &self->error);
     basl_source_registry_init(&self->registry, self->runtime);
@@ -25,7 +26,8 @@ static void BaslDocTest_SetUp(BaslDocTest *self) {
     basl_diagnostic_list_init(&self->diagnostics, self->runtime);
 }
 
-static void BaslDocTest_TearDown(BaslDocTest *self) {
+static void BaslDocTest_TearDown(void *p) {
+    BaslDocTest *self = (BaslDocTest *)p;
     basl_diagnostic_list_free(&self->diagnostics);
     basl_token_list_free(&self->tokens);
     basl_source_registry_free(&self->registry);

@@ -40,14 +40,14 @@ extern "C" {
 /* ── Test registration ───────────────────────────────────────────── */
 
 typedef void (*basl_test_fn_t)(int *basl_test_failed_);
+typedef void (*basl_test_fixture_fn_t)(void *fixture);
 
 typedef struct basl_test_entry {
     const char *suite;
     const char *name;
     basl_test_fn_t fn;
-    /* Fixture support: setup/teardown + fixture data pointer. */
-    void (*setup)(void *fixture);
-    void (*teardown)(void *fixture);
+    basl_test_fixture_fn_t setup;
+    basl_test_fixture_fn_t teardown;
     size_t fixture_size;
 } basl_test_entry_t;
 
@@ -62,7 +62,8 @@ extern void *basl_test_fixture_ptr_;
 
 static inline int basl_test_register_(
     const char *suite, const char *name, basl_test_fn_t fn,
-    void (*setup)(void*), void (*teardown)(void*), size_t fixture_size
+    basl_test_fixture_fn_t setup, basl_test_fixture_fn_t teardown,
+    size_t fixture_size
 ) {
     if (basl_test_count_ < BASL_TEST_MAX) {
         basl_test_entry_t *e = &basl_test_entries_[basl_test_count_];
@@ -77,15 +78,27 @@ static inline int basl_test_register_(
     return 0;
 }
 
+/* ── Auto-registration: constructor portability ──────────────────── */
+
+#ifdef _MSC_VER
+  /* MSVC: place function pointer in CRT startup section. */
+  #pragma section(".CRT$XCU", read)
+  #define BASL_TEST_CTOR_(fn_name)                                            \
+      static void fn_name(void);                                              \
+      __declspec(allocate(".CRT$XCU"))                                        \
+      static void (*fn_name##_ptr_)(void) = fn_name;                          \
+      static void fn_name(void)
+#else
+  #define BASL_TEST_CTOR_(fn_name)                                            \
+      __attribute__((constructor)) static void fn_name(void)
+#endif
+
 /* ── TEST() macro ────────────────────────────────────────────────── */
 
 #define TEST(suite, name)                                                     \
     static void basl_test_##suite##_##name##_body_(int *basl_test_failed_);   \
-    static int basl_test_##suite##_##name##_reg_ =                            \
-        0; /* filled by constructor */                                        \
-    __attribute__((constructor))                                              \
-    static void basl_test_##suite##_##name##_ctor_(void) {                    \
-        basl_test_##suite##_##name##_reg_ = basl_test_register_(              \
+    BASL_TEST_CTOR_(basl_test_##suite##_##name##_ctor_) {                     \
+        basl_test_register_(                                                  \
             #suite, #name, basl_test_##suite##_##name##_body_,                \
             NULL, NULL, 0);                                                   \
     }                                                                         \
@@ -95,12 +108,10 @@ static inline int basl_test_register_(
 
 #define TEST_F(fixture, name)                                                 \
     static void basl_test_##fixture##_##name##_body_(int *basl_test_failed_); \
-    __attribute__((constructor))                                              \
-    static void basl_test_##fixture##_##name##_ctor_(void) {                  \
+    BASL_TEST_CTOR_(basl_test_##fixture##_##name##_ctor_) {                   \
         basl_test_register_(                                                  \
             #fixture, #name, basl_test_##fixture##_##name##_body_,            \
-            (void(*)(void*))fixture##_SetUp,                                  \
-            (void(*)(void*))fixture##_TearDown,                               \
+            fixture##_SetUp, fixture##_TearDown,                              \
             sizeof(fixture));                                                 \
     }                                                                         \
     static void basl_test_##fixture##_##name##_body_(int *basl_test_failed_)

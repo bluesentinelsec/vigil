@@ -31,7 +31,7 @@ static char *read_all(FILE *f) {
     size = ftell(f);
     fseek(f, 0, SEEK_SET);
     buf = (char *)calloc(1, (size_t)size + 1);
-    fread(buf, 1, (size_t)size, f);
+    (void)fread(buf, 1, (size_t)size, f);
     return buf;
 }
 
