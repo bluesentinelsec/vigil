@@ -54,11 +54,12 @@ typedef struct basl_native_class_method {
     const char *name;
     size_t name_length;
     basl_native_fn_t native_fn;
-    size_t param_count;         /* excluding self */
+    size_t param_count;         /* excluding self for instance methods */
     const int *param_types;     /* basl_type_kind_t values, excluding self */
     int return_type;            /* basl_type_kind_t */
     size_t return_count;
     const int *return_types;
+    int is_static;              /* 1 = no self argument */
 } basl_native_class_method_t;
 
 typedef struct basl_native_class {
