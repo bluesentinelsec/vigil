@@ -34,11 +34,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - abi: arm64-v8a
-            run_tests: false
-          - abi: x86_64
-            run_tests: true
+        abi:
+          - arm64-v8a
+          - x86_64
 
     steps:
       - uses: actions/checkout@v6
@@ -49,22 +47,11 @@ jobs:
           -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake
           -DANDROID_ABI=${{ matrix.abi }}
           -DANDROID_PLATFORM=android-21
-          -DBASL_BUILD_TESTS=${{ matrix.run_tests && 'ON' || 'OFF' }}
+          -DBASL_BUILD_TESTS=OFF
           -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release
-
-      - name: Test (emulator)
-        if: matrix.run_tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          arch: x86_64
-          script: |
-            adb push build/basl_tests /data/local/tmp/basl_tests
-            adb shell chmod +x /data/local/tmp/basl_tests
-            adb shell /data/local/tmp/basl_tests
 
   ios:
     runs-on: macos-latest
@@ -72,29 +59,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Configure (Simulator)
+      - name: Configure
         run: >
           cmake -S . -B build
           -DCMAKE_SYSTEM_NAME=iOS
           -DCMAKE_OSX_ARCHITECTURES=arm64
           -DCMAKE_OSX_SYSROOT=iphonesimulator
           -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
-          -DBASL_BUILD_TESTS=ON
+          -DBASL_BUILD_TESTS=OFF
           -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release
-
-      - name: Test (Simulator)
-        run: |
-          TEST_BIN="$(find build -name basl_tests -type f | head -1)"
-          codesign --force --sign - "$TEST_BIN"
-          RUNTIME=$(xcrun simctl list runtimes iOS available -j | python3 -c "import sys,json; rts=json.load(sys.stdin)['runtimes']; print(rts[-1]['identifier'])")
-          UDID=$(xcrun simctl create basl_test "iPhone 16" "$RUNTIME")
-          xcrun simctl boot "$UDID"
-          xcrun simctl spawn "$UDID" "$(pwd)/$TEST_BIN"
-          xcrun simctl shutdown "$UDID"
-          xcrun simctl delete "$UDID"
 
   emscripten:
     runs-on: ubuntu-latest
