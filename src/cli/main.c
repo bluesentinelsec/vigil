@@ -4,6 +4,7 @@
 
 #include "basl/basl.h"
 #include "basl/cli_lib.h"
+#include "basl/dap.h"
 #include "basl/stdlib.h"
 #include "basl/toml.h"
 #include "platform/platform.h"
@@ -557,6 +558,90 @@ toml_err:
     return 1;
 }
 
+/* ── debug command ────────────────────────────────────────────────── */
+
+static int cmd_debug(const char *script_path) {
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_source_id_t source_id = 0U;
+    basl_object_t *function = NULL;
+    basl_status_t status;
+    basl_dap_server_t *dap = NULL;
+    int exit_code = 0;
+
+    if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
+        return 1;
+    }
+    if (basl_vm_open(&vm, runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize vm: %s\n", basl_error_message(&error));
+        basl_runtime_close(&runtime);
+        return 1;
+    }
+
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    if (!register_source_tree(&registry, script_path, &source_id, &error)) {
+        fprintf(stderr, "failed to register source: %s\n", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Compile. */
+    {
+        basl_native_registry_t natives;
+        basl_native_registry_init(&natives);
+        basl_stdlib_register_all(&natives, &error);
+        status = basl_compile_source_with_natives(&registry, source_id, &natives,
+                                                   &function, &diagnostics, &error);
+        basl_native_registry_free(&natives);
+    }
+    if (status != BASL_STATUS_OK) {
+        if (basl_diagnostic_list_count(&diagnostics) != 0U) {
+            print_diagnostics(&registry, &diagnostics);
+        } else {
+            print_error(&registry, "compile failed", &error);
+        }
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Create DAP server on stdio. */
+    if (basl_dap_server_create(&dap, stdin, stdout, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to create DAP server: %s\n", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    if (basl_dap_server_set_runtime(dap, vm, &registry, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to attach DAP server: %s\n", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    basl_dap_server_set_program(dap, function, source_id);
+
+    /* Run the DAP message loop (blocks until disconnect). */
+    status = basl_dap_server_run(dap, &error);
+    if (status != BASL_STATUS_OK && status != BASL_STATUS_INTERNAL) {
+        fprintf(stderr, "DAP server error: %s\n", basl_error_message(&error));
+        exit_code = 1;
+    }
+
+cleanup:
+    basl_dap_server_destroy(&dap);
+    basl_object_release(&function);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+    return exit_code;
+}
+
 /* ── main ────────────────────────────────────────────────────────── */
 
 int main(int argc, char **argv) {
@@ -564,9 +649,11 @@ int main(int argc, char **argv) {
     basl_cli_command_t *cmd_run_def;
     basl_cli_command_t *cmd_check_def;
     basl_cli_command_t *cmd_new_def;
+    basl_cli_command_t *cmd_debug_def;
     const char *run_file = NULL;
     const char *check_file = NULL;
     const char *new_name = NULL;
+    const char *debug_file = NULL;
     int new_lib = 0;
     basl_error_t error = {0};
     const basl_cli_command_t *matched;
@@ -582,6 +669,9 @@ int main(int argc, char **argv) {
     cmd_new_def = basl_cli_add_command(&cli, "new", "Create a new BASL project");
     basl_cli_add_positional(cmd_new_def, "name", "Project name", &new_name);
     basl_cli_add_bool_flag(cmd_new_def, "lib", 'l', "Create a library project", &new_lib);
+
+    cmd_debug_def = basl_cli_add_command(&cli, "debug", "Start DAP debug server for a BASL script");
+    basl_cli_add_positional(cmd_debug_def, "file", "Script file to debug", &debug_file);
 
     if (basl_cli_parse(&cli, argc, argv, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
@@ -614,6 +704,13 @@ int main(int argc, char **argv) {
     }
     if (matched == cmd_new_def) {
         return cmd_new(new_name, new_lib);
+    }
+    if (matched == cmd_debug_def) {
+        if (debug_file == NULL) {
+            fprintf(stderr, "error: missing file argument\n");
+            return 2;
+        }
+        return cmd_debug(debug_file);
     }
 
     return 0;
