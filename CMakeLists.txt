@@ -30,6 +30,7 @@ add_library(basl_core OBJECT
     src/checker.c
     src/chunk.c
     src/compiler.c
+    src/dap.c
     src/debug_info.c
     src/debugger.c
     src/compiler_program.c
@@ -40,6 +41,7 @@ add_library(basl_core OBJECT
     src/compiler_types.c
     src/diagnostic.c
     src/json.c
+    src/jsonrpc.c
     src/lexer.c
     src/log.c
     src/map.c
@@ -143,6 +145,7 @@ if(BASL_BUILD_TESTS)
         tests/checker_test.cpp
         tests/chunk_test.cpp
         tests/compiler_test.cpp
+        tests/dap_test.cpp
         tests/debug_info_test.cpp
         tests/debugger_test.cpp
         tests/diagnostic_test.cpp
