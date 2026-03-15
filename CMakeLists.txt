@@ -12,7 +12,7 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 endif()
 
-if(EMSCRIPTEN)
+if(EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(BASL_LIBRARY_TYPE STATIC)
 else()
     set(BASL_LIBRARY_TYPE SHARED)
