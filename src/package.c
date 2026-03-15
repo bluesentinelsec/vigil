@@ -309,7 +309,12 @@ basl_status_t basl_package_build(
     memcpy(trailer + 8 + BASL_PACKAGE_KEY_LEN, BASL_PACKAGE_MAGIC, BASL_PACKAGE_MAGIC_LEN);
 
     /* Write output. */
+    out = NULL;
+#ifdef _WIN32
+    fopen_s(&out, output_path, "wb");
+#else
     out = fopen(output_path, "wb");
+#endif
     if (out == NULL) {
         free(exe_data); free(zip_data);
         if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "cannot create output file"; error->length = 25; }
