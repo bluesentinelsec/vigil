@@ -32,6 +32,7 @@ add_library(basl_core OBJECT
     src/cli_lib.c
     src/compiler.c
     src/dap.c
+    src/doc.c
     src/debug_info.c
     src/debugger.c
     src/compiler_program.c
@@ -162,6 +163,7 @@ if(BASL_BUILD_TESTS)
         tests/cli_lib_test.cpp
         tests/compiler_test.cpp
         tests/dap_test.cpp
+        tests/doc_test.cpp
         tests/debug_info_test.cpp
         tests/debugger_test.cpp
         tests/diagnostic_test.cpp
@@ -220,6 +222,14 @@ if(BASL_BUILD_TESTS)
         )
         set_tests_properties(
             BaslDebugDAPTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
+        add_test(
+            NAME BaslDocTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_doc.py
+        )
+        set_tests_properties(
+            BaslDocTest
             PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
         )
     endif()

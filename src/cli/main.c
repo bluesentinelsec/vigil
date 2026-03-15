@@ -5,6 +5,7 @@
 #include "basl/basl.h"
 #include "basl/cli_lib.h"
 #include "basl/dap.h"
+#include "basl/doc.h"
 #include "basl/stdlib.h"
 #include "basl/toml.h"
 #include "platform/platform.h"
@@ -642,6 +643,97 @@ cleanup:
     return exit_code;
 }
 
+/* ── doc command ──────────────────────────────────────────────────── */
+
+static int cmd_doc(const char *file_path, const char *symbol) {
+    basl_runtime_t *runtime = NULL;
+    basl_error_t error = {0};
+    basl_source_registry_t registry;
+    basl_source_id_t source_id = 0U;
+    basl_token_list_t tokens;
+    basl_diagnostic_list_t diagnostics;
+    const basl_source_file_t *source;
+    basl_doc_module_t doc_module;
+    char *output = NULL;
+    size_t output_len = 0;
+    int exit_code = 0;
+
+    if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
+        return 1;
+    }
+
+    basl_source_registry_init(&registry, runtime);
+    basl_token_list_init(&tokens, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    /* Read and register source. */
+    {
+        char *file_text = NULL;
+        size_t file_length = 0;
+        if (basl_platform_read_file(NULL, file_path, &file_text, &file_length, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
+        if (basl_source_registry_register(&registry, file_path, strlen(file_path),
+                file_text, file_length, &source_id, &error) != BASL_STATUS_OK) {
+            free(file_text);
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
+        free(file_text);
+    }
+
+    source = basl_source_registry_get(&registry, source_id);
+    if (source == NULL) {
+        fprintf(stderr, "error: failed to retrieve source\n");
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Lex. */
+    if (basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error: %s\n", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Extract. */
+    if (basl_doc_extract(NULL, file_path, strlen(file_path),
+            basl_string_c_str(&source->text), basl_string_length(&source->text),
+            &tokens, &doc_module, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error: %s\n", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Render. */
+    if (basl_doc_render(&doc_module, symbol, &output, &output_len, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error[doc]: %s\n", basl_error_message(&error));
+        basl_doc_module_free(&doc_module);
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    if (output != NULL) {
+        fwrite(output, 1, output_len, stdout);
+        if (output_len > 0 && output[output_len - 1] != '\n')
+            fputc('\n', stdout);
+        free(output);
+    }
+
+    basl_doc_module_free(&doc_module);
+
+cleanup:
+    basl_diagnostic_list_free(&diagnostics);
+    basl_token_list_free(&tokens);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+    return exit_code;
+}
+
 /* ── main ────────────────────────────────────────────────────────── */
 
 int main(int argc, char **argv) {
@@ -650,10 +742,13 @@ int main(int argc, char **argv) {
     basl_cli_command_t *cmd_check_def;
     basl_cli_command_t *cmd_new_def;
     basl_cli_command_t *cmd_debug_def;
+    basl_cli_command_t *cmd_doc_def;
     const char *run_file = NULL;
     const char *check_file = NULL;
     const char *new_name = NULL;
     const char *debug_file = NULL;
+    const char *doc_file = NULL;
+    const char *doc_symbol = NULL;
     int new_lib = 0;
     basl_error_t error = {0};
     const basl_cli_command_t *matched;
@@ -672,6 +767,10 @@ int main(int argc, char **argv) {
 
     cmd_debug_def = basl_cli_add_command(&cli, "debug", "Start DAP debug server for a BASL script");
     basl_cli_add_positional(cmd_debug_def, "file", "Script file to debug", &debug_file);
+
+    cmd_doc_def = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
+    basl_cli_add_positional(cmd_doc_def, "file", "Source file to document", &doc_file);
+    basl_cli_add_positional(cmd_doc_def, "symbol", "Symbol to look up (e.g. Point or Point.x)", &doc_symbol);
 
     if (basl_cli_parse(&cli, argc, argv, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
@@ -711,6 +810,13 @@ int main(int argc, char **argv) {
             return 2;
         }
         return cmd_debug(debug_file);
+    }
+    if (matched == cmd_doc_def) {
+        if (doc_file == NULL) {
+            fprintf(stderr, "error: missing file argument\n");
+            return 2;
+        }
+        return cmd_doc(doc_file, doc_symbol);
     }
 
     return 0;
