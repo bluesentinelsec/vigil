@@ -29,14 +29,13 @@ jobs:
         run: ctest --test-dir build --output-on-failure -C Release
 
   integration-tests:
-    # Python integration tests - only on platforms with Python + pexpect
     strategy:
       fail-fast: false
       matrix:
         os:
           - ubuntu-latest
           - macos-latest
-        # Windows excluded: pexpect requires POSIX pseudo-terminals
+          - windows-latest
 
     runs-on: ${{ matrix.os }}
 
@@ -48,8 +47,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install test dependencies
+      - name: Install test dependencies (POSIX)
+        if: runner.os != 'Windows'
         run: pip install pytest pexpect
+
+      - name: Install test dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: pip install pytest wexpect
 
       - name: Configure
         run: cmake -S . -B build -DBASL_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release
@@ -57,7 +61,15 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Run integration tests
+      - name: Run integration tests (POSIX)
+        if: runner.os != 'Windows'
+        run: BASL_BIN=$PWD/build/basl pytest integration_tests/ -v
+
+      - name: Run integration tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $env:BASL_BIN = "$PWD\build\Release\basl.exe"
+          pytest integration_tests/ -v
         run: BASL_BIN=$PWD/build/basl pytest integration_tests/ -v
 
   android:

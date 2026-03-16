@@ -10,6 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#define line_strdup _strdup
+#else
+#define line_strdup strdup
+#endif
+
 /* ── Key constants ───────────────────────────────────────────────── */
 
 enum {
@@ -185,9 +191,8 @@ void basl_line_history_add(basl_line_history_t *h, const char *line) {
         h->entries = new_entries;
         h->capacity = new_cap;
     }
-    h->entries[h->count] = malloc(strlen(line) + 1);
+    h->entries[h->count] = line_strdup(line);
     if (h->entries[h->count]) {
-        strcpy(h->entries[h->count], line);
         h->count++;
     }
 }

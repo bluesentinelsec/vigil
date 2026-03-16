@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Integration tests for the BASL REPL with readline functionality.
 
-Uses pexpect to test interactive features like line editing and history.
-These tests require a pseudo-terminal, so they only run on POSIX systems.
+Uses pexpect (or wexpect on Windows) to test interactive features.
 """
 
 import os
@@ -10,14 +9,22 @@ import sys
 import unittest
 from pathlib import Path
 
-# pexpect is POSIX-only
-try:
-    import pexpect
-    HAS_PEXPECT = True
-except ImportError:
-    HAS_PEXPECT = False
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# Try pexpect (POSIX) or wexpect (Windows)
+pexpect = None
+if os.name == "nt":
+    try:
+        import wexpect as pexpect
+    except ImportError:
+        pass
+else:
+    try:
+        import pexpect
+    except ImportError:
+        pass
+
+HAS_EXPECT = pexpect is not None
 
 
 def get_basl_bin() -> str:
@@ -25,21 +32,23 @@ def get_basl_bin() -> str:
     configured = os.environ.get("BASL_BIN")
     if configured:
         return configured
-    native = REPO_ROOT / "build" / "basl"
+    if os.name == "nt":
+        native = REPO_ROOT / "build" / "Release" / "basl.exe"
+    else:
+        native = REPO_ROOT / "build" / "basl"
     if native.exists():
         return str(native)
     raise FileNotFoundError("BASL binary not found")
 
 
-@unittest.skipUnless(HAS_PEXPECT, "pexpect not available")
-@unittest.skipIf(os.name == "nt", "pexpect requires POSIX")
+@unittest.skipUnless(HAS_EXPECT, "pexpect/wexpect not available")
 class TestReplInteractive(unittest.TestCase):
     """Test REPL interactive features using pexpect."""
 
     def setUp(self):
         self.basl = get_basl_bin()
 
-    def spawn_repl(self, timeout=5):
+    def spawn_repl(self, timeout=10):
         """Spawn a REPL process."""
         child = pexpect.spawn(self.basl, ["repl"], timeout=timeout, encoding="utf-8")
         child.expect(">>>")  # Wait for first prompt
