@@ -1,5 +1,5 @@
 import "test";
-import "mymodule";
+import "../lib/mymodule";
 
 fn test_module_class_type_annotation(test.T t) -> void {
     // This should work: module-qualified type annotation

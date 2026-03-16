@@ -190,10 +190,11 @@ static inline int basl_nanbox_uint_fits_inline(uint64_t v) {
     return v <= BASL_NANBOX_UINT_MAX;
 }
 
-/* Fast i32 encode/decode — no sign-extension branch needed because
-   i32 values always fit in the 48-bit payload. */
+/* Fast i32 encode/decode — i32 values always fit in the 48-bit
+   inline payload.  Encode sign-extends to 64 bits before masking
+   so that the 48-bit payload preserves the sign bit at position 47. */
 static inline uint64_t basl_nanbox_encode_i32(int32_t v) {
-    return BASL_NANBOX_TAG_INT | ((uint64_t)(uint32_t)v & BASL_NANBOX_PAYLOAD_MASK);
+    return BASL_NANBOX_TAG_INT | ((uint64_t)(int64_t)v & BASL_NANBOX_PAYLOAD_MASK);
 }
 
 static inline int32_t basl_nanbox_decode_i32(uint64_t v) {

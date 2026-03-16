@@ -398,7 +398,13 @@ static int cmd_check(const char *script_path) {
         goto cleanup;
     }
 
-    status = basl_check_source(&registry, source_id, &diagnostics, &error);
+    {
+        basl_native_registry_t natives;
+        basl_native_registry_init(&natives);
+        basl_stdlib_register_all(&natives, &error);
+        status = basl_check_source(&registry, source_id, &natives, &diagnostics, &error);
+        basl_native_registry_free(&natives);
+    }
     if (status != BASL_STATUS_OK) {
         if (basl_diagnostic_list_count(&diagnostics) != 0U) {
             exit_code = print_diagnostics(&registry, &diagnostics);
@@ -523,7 +529,7 @@ static int cmd_new(const char *name, int is_lib) {
 
         snprintf(test_content, sizeof(test_content),
             "import \"test\";\n"
-            "import \"%s\";\n"
+            "import \"../lib/%s\";\n"
             "\n"
             "fn test_hello(test.T t) -> void {\n"
             "    t.assert(%s.hello() == \"hello from %s\", \"hello should match\");\n"

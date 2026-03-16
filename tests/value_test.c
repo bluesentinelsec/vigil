@@ -5,6 +5,7 @@
 
 
 #include "basl/basl.h"
+#include "internal/basl_nanbox.h"
 
 struct AllocatorStats {
     int allocate_calls;
@@ -400,6 +401,24 @@ TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     basl_runtime_close(&runtime);
 }
 
+TEST(BaslValueTest, NanboxI32RoundTripPreservesSign) {
+    /* Negative i32 values must survive encode → decode and
+       encode → value_as_int round-trips with correct sign. */
+    static const int32_t cases[] = { 0, 1, -1, -2, INT32_MIN, INT32_MAX, -42, 42 };
+    size_t i;
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        int32_t input = cases[i];
+        uint64_t encoded = basl_nanbox_encode_i32(input);
+        int32_t decoded_i32 = basl_nanbox_decode_i32(encoded);
+        EXPECT_EQ(decoded_i32, input);
+
+        /* Also verify the 48-bit decode path used by stringify. */
+        basl_value_t v = encoded;
+        EXPECT_EQ(basl_value_kind(&v), BASL_VALUE_INT);
+        EXPECT_EQ((int32_t)basl_value_as_int(&v), input);
+    }
+}
+
 void register_value_tests(void) {
     REGISTER_TEST(BaslValueTest, ImmediateValuesRoundTrip);
     REGISTER_TEST(BaslValueTest, StringObjectStartsWithOneReferenceAndExposesText);
@@ -412,4 +431,5 @@ void register_value_tests(void) {
     REGISTER_TEST(BaslValueTest, FunctionObjectValidatesArguments);
     REGISTER_TEST(BaslValueTest, InstanceObjectStoresAndUpdatesFields);
     REGISTER_TEST(BaslValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues);
+    REGISTER_TEST(BaslValueTest, NanboxI32RoundTripPreservesSign);
 }
