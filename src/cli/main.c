@@ -12,6 +12,7 @@
 #include "basl/basl.h"
 #include "basl/cli_lib.h"
 #include "basl/dap.h"
+#include "basl/lsp.h"
 #include "basl/doc.h"
 #include "basl/embed.h"
 #include "basl/fmt.h"
@@ -1087,6 +1088,30 @@ static basl_debug_action_t debug_cli_callback(
 
         printf("Unknown command: %s (type 'help' for commands)\n", p);
     }
+}
+
+/* ── LSP Server ───────────────────────────────────────────── */
+
+static int cmd_lsp(void) {
+    basl_lsp_server_t *server = NULL;
+    basl_error_t error = {0};
+    basl_status_t status;
+
+    status = basl_lsp_server_create(&server, stdin, stdout, NULL, &error);
+    if (status != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to create LSP server: %s\n", basl_error_message(&error));
+        return 1;
+    }
+
+    status = basl_lsp_server_run(server, &error);
+    basl_lsp_server_destroy(&server);
+
+    if (status != BASL_STATUS_OK) {
+        fprintf(stderr, "LSP server error: %s\n", basl_error_message(&error));
+        return 1;
+    }
+
+    return 0;
 }
 
 static int cmd_debug_interactive(const char *script_path) {
@@ -2729,6 +2754,11 @@ int main(int argc, char **argv) {
         return cmd_repl();
     }
 
+    /* Handle "basl lsp" before CLI parser. */
+    if (argc >= 2 && strcmp(argv[1], "lsp") == 0) {
+        return cmd_lsp();
+    }
+
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
 
     cmd = basl_cli_add_command(&cli, "run", "Run a BASL script");
@@ -2754,6 +2784,8 @@ int main(int argc, char **argv) {
     basl_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
 
     (void)basl_cli_add_command(&cli, "repl", "Start interactive REPL");
+
+    (void)basl_cli_add_command(&cli, "lsp", "Start Language Server Protocol server");
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
