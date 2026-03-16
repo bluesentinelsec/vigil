@@ -1,7 +1,12 @@
 # CMake build for vendored libffi (static library only).
 # Supports: x86_64 (macOS/Linux), aarch64 (macOS/Linux), x86_64 Windows.
 cmake_minimum_required(VERSION 3.16)
-project(ffi C ASM)
+
+if(MSVC)
+    project(ffi C ASM_MASM)
+else()
+    project(ffi C ASM)
+endif()
 
 set(FFI_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(FFI_INC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -16,6 +21,9 @@ else()
 endif()
 
 # ── Platform-specific source files ──────────────────────────────────
+set(FFI_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+file(MAKE_DIRECTORY ${FFI_GEN_DIR})
+
 set(FFI_CORE_SOURCES
     ${FFI_SRC}/prep_cif.c
     ${FFI_SRC}/types.c
@@ -26,7 +34,25 @@ set(FFI_CORE_SOURCES
 )
 
 if(FFI_ARCH STREQUAL "x86_64")
-    if(WIN32)
+    if(WIN32 AND MSVC)
+        # MSVC: preprocess win64_intel.S with cl /EP, then assemble with ml64.
+        set(FFI_ASM_INPUT ${FFI_SRC}/x86/win64_intel.S)
+        set(FFI_ASM_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/win64_intel.asm)
+        # Use cmd /c so the > redirect works on Windows.
+        add_custom_command(
+            OUTPUT ${FFI_ASM_OUTPUT}
+            COMMAND cmd /c "${CMAKE_C_COMPILER} /nologo /EP /I\"${FFI_GEN_DIR}\" /I\"${FFI_INC}\" /I\"${FFI_SRC}/x86\" /DLIBFFI_ASM /DX86_WIN64 /DFFI_STATIC_BUILD /DFFI_BUILDING \"${FFI_ASM_INPUT}\" > \"${FFI_ASM_OUTPUT}\""
+            DEPENDS ${FFI_ASM_INPUT}
+                    ${FFI_INC}/ffi_cfi.h
+                    ${FFI_SRC}/x86/asmnames.h
+            COMMENT "Preprocessing win64_intel.S -> win64_intel.asm"
+        )
+        set(FFI_ARCH_SOURCES
+            ${FFI_SRC}/x86/ffiw64.c
+            ${FFI_ASM_OUTPUT}
+        )
+        set(FFI_TARGET "X86_WIN64")
+    elseif(WIN32)
         set(FFI_ARCH_SOURCES
             ${FFI_SRC}/x86/ffiw64.c
             ${FFI_SRC}/x86/win64.S
@@ -67,9 +93,6 @@ else()
 endif()
 
 set(FFI_EXEC_TRAMPOLINE_TABLE 0)
-
-set(FFI_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-file(MAKE_DIRECTORY ${FFI_GEN_DIR})
 
 file(READ ${FFI_INC}/ffi.h.in FFI_H_CONTENT)
 string(REPLACE "@VERSION@" "${VERSION}" FFI_H_CONTENT "${FFI_H_CONTENT}")
