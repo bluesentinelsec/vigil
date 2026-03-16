@@ -532,3 +532,105 @@ basl_status_t basl_semantic_index_definition_at(
                            "semantic: definition not found");
     return BASL_STATUS_INTERNAL;
 }
+
+/* ── Find References ──────────────────────────────────────── */
+
+basl_status_t basl_semantic_index_references_at(
+    const basl_semantic_index_t *index,
+    basl_source_id_t source_id,
+    size_t offset,
+    basl_semantic_reference_t **out_references,
+    size_t *out_count,
+    basl_error_t *error
+) {
+    const basl_semantic_file_t *file = NULL;
+    const basl_semantic_node_t *node;
+    const char *target_name = NULL;
+    size_t target_name_len = 0;
+    basl_semantic_reference_t *refs = NULL;
+    size_t ref_count = 0;
+    size_t ref_capacity = 0;
+    size_t i, j;
+
+    if (index == NULL || out_references == NULL || out_count == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "semantic: invalid arguments");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *out_references = NULL;
+    *out_count = 0;
+
+    /* Find file and node at position */
+    for (i = 0; i < index->file_count; i++) {
+        if (index->files[i]->source_id == source_id) {
+            file = index->files[i];
+            break;
+        }
+    }
+
+    if (file == NULL) {
+        return BASL_STATUS_OK;  /* No file, no references */
+    }
+
+    node = basl_semantic_file_node_at(file, offset);
+    if (node == NULL) {
+        return BASL_STATUS_OK;
+    }
+
+    /* Get target name from identifier or symbol definition */
+    if (node->kind == BASL_NODE_IDENTIFIER_EXPR) {
+        target_name = node->data.identifier.name;
+        target_name_len = node->data.identifier.name_length;
+    } else if (node->kind == BASL_NODE_FUNCTION_DECL || node->kind == BASL_NODE_CLASS_DECL) {
+        /* Look up symbol at this span */
+        size_t sym_count = basl_debug_symbol_table_count(&index->symbols);
+        for (i = 0; i < sym_count; i++) {
+            const basl_debug_symbol_t *sym = basl_debug_symbol_table_get(&index->symbols, i);
+            if (sym->span.start_offset == node->span.start_offset) {
+                target_name = sym->name;
+                target_name_len = sym->name_length;
+                break;
+            }
+        }
+    }
+
+    if (target_name == NULL) {
+        return BASL_STATUS_OK;
+    }
+
+    /* Collect all references to this name across all files */
+    for (i = 0; i < index->file_count; i++) {
+        const basl_semantic_file_t *f = index->files[i];
+        for (j = 0; j < f->node_count; j++) {
+            const basl_semantic_node_t *n = f->nodes_by_position[j];
+            if (n->kind == BASL_NODE_IDENTIFIER_EXPR &&
+                n->data.identifier.name_length == target_name_len &&
+                strncmp(n->data.identifier.name, target_name, target_name_len) == 0) {
+
+                /* Grow array if needed */
+                if (ref_count >= ref_capacity) {
+                    size_t new_cap = ref_capacity == 0 ? 8 : ref_capacity * 2;
+                    basl_semantic_reference_t *new_refs = realloc(refs, new_cap * sizeof(*refs));
+                    if (new_refs == NULL) {
+                        free(refs);
+                        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "out of memory");
+                        return BASL_STATUS_OUT_OF_MEMORY;
+                    }
+                    refs = new_refs;
+                    ref_capacity = new_cap;
+                }
+
+                refs[ref_count].span = n->span;
+                refs[ref_count].symbol_kind = BASL_DEBUG_SYMBOL_FUNCTION;  /* Placeholder */
+                refs[ref_count].symbol_index = 0;
+                refs[ref_count].is_write = 0;
+                ref_count++;
+            }
+        }
+    }
+
+    *out_references = refs;
+    *out_count = ref_count;
+    return BASL_STATUS_OK;
+}
