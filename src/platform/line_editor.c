@@ -266,7 +266,7 @@ static basl_status_t edit_line(
 
         switch (key) {
         case KEY_ENTER:
-            fputs("\n", stdout);
+            fputs("\r\n", stdout);
             fflush(stdout);
             free(saved_line);
             return BASL_STATUS_OK;
@@ -275,7 +275,7 @@ static basl_status_t edit_line(
             lb.len = 0;
             lb.pos = 0;
             lb.buf[0] = '\0';
-            fputs("^C\n", stdout);
+            fputs("^C\r\n", stdout);
             refresh_line(prompt, &lb);
             continue;
 
