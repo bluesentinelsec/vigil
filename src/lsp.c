@@ -1,9 +1,12 @@
 #include "basl/lsp.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "basl/fmt.h"
 #include "basl/json.h"
+#include "basl/lexer.h"
 #include "basl/runtime.h"
 #include "basl/source.h"
 #include "internal/basl_internal.h"
@@ -149,6 +152,27 @@ static basl_status_t handle_initialize(
 
     /* Rename. */
     jset_bool(capabilities, "renameProvider", 1, a, error);
+
+    /* Formatting. */
+    jset_bool(capabilities, "documentFormattingProvider", 1, a, error);
+
+    /* Signature help. */
+    {
+        basl_json_value_t *sig_opts = NULL;
+        basl_json_value_t *trigger_chars = NULL;
+        basl_json_value_t *open_paren = NULL;
+        basl_json_value_t *comma = NULL;
+
+        basl_json_object_new(a, &sig_opts, error);
+        basl_json_array_new(a, &trigger_chars, error);
+        basl_json_string_new(a, "(", 1, &open_paren, error);
+        basl_json_string_new(a, ",", 1, &comma, error);
+
+        basl_json_array_push(trigger_chars, open_paren, error);
+        basl_json_array_push(trigger_chars, comma, error);
+        jset_obj(sig_opts, "triggerCharacters", trigger_chars, error);
+        jset_obj(capabilities, "signatureHelpProvider", sig_opts, error);
+    }
 
     /* Server info. */
     jset_str(server_info, "name", "basl-lsp", a, error);
@@ -494,6 +518,207 @@ static basl_status_t handle_references(
     }
 
     return lsp_make_response(a, id, result, out, error);
+}
+
+static basl_status_t handle_formatting(
+    basl_lsp_server_t *server,
+    const basl_json_value_t *id,
+    const basl_json_value_t *params,
+    basl_json_value_t **out,
+    basl_error_t *error
+) {
+    const basl_allocator_t *a = &server->allocator;
+    const basl_json_value_t *text_doc;
+    const basl_json_value_t *uri_val;
+    const basl_source_file_t *src;
+    basl_json_value_t *result = NULL;
+    basl_token_list_t tokens = {0};
+    char *formatted = NULL;
+    size_t formatted_len = 0;
+    size_t i;
+    basl_source_id_t source_id = 0;
+
+    text_doc = basl_json_object_get(params, "textDocument");
+    if (text_doc == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    uri_val = basl_json_object_get(text_doc, "uri");
+    if (uri_val == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    /* Find source for this URI */
+    for (i = 0; i < server->index->file_count; i++) {
+        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
+        if (src != NULL) {
+            const char *uri = basl_json_string_value(uri_val);
+            size_t uri_len = basl_json_string_length(uri_val);
+            if (basl_string_length(&src->path) == uri_len &&
+                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
+                source_id = server->index->files[i]->source_id;
+                break;
+            }
+        }
+    }
+
+    if (source_id == 0) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    src = basl_source_registry_get(&server->sources, source_id);
+
+    /* Lex and format */
+    basl_token_list_init(&tokens, server->runtime);
+    if (basl_lex_source(&server->sources, source_id, &tokens, NULL, error) != BASL_STATUS_OK) {
+        basl_token_list_free(&tokens);
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    if (basl_fmt(basl_string_c_str(&src->text), basl_string_length(&src->text),
+                 &tokens, &formatted, &formatted_len, error) != BASL_STATUS_OK) {
+        basl_token_list_free(&tokens);
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    basl_token_list_free(&tokens);
+
+    /* Build single edit replacing entire document */
+    {
+        basl_json_value_t *edit = NULL;
+        basl_json_value_t *range = NULL;
+        basl_json_value_t *start_pos = NULL;
+        basl_json_value_t *end_pos = NULL;
+        basl_json_value_t *new_text = NULL;
+        size_t end_line, end_col;
+
+        offset_to_line_col(basl_string_c_str(&src->text), basl_string_length(&src->text),
+                           basl_string_length(&src->text), &end_line, &end_col);
+
+        basl_json_array_new(a, &result, error);
+        basl_json_object_new(a, &edit, error);
+        basl_json_object_new(a, &range, error);
+        basl_json_object_new(a, &start_pos, error);
+        basl_json_object_new(a, &end_pos, error);
+        basl_json_string_new(a, formatted, formatted_len, &new_text, error);
+
+        jset_int(start_pos, "line", 0, a, error);
+        jset_int(start_pos, "character", 0, a, error);
+        jset_int(end_pos, "line", (int64_t)end_line, a, error);
+        jset_int(end_pos, "character", (int64_t)end_col, a, error);
+
+        jset_obj(range, "start", start_pos, error);
+        jset_obj(range, "end", end_pos, error);
+        jset_obj(edit, "range", range, error);
+        jset_obj(edit, "newText", new_text, error);
+
+        basl_json_array_push(result, edit, error);
+    }
+
+    free(formatted);
+    return lsp_make_response(a, id, result, out, error);
+}
+
+static basl_status_t handle_signature_help(
+    basl_lsp_server_t *server,
+    const basl_json_value_t *id,
+    const basl_json_value_t *params,
+    basl_json_value_t **out,
+    basl_error_t *error
+) {
+    const basl_allocator_t *a = &server->allocator;
+    const basl_json_value_t *text_doc;
+    const basl_json_value_t *position;
+    const basl_json_value_t *uri_val;
+    const basl_json_value_t *line_val;
+    const basl_json_value_t *char_val;
+    const basl_source_file_t *src;
+    const basl_semantic_file_t *sem_file = NULL;
+    const basl_semantic_node_t *node;
+    size_t line, col, offset, i;
+
+    text_doc = basl_json_object_get(params, "textDocument");
+    position = basl_json_object_get(params, "position");
+    if (text_doc == NULL || position == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    uri_val = basl_json_object_get(text_doc, "uri");
+    line_val = basl_json_object_get(position, "line");
+    char_val = basl_json_object_get(position, "character");
+    if (uri_val == NULL || line_val == NULL || char_val == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
+
+    /* Find semantic file */
+    for (i = 0; i < server->index->file_count; i++) {
+        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
+        if (src != NULL) {
+            const char *uri = basl_json_string_value(uri_val);
+            size_t uri_len = basl_json_string_length(uri_val);
+            if (basl_string_length(&src->path) == uri_len &&
+                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
+                sem_file = server->index->files[i];
+                break;
+            }
+        }
+    }
+
+    if (sem_file == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    src = basl_source_registry_get(&server->sources, sem_file->source_id);
+    offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
+
+    /* Find call expression containing this position */
+    node = basl_semantic_file_node_at(sem_file, offset);
+    while (node != NULL && node->kind != BASL_NODE_CALL_EXPR && node->kind != BASL_NODE_METHOD_CALL_EXPR) {
+        /* Walk up - for now just check nodes at position */
+        break;
+    }
+
+    if (node != NULL && (node->kind == BASL_NODE_CALL_EXPR || node->kind == BASL_NODE_METHOD_CALL_EXPR)) {
+        basl_json_value_t *result = NULL;
+        basl_json_value_t *signatures = NULL;
+        basl_json_value_t *sig = NULL;
+        basl_json_value_t *label = NULL;
+        const char *func_name = NULL;
+        size_t func_name_len = 0;
+
+        if (node->kind == BASL_NODE_METHOD_CALL_EXPR) {
+            func_name = node->data.method_call.method_name;
+            func_name_len = node->data.method_call.method_name_length;
+        } else if (node->data.call.callee != NULL && 
+                   node->data.call.callee->kind == BASL_NODE_IDENTIFIER_EXPR) {
+            func_name = node->data.call.callee->data.identifier.name;
+            func_name_len = node->data.call.callee->data.identifier.name_length;
+        }
+
+        if (func_name != NULL) {
+            char sig_label[256];
+            int len = snprintf(sig_label, sizeof(sig_label), "%.*s(...)", (int)func_name_len, func_name);
+
+            basl_json_object_new(a, &result, error);
+            basl_json_array_new(a, &signatures, error);
+            basl_json_object_new(a, &sig, error);
+            basl_json_string_new(a, sig_label, (size_t)len, &label, error);
+
+            jset_obj(sig, "label", label, error);
+            basl_json_array_push(signatures, sig, error);
+
+            jset_obj(result, "signatures", signatures, error);
+            jset_int(result, "activeSignature", 0, a, error);
+            jset_int(result, "activeParameter", 0, a, error);
+
+            return lsp_make_response(a, id, result, out, error);
+        }
+    }
+
+    return lsp_make_response(a, id, NULL, out, error);
 }
 
 static basl_status_t handle_rename(
@@ -971,6 +1196,10 @@ static basl_status_t lsp_handle_message(
         status = handle_references(server, id, params, &response, error);
     } else if (method_len == 19 && strncmp(method, "textDocument/rename", 19) == 0) {
         status = handle_rename(server, id, params, &response, error);
+    } else if (method_len == 23 && strncmp(method, "textDocument/formatting", 23) == 0) {
+        status = handle_formatting(server, id, params, &response, error);
+    } else if (method_len == 26 && strncmp(method, "textDocument/signatureHelp", 26) == 0) {
+        status = handle_signature_help(server, id, params, &response, error);
     }
     /* Ignore other methods for now. */
 
