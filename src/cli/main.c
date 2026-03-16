@@ -1699,7 +1699,11 @@ int main(int argc, char **argv) {
 
     matched = basl_cli_matched_command(&cli);
     if (matched == NULL) {
-        basl_cli_print_help(&cli);
+        /* Only print help if the parser didn't already (i.e. not --help). */
+        if (argc < 2 ||
+            (strcmp(argv[1], "--help") != 0 && strcmp(argv[1], "-h") != 0)) {
+            basl_cli_print_help(&cli);
+        }
         basl_cli_free(&cli);
         return 0;
     }
