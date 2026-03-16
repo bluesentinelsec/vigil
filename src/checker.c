@@ -15,6 +15,7 @@ basl_status_t basl_check_source(
         BASL_COMPILE_MODE_CHECK_ONLY,
         natives,
         NULL,
+        NULL,
         diagnostics,
         error
     );

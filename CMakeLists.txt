@@ -105,6 +105,7 @@ target_include_directories(basl
 )
 
 target_compile_features(basl PUBLIC c_std_11)
+target_compile_definitions(basl PUBLIC BASL_VERSION="${PROJECT_VERSION}")
 
 if(NOT EMSCRIPTEN)
     target_compile_definitions(basl
