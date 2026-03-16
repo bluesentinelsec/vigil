@@ -28,14 +28,16 @@ static cb_t v2fn_cb_t(void *p) {
     cb_t f; memcpy(&f, &p, sizeof(f)); return f;
 }
 
-/* ── Test helpers ────────────────────────────────────────────────── */
+/* ── Test helpers (used by libffi tests) ──────────────────────────── */
 
+#ifdef BASL_HAS_LIBFFI
 static int  fn_i32_i32_to_i32(int a, int b) { return a + b; }
 static double fn_f64_to_f64(double a)       { return a / 2.0; }
 static int  fn_void_to_i32(void)            { return 42; }
 static double fn_void_to_f64(void)          { return 3.14159; }
 static void fn_void_to_void(void)           { /* noop */ }
 static const char *fn_void_to_str(void)     { return "hello"; }
+#endif
 
 /* ── Callback pool ───────────────────────────────────────────────── */
 
