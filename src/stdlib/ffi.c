@@ -54,12 +54,24 @@ static double pop_f64(basl_vm_t *vm, size_t base, size_t idx) {
     return basl_nanbox_decode_double(v);
 }
 
-static const char *pop_str(basl_vm_t *vm, size_t base, size_t idx) {
+/*
+ * Extract a C string from a BASL string on the stack into a buffer.
+ * Must copy before stack_pop_n, which releases the string object.
+ */
+static const char *pop_str_buf(basl_vm_t *vm, size_t base, size_t idx,
+                                char *buf, size_t bufsz) {
     basl_value_t v = basl_vm_stack_get(vm, base + idx);
     const basl_object_t *obj = (const basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (obj && basl_object_type(obj) == BASL_OBJECT_STRING)
-        return basl_string_object_c_str(obj);
-    return "";
+    if (obj && basl_object_type(obj) == BASL_OBJECT_STRING) {
+        const char *s = basl_string_object_c_str(obj);
+        size_t len = strlen(s);
+        if (len >= bufsz) len = bufsz - 1;
+        memcpy(buf, s, len);
+        buf[len] = '\0';
+        return buf;
+    }
+    buf[0] = '\0';
+    return buf;
 }
 
 #ifdef BASL_HAS_LIBFFI
@@ -94,7 +106,8 @@ static basl_status_t basl_ffi_open(
     basl_vm_t *vm, size_t arg_count, basl_error_t *error
 ) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
-    const char *path = pop_str(vm, base, 0);
+    char path[512];
+    pop_str_buf(vm, base, 0, path, sizeof(path));
     void *handle = NULL;
     basl_vm_stack_pop_n(vm, arg_count);
     basl_status_t s = basl_platform_dlopen(path, &handle, error);
@@ -107,7 +120,8 @@ static basl_status_t basl_ffi_sym(
 ) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     void *handle = (void *)(intptr_t)pop_i64(vm, base, 0);
-    const char *name = pop_str(vm, base, 1);
+    char name[256];
+    pop_str_buf(vm, base, 1, name, sizeof(name));
     void *sym = NULL;
     basl_vm_stack_pop_n(vm, arg_count);
     basl_status_t s = basl_platform_dlsym(handle, name, &sym, error);
@@ -131,8 +145,9 @@ static basl_status_t basl_ffi_bind(
 ) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     void *handle = (void *)(intptr_t)pop_i64(vm, base, 0);
-    const char *name = pop_str(vm, base, 1);
-    const char *sig  = pop_str(vm, base, 2);
+    char name[256], sig[64];
+    pop_str_buf(vm, base, 1, name, sizeof(name));
+    pop_str_buf(vm, base, 2, sig, sizeof(sig));
     basl_vm_stack_pop_n(vm, arg_count);
 
     if (g_bound_count >= FFI_MAX_BOUND) {
