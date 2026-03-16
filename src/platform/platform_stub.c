@@ -158,3 +158,27 @@ basl_status_t basl_platform_exec(
     if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
     return BASL_STATUS_UNSUPPORTED;
 }
+
+basl_status_t basl_platform_dlopen(
+    const char *path, void **out_handle, basl_error_t *error
+) {
+    (void)path; (void)out_handle;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_dlsym(
+    void *handle, const char *name, void **out_sym, basl_error_t *error
+) {
+    (void)handle; (void)name; (void)out_sym;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_dlclose(
+    void *handle, basl_error_t *error
+) {
+    (void)handle;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
+    return BASL_STATUS_UNSUPPORTED;
+}

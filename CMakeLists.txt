@@ -34,6 +34,7 @@ add_library(basl_core OBJECT
     src/dap.c
     src/doc.c
     src/embed.c
+    src/ffi_trampoline.c
     src/fmt.c
     src/package.c
     src/debug_info.c
@@ -115,6 +116,12 @@ include(CheckLibraryExists)
 check_library_exists(m floor "" BASL_NEEDS_LIBM)
 if(BASL_NEEDS_LIBM)
     target_link_libraries(basl PRIVATE m)
+endif()
+
+# Link libdl where needed (Linux; macOS has it in libSystem).
+check_library_exists(dl dlopen "" BASL_NEEDS_LIBDL)
+if(BASL_NEEDS_LIBDL)
+    target_link_libraries(basl PRIVATE dl)
 endif()
 
 # On MSVC multi-config generators, an OBJECT-library-backed shared

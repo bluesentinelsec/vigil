@@ -193,6 +193,36 @@ BASL_API basl_status_t basl_platform_exec(
     basl_error_t *error
 );
 
+/* ── Dynamic library loading ─────────────────────────────────────── */
+
+/**
+ * Load a shared library.  Returns an opaque handle.
+ * Returns BASL_STATUS_UNSUPPORTED on stub/sandboxed platforms.
+ */
+BASL_API basl_status_t basl_platform_dlopen(
+    const char *path,
+    void **out_handle,
+    basl_error_t *error
+);
+
+/**
+ * Look up a symbol in a loaded library.  Returns a function pointer.
+ */
+BASL_API basl_status_t basl_platform_dlsym(
+    void *handle,
+    const char *name,
+    void **out_sym,
+    basl_error_t *error
+);
+
+/**
+ * Close a loaded library.
+ */
+BASL_API basl_status_t basl_platform_dlclose(
+    void *handle,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif

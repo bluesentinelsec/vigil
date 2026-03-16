@@ -490,3 +490,50 @@ BASL_API basl_status_t basl_platform_exec(
     CloseHandle(pi.hThread);
     return BASL_STATUS_OK;
 }
+
+/* ── Dynamic library loading ─────────────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_dlopen(
+    const char *path, void **out_handle, basl_error_t *error
+) {
+    HMODULE h;
+    if (!path || !out_handle) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    h = LoadLibraryA(path);
+    if (!h) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "LoadLibrary failed"; error->length = 18; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_handle = (void *)h;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_dlsym(
+    void *handle, const char *name, void **out_sym, basl_error_t *error
+) {
+    FARPROC sym;
+    if (!handle || !name || !out_sym) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    sym = GetProcAddress((HMODULE)handle, name);
+    if (!sym) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "GetProcAddress failed"; error->length = 21; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_sym = (void *)sym;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_dlclose(
+    void *handle, basl_error_t *error
+) {
+    if (!handle) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null handle"; error->length = 11; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    FreeLibrary((HMODULE)handle);
+    return BASL_STATUS_OK;
+}
