@@ -5,6 +5,7 @@ project(basl VERSION 0.1.3 LANGUAGES C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BASL_BUILD_TESTS "Build BASL unit tests" ON)
+option(BASL_USE_LIBFFI "Build with vendored libffi for full FFI support" ON)
 
 if(MSVC)
     add_compile_options(/W4 /WX)
@@ -34,6 +35,7 @@ add_library(basl_core OBJECT
     src/dap.c
     src/doc.c
     src/embed.c
+    src/ffi_callback.c
     src/fmt.c
     src/package.c
     src/debug_info.c
@@ -79,9 +81,11 @@ set_target_properties(basl_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(basl ${BASL_LIBRARY_TYPE}
     $<TARGET_OBJECTS:basl_core>
     src/stdlib/args.c
+    src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/math.c
     src/stdlib/test.c
+    src/stdlib/unsafe.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
@@ -115,6 +119,23 @@ include(CheckLibraryExists)
 check_library_exists(m floor "" BASL_NEEDS_LIBM)
 if(BASL_NEEDS_LIBM)
     target_link_libraries(basl PRIVATE m)
+endif()
+
+# Link libdl where needed (Linux; macOS has it in libSystem).
+check_library_exists(dl dlopen "" BASL_NEEDS_LIBDL)
+if(BASL_NEEDS_LIBDL)
+    target_link_libraries(basl PRIVATE dl)
+endif()
+
+# Vendored libffi for full FFI support.
+# Disabled on platforms that lack dynamic linking or cross-compile.
+if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN
+   AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
+   AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_subdirectory(deps/libffi)
+    target_link_libraries(basl PRIVATE ffi_static)
+    target_compile_definitions(basl PRIVATE BASL_HAS_LIBFFI)
+    target_compile_definitions(basl_core PRIVATE BASL_HAS_LIBFFI)
 endif()
 
 # On MSVC multi-config generators, an OBJECT-library-backed shared
@@ -161,6 +182,8 @@ if(BASL_BUILD_TESTS)
         tests/debug_info_test.c
         tests/debugger_test.c
         tests/diagnostic_test.c
+        tests/ffi_test.c
+        tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c
         tests/log_test.c
@@ -184,6 +207,26 @@ if(BASL_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
+
+    # Vendored libffi for tests.
+    if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN
+       AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
+       AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+        target_link_libraries(basl_tests PRIVATE ffi_static)
+        target_compile_definitions(basl_tests PRIVATE BASL_HAS_LIBFFI)
+    endif()
+
+    # Small shared library for FFI dlopen tests.
+    if(NOT EMSCRIPTEN)
+        add_library(ffi_testlib SHARED tests/ffi_testlib.c)
+        set_target_properties(ffi_testlib PROPERTIES
+            PREFIX ""   # no "lib" prefix — predictable name
+        )
+        target_compile_definitions(basl_tests PRIVATE
+            FFI_TESTLIB_PATH="$<TARGET_FILE:ffi_testlib>"
+        )
+        add_dependencies(basl_tests ffi_testlib)
+    endif()
 
     add_test(NAME basl_tests COMMAND basl_tests)
 

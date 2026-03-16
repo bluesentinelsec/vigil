@@ -39,3 +39,5 @@ build-asan/
 build-ci-san/
 .cache/
 build-san/
+ffi.o
+*.o

@@ -477,3 +477,57 @@ BASL_API basl_status_t basl_platform_exec(
     }
     return BASL_STATUS_OK;
 }
+
+/* ── Dynamic library loading ─────────────────────────────────────── */
+
+#include <dlfcn.h>
+
+BASL_API basl_status_t basl_platform_dlopen(
+    const char *path, void **out_handle, basl_error_t *error
+) {
+    void *h;
+    if (!path || !out_handle) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    h = dlopen(path, RTLD_LAZY);
+    if (!h) {
+        const char *msg = dlerror();
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = msg ? msg : "dlopen failed"; error->length = msg ? strlen(msg) : 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_handle = h;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_dlsym(
+    void *handle, const char *name, void **out_sym, basl_error_t *error
+) {
+    void *sym;
+    if (!handle || !name || !out_sym) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    dlerror(); /* clear */
+    sym = dlsym(handle, name);
+    if (!sym) {
+        const char *msg = dlerror();
+        if (msg) {
+            if (error) { error->type = BASL_STATUS_INTERNAL; error->value = msg; error->length = strlen(msg); }
+            return BASL_STATUS_INTERNAL;
+        }
+    }
+    *out_sym = sym;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_dlclose(
+    void *handle, basl_error_t *error
+) {
+    if (!handle) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null handle"; error->length = 11; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    dlclose(handle);
+    return BASL_STATUS_OK;
+}
