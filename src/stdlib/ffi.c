@@ -356,6 +356,16 @@ static basl_status_t basl_ffi_bind(
 /* ── ffi.call(i64 h, i64 a0..a5) -> i64 — signature-based dispatch ─ */
 
 #ifdef BASL_HAS_LIBFFI
+/*
+ * Pedantic-safe replacement for libffi's FFI_FN() macro, which does
+ * a direct void* -> function-pointer cast that GCC -Wpedantic rejects.
+ */
+static void (*fn_to_fnptr(void *p))(void) {
+    union { void *obj; void (*fn)(void); } u;
+    u.obj = p;
+    return u.fn;
+}
+
 /* Parse a signature like "i32(i32,i32)" and call via libffi. */
 static ffi_type *sig_to_ffi_type(const char *t, size_t len) {
     if (len == 3 && memcmp(t, "i32", 3) == 0) return &ffi_type_sint32;
@@ -420,21 +430,21 @@ static int64_t ffi_call_libffi(void *fn, const char *sig,
 
     /* Call and return */
     if (rtype == &ffi_type_void) {
-        ffi_call(&cif, FFI_FN(fn), NULL, avalues);
+        ffi_call(&cif, fn_to_fnptr(fn), NULL, avalues);
         return 0;
     } else if (rtype == &ffi_type_double) {
         double rv;
-        ffi_call(&cif, FFI_FN(fn), &rv, avalues);
+        ffi_call(&cif, fn_to_fnptr(fn), &rv, avalues);
         int64_t bits;
         memcpy(&bits, &rv, sizeof(bits));
         return bits;
     } else if (rtype == &ffi_type_pointer) {
         void *rv;
-        ffi_call(&cif, FFI_FN(fn), &rv, avalues);
+        ffi_call(&cif, fn_to_fnptr(fn), &rv, avalues);
         return (int64_t)(intptr_t)rv;
     } else {
         int64_t rv = 0;
-        ffi_call(&cif, FFI_FN(fn), &rv, avalues);
+        ffi_call(&cif, fn_to_fnptr(fn), &rv, avalues);
         return rv;
     }
 }

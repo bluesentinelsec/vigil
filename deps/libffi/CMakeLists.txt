@@ -168,9 +168,11 @@ set_target_properties(ffi_static PROPERTIES
 )
 
 # Suppress warnings in vendored code
-target_compile_options(ffi_static PRIVATE
-    -w
-)
+if(MSVC)
+    target_compile_options(ffi_static PRIVATE /w)
+else()
+    target_compile_options(ffi_static PRIVATE -w)
+endif()
 
 # When building as a static library, tell ffi.h not to use dllimport (MSVC).
 target_compile_definitions(ffi_static PUBLIC FFI_STATIC_BUILD FFI_BUILDING)

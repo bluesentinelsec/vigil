@@ -128,7 +128,9 @@ if(BASL_NEEDS_LIBDL)
 endif()
 
 # Vendored libffi for full FFI support.
-if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN
+# Disabled on platforms where GAS assembly can't be compiled:
+#   Emscripten, iOS, Android (cross-compile), MSVC (no .S support).
+if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN AND NOT MSVC
    AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
    AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_subdirectory(deps/libffi)
@@ -207,7 +209,7 @@ if(BASL_BUILD_TESTS)
     )
 
     # Vendored libffi for tests.
-    if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN
+    if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN AND NOT MSVC
        AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
        AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         target_link_libraries(basl_tests PRIVATE ffi_static)
