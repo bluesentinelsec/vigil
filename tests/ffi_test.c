@@ -7,6 +7,21 @@
 #include "internal/ffi_trampoline.h"
 #include "platform/platform.h"
 
+/*
+ * Pedantic-safe casts between void* and function pointers.
+ * ISO C forbids direct casts; use memcpy to satisfy -Wpedantic.
+ */
+static void *fnptr_to_void(void (*f)(void)) {
+    void *p; memcpy(&p, &f, sizeof(p)); return p;
+}
+static void (*void_to_fnptr(void *p))(void) {
+    void (*f)(void); memcpy(&f, &p, sizeof(f)); return f;
+}
+/* Cast any function pointer to void* via an intermediate void(*)(void). */
+#define FN2V(fn) fnptr_to_void((void (*)(void))(fn))
+/* Cast void* to a typed function pointer. */
+#define V2FN(type, ptr) ((type)(void_to_fnptr(ptr)))
+
 /* ── Test helpers: known C functions to call through trampolines ── */
 
 static int  fn_void_to_i32(void)          { return 42; }
@@ -37,97 +52,97 @@ static int    fn_str_str_to_i32(const char *a, const char *b) {
 /* ── Trampoline: integer ─────────────────────────────────────────── */
 
 TEST(FFITrampoline, VoidToI32) {
-    EXPECT_EQ(42, basl_ffi_call_void_to_i32((void *)fn_void_to_i32));
+    EXPECT_EQ(42, basl_ffi_call_void_to_i32(FN2V(fn_void_to_i32)));
 }
 
 TEST(FFITrampoline, I32ToI32) {
-    EXPECT_EQ(10, basl_ffi_call_i32_to_i32((void *)fn_i32_to_i32, 5));
+    EXPECT_EQ(10, basl_ffi_call_i32_to_i32(FN2V(fn_i32_to_i32), 5));
 }
 
 TEST(FFITrampoline, I32I32ToI32) {
-    EXPECT_EQ(7, basl_ffi_call_i32_i32_to_i32((void *)fn_i32_i32_to_i32, 3, 4));
+    EXPECT_EQ(7, basl_ffi_call_i32_i32_to_i32(FN2V(fn_i32_i32_to_i32), 3, 4));
 }
 
 TEST(FFITrampoline, VoidToVoid) {
-    basl_ffi_call_void_to_void((void *)fn_void_to_void);
+    basl_ffi_call_void_to_void(FN2V(fn_void_to_void));
     EXPECT_TRUE(1); /* no crash = pass */
 }
 
 TEST(FFITrampoline, I32ToVoid) {
     g_side_effect = 0;
-    basl_ffi_call_i32_to_void((void *)fn_i32_to_void, 99);
+    basl_ffi_call_i32_to_void(FN2V(fn_i32_to_void), 99);
     EXPECT_EQ(99, g_side_effect);
 }
 
 /* ── Trampoline: float ───────────────────────────────────────────── */
 
 TEST(FFITrampoline, VoidToF64) {
-    EXPECT_NEAR(3.14, basl_ffi_call_void_to_f64((void *)fn_void_to_f64), 0.001);
+    EXPECT_NEAR(3.14, basl_ffi_call_void_to_f64(FN2V(fn_void_to_f64)), 0.001);
 }
 
 TEST(FFITrampoline, F64ToF64) {
-    EXPECT_NEAR(6.0, basl_ffi_call_f64_to_f64((void *)fn_f64_to_f64, 3.0), 0.001);
+    EXPECT_NEAR(6.0, basl_ffi_call_f64_to_f64(FN2V(fn_f64_to_f64), 3.0), 0.001);
 }
 
 TEST(FFITrampoline, F64F64ToF64) {
-    EXPECT_NEAR(5.5, basl_ffi_call_f64_f64_to_f64((void *)fn_f64_f64_to_f64, 2.5, 3.0), 0.001);
+    EXPECT_NEAR(5.5, basl_ffi_call_f64_f64_to_f64(FN2V(fn_f64_f64_to_f64), 2.5, 3.0), 0.001);
 }
 
 /* ── Trampoline: pointer ─────────────────────────────────────────── */
 
 TEST(FFITrampoline, VoidToPtr) {
-    void *r = basl_ffi_call_void_to_ptr((void *)fn_void_to_ptr);
+    void *r = basl_ffi_call_void_to_ptr(FN2V(fn_void_to_ptr));
     EXPECT_EQ((intptr_t)0xBEEF, (intptr_t)r);
 }
 
 TEST(FFITrampoline, PtrToPtr) {
-    void *r = basl_ffi_call_ptr_to_ptr((void *)fn_ptr_to_ptr, (void *)(intptr_t)10);
+    void *r = basl_ffi_call_ptr_to_ptr(FN2V(fn_ptr_to_ptr), (void *)(intptr_t)10);
     EXPECT_EQ(11, (int)(intptr_t)r);
 }
 
 TEST(FFITrampoline, PtrPtrToPtr) {
     void *r = basl_ffi_call_ptr_ptr_to_ptr(
-        (void *)fn_ptr_ptr_to_ptr,
+        FN2V(fn_ptr_ptr_to_ptr),
         (void *)(intptr_t)3, (void *)(intptr_t)7);
     EXPECT_EQ(10, (int)(intptr_t)r);
 }
 
 TEST(FFITrampoline, PtrToI32) {
-    EXPECT_EQ(42, basl_ffi_call_ptr_to_i32((void *)fn_ptr_to_i32, (void *)(intptr_t)42));
+    EXPECT_EQ(42, basl_ffi_call_ptr_to_i32(FN2V(fn_ptr_to_i32), (void *)(intptr_t)42));
 }
 
 TEST(FFITrampoline, PtrToVoid) {
     g_side_effect = 0;
-    basl_ffi_call_ptr_to_void((void *)fn_ptr_to_void, (void *)(intptr_t)77);
+    basl_ffi_call_ptr_to_void(FN2V(fn_ptr_to_void), (void *)(intptr_t)77);
     EXPECT_EQ(77, g_side_effect);
 }
 
 TEST(FFITrampoline, PtrI32ToI32) {
     EXPECT_EQ(15, basl_ffi_call_ptr_i32_to_i32(
-        (void *)fn_ptr_i32_to_i32, (void *)(intptr_t)10, 5));
+        FN2V(fn_ptr_i32_to_i32), (void *)(intptr_t)10, 5));
 }
 
 /* ── Trampoline: string ──────────────────────────────────────────── */
 
 TEST(FFITrampoline, StrToI32) {
-    EXPECT_EQ(5, basl_ffi_call_str_to_i32((void *)fn_str_to_i32, "hello"));
+    EXPECT_EQ(5, basl_ffi_call_str_to_i32(FN2V(fn_str_to_i32), "hello"));
 }
 
 TEST(FFITrampoline, StrStrToI32) {
-    EXPECT_EQ(0, basl_ffi_call_str_str_to_i32((void *)fn_str_str_to_i32, "abc", "abc"));
-    EXPECT_TRUE(basl_ffi_call_str_str_to_i32((void *)fn_str_str_to_i32, "a", "b") < 0);
+    EXPECT_EQ(0, basl_ffi_call_str_str_to_i32(FN2V(fn_str_str_to_i32), "abc", "abc"));
+    EXPECT_TRUE(basl_ffi_call_str_str_to_i32(FN2V(fn_str_str_to_i32), "a", "b") < 0);
 }
 
 /* ── Trampoline: generic ─────────────────────────────────────────── */
 
 TEST(FFITrampoline, Generic0) {
-    void *r = basl_ffi_call_generic((void *)fn_void_to_ptr, 0,
+    void *r = basl_ffi_call_generic(FN2V(fn_void_to_ptr), 0,
                                      NULL, NULL, NULL, NULL, NULL, NULL);
     EXPECT_EQ((intptr_t)0xBEEF, (intptr_t)r);
 }
 
 TEST(FFITrampoline, Generic2) {
-    void *r = basl_ffi_call_generic((void *)fn_ptr_ptr_to_ptr, 2,
+    void *r = basl_ffi_call_generic(FN2V(fn_ptr_ptr_to_ptr), 2,
                                      (void *)(intptr_t)3, (void *)(intptr_t)7,
                                      NULL, NULL, NULL, NULL);
     EXPECT_EQ(10, (int)(intptr_t)r);
@@ -170,7 +185,7 @@ TEST(FFICallback, Dispatch) {
 
     /* Call the C function pointer — it should dispatch through our function */
     typedef intptr_t (*cb_t)(intptr_t, intptr_t, intptr_t, intptr_t);
-    cb_t cb = (cb_t)ptr;
+    cb_t cb = V2FN(cb_t, ptr);
     intptr_t result = cb(5, 0, 0, 0);
     EXPECT_EQ(slot * 100 + 5, (int)result);
 
@@ -383,7 +398,7 @@ TEST(FFICallback, MultipleSlotDispatch) {
     /* Each slot should dispatch with its own slot number */
     typedef intptr_t (*cb_t)(intptr_t, intptr_t, intptr_t, intptr_t);
     for (int i = 0; i < 4; i++) {
-        cb_t cb = (cb_t)ptrs[i];
+        cb_t cb = V2FN(cb_t, ptrs[i]);
         intptr_t r = cb(1, 0, 0, 0);
         EXPECT_EQ(slots[i] * 100 + 1, (int)r);
     }
@@ -413,7 +428,7 @@ TEST(FFICallback, NullDispatch) {
     EXPECT_TRUE(slot >= 0);
 
     typedef intptr_t (*cb_t)(intptr_t, intptr_t, intptr_t, intptr_t);
-    cb_t cb = (cb_t)ptr;
+    cb_t cb = V2FN(cb_t, ptr);
     EXPECT_EQ(0, (int)cb(42, 0, 0, 0));
 
     basl_ffi_callback_free(slot);

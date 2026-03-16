@@ -9,44 +9,45 @@
  */
 
 #include <stdint.h>
+#include "basl/export.h"
 
 /* Integer */
-int    basl_ffi_call_void_to_i32(void *fn);
-int    basl_ffi_call_i32_to_i32(void *fn, int a);
-int    basl_ffi_call_i32_i32_to_i32(void *fn, int a, int b);
-void   basl_ffi_call_void_to_void(void *fn);
-void   basl_ffi_call_i32_to_void(void *fn, int a);
+BASL_API int    basl_ffi_call_void_to_i32(void *fn);
+BASL_API int    basl_ffi_call_i32_to_i32(void *fn, int a);
+BASL_API int    basl_ffi_call_i32_i32_to_i32(void *fn, int a, int b);
+BASL_API void   basl_ffi_call_void_to_void(void *fn);
+BASL_API void   basl_ffi_call_i32_to_void(void *fn, int a);
 
 /* Float */
-double basl_ffi_call_void_to_f64(void *fn);
-double basl_ffi_call_f64_to_f64(void *fn, double a);
-double basl_ffi_call_f64_f64_to_f64(void *fn, double a, double b);
+BASL_API double basl_ffi_call_void_to_f64(void *fn);
+BASL_API double basl_ffi_call_f64_to_f64(void *fn, double a);
+BASL_API double basl_ffi_call_f64_f64_to_f64(void *fn, double a, double b);
 
 /* String */
-const char *basl_ffi_call_void_to_str(void *fn);
-const char *basl_ffi_call_str_to_str(void *fn, const char *a);
-void        basl_ffi_call_str_to_void(void *fn, const char *a);
-int         basl_ffi_call_str_to_i32(void *fn, const char *a);
-int         basl_ffi_call_str_str_to_i32(void *fn, const char *a, const char *b);
-const char *basl_ffi_call_i32_to_str(void *fn, int a);
+BASL_API const char *basl_ffi_call_void_to_str(void *fn);
+BASL_API const char *basl_ffi_call_str_to_str(void *fn, const char *a);
+BASL_API void        basl_ffi_call_str_to_void(void *fn, const char *a);
+BASL_API int         basl_ffi_call_str_to_i32(void *fn, const char *a);
+BASL_API int         basl_ffi_call_str_str_to_i32(void *fn, const char *a, const char *b);
+BASL_API const char *basl_ffi_call_i32_to_str(void *fn, int a);
 
 /* Pointer */
-void  *basl_ffi_call_void_to_ptr(void *fn);
-void  *basl_ffi_call_ptr_to_ptr(void *fn, void *a);
-void  *basl_ffi_call_ptr_ptr_to_ptr(void *fn, void *a, void *b);
-int    basl_ffi_call_ptr_to_i32(void *fn, void *a);
-void   basl_ffi_call_ptr_to_void(void *fn, void *a);
-int    basl_ffi_call_ptr_i32_to_i32(void *fn, void *a, int b);
-void   basl_ffi_call_ptr_i32_to_void(void *fn, void *a, int b);
-int    basl_ffi_call_ptr_i32_i32_i32_i32_to_i32(void *fn, void *a, int b, int c, int d, int e);
+BASL_API void  *basl_ffi_call_void_to_ptr(void *fn);
+BASL_API void  *basl_ffi_call_ptr_to_ptr(void *fn, void *a);
+BASL_API void  *basl_ffi_call_ptr_ptr_to_ptr(void *fn, void *a, void *b);
+BASL_API int    basl_ffi_call_ptr_to_i32(void *fn, void *a);
+BASL_API void   basl_ffi_call_ptr_to_void(void *fn, void *a);
+BASL_API int    basl_ffi_call_ptr_i32_to_i32(void *fn, void *a, int b);
+BASL_API void   basl_ffi_call_ptr_i32_to_void(void *fn, void *a, int b);
+BASL_API int    basl_ffi_call_ptr_i32_i32_i32_i32_to_i32(void *fn, void *a, int b, int c, int d, int e);
 
 /* Generic: up to 6 void* args, returns void* */
-void  *basl_ffi_call_generic(void *fn, int nargs,
+BASL_API void  *basl_ffi_call_generic(void *fn, int nargs,
            void *a0, void *a1, void *a2, void *a3, void *a4, void *a5);
 
 /* Conversion helpers */
-void     *basl_ffi_int_to_ptr(uintptr_t v);
-uintptr_t basl_ffi_ptr_to_int(void *p);
+BASL_API void     *basl_ffi_int_to_ptr(uintptr_t v);
+BASL_API uintptr_t basl_ffi_ptr_to_int(void *p);
 
 /* ── Callback trampoline pool ──────────────────────────────────── */
 
@@ -64,18 +65,18 @@ typedef intptr_t (*basl_ffi_callback_dispatch_fn)(
  * Set the global dispatch function.  Must be called before any
  * callback slot is invoked from C code.
  */
-void basl_ffi_callback_set_dispatch(basl_ffi_callback_dispatch_fn fn);
+BASL_API void basl_ffi_callback_set_dispatch(basl_ffi_callback_dispatch_fn fn);
 
 /*
  * Allocate a callback slot.  Returns the slot index (0..7) or -1 if
  * all slots are in use.  *out_ptr receives the C function pointer
  * that can be passed to foreign code.
  */
-int basl_ffi_callback_alloc(void **out_ptr);
+BASL_API int basl_ffi_callback_alloc(void **out_ptr);
 
 /*
  * Free a previously allocated callback slot.
  */
-void basl_ffi_callback_free(int slot);
+BASL_API void basl_ffi_callback_free(int slot);
 
 #endif
