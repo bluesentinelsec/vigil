@@ -40,7 +40,10 @@ enum {
     KEY_ARROW_LEFT  = 259,
     KEY_HOME        = 260,
     KEY_END         = 261,
-    KEY_DELETE       = 262
+    KEY_DELETE      = 262,
+    KEY_ALT_B       = 263,
+    KEY_ALT_F       = 264,
+    KEY_ALT_D       = 265
 };
 
 /* Read a keypress, translating escape sequences. */
@@ -78,6 +81,13 @@ static int read_key(void) {
         switch (c3) {
             case 'H': return KEY_HOME;
             case 'F': return KEY_END;
+        }
+    } else {
+        /* Alt+key sends ESC followed by the key. */
+        switch (c2) {
+            case 'b': return KEY_ALT_B;
+            case 'f': return KEY_ALT_F;
+            case 'd': return KEY_ALT_D;
         }
     }
     return KEY_NONE;
@@ -234,6 +244,7 @@ static basl_status_t edit_line(
 ) {
     line_buf_t lb;
     size_t hist_index;
+    char *saved_line = NULL;  /* saved current input when browsing history */
 
     lb_init(&lb, out_buf, buf_size);
     hist_index = history ? history->count : 0;
@@ -243,7 +254,10 @@ static basl_status_t edit_line(
     for (;;) {
         int key = read_key();
         if (key == -1 || key == KEY_CTRL_D) {
-            if (lb.len == 0) return BASL_STATUS_INTERNAL; /* EOF */
+            if (lb.len == 0) {
+                free(saved_line);
+                return BASL_STATUS_INTERNAL; /* EOF */
+            }
             /* Ctrl-D with content: delete char under cursor. */
             lb_delete_at(&lb, lb.pos);
             refresh_line(prompt, &lb);
@@ -254,6 +268,7 @@ static basl_status_t edit_line(
         case KEY_ENTER:
             fputs("\n", stdout);
             fflush(stdout);
+            free(saved_line);
             return BASL_STATUS_OK;
 
         case KEY_CTRL_C:
@@ -298,7 +313,15 @@ static basl_status_t edit_line(
 
         case KEY_ARROW_UP:
         case KEY_CTRL_P:
-            if (history && hist_index > 0) {
+            if (history && history->count > 0 && hist_index > 0) {
+                /* Save current line if we're just starting to browse history. */
+                if (hist_index == history->count) {
+                    free(saved_line);
+                    saved_line = malloc(lb.len + 1);
+                    if (saved_line) {
+                        memcpy(saved_line, lb.buf, lb.len + 1);
+                    }
+                }
                 hist_index--;
                 lb_set(&lb, history->entries[hist_index]);
             }
@@ -306,13 +329,13 @@ static basl_status_t edit_line(
 
         case KEY_ARROW_DOWN:
         case KEY_CTRL_N:
-            if (history) {
-                if (hist_index < history->count - 1) {
-                    hist_index++;
-                    lb_set(&lb, history->entries[hist_index]);
+            if (history && history->count > 0 && hist_index < history->count) {
+                hist_index++;
+                if (hist_index == history->count) {
+                    /* Restore saved line. */
+                    lb_set(&lb, saved_line ? saved_line : "");
                 } else {
-                    hist_index = history->count;
-                    lb_set(&lb, "");
+                    lb_set(&lb, history->entries[hist_index]);
                 }
             }
             break;
@@ -356,6 +379,30 @@ static basl_status_t edit_line(
                 lb.pos++;
             }
             break;
+
+        case KEY_ALT_B:
+            /* Move word backward. */
+            while (lb.pos > 0 && lb.buf[lb.pos - 1] == ' ') lb.pos--;
+            while (lb.pos > 0 && lb.buf[lb.pos - 1] != ' ') lb.pos--;
+            break;
+
+        case KEY_ALT_F:
+            /* Move word forward. */
+            while (lb.pos < lb.len && lb.buf[lb.pos] == ' ') lb.pos++;
+            while (lb.pos < lb.len && lb.buf[lb.pos] != ' ') lb.pos++;
+            break;
+
+        case KEY_ALT_D: {
+            /* Kill word forward. */
+            size_t start = lb.pos;
+            while (lb.pos < lb.len && lb.buf[lb.pos] == ' ') lb.pos++;
+            while (lb.pos < lb.len && lb.buf[lb.pos] != ' ') lb.pos++;
+            memmove(lb.buf + start, lb.buf + lb.pos, lb.len - lb.pos);
+            lb.len -= (lb.pos - start);
+            lb.pos = start;
+            lb.buf[lb.len] = '\0';
+            break;
+        }
 
         case KEY_TAB:
         case KEY_NONE:

@@ -1991,6 +1991,11 @@ static int cmd_repl(void) {
 
         repl_buf_append_cstr(&input, line);
 
+        /* Add to history (skip special commands and empty lines). */
+        if (line[0] != ':' && strcmp(line, "exit()") != 0) {
+            basl_line_history_add(&history, line);
+        }
+
         /* Special commands. */
         if (strcmp(line, ":quit") == 0 || strcmp(line, ":q") == 0 ||
             strcmp(line, "exit()") == 0) break;
