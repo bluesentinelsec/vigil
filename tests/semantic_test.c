@@ -127,6 +127,82 @@ TEST(SemanticTest, TypeToStringInvalid) {
     free(str);
 }
 
+/* ── Index analysis ───────────────────────────────────────── */
+
+TEST(SemanticTest, AnalyzeValidSource) {
+    basl_runtime_t *runtime = NULL;
+    basl_source_registry_t registry;
+    basl_semantic_index_t *index = NULL;
+    basl_source_id_t source_id = 0;
+    basl_error_t error = {0};
+    const basl_semantic_file_t *file;
+
+    basl_runtime_open(&runtime, NULL, &error);
+    basl_source_registry_init(&registry, runtime);
+
+    /* Register a simple valid source. */
+    basl_source_registry_register_cstr(
+        &registry, "test.basl",
+        "fn main() -> i32 { return 0; }",
+        &source_id, &error
+    );
+
+    basl_semantic_index_create(&index, runtime, &registry, &error);
+
+    /* Analyze should succeed. */
+    ASSERT_EQ(basl_semantic_index_analyze(index, source_id, &error), BASL_STATUS_OK);
+
+    /* File should be in index. */
+    file = basl_semantic_index_get_file(index, source_id);
+    ASSERT_NE(file, NULL);
+    ASSERT_EQ(file->source_id, source_id);
+
+    /* Should have no diagnostics for valid source. */
+    ASSERT_EQ(basl_diagnostic_list_count(&file->diagnostics), 0);
+
+    /* Index should have symbols (at least 'main'). */
+    ASSERT_TRUE(basl_debug_symbol_table_count(&index->symbols) >= 1);
+
+    basl_semantic_index_destroy(&index);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
+TEST(SemanticTest, AnalyzeInvalidSource) {
+    basl_runtime_t *runtime = NULL;
+    basl_source_registry_t registry;
+    basl_semantic_index_t *index = NULL;
+    basl_source_id_t source_id = 0;
+    basl_error_t error = {0};
+    const basl_semantic_file_t *file;
+
+    basl_runtime_open(&runtime, NULL, &error);
+    basl_source_registry_init(&registry, runtime);
+
+    /* Register source with syntax error. */
+    basl_source_registry_register_cstr(
+        &registry, "test.basl",
+        "fn main() -> i32 { return }",  /* missing expression */
+        &source_id, &error
+    );
+
+    basl_semantic_index_create(&index, runtime, &registry, &error);
+
+    /* Analyze should still succeed (captures diagnostics). */
+    ASSERT_EQ(basl_semantic_index_analyze(index, source_id, &error), BASL_STATUS_OK);
+
+    /* File should be in index. */
+    file = basl_semantic_index_get_file(index, source_id);
+    ASSERT_NE(file, NULL);
+
+    /* Should have diagnostics for invalid source. */
+    ASSERT_TRUE(basl_diagnostic_list_count(&file->diagnostics) > 0);
+
+    basl_semantic_index_destroy(&index);
+    basl_source_registry_free(&registry);
+    basl_runtime_close(&runtime);
+}
+
 /* ── Test registration ────────────────────────────────────── */
 
 void register_semantic_tests(void) {
@@ -139,4 +215,6 @@ void register_semantic_tests(void) {
     REGISTER_TEST(SemanticTest, IndexGetFileNotFound);
     REGISTER_TEST(SemanticTest, TypeToString);
     REGISTER_TEST(SemanticTest, TypeToStringInvalid);
+    REGISTER_TEST(SemanticTest, AnalyzeValidSource);
+    REGISTER_TEST(SemanticTest, AnalyzeInvalidSource);
 }

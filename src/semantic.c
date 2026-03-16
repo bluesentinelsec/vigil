@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "basl/native_module.h"
+#include "basl/stdlib.h"
+#include "basl/value.h"
 #include "internal/basl_internal.h"
 
 /* ── Type Utilities ───────────────────────────────────────── */
@@ -337,6 +340,108 @@ void basl_semantic_index_remove(
             return;
         }
     }
+}
+
+/* ── Index Analysis ───────────────────────────────────────── */
+
+static basl_status_t semantic_index_grow_files(
+    basl_semantic_index_t *index,
+    basl_error_t *error
+) {
+    size_t new_capacity;
+    basl_semantic_file_t **new_files;
+
+    if (index->file_count < index->file_capacity) {
+        return BASL_STATUS_OK;
+    }
+
+    new_capacity = index->file_capacity == 0 ? 4 : index->file_capacity * 2;
+    new_files = sem_alloc(index->runtime,
+                          new_capacity * sizeof(basl_semantic_file_t *), error);
+    if (new_files == NULL) {
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+
+    if (index->files != NULL) {
+        memcpy(new_files, index->files,
+               index->file_count * sizeof(basl_semantic_file_t *));
+        sem_free(index->runtime, index->files);
+    }
+
+    index->files = new_files;
+    index->file_capacity = new_capacity;
+    return BASL_STATUS_OK;
+}
+
+basl_status_t basl_semantic_index_analyze(
+    basl_semantic_index_t *index,
+    basl_source_id_t source_id,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_semantic_file_t *file = NULL;
+    basl_native_registry_t natives;
+    basl_object_t *function = NULL;
+    basl_debug_symbol_table_t file_symbols;
+    int symbols_initialized = 0;
+    size_t i, count;
+
+    if (index == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "index must not be null");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    /* Remove existing analysis for this file. */
+    basl_semantic_index_remove(index, source_id);
+
+    /* Create new semantic file. */
+    status = basl_semantic_file_create(&file, index->runtime, source_id, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    /* Initialize natives and file symbols. */
+    basl_native_registry_init(&natives);
+    basl_stdlib_register_all(&natives, error);
+    basl_debug_symbol_table_init(&file_symbols, index->runtime);
+    symbols_initialized = 1;
+
+    /* Compile to get diagnostics and symbols. */
+    status = basl_compile_source_with_debug_info(
+        index->sources, source_id, &natives,
+        &function, &file->diagnostics, &file_symbols, error
+    );
+
+    /* Copy symbols to index (even if compile failed, we want partial symbols). */
+    count = basl_debug_symbol_table_count(&file_symbols);
+    for (i = 0; i < count; i++) {
+        const basl_debug_symbol_t *sym = basl_debug_symbol_table_get(&file_symbols, i);
+        basl_debug_symbol_table_add(
+            &index->symbols, sym->kind,
+            sym->name, sym->name_length, sym->span,
+            sym->is_public, sym->parent_index, error
+        );
+    }
+
+    /* Clean up compilation artifacts. */
+    if (function != NULL) {
+        basl_object_release(&function);
+    }
+    basl_native_registry_free(&natives);
+    if (symbols_initialized) {
+        basl_debug_symbol_table_free(&file_symbols);
+    }
+
+    /* Add file to index. */
+    status = semantic_index_grow_files(index, error);
+    if (status != BASL_STATUS_OK) {
+        basl_semantic_file_destroy(&file);
+        return status;
+    }
+
+    index->files[index->file_count++] = file;
+    return BASL_STATUS_OK;
 }
 
 /* ── Type Formatting ──────────────────────────────────────── */
