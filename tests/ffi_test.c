@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "internal/ffi_trampoline.h"
+#include "platform/platform.h"
 
 /* ── Test helpers: known C functions to call through trampolines ── */
 
@@ -203,6 +204,79 @@ TEST(FFICallback, AllSlotsExhaust) {
     basl_ffi_callback_set_dispatch(NULL);
 }
 
+/* ── Platform dlopen tests (require test shared library) ──────────── */
+
+#ifdef FFI_TESTLIB_PATH
+
+TEST(FFIDlopen, OpenAndClose) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_status_t s = basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+    EXPECT_EQ((int)BASL_STATUS_OK, (int)s);
+    EXPECT_TRUE(handle != NULL);
+    s = basl_platform_dlclose(handle, &error);
+    EXPECT_EQ((int)BASL_STATUS_OK, (int)s);
+}
+
+TEST(FFIDlopen, SymLookup) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+    EXPECT_TRUE(handle != NULL);
+
+    void *sym = NULL;
+    basl_status_t s = basl_platform_dlsym(handle, "test_add", &sym, &error);
+    EXPECT_EQ((int)BASL_STATUS_OK, (int)s);
+    EXPECT_TRUE(sym != NULL);
+
+    basl_platform_dlclose(handle, &error);
+}
+
+TEST(FFIDlopen, SymNotFound) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+
+    void *sym = NULL;
+    basl_status_t s = basl_platform_dlsym(handle, "nonexistent_symbol_xyz", &sym, &error);
+    EXPECT_TRUE(s != BASL_STATUS_OK);
+
+    basl_platform_dlclose(handle, &error);
+}
+
+TEST(FFIDlopen, OpenBadPath) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_status_t s = basl_platform_dlopen("/no/such/library.so", &handle, &error);
+    EXPECT_TRUE(s != BASL_STATUS_OK);
+}
+
+TEST(FFIDlopen, CallThroughTrampoline) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+
+    void *add_fn = NULL;
+    basl_platform_dlsym(handle, "test_add", &add_fn, &error);
+    EXPECT_EQ(7, basl_ffi_call_i32_i32_to_i32(add_fn, 3, 4));
+
+    void *neg_fn = NULL;
+    basl_platform_dlsym(handle, "test_negate", &neg_fn, &error);
+    EXPECT_EQ(-5, basl_ffi_call_i32_to_i32(neg_fn, 5));
+
+    void *half_fn = NULL;
+    basl_platform_dlsym(handle, "test_half", &half_fn, &error);
+    EXPECT_NEAR(2.5, basl_ffi_call_f64_to_f64(half_fn, 5.0), 0.001);
+
+    void *answer_fn = NULL;
+    basl_platform_dlsym(handle, "test_answer", &answer_fn, &error);
+    EXPECT_EQ(42, basl_ffi_call_void_to_i32(answer_fn));
+
+    basl_platform_dlclose(handle, &error);
+}
+
+#endif /* FFI_TESTLIB_PATH */
+
 /* ── Registration ────────────────────────────────────────────────── */
 
 void register_ffi_tests(void) {
@@ -236,4 +310,12 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFICallback, AllocAndFree);
     REGISTER_TEST(FFICallback, Dispatch);
     REGISTER_TEST(FFICallback, AllSlotsExhaust);
+#ifdef FFI_TESTLIB_PATH
+    /* Platform dlopen */
+    REGISTER_TEST(FFIDlopen, OpenAndClose);
+    REGISTER_TEST(FFIDlopen, SymLookup);
+    REGISTER_TEST(FFIDlopen, SymNotFound);
+    REGISTER_TEST(FFIDlopen, OpenBadPath);
+    REGISTER_TEST(FFIDlopen, CallThroughTrampoline);
+#endif
 }

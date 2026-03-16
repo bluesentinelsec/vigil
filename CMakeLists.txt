@@ -195,6 +195,18 @@ if(BASL_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
 
+    # Small shared library for FFI dlopen tests.
+    if(NOT EMSCRIPTEN)
+        add_library(ffi_testlib SHARED tests/ffi_testlib.c)
+        set_target_properties(ffi_testlib PROPERTIES
+            PREFIX ""   # no "lib" prefix — predictable name
+        )
+        target_compile_definitions(basl_tests PRIVATE
+            FFI_TESTLIB_PATH="$<TARGET_FILE:ffi_testlib>"
+        )
+        add_dependencies(basl_tests ffi_testlib)
+    endif()
+
     add_test(NAME basl_tests COMMAND basl_tests)
 
     if (NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
