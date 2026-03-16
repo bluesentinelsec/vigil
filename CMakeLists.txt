@@ -39,6 +39,7 @@ add_library(basl_core OBJECT
     src/fmt.c
     src/package.c
     src/debug_info.c
+    src/semantic.c
     src/debugger.c
     src/compiler_program.c
     src/compiler_builtins.c
@@ -193,6 +194,7 @@ if(BASL_BUILD_TESTS)
         tests/map_test.c
         tests/platform_test.c
         tests/runtime_test.c
+        tests/semantic_test.c
         tests/source_test.c
         tests/stdlib_test.c
         tests/string_test.c
