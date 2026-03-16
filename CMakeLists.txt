@@ -35,7 +35,7 @@ add_library(basl_core OBJECT
     src/dap.c
     src/doc.c
     src/embed.c
-    src/ffi_trampoline.c
+    src/ffi_callback.c
     src/fmt.c
     src/package.c
     src/debug_info.c

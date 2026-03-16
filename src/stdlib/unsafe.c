@@ -27,7 +27,7 @@
 
 #include "internal/basl_internal.h"
 #include "internal/basl_nanbox.h"
-#include "internal/ffi_trampoline.h"
+#include "internal/ffi_callback.h"
 
 /* For basl_string_object_new_cstr */
 #include "basl/runtime.h"
