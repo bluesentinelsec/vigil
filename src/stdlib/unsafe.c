@@ -29,6 +29,9 @@
 #include "internal/basl_nanbox.h"
 #include "internal/ffi_trampoline.h"
 
+/* For basl_string_object_new_cstr */
+#include "basl/runtime.h"
+
 /* ── helpers ─────────────────────────────────────────────────────── */
 
 static basl_status_t push_i64(basl_vm_t *vm, int64_t v, basl_error_t *error) {
@@ -263,6 +266,72 @@ static basl_status_t basl_unsafe_null(
     return push_i64(vm, 0, error);
 }
 
+/* ── unsafe.str(i64 ptr) -> string ───────────────────────────────── */
+/* Read a NUL-terminated C string from a raw pointer.                 */
+
+static basl_status_t basl_unsafe_str(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    const char *p = (const char *)(intptr_t)arg_i64(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    basl_runtime_t *rt = basl_vm_runtime(vm);
+    basl_object_t *obj = NULL;
+    basl_status_t st = basl_string_object_new_cstr(rt, p ? p : "", &obj, error);
+    if (st != BASL_STATUS_OK) return st;
+    basl_value_t val;
+    basl_value_init_object(&val, &obj);
+    st = basl_vm_stack_push(vm, &val, error);
+    basl_value_release(&val);
+    return st;
+}
+
+/* ── unsafe.copy(i64 dst, i32 dst_off, i64 src, i32 src_off, i32 n) ─ */
+/* Copy bytes between buffers.                                          */
+
+static basl_status_t basl_unsafe_copy(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int dst_slot = (int)arg_i64(vm, base, 0);
+    int32_t dst_off = arg_i32(vm, base, 1);
+    int src_slot = (int)arg_i64(vm, base, 2);
+    int32_t src_off = arg_i32(vm, base, 3);
+    int32_t n = arg_i32(vm, base, 4);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    if (dst_slot < 0 || dst_slot >= MAX_BUFS || !g_bufs[dst_slot].data ||
+        src_slot < 0 || src_slot >= MAX_BUFS || !g_bufs[src_slot].data ||
+        dst_off < 0 || src_off < 0 || n < 0 ||
+        dst_off + n > g_bufs[dst_slot].size ||
+        src_off + n > g_bufs[src_slot].size) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                               "unsafe.copy: out of bounds");
+        return BASL_STATUS_INTERNAL;
+    }
+    memmove(g_bufs[dst_slot].data + dst_off,
+            g_bufs[src_slot].data + src_off, (size_t)n);
+    return BASL_STATUS_OK;
+}
+
+/* ── unsafe.len(i64 buf) -> i32 ──────────────────────────────────── */
+
+static basl_status_t basl_unsafe_len(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int slot = (int)arg_i64(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                               "unsafe.len: invalid buffer");
+        return BASL_STATUS_INTERNAL;
+    }
+    return push_i32(vm, g_bufs[slot].size, error);
+}
+
 /* ── unsafe.cb_alloc() -> i64 ────────────────────────────────────── */
 
 static basl_status_t basl_unsafe_cb_alloc(
@@ -299,6 +368,8 @@ static const int p_i64[] = { BASL_TYPE_I64 };
 static const int p_i64_i32[] = { BASL_TYPE_I64, BASL_TYPE_I32 };
 static const int p_i64_i32_i32[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I32 };
 static const int p_i64_i32_i64[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64 };
+static const int p_copy[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64,
+                               BASL_TYPE_I32, BASL_TYPE_I32 };
 
 #define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL }
 #define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, BASL_TYPE_VOID, 0, NULL }
@@ -313,7 +384,10 @@ static const basl_native_module_function_t basl_unsafe_functions[] = {
     F("get_i64",  7U, basl_unsafe_get_i64,  2U, p_i64_i32,     BASL_TYPE_I64),
     FV("set_i64", 7U, basl_unsafe_set_i64,  3U, p_i64_i32_i64),
     F("ptr",      3U, basl_unsafe_ptr,      1U, p_i64,         BASL_TYPE_I64),
+    F("len",      3U, basl_unsafe_len,      1U, p_i64,         BASL_TYPE_I32),
     F("null",     4U, basl_unsafe_null,     0U, NULL,           BASL_TYPE_I64),
+    F("str",      3U, basl_unsafe_str,      1U, p_i64,         BASL_TYPE_STRING),
+    FV("copy",    4U, basl_unsafe_copy,     5U, p_copy),
     F("cb_alloc", 8U, basl_unsafe_cb_alloc, 0U, NULL,           BASL_TYPE_I64),
     FV("cb_free", 7U, basl_unsafe_cb_free,  1U, p_i32),
 };

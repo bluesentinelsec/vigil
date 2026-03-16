@@ -9,3 +9,6 @@ EXPORT int    test_add(int a, int b)    { return a + b; }
 EXPORT int    test_negate(int a)        { return -a; }
 EXPORT double test_half(double a)       { return a / 2.0; }
 EXPORT int    test_answer(void)         { return 42; }
+EXPORT double test_pi(void)             { return 3.14159265358979; }
+EXPORT const char *test_greeting(void)  { return "hello from C"; }
+EXPORT void   test_noop(void)           { /* nothing */ }

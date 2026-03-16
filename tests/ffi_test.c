@@ -275,7 +275,105 @@ TEST(FFIDlopen, CallThroughTrampoline) {
     basl_platform_dlclose(handle, &error);
 }
 
+TEST(FFIDlopen, StringReturn) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+
+    void *fn = NULL;
+    basl_platform_dlsym(handle, "test_greeting", &fn, &error);
+    const char *r = basl_ffi_call_void_to_str(fn);
+    EXPECT_STREQ("hello from C", r);
+
+    basl_platform_dlclose(handle, &error);
+}
+
+TEST(FFIDlopen, VoidReturn) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+
+    void *fn = NULL;
+    basl_platform_dlsym(handle, "test_noop", &fn, &error);
+    basl_ffi_call_void_to_void(fn);
+    EXPECT_TRUE(1); /* no crash */
+
+    basl_platform_dlclose(handle, &error);
+}
+
+TEST(FFIDlopen, FloatNoArgs) {
+    void *handle = NULL;
+    basl_error_t error = {0};
+    basl_platform_dlopen(FFI_TESTLIB_PATH, &handle, &error);
+
+    void *fn = NULL;
+    basl_platform_dlsym(handle, "test_pi", &fn, &error);
+    EXPECT_NEAR(3.14159, basl_ffi_call_void_to_f64(fn), 0.001);
+
+    basl_platform_dlclose(handle, &error);
+}
+
 #endif /* FFI_TESTLIB_PATH */
+
+/* ── Unsafe buffer tests (direct C-level, no VM needed) ──────────── */
+/* These test the buffer tracking table directly via the trampoline
+ * and unsafe module internals.  We can't easily call the BASL-facing
+ * functions without a VM, but we can test the callback pool more
+ * thoroughly and the conversion helpers. */
+
+TEST(FFIConversion, RoundtripIntPtr) {
+    for (int i = -100; i <= 100; i++) {
+        void *p = basl_ffi_int_to_ptr((uintptr_t)(intptr_t)i);
+        uintptr_t v = basl_ffi_ptr_to_int(p);
+        EXPECT_EQ((uintptr_t)(intptr_t)i, v);
+    }
+}
+
+TEST(FFICallback, MultipleSlotDispatch) {
+    basl_ffi_callback_set_dispatch(test_dispatch);
+    void *ptrs[4];
+    int slots[4];
+    for (int i = 0; i < 4; i++)
+        slots[i] = basl_ffi_callback_alloc(&ptrs[i]);
+
+    /* Each slot should dispatch with its own slot number */
+    typedef intptr_t (*cb_t)(intptr_t, intptr_t, intptr_t, intptr_t);
+    for (int i = 0; i < 4; i++) {
+        cb_t cb = (cb_t)ptrs[i];
+        intptr_t r = cb(1, 0, 0, 0);
+        EXPECT_EQ(slots[i] * 100 + 1, (int)r);
+    }
+
+    for (int i = 0; i < 4; i++)
+        basl_ffi_callback_free(slots[i]);
+    basl_ffi_callback_set_dispatch(NULL);
+}
+
+TEST(FFICallback, FreeAndReuse) {
+    basl_ffi_callback_set_dispatch(test_dispatch);
+    void *p1 = NULL, *p2 = NULL;
+    int s1 = basl_ffi_callback_alloc(&p1);
+    basl_ffi_callback_free(s1);
+    int s2 = basl_ffi_callback_alloc(&p2);
+    /* Should reuse the same slot */
+    EXPECT_EQ(s1, s2);
+    basl_ffi_callback_free(s2);
+    basl_ffi_callback_set_dispatch(NULL);
+}
+
+TEST(FFICallback, NullDispatch) {
+    /* With no dispatch function, callbacks should return 0 */
+    basl_ffi_callback_set_dispatch(NULL);
+    void *ptr = NULL;
+    int slot = basl_ffi_callback_alloc(&ptr);
+    EXPECT_TRUE(slot >= 0);
+
+    typedef intptr_t (*cb_t)(intptr_t, intptr_t, intptr_t, intptr_t);
+    cb_t cb = (cb_t)ptr;
+    EXPECT_EQ(0, (int)cb(42, 0, 0, 0));
+
+    basl_ffi_callback_free(slot);
+}
 
 /* ── Registration ────────────────────────────────────────────────── */
 
@@ -310,6 +408,11 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFICallback, AllocAndFree);
     REGISTER_TEST(FFICallback, Dispatch);
     REGISTER_TEST(FFICallback, AllSlotsExhaust);
+    REGISTER_TEST(FFICallback, MultipleSlotDispatch);
+    REGISTER_TEST(FFICallback, FreeAndReuse);
+    REGISTER_TEST(FFICallback, NullDispatch);
+    /* Conversion */
+    REGISTER_TEST(FFIConversion, RoundtripIntPtr);
 #ifdef FFI_TESTLIB_PATH
     /* Platform dlopen */
     REGISTER_TEST(FFIDlopen, OpenAndClose);
@@ -317,5 +420,8 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFIDlopen, SymNotFound);
     REGISTER_TEST(FFIDlopen, OpenBadPath);
     REGISTER_TEST(FFIDlopen, CallThroughTrampoline);
+    REGISTER_TEST(FFIDlopen, StringReturn);
+    REGISTER_TEST(FFIDlopen, VoidReturn);
+    REGISTER_TEST(FFIDlopen, FloatNoArgs);
 #endif
 }
