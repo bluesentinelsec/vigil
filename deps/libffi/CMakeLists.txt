@@ -172,5 +172,8 @@ target_compile_options(ffi_static PRIVATE
     -w
 )
 
+# When building as a static library, tell ffi.h not to use dllimport (MSVC).
+target_compile_definitions(ffi_static PUBLIC FFI_STATIC_BUILD FFI_BUILDING)
+
 # Alias for clean consumption
 add_library(ffi::ffi ALIAS ffi_static)
