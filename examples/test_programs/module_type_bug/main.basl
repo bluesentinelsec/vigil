@@ -1,4 +1,4 @@
-import "lib/mymodule";
+import "mymodule";
 import "fmt";
 
 fn main() -> i32 {

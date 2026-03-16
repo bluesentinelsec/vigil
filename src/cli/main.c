@@ -116,6 +116,51 @@ static int path_is_absolute(const char *path, size_t length) {
            path[1] == ':';
 }
 
+/* Walk up from |start_path| (a file path) looking for basl.toml.
+   Writes the directory containing it into |out_buf|.  Returns 1 on
+   success, 0 if no project root was found. */
+static int find_project_root(const char *start_path, char *out_buf, size_t buf_size) {
+    char dir[4096];
+    size_t len;
+    if (start_path == NULL || buf_size == 0U) return 0;
+
+    /* Start from the directory containing start_path. */
+    len = strlen(start_path);
+    if (len >= sizeof(dir)) return 0;
+    memcpy(dir, start_path, len + 1U);
+    /* Strip trailing filename. */
+    while (len > 0U && dir[len - 1U] != '/' && dir[len - 1U] != '\\') len--;
+    if (len > 0U) len--; /* remove the separator itself */
+    if (len == 0U) { dir[0] = '.'; len = 1U; }
+    dir[len] = '\0';
+
+    for (;;) {
+        char candidate[4096];
+        int exists = 0;
+        basl_error_t err = {0};
+        if (basl_platform_path_join(dir, "basl.toml", candidate, sizeof(candidate), &err) != BASL_STATUS_OK)
+            return 0;
+        if (basl_platform_file_exists(candidate, &exists) == BASL_STATUS_OK && exists) {
+            if (len + 1U > buf_size) return 0;
+            memcpy(out_buf, dir, len);
+            out_buf[len] = '\0';
+            return 1;
+        }
+        /* Go up one directory. */
+        while (len > 0U && dir[len - 1U] != '/' && dir[len - 1U] != '\\') len--;
+        if (len == 0U) {
+            /* If we haven't tried "." yet, try it as a last resort. */
+            if (dir[0] != '.') {
+                dir[0] = '.'; dir[1] = '\0'; len = 1U;
+                continue;
+            }
+            return 0;
+        }
+        len--; /* remove separator */
+        dir[len] = '\0';
+    }
+}
+
 static int registry_find_source_path(
     const basl_source_registry_t *registry, const char *path,
     basl_source_id_t *out_source_id
@@ -185,6 +230,7 @@ static basl_status_t resolve_import_path(
 
 static int register_source_tree(
     basl_source_registry_t *registry, const char *path,
+    const char *project_root,
     basl_source_id_t *out_source_id, basl_error_t *error
 ) {
     basl_runtime_t *runtime;
@@ -196,6 +242,7 @@ static int register_source_tree(
     basl_diagnostic_list_t diagnostics;
     const basl_token_t *token;
     size_t cursor, brace_depth;
+    const char *register_path;
 
     runtime = registry == NULL ? NULL : registry->runtime;
     source_id = 0U;
@@ -205,12 +252,47 @@ static int register_source_tree(
         return 1;
     }
 
+    /* Try reading the file at the resolved path.  If it does not exist
+       and we have a project root, fall back to <root>/lib/<name>.basl.
+       The source is always registered under the original |path| so the
+       compiler's own import-path resolution finds it. */
+    register_path = path;
     if (basl_platform_read_file(NULL, path, &file_text, &file_length, error) != BASL_STATUS_OK) {
-        set_cli_error(error, BASL_STATUS_INVALID_ARGUMENT, "failed to read imported source");
-        return 0;
+        int found_in_lib = 0;
+        if (project_root != NULL) {
+            /* Extract the basename from path (strip directory prefix and .basl). */
+            const char *base = path;
+            const char *p;
+            size_t blen;
+            char lib_candidate[4096];
+            basl_error_t lib_err = {0};
+
+            for (p = path; *p; p++)
+                if (*p == '/' || *p == '\\') base = p + 1;
+            blen = strlen(base);
+
+            {
+                char lib_dir[4096];
+                if (basl_platform_path_join(project_root, "lib",
+                        lib_dir, sizeof(lib_dir), &lib_err) == BASL_STATUS_OK &&
+                    basl_platform_path_join(lib_dir, base,
+                        lib_candidate, sizeof(lib_candidate), &lib_err) == BASL_STATUS_OK) {
+                    basl_error_clear(error);
+                    if (basl_platform_read_file(NULL, lib_candidate, &file_text,
+                            &file_length, error) == BASL_STATUS_OK) {
+                        found_in_lib = 1;
+                    }
+                }
+            }
+            (void)blen;
+        }
+        if (!found_in_lib) {
+            set_cli_error(error, BASL_STATUS_INVALID_ARGUMENT, "failed to read imported source");
+            return 0;
+        }
     }
 
-    if (basl_source_registry_register(registry, path, strlen(path),
+    if (basl_source_registry_register(registry, register_path, strlen(register_path),
             file_text, file_length, &source_id, error) != BASL_STATUS_OK) {
         free(file_text);
         return 0;
@@ -273,7 +355,9 @@ static int register_source_tree(
                 basl_diagnostic_list_free(&diagnostics);
                 return 0;
             }
-            if (!register_source_tree(registry, basl_string_c_str(&import_path), NULL, error)) {
+
+            if (!register_source_tree(registry, basl_string_c_str(&import_path),
+                    project_root, NULL, error)) {
                 basl_string_free(&import_path);
                 basl_token_list_free(&tokens);
                 basl_diagnostic_list_free(&diagnostics);
@@ -319,11 +403,15 @@ static int cmd_run(const char *script_path, const char *const *script_argv, size
     basl_diagnostic_list_init(&diagnostics, runtime);
     basl_value_init_nil(&result);
 
-    if (!register_source_tree(&registry, script_path, &source_id, &error)) {
-        log_cli_message(runtime, BASL_LOG_ERROR, "failed to register source",
-                        "error", basl_error_message(&error));
-        exit_code = 1;
-        goto cleanup;
+    {
+        char proj_root[4096];
+        const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
+        if (!register_source_tree(&registry, script_path, root, &source_id, &error)) {
+            log_cli_message(runtime, BASL_LOG_ERROR, "failed to register source",
+                            "error", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
     }
 
     {
@@ -391,11 +479,15 @@ static int cmd_check(const char *script_path) {
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    if (!register_source_tree(&registry, script_path, &source_id, &error)) {
-        log_cli_message(runtime, BASL_LOG_ERROR, "failed to register source",
-                        "error", basl_error_message(&error));
-        exit_code = 1;
-        goto cleanup;
+    {
+        char proj_root[4096];
+        const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
+        if (!register_source_tree(&registry, script_path, root, &source_id, &error)) {
+            log_cli_message(runtime, BASL_LOG_ERROR, "failed to register source",
+                            "error", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
     }
 
     {
@@ -529,7 +621,7 @@ static int cmd_new(const char *name, int is_lib) {
 
         snprintf(test_content, sizeof(test_content),
             "import \"test\";\n"
-            "import \"../lib/%s\";\n"
+            "import \"%s\";\n"
             "\n"
             "fn test_hello(test.T t) -> void {\n"
             "    t.assert(%s.hello() == \"hello from %s\", \"hello should match\");\n"
@@ -603,10 +695,14 @@ static int cmd_debug(const char *script_path) {
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
 
-    if (!register_source_tree(&registry, script_path, &source_id, &error)) {
-        fprintf(stderr, "failed to register source: %s\n", basl_error_message(&error));
-        exit_code = 1;
-        goto cleanup;
+    {
+        char proj_root[4096];
+        const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
+        if (!register_source_tree(&registry, script_path, root, &source_id, &error)) {
+            fprintf(stderr, "failed to register source: %s\n", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
     }
 
     /* Compile. */
@@ -1189,7 +1285,9 @@ static int run_one_test(
                             basl_string_init(&import_path, runtime);
                             if (resolve_import_path(runtime, basl_string_c_str(&source->path),
                                     import_text + 1, import_len - 2, &import_path, &error) == BASL_STATUS_OK) {
-                                register_source_tree(&registry, basl_string_c_str(&import_path), NULL, &error);
+                                char pr[4096];
+                                const char *root = find_project_root(test_file_path, pr, sizeof(pr)) ? pr : NULL;
+                                register_source_tree(&registry, basl_string_c_str(&import_path), root, NULL, &error);
                             }
                             basl_string_free(&import_path);
                         }
@@ -1574,11 +1672,15 @@ static int cmd_package(const char *entry_path, const char *output_path,
         basl_source_registry_init(&registry, runtime);
 
         /* Register source tree (walks imports). */
-        if (!register_source_tree(&registry, script_path, &source_id, &error)) {
-            fprintf(stderr, "error: %s\n", basl_error_message(&error));
-            basl_source_registry_free(&registry);
-            basl_runtime_close(&runtime);
-            return 1;
+        {
+            char proj_root[4096];
+            const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
+            if (!register_source_tree(&registry, script_path, root, &source_id, &error)) {
+                fprintf(stderr, "error: %s\n", basl_error_message(&error));
+                basl_source_registry_free(&registry);
+                basl_runtime_close(&runtime);
+                return 1;
+            }
         }
 
         /* Collect all registered sources as package files. */
