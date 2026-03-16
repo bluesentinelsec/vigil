@@ -44,6 +44,11 @@ BASL_API void basl_lsp_server_destroy(basl_lsp_server_t **server);
  * Run the LSP message loop.
  * Blocks until a "shutdown" request is received or an I/O error occurs.
  */
+BASL_API basl_status_t basl_lsp_server_process_one(
+    basl_lsp_server_t *server,
+    basl_error_t *error
+);
+
 BASL_API basl_status_t basl_lsp_server_run(
     basl_lsp_server_t *server,
     basl_error_t *error

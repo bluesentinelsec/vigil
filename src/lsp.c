@@ -194,6 +194,39 @@ static basl_status_t handle_shutdown(
     return lsp_make_response(&server->allocator, id, NULL, out, error);
 }
 
+/* ── URI Lookup Helper ────────────────────────────────────── */
+
+static basl_source_id_t find_source_by_uri(
+    basl_lsp_server_t *server,
+    const char *uri,
+    size_t uri_len
+) {
+    size_t i;
+    for (i = 0; i < server->index->file_count; i++) {
+        const basl_source_file_t *src = basl_source_registry_get(
+            &server->sources, server->index->files[i]->source_id);
+        if (src != NULL &&
+            basl_string_length(&src->path) == uri_len &&
+            strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
+            return server->index->files[i]->source_id;
+        }
+    }
+    return 0;
+}
+
+static const basl_semantic_file_t *find_semantic_file(
+    basl_lsp_server_t *server,
+    basl_source_id_t source_id
+) {
+    size_t i;
+    for (i = 0; i < server->index->file_count; i++) {
+        if (server->index->files[i]->source_id == source_id) {
+            return server->index->files[i];
+        }
+    }
+    return NULL;
+}
+
 /* ── Notifications ────────────────────────────────────────── */
 
 static void offset_to_line_col(
@@ -433,8 +466,8 @@ static basl_status_t handle_references(
     basl_semantic_reference_t *refs = NULL;
     size_t ref_count = 0;
     basl_json_value_t *result = NULL;
+    basl_source_id_t source_id;
     size_t line, col, offset, i;
-    basl_source_id_t source_id = 0;
 
     text_doc = basl_json_object_get(params, "textDocument");
     position = basl_json_object_get(params, "position");
@@ -449,28 +482,15 @@ static basl_status_t handle_references(
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    line = (size_t)basl_json_number_value(line_val);
-    col = (size_t)basl_json_number_value(char_val);
-
-    /* Find source_id for this URI */
-    for (i = 0; i < server->index->file_count; i++) {
-        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
-        if (src != NULL) {
-            const char *uri = basl_json_string_value(uri_val);
-            size_t uri_len = basl_json_string_length(uri_val);
-            if (basl_string_length(&src->path) == uri_len &&
-                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
-                source_id = server->index->files[i]->source_id;
-                break;
-            }
-        }
-    }
-
+    source_id = find_source_by_uri(server, basl_json_string_value(uri_val),
+                                   basl_json_string_length(uri_val));
     if (source_id == 0) {
         return lsp_make_response(a, id, NULL, out, error);
     }
 
     src = basl_source_registry_get(&server->sources, source_id);
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
     offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
 
     basl_json_array_new(a, &result, error);
@@ -535,8 +555,7 @@ static basl_status_t handle_formatting(
     basl_token_list_t tokens = {0};
     char *formatted = NULL;
     size_t formatted_len = 0;
-    size_t i;
-    basl_source_id_t source_id = 0;
+    basl_source_id_t source_id;
 
     text_doc = basl_json_object_get(params, "textDocument");
     if (text_doc == NULL) {
@@ -548,20 +567,8 @@ static basl_status_t handle_formatting(
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    /* Find source for this URI */
-    for (i = 0; i < server->index->file_count; i++) {
-        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
-        if (src != NULL) {
-            const char *uri = basl_json_string_value(uri_val);
-            size_t uri_len = basl_json_string_length(uri_val);
-            if (basl_string_length(&src->path) == uri_len &&
-                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
-                source_id = server->index->files[i]->source_id;
-                break;
-            }
-        }
-    }
-
+    source_id = find_source_by_uri(server, basl_json_string_value(uri_val),
+                                   basl_json_string_length(uri_val));
     if (source_id == 0) {
         return lsp_make_response(a, id, NULL, out, error);
     }
@@ -633,9 +640,10 @@ static basl_status_t handle_signature_help(
     const basl_json_value_t *line_val;
     const basl_json_value_t *char_val;
     const basl_source_file_t *src;
-    const basl_semantic_file_t *sem_file = NULL;
+    const basl_semantic_file_t *sem_file;
     const basl_semantic_node_t *node;
-    size_t line, col, offset, i;
+    basl_source_id_t source_id;
+    size_t line, col, offset;
 
     text_doc = basl_json_object_get(params, "textDocument");
     position = basl_json_object_get(params, "position");
@@ -650,28 +658,20 @@ static basl_status_t handle_signature_help(
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    line = (size_t)basl_json_number_value(line_val);
-    col = (size_t)basl_json_number_value(char_val);
-
-    /* Find semantic file */
-    for (i = 0; i < server->index->file_count; i++) {
-        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
-        if (src != NULL) {
-            const char *uri = basl_json_string_value(uri_val);
-            size_t uri_len = basl_json_string_length(uri_val);
-            if (basl_string_length(&src->path) == uri_len &&
-                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
-                sem_file = server->index->files[i];
-                break;
-            }
-        }
+    source_id = find_source_by_uri(server, basl_json_string_value(uri_val),
+                                   basl_json_string_length(uri_val));
+    if (source_id == 0) {
+        return lsp_make_response(a, id, NULL, out, error);
     }
 
+    sem_file = find_semantic_file(server, source_id);
     if (sem_file == NULL) {
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    src = basl_source_registry_get(&server->sources, sem_file->source_id);
+    src = basl_source_registry_get(&server->sources, source_id);
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
     offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
 
     /* Find call expression containing this position */
@@ -742,8 +742,8 @@ static basl_status_t handle_rename(
     basl_json_value_t *changes = NULL;
     const char *new_name;
     size_t new_name_len;
+    basl_source_id_t source_id;
     size_t line, col, offset, i;
-    basl_source_id_t source_id = 0;
 
     text_doc = basl_json_object_get(params, "textDocument");
     position = basl_json_object_get(params, "position");
@@ -762,28 +762,15 @@ static basl_status_t handle_rename(
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    line = (size_t)basl_json_number_value(line_val);
-    col = (size_t)basl_json_number_value(char_val);
-
-    /* Find source_id for this URI */
-    for (i = 0; i < server->index->file_count; i++) {
-        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
-        if (src != NULL) {
-            const char *uri = basl_json_string_value(uri_val);
-            size_t uri_len = basl_json_string_length(uri_val);
-            if (basl_string_length(&src->path) == uri_len &&
-                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
-                source_id = server->index->files[i]->source_id;
-                break;
-            }
-        }
-    }
-
+    source_id = find_source_by_uri(server, basl_json_string_value(uri_val),
+                                   basl_json_string_length(uri_val));
     if (source_id == 0) {
         return lsp_make_response(a, id, NULL, out, error);
     }
 
     src = basl_source_registry_get(&server->sources, source_id);
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
     offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
 
     basl_json_object_new(a, &result, error);
@@ -910,8 +897,8 @@ static basl_status_t handle_definition(
     const basl_json_value_t *char_val;
     const basl_source_file_t *src;
     basl_source_span_t def_span;
-    size_t line, col, offset, i;
-    basl_source_id_t source_id = 0;
+    basl_source_id_t source_id;
+    size_t line, col, offset;
 
     text_doc = basl_json_object_get(params, "textDocument");
     position = basl_json_object_get(params, "position");
@@ -926,28 +913,15 @@ static basl_status_t handle_definition(
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    line = (size_t)basl_json_number_value(line_val);
-    col = (size_t)basl_json_number_value(char_val);
-
-    /* Find source_id for this URI */
-    for (i = 0; i < server->index->file_count; i++) {
-        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
-        if (src != NULL) {
-            const char *uri = basl_json_string_value(uri_val);
-            size_t uri_len = basl_json_string_length(uri_val);
-            if (basl_string_length(&src->path) == uri_len &&
-                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
-                source_id = server->index->files[i]->source_id;
-                break;
-            }
-        }
-    }
-
+    source_id = find_source_by_uri(server, basl_json_string_value(uri_val),
+                                   basl_json_string_length(uri_val));
     if (source_id == 0) {
         return lsp_make_response(a, id, NULL, out, error);
     }
 
     src = basl_source_registry_get(&server->sources, source_id);
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
     offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
 
     if (basl_semantic_index_definition_at(server->index, source_id, offset, &def_span, error) == BASL_STATUS_OK) {
@@ -1008,10 +982,11 @@ static basl_status_t handle_hover(
     const basl_json_value_t *line_val;
     const basl_json_value_t *char_val;
     const basl_source_file_t *src;
-    const basl_semantic_file_t *sem_file = NULL;
+    const basl_semantic_file_t *sem_file;
     basl_semantic_type_t type;
+    basl_source_id_t source_id;
     char *type_str;
-    size_t line, col, offset, i;
+    size_t line, col, offset;
 
     text_doc = basl_json_object_get(params, "textDocument");
     position = basl_json_object_get(params, "position");
@@ -1026,28 +1001,20 @@ static basl_status_t handle_hover(
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    line = (size_t)basl_json_number_value(line_val);
-    col = (size_t)basl_json_number_value(char_val);
-
-    /* Find the semantic file for this URI */
-    for (i = 0; i < server->index->file_count; i++) {
-        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
-        if (src != NULL) {
-            const char *uri = basl_json_string_value(uri_val);
-            size_t uri_len = basl_json_string_length(uri_val);
-            if (basl_string_length(&src->path) == uri_len &&
-                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
-                sem_file = server->index->files[i];
-                break;
-            }
-        }
+    source_id = find_source_by_uri(server, basl_json_string_value(uri_val),
+                                   basl_json_string_length(uri_val));
+    if (source_id == 0) {
+        return lsp_make_response(a, id, NULL, out, error);
     }
 
+    sem_file = find_semantic_file(server, source_id);
     if (sem_file == NULL) {
         return lsp_make_response(a, id, NULL, out, error);
     }
 
-    src = basl_source_registry_get(&server->sources, sem_file->source_id);
+    src = basl_source_registry_get(&server->sources, source_id);
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
     offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
 
     type = basl_semantic_file_type_at(sem_file, offset);
@@ -1278,6 +1245,27 @@ void basl_lsp_server_destroy(basl_lsp_server_t **server) {
     basl_runtime_close(&s->runtime);
     free(s);
     *server = NULL;
+}
+
+basl_status_t basl_lsp_server_process_one(
+    basl_lsp_server_t *server,
+    basl_error_t *error
+) {
+    basl_status_t status;
+    basl_json_value_t *message = NULL;
+
+    if (server == NULL) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    status = basl_jsonrpc_read(&server->transport, &message, error);
+    if (status != BASL_STATUS_OK) {
+        return status;
+    }
+
+    status = lsp_handle_message(server, message, error);
+    basl_json_free(&message);
+    return status;
 }
 
 basl_status_t basl_lsp_server_run(
