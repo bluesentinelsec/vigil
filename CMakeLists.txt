@@ -34,6 +34,7 @@ add_library(basl_core OBJECT
     src/compiler.c
     src/dap.c
     src/doc.c
+    src/doc_registry.c
     src/embed.c
     src/ffi_callback.c
     src/fmt.c
@@ -197,6 +198,7 @@ if(BASL_BUILD_TESTS)
         tests/runtime_test.c
         tests/semantic_test.c
         tests/lsp_test.c
+        tests/doc_registry_test.c
         tests/source_test.c
         tests/stdlib_test.c
         tests/string_test.c
