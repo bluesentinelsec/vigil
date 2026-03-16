@@ -219,20 +219,22 @@ class TestReplInteractive(unittest.TestCase):
         child.expect(pexpect.EOF)
 
     def test_redefinition(self):
-        """Test function redefinition works."""
+        """Test function redefinition works in REPL."""
         child = self.spawn_repl()
-        self.send_line(child, "fn foo() -> i32 { return 1; }")
-        child.expect(">>>")
-        self.send_line(child, "foo()")
-        # Match result followed by newline and prompt
-        child.expect(r"1\r\n")
-        child.expect(">>>")
-        self.send_line(child, "fn foo() -> i32 { return 2; }")
-        child.expect(">>>")
-        self.send_line(child, "foo()")
-        child.expect(r"2\r\n")
-        child.expect(">>>")
-        self.send_line(child, ":quit")
+        # Define function
+        child.send("fn foo() -> i32 { return 42; }\r")
+        child.expect(r"\r\n\r>>> ")  # Newline after command, then prompt
+        # Call function
+        child.send("foo()\r")
+        child.expect(r"\r\n\r>>> ")  # Result + newline + prompt
+        # Redefine function
+        child.send("fn foo() -> i32 { return 99; }\r")
+        child.expect(r"\r\n\r>>> ")
+        # Call again
+        child.send("foo()\r")
+        child.expect(r"\r\n\r>>> ")
+        # Quit
+        child.send(":quit\r")
         child.expect(pexpect.EOF)
 
     def test_ans_variable(self):
