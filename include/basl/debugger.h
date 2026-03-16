@@ -77,12 +77,33 @@ BASL_API basl_status_t basl_debugger_set_breakpoint(
     size_t *out_breakpoint_id,
     basl_error_t *error
 );
+
+/**
+ * Set a breakpoint on a function by name.
+ * Requires symbol table to be set via basl_debugger_set_symbols().
+ */
+BASL_API basl_status_t basl_debugger_set_breakpoint_function(
+    basl_debugger_t *debugger,
+    const char *function_name,
+    size_t *out_breakpoint_id,
+    basl_error_t *error
+);
+
 BASL_API basl_status_t basl_debugger_clear_breakpoint(
     basl_debugger_t *debugger,
     size_t breakpoint_id
 );
 BASL_API void basl_debugger_clear_all_breakpoints(
     basl_debugger_t *debugger
+);
+
+/**
+ * Attach a symbol table for function-name breakpoints.
+ * The debugger does not take ownership; caller must keep it alive.
+ */
+BASL_API void basl_debugger_set_symbols(
+    basl_debugger_t *debugger,
+    const basl_debug_symbol_table_t *symbols
 );
 
 /* ── Execution control ───────────────────────────────────────────── */
@@ -141,6 +162,17 @@ BASL_API size_t basl_debugger_frame_locals(
     size_t *out_name_lengths,
     basl_value_t *out_values,
     size_t max_locals
+);
+
+/**
+ * Look up a local variable by name in the given frame.
+ * Returns BASL_STATUS_OK if found, BASL_STATUS_INVALID_ARGUMENT otherwise.
+ */
+BASL_API basl_status_t basl_debugger_get_local(
+    const basl_debugger_t *debugger,
+    size_t frame_index,
+    const char *name,
+    basl_value_t *out_value
 );
 
 #ifdef __cplusplus
