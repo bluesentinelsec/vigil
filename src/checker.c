@@ -5,6 +5,7 @@
 basl_status_t basl_check_source(
     const basl_source_registry_t *registry,
     basl_source_id_t source_id,
+    const basl_native_registry_t *natives,
     basl_diagnostic_list_t *diagnostics,
     basl_error_t *error
 ) {
@@ -12,7 +13,7 @@ basl_status_t basl_check_source(
         registry,
         source_id,
         BASL_COMPILE_MODE_CHECK_ONLY,
-        NULL,
+        natives,
         NULL,
         diagnostics,
         error

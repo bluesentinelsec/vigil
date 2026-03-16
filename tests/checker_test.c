@@ -50,7 +50,7 @@ TEST(BaslCheckerTest, ValidatesWellTypedProgramWithoutDiagnostics) {
     );
 
     EXPECT_EQ(
-        basl_check_source(&registry, source_id, &diagnostics, &error),
+        basl_check_source(&registry, source_id, NULL, &diagnostics, &error),
         BASL_STATUS_OK
     );
     EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
@@ -87,7 +87,7 @@ TEST(BaslCheckerTest, ReportsSemanticErrorsWithoutProducingEntrypoint) {
     );
 
     EXPECT_EQ(
-        basl_check_source(&registry, source_id, &diagnostics, &error),
+        basl_check_source(&registry, source_id, NULL, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
@@ -130,7 +130,7 @@ TEST(BaslCheckerTest, ReportsMissingReturnOnSomePaths) {
     );
 
     EXPECT_EQ(
-        basl_check_source(&registry, source_id, &diagnostics, &error),
+        basl_check_source(&registry, source_id, NULL, &diagnostics, &error),
         BASL_STATUS_SYNTAX_ERROR
     );
     ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
@@ -154,7 +154,7 @@ TEST(BaslCheckerTest, ValidatesArguments) {
     basl_source_id_t source_id = 0U;
 
     ASSERT_EQ(
-        basl_check_source(NULL, source_id, &diagnostics, &error),
+        basl_check_source(NULL, source_id, NULL, &diagnostics, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_STREQ(basl_error_message(&error), "source registry must not be null");
@@ -170,7 +170,7 @@ TEST(BaslCheckerTest, ValidatesArguments) {
     );
 
     EXPECT_EQ(
-        basl_check_source(&registry, source_id, NULL, &error),
+        basl_check_source(&registry, source_id, NULL, NULL, &error),
         BASL_STATUS_INVALID_ARGUMENT
     );
     EXPECT_STREQ(basl_error_message(&error), "diagnostic list must not be null");
