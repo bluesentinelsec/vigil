@@ -14,6 +14,7 @@
 #include "basl/dap.h"
 #include "basl/lsp.h"
 #include "basl/doc.h"
+#include "basl/doc_registry.h"
 #include "basl/embed.h"
 #include "basl/fmt.h"
 #include "basl/package.h"
@@ -1229,6 +1230,57 @@ cleanup:
 
 /* ── doc command ──────────────────────────────────────────────────── */
 
+/* Show list of all documented modules */
+static int cmd_doc_list_modules(void) {
+    size_t count, i;
+    const char **modules = basl_doc_list_modules(&count);
+
+    printf("Available modules:\n\n");
+    for (i = 0; i < count; i++) {
+        const basl_doc_entry_t *entry = basl_doc_lookup(modules[i]);
+        if (entry != NULL && entry->summary != NULL) {
+            printf("  %-12s %s\n", modules[i], entry->summary);
+        } else {
+            printf("  %s\n", modules[i]);
+        }
+    }
+    printf("\nUse 'basl doc <module>' for module details.\n");
+    printf("Use 'basl doc <file.basl>' for user code documentation.\n");
+    return 0;
+}
+
+/* Show documentation for a builtin/stdlib symbol or module */
+static int cmd_doc_builtin(const char *name) {
+    const basl_doc_entry_t *entry;
+    char *output = NULL;
+    size_t output_len = 0;
+    basl_error_t error = {0};
+
+    /* Try direct lookup first */
+    entry = basl_doc_lookup(name);
+    if (entry != NULL) {
+        if (basl_doc_entry_render(entry, &output, &output_len, &error) == BASL_STATUS_OK) {
+            fwrite(output, 1, output_len, stdout);
+            free(output);
+        }
+
+        /* If it's a module, also list its contents */
+        if (entry->signature == NULL) {
+            size_t count, i;
+            const basl_doc_entry_t *entries = basl_doc_list_module(name, &count);
+            if (entries != NULL && count > 1) {
+                printf("\nFunctions:\n");
+                for (i = 1; i < count; i++) {  /* Skip module entry itself */
+                    printf("  %-20s %s\n", entries[i].name, entries[i].summary);
+                }
+            }
+        }
+        return 0;
+    }
+
+    return -1;  /* Not found in registry */
+}
+
 static int cmd_doc(const char *file_path, const char *symbol) {
     basl_runtime_t *runtime = NULL;
     basl_error_t error = {0};
@@ -1242,6 +1294,24 @@ static int cmd_doc(const char *file_path, const char *symbol) {
     size_t output_len = 0;
     int exit_code = 0;
 
+    /* No arguments: list all modules */
+    if (file_path == NULL) {
+        return cmd_doc_list_modules();
+    }
+
+    /* Check if it's a builtin/stdlib name first */
+    if (cmd_doc_builtin(file_path) == 0) {
+        return 0;
+    }
+
+    /* If no file extension and not found in registry, error */
+    if (strchr(file_path, '/') == NULL && 
+        (strlen(file_path) < 5 || strcmp(file_path + strlen(file_path) - 5, ".basl") != 0)) {
+        fprintf(stderr, "error: '%s' not found. Use 'basl doc' to list available modules.\n", file_path);
+        return 1;
+    }
+
+    /* File-based documentation */
     if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
         return 1;
@@ -2474,7 +2544,34 @@ static int cmd_repl(void) {
             printf("  :help    Show this message\n");
             printf("  :quit    Exit the REPL (also Ctrl-D or exit())\n");
             printf("  :clear   Reset all state\n");
+            printf("  :doc     Show documentation (e.g. :doc len, :doc math)\n");
             printf("  __ans    Last expression result (string)\n");
+            continue;
+        }
+        if (strncmp(line, ":doc", 4) == 0) {
+            const char *arg = line + 4;
+            while (*arg == ' ') arg++;
+            if (*arg == '\0') {
+                /* List modules */
+                size_t count, i;
+                const char **modules = basl_doc_list_modules(&count);
+                printf("Available: ");
+                for (i = 0; i < count; i++) {
+                    printf("%s%s", modules[i], i < count - 1 ? ", " : "\n");
+                }
+            } else {
+                const basl_doc_entry_t *entry = basl_doc_lookup(arg);
+                if (entry != NULL) {
+                    char *text = NULL;
+                    size_t len = 0;
+                    if (basl_doc_entry_render(entry, &text, &len, &error) == BASL_STATUS_OK) {
+                        printf("%s", text);
+                        free(text);
+                    }
+                } else {
+                    printf("Not found: %s\n", arg);
+                }
+            }
             continue;
         }
         if (strcmp(line, ":clear") == 0) {
@@ -2775,9 +2872,9 @@ int main(int argc, char **argv) {
     basl_cli_add_positional(cmd, "file", "Script file to debug", &debug_file);
     basl_cli_add_bool_flag(cmd, "interactive", 'i', "Use interactive CLI debugger (default: DAP server)", &debug_interactive);
 
-    cmd = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
-    basl_cli_add_positional(cmd, "file", "Source file to document", &doc_file);
-    basl_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. Point or Point.x)", &doc_symbol);
+    cmd = basl_cli_add_command(&cli, "doc", "Show documentation for modules, builtins, or source files");
+    basl_cli_add_positional(cmd, "target", "Module name (e.g. math) or source file path", &doc_file);
+    basl_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. sqrt or Point.x)", &doc_symbol);
 
     cmd = basl_cli_add_command(&cli, "fmt", "Format BASL source files");
     basl_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
@@ -2840,10 +2937,6 @@ int main(int argc, char **argv) {
             return cmd_debug(debug_file);
         }
         if (strcmp(matched_name, "doc") == 0) {
-            if (doc_file == NULL) {
-                fprintf(stderr, "error: missing file argument\n");
-                return 2;
-            }
             return cmd_doc(doc_file, doc_symbol);
         }
         if (strcmp(matched_name, "fmt") == 0) {
