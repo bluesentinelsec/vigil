@@ -469,3 +469,66 @@ char *basl_semantic_type_to_string(
     }
     return result;
 }
+
+/* ── Go to Definition ─────────────────────────────────────── */
+
+basl_status_t basl_semantic_index_definition_at(
+    const basl_semantic_index_t *index,
+    basl_source_id_t source_id,
+    size_t offset,
+    basl_source_span_t *out_definition,
+    basl_error_t *error
+) {
+    const basl_semantic_file_t *file = NULL;
+    const basl_semantic_node_t *node;
+    size_t i;
+
+    if (index == NULL || out_definition == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "semantic: invalid arguments");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    /* Find file */
+    for (i = 0; i < index->file_count; i++) {
+        if (index->files[i]->source_id == source_id) {
+            file = index->files[i];
+            break;
+        }
+    }
+
+    if (file == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                               "semantic: source not found");
+        return BASL_STATUS_INTERNAL;
+    }
+
+    node = basl_semantic_file_node_at(file, offset);
+    if (node == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                               "semantic: no node at position");
+        return BASL_STATUS_INTERNAL;
+    }
+
+    /* If node is an identifier expression, look up the definition */
+    if (node->kind == BASL_NODE_IDENTIFIER_EXPR) {
+        const char *name = node->data.identifier.name;
+        size_t name_len = node->data.identifier.name_length;
+
+        /* Search symbols for matching name */
+        size_t sym_count = basl_debug_symbol_table_count(&index->symbols);
+        for (i = 0; i < sym_count; i++) {
+            const basl_debug_symbol_t *sym = basl_debug_symbol_table_get(&index->symbols, i);
+            if (sym->name_length == name_len &&
+                strncmp(sym->name, name, name_len) == 0) {
+                *out_definition = sym->span;
+                return BASL_STATUS_OK;
+            }
+        }
+    }
+
+    /* Node is already a definition or no definition found */
+    basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                           "semantic: definition not found");
+    return BASL_STATUS_INTERNAL;
+}

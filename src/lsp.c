@@ -138,6 +138,9 @@ static basl_status_t handle_initialize(
     /* Hover (type info). */
     jset_bool(capabilities, "hoverProvider", 1, a, error);
 
+    /* Go to definition. */
+    jset_bool(capabilities, "definitionProvider", 1, a, error);
+
     /* Server info. */
     jset_str(server_info, "name", "basl-lsp", a, error);
     jset_str(server_info, "version", "0.1.0", a, error);
@@ -380,6 +383,105 @@ static void handle_did_change(
     }
 }
 
+static basl_status_t handle_definition(
+    basl_lsp_server_t *server,
+    const basl_json_value_t *id,
+    const basl_json_value_t *params,
+    basl_json_value_t **out,
+    basl_error_t *error
+) {
+    const basl_allocator_t *a = &server->allocator;
+    const basl_json_value_t *text_doc;
+    const basl_json_value_t *position;
+    const basl_json_value_t *uri_val;
+    const basl_json_value_t *line_val;
+    const basl_json_value_t *char_val;
+    const basl_source_file_t *src;
+    basl_source_span_t def_span;
+    size_t line, col, offset, i;
+    basl_source_id_t source_id = 0;
+
+    text_doc = basl_json_object_get(params, "textDocument");
+    position = basl_json_object_get(params, "position");
+    if (text_doc == NULL || position == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    uri_val = basl_json_object_get(text_doc, "uri");
+    line_val = basl_json_object_get(position, "line");
+    char_val = basl_json_object_get(position, "character");
+    if (uri_val == NULL || line_val == NULL || char_val == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
+
+    /* Find source_id for this URI */
+    for (i = 0; i < server->index->file_count; i++) {
+        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
+        if (src != NULL) {
+            const char *uri = basl_json_string_value(uri_val);
+            size_t uri_len = basl_json_string_length(uri_val);
+            if (basl_string_length(&src->path) == uri_len &&
+                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
+                source_id = server->index->files[i]->source_id;
+                break;
+            }
+        }
+    }
+
+    if (source_id == 0) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    src = basl_source_registry_get(&server->sources, source_id);
+    offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
+
+    if (basl_semantic_index_definition_at(server->index, source_id, offset, &def_span, error) == BASL_STATUS_OK) {
+        basl_json_value_t *result = NULL;
+        basl_json_value_t *range = NULL;
+        basl_json_value_t *start_pos = NULL;
+        basl_json_value_t *end_pos = NULL;
+        const basl_source_file_t *def_src;
+        size_t start_line, start_col, end_line, end_col;
+
+        def_src = basl_source_registry_get(&server->sources, def_span.source_id);
+        if (def_src == NULL) {
+            return lsp_make_response(a, id, NULL, out, error);
+        }
+
+        offset_to_line_col(basl_string_c_str(&def_src->text), basl_string_length(&def_src->text),
+                           def_span.start_offset, &start_line, &start_col);
+        offset_to_line_col(basl_string_c_str(&def_src->text), basl_string_length(&def_src->text),
+                           def_span.end_offset, &end_line, &end_col);
+
+        basl_json_object_new(a, &result, error);
+        basl_json_object_new(a, &range, error);
+        basl_json_object_new(a, &start_pos, error);
+        basl_json_object_new(a, &end_pos, error);
+
+        {
+            basl_json_value_t *uri_out = NULL;
+            basl_json_string_new(a, basl_string_c_str(&def_src->path), basl_string_length(&def_src->path), &uri_out, error);
+            jset_obj(result, "uri", uri_out, error);
+        }
+
+        jset_int(start_pos, "line", (int64_t)start_line, a, error);
+        jset_int(start_pos, "character", (int64_t)start_col, a, error);
+        jset_int(end_pos, "line", (int64_t)end_line, a, error);
+        jset_int(end_pos, "character", (int64_t)end_col, a, error);
+
+        jset_obj(range, "start", start_pos, error);
+        jset_obj(range, "end", end_pos, error);
+        jset_obj(result, "range", range, error);
+
+        return lsp_make_response(a, id, result, out, error);
+    }
+
+    return lsp_make_response(a, id, NULL, out, error);
+}
+
 static basl_status_t handle_hover(
     basl_lsp_server_t *server,
     const basl_json_value_t *id,
@@ -574,6 +676,8 @@ static basl_status_t lsp_handle_message(
         status = handle_document_symbol(server, id, params, &response, error);
     } else if (method_len == 18 && strncmp(method, "textDocument/hover", 18) == 0) {
         status = handle_hover(server, id, params, &response, error);
+    } else if (method_len == 23 && strncmp(method, "textDocument/definition", 23) == 0) {
+        status = handle_definition(server, id, params, &response, error);
     }
     /* Ignore other methods for now. */
 
