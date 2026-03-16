@@ -183,6 +183,7 @@ if(BASL_BUILD_TESTS)
         tests/debugger_test.c
         tests/diagnostic_test.c
         tests/ffi_test.c
+        tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c
         tests/log_test.c

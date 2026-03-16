@@ -655,6 +655,181 @@ TEST(FFIModule, CallNoArgsIntReturn) {
     ffi_vm_teardown(&rt, &vm);
 }
 
+/* ── Multi-arg test (8 args, exercises dynamic dispatch) ─────────── */
+
+TEST(FFIModule, CallManyArgs) {
+    basl_runtime_t *rt = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    ffi_vm_setup(&rt, &vm, &error);
+
+    basl_native_fn_t fn_open  = find_ffi_fn("open");
+    basl_native_fn_t fn_bind  = find_ffi_fn("bind");
+    basl_native_fn_t fn_call  = find_ffi_fn("call");
+    basl_native_fn_t fn_close = find_ffi_fn("close");
+
+    push_str(vm, rt, FFI_TESTLIB_PATH, &error);
+    fn_open(vm, 1, &error);
+    int64_t lib = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    /* bind test_sum8: i32(i32,i32,i32,i32,i32,i32,i32,i32) */
+    push_i64(vm, lib, &error);
+    push_str(vm, rt, "test_sum8", &error);
+    push_str(vm, rt, "i32(i32,i32,i32,i32,i32,i32,i32,i32)", &error);
+    fn_bind(vm, 3, &error);
+    int64_t h = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    /* call with 8 args: 1+2+3+4+5+6+7+8 = 36 */
+    push_i64(vm, h, &error);
+    for (int i = 1; i <= 8; i++) push_i64(vm, i, &error);
+    ASSERT_EQ((int)fn_call(vm, 9, &error), (int)BASL_STATUS_OK);
+    int64_t result = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+    EXPECT_EQ(36, (int)result);
+
+    push_i64(vm, lib, &error);
+    fn_close(vm, 1, &error);
+    ffi_vm_teardown(&rt, &vm);
+}
+
+/* ── ffi.sym direct lookup ───────────────────────────────────────── */
+
+TEST(FFIModule, SymLookup) {
+    basl_runtime_t *rt = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    ffi_vm_setup(&rt, &vm, &error);
+
+    basl_native_fn_t fn_open  = find_ffi_fn("open");
+    basl_native_fn_t fn_sym   = find_ffi_fn("sym");
+    basl_native_fn_t fn_close = find_ffi_fn("close");
+
+    push_str(vm, rt, FFI_TESTLIB_PATH, &error);
+    fn_open(vm, 1, &error);
+    int64_t lib = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    /* ffi.sym(lib, "test_add") -> non-zero pointer */
+    push_i64(vm, lib, &error);
+    push_str(vm, rt, "test_add", &error);
+    ASSERT_EQ((int)fn_sym(vm, 2, &error), (int)BASL_STATUS_OK);
+    int64_t sym = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+    EXPECT_TRUE(sym != 0);
+
+    push_i64(vm, lib, &error);
+    fn_close(vm, 1, &error);
+    ffi_vm_teardown(&rt, &vm);
+}
+
+/* ── ffi.call_s with invalid handle ──────────────────────────────── */
+
+TEST(FFIModule, CallS_InvalidHandle) {
+    basl_runtime_t *rt = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    ffi_vm_setup(&rt, &vm, &error);
+
+    basl_native_fn_t fn_call_s = find_ffi_fn("call_s");
+    push_i64(vm, -1, &error);
+    push_i64(vm, 0, &error);
+    push_i64(vm, 0, &error);
+    basl_status_t s = fn_call_s(vm, 3, &error);
+    EXPECT_TRUE(s != BASL_STATUS_OK);
+
+    ffi_vm_teardown(&rt, &vm);
+}
+
+/* ── Pointer passing: call C function with buffer pointer ────────── */
+
+TEST(FFIModule, CallWithPointerArg) {
+    basl_runtime_t *rt = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    ffi_vm_setup(&rt, &vm, &error);
+
+    basl_native_fn_t fn_open  = find_ffi_fn("open");
+    basl_native_fn_t fn_bind  = find_ffi_fn("bind");
+    basl_native_fn_t fn_call  = find_ffi_fn("call");
+    basl_native_fn_t fn_close = find_ffi_fn("close");
+
+    push_str(vm, rt, FFI_TESTLIB_PATH, &error);
+    fn_open(vm, 1, &error);
+    int64_t lib = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    /* bind test_strlen_ptr: i32(ptr) */
+    push_i64(vm, lib, &error);
+    push_str(vm, rt, "test_strlen_ptr", &error);
+    push_str(vm, rt, "i32(ptr)", &error);
+    fn_bind(vm, 3, &error);
+    int64_t h = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    /* Pass a string pointer */
+    const char *test_str = "hello";
+    push_i64(vm, h, &error);
+    push_i64(vm, (int64_t)(intptr_t)test_str, &error);
+    ASSERT_EQ((int)fn_call(vm, 2, &error), (int)BASL_STATUS_OK);
+    int64_t result = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+    EXPECT_EQ(5, (int)result);
+
+    push_i64(vm, lib, &error);
+    fn_close(vm, 1, &error);
+    ffi_vm_teardown(&rt, &vm);
+}
+
+/* ── Negate (single i32 arg) ─────────────────────────────────────── */
+
+TEST(FFIModule, CallNegate) {
+    basl_runtime_t *rt = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    ffi_vm_setup(&rt, &vm, &error);
+
+    basl_native_fn_t fn_open  = find_ffi_fn("open");
+    basl_native_fn_t fn_bind  = find_ffi_fn("bind");
+    basl_native_fn_t fn_call  = find_ffi_fn("call");
+    basl_native_fn_t fn_close = find_ffi_fn("close");
+
+    push_str(vm, rt, FFI_TESTLIB_PATH, &error);
+    fn_open(vm, 1, &error);
+    int64_t lib = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    push_i64(vm, lib, &error);
+    push_str(vm, rt, "test_negate", &error);
+    push_str(vm, rt, "i32(i32)", &error);
+    fn_bind(vm, 3, &error);
+    int64_t h = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+
+    push_i64(vm, h, &error);
+    push_i64(vm, 42, &error);
+    ASSERT_EQ((int)fn_call(vm, 2, &error), (int)BASL_STATUS_OK);
+    int64_t result = basl_nanbox_decode_int(
+        basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1));
+    basl_vm_stack_pop_n(vm, 1);
+    EXPECT_EQ(-42, (int)result);
+
+    push_i64(vm, lib, &error);
+    fn_close(vm, 1, &error);
+    ffi_vm_teardown(&rt, &vm);
+}
+
 #endif /* FFI_TESTLIB_PATH && BASL_HAS_LIBFFI */
 
 /* ── Registration ────────────────────────────────────────────────── */
@@ -692,6 +867,11 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFIModule, CallInvalidHandle);
     REGISTER_TEST(FFIModule, CallF_InvalidHandle);
     REGISTER_TEST(FFIModule, CallNoArgsIntReturn);
+    REGISTER_TEST(FFIModule, CallManyArgs);
+    REGISTER_TEST(FFIModule, SymLookup);
+    REGISTER_TEST(FFIModule, CallS_InvalidHandle);
+    REGISTER_TEST(FFIModule, CallWithPointerArg);
+    REGISTER_TEST(FFIModule, CallNegate);
 #endif
 #endif
 }
