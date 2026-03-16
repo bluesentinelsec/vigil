@@ -84,6 +84,8 @@ typedef struct basl_cli {
     basl_cli_positional_t *positionals;
     size_t positional_count;
     size_t positional_capacity;
+    /* Set to 1 if help was printed during parsing. */
+    int help_shown;
 } basl_cli_t;
 
 /* ── Lifecycle ───────────────────────────────────────────────────── */
