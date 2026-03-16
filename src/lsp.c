@@ -135,6 +135,9 @@ static basl_status_t handle_initialize(
     /* Document symbols (outline). */
     jset_bool(capabilities, "documentSymbolProvider", 1, a, error);
 
+    /* Hover (type info). */
+    jset_bool(capabilities, "hoverProvider", 1, a, error);
+
     /* Server info. */
     jset_str(server_info, "name", "basl-lsp", a, error);
     jset_str(server_info, "version", "0.1.0", a, error);
@@ -172,6 +175,22 @@ static void offset_to_line_col(
     }
     *line = l;
     *col = c;
+}
+
+static size_t line_col_to_offset(
+    const char *text, size_t text_len, size_t line, size_t col
+) {
+    size_t l = 0, c = 0, i;
+    for (i = 0; i < text_len; i++) {
+        if (l == line && c == col) return i;
+        if (text[i] == '\n') {
+            l++;
+            c = 0;
+        } else {
+            c++;
+        }
+    }
+    return i;
 }
 
 static basl_status_t lsp_send_notification(
@@ -315,6 +334,132 @@ static void handle_did_open(
     }
 }
 
+static void handle_did_change(
+    basl_lsp_server_t *server,
+    const basl_json_value_t *params
+) {
+    const basl_json_value_t *text_doc;
+    const basl_json_value_t *uri_val;
+    const basl_json_value_t *changes;
+    const basl_json_value_t *change;
+    const basl_json_value_t *text_val;
+    const char *uri;
+    size_t uri_len;
+    const char *text;
+    size_t text_len;
+    basl_source_id_t source_id;
+    basl_error_t error = {0};
+
+    text_doc = basl_json_object_get(params, "textDocument");
+    changes = basl_json_object_get(params, "contentChanges");
+    if (text_doc == NULL || changes == NULL) return;
+
+    uri_val = basl_json_object_get(text_doc, "uri");
+    if (uri_val == NULL) return;
+
+    /* Full sync: take the last change's text */
+    if (basl_json_array_count(changes) == 0) return;
+    change = basl_json_array_get(changes, basl_json_array_count(changes) - 1);
+    if (change == NULL) return;
+
+    text_val = basl_json_object_get(change, "text");
+    if (text_val == NULL) return;
+
+    uri = basl_json_string_value(uri_val);
+    text = basl_json_string_value(text_val);
+    if (uri == NULL || text == NULL) return;
+
+    uri_len = basl_json_string_length(uri_val);
+    text_len = basl_json_string_length(text_val);
+
+    /* Re-register and re-analyze */
+    if (basl_source_registry_register(&server->sources, uri, uri_len,
+                                       text, text_len, &source_id, &error) == BASL_STATUS_OK) {
+        basl_semantic_index_analyze(server->index, source_id, &error);
+        publish_diagnostics(server, uri, uri_len, source_id, &error);
+    }
+}
+
+static basl_status_t handle_hover(
+    basl_lsp_server_t *server,
+    const basl_json_value_t *id,
+    const basl_json_value_t *params,
+    basl_json_value_t **out,
+    basl_error_t *error
+) {
+    const basl_allocator_t *a = &server->allocator;
+    const basl_json_value_t *text_doc;
+    const basl_json_value_t *position;
+    const basl_json_value_t *uri_val;
+    const basl_json_value_t *line_val;
+    const basl_json_value_t *char_val;
+    const basl_source_file_t *src;
+    const basl_semantic_file_t *sem_file = NULL;
+    basl_semantic_type_t type;
+    char *type_str;
+    size_t line, col, offset, i;
+
+    text_doc = basl_json_object_get(params, "textDocument");
+    position = basl_json_object_get(params, "position");
+    if (text_doc == NULL || position == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    uri_val = basl_json_object_get(text_doc, "uri");
+    line_val = basl_json_object_get(position, "line");
+    char_val = basl_json_object_get(position, "character");
+    if (uri_val == NULL || line_val == NULL || char_val == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    line = (size_t)basl_json_number_value(line_val);
+    col = (size_t)basl_json_number_value(char_val);
+
+    /* Find the semantic file for this URI */
+    for (i = 0; i < server->index->file_count; i++) {
+        src = basl_source_registry_get(&server->sources, server->index->files[i]->source_id);
+        if (src != NULL) {
+            const char *uri = basl_json_string_value(uri_val);
+            size_t uri_len = basl_json_string_length(uri_val);
+            if (basl_string_length(&src->path) == uri_len &&
+                strncmp(basl_string_c_str(&src->path), uri, uri_len) == 0) {
+                sem_file = server->index->files[i];
+                break;
+            }
+        }
+    }
+
+    if (sem_file == NULL) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    src = basl_source_registry_get(&server->sources, sem_file->source_id);
+    offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
+
+    type = basl_semantic_file_type_at(sem_file, offset);
+    if (!basl_semantic_type_is_valid(type)) {
+        return lsp_make_response(a, id, NULL, out, error);
+    }
+
+    type_str = basl_semantic_type_to_string(server->index, type);
+    if (type_str != NULL) {
+        basl_json_value_t *result = NULL;
+        basl_json_value_t *contents = NULL;
+
+        basl_json_object_new(a, &result, error);
+        basl_json_object_new(a, &contents, error);
+
+        jset_str(contents, "kind", "plaintext", a, error);
+        jset_str(contents, "value", type_str, a, error);
+        jset_obj(result, "contents", contents, error);
+
+        free(type_str);
+        return lsp_make_response(a, id, result, out, error);
+    }
+
+    return lsp_make_response(a, id, NULL, out, error);
+}
+
 static basl_status_t handle_document_symbol(
     basl_lsp_server_t *server,
     const basl_json_value_t *id,
@@ -423,8 +568,12 @@ static basl_status_t lsp_handle_message(
         return BASL_STATUS_OK;
     } else if (method_len == 20 && strncmp(method, "textDocument/didOpen", 20) == 0) {
         handle_did_open(server, params);
+    } else if (method_len == 22 && strncmp(method, "textDocument/didChange", 22) == 0) {
+        handle_did_change(server, params);
     } else if (method_len == 27 && strncmp(method, "textDocument/documentSymbol", 27) == 0) {
         status = handle_document_symbol(server, id, params, &response, error);
+    } else if (method_len == 18 && strncmp(method, "textDocument/hover", 18) == 0) {
+        status = handle_hover(server, id, params, &response, error);
     }
     /* Ignore other methods for now. */
 
