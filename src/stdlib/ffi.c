@@ -199,8 +199,7 @@ static ffi_type *sig_to_ffi_type(const char *t, size_t len) {
 
 /* Parse "ret(p1,p2,...)" and call fn via ffi_call.  Returns raw i64 bits. */
 static int64_t ffi_call_generic(void *fn, const char *sig,
-                                int64_t a0, int64_t a1, int64_t a2,
-                                int64_t a3, int64_t a4, int64_t a5) {
+                                const int64_t *args, int nargs_avail) {
     const char *paren = strchr(sig, '(');
     if (!paren) return 0;
     size_t ret_len = (size_t)(paren - sig);
@@ -210,28 +209,61 @@ static int64_t ffi_call_generic(void *fn, const char *sig,
     const char *end = strchr(p, ')');
     if (!end) end = p + strlen(p);
 
-    ffi_type *atypes[6];
+    /* Count params in signature. */
     int nargs = 0;
-    while (p < end && nargs < 6) {
+    {
+        const char *q = p;
+        while (q < end) {
+            const char *c = q;
+            while (c < end && *c != ',') c++;
+            if ((size_t)(c - q) > 0) nargs++;
+            q = c + 1;
+        }
+    }
+    if (nargs > nargs_avail) nargs = nargs_avail;
+
+    /* Allocate on the stack for typical sizes, heap for large. */
+    ffi_type *atypes_s[16];
+    int64_t   args_i_s[16];
+    double    args_d_s[16];
+    void     *args_p_s[16];
+    void     *avalues_s[16];
+
+    ffi_type **atypes  = nargs <= 16 ? atypes_s  : malloc((size_t)nargs * sizeof(*atypes));
+    int64_t   *args_i  = nargs <= 16 ? args_i_s  : malloc((size_t)nargs * sizeof(*args_i));
+    double    *args_d  = nargs <= 16 ? args_d_s  : malloc((size_t)nargs * sizeof(*args_d));
+    void     **args_p  = nargs <= 16 ? args_p_s  : malloc((size_t)nargs * sizeof(*args_p));
+    void     **avalues = nargs <= 16 ? avalues_s : malloc((size_t)nargs * sizeof(*avalues));
+
+    if (!atypes || !args_i || !args_d || !args_p || !avalues) {
+        if (atypes  != atypes_s)  free(atypes);
+        if (args_i  != args_i_s)  free(args_i);
+        if (args_d  != args_d_s)  free(args_d);
+        if (args_p  != args_p_s)  free(args_p);
+        if (avalues != avalues_s) free(avalues);
+        return 0;
+    }
+
+    /* Parse param types. */
+    int idx = 0;
+    p = paren + 1;
+    while (p < end && idx < nargs) {
         const char *comma = p;
         while (comma < end && *comma != ',') comma++;
         size_t tlen = (size_t)(comma - p);
         if (tlen > 0)
-            atypes[nargs++] = sig_to_ffi_type(p, tlen);
+            atypes[idx++] = sig_to_ffi_type(p, tlen);
         p = comma + 1;
     }
 
     ffi_cif cif;
+    int64_t result = 0;
     if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, (unsigned)nargs,
                      rtype, nargs ? atypes : NULL) != FFI_OK)
-        return 0;
-
-    int64_t args_i[6] = { a0, a1, a2, a3, a4, a5 };
-    double  args_d[6];
-    void   *args_p[6];
-    void   *avalues[6];
+        goto done;
 
     for (int i = 0; i < nargs; i++) {
+        args_i[i] = args[i];
         if (atypes[i] == &ffi_type_double) {
             memcpy(&args_d[i], &args_i[i], sizeof(double));
             avalues[i] = &args_d[i];
@@ -245,22 +277,25 @@ static int64_t ffi_call_generic(void *fn, const char *sig,
 
     if (rtype == &ffi_type_void) {
         ffi_call(&cif, fn_to_fnptr(fn), NULL, avalues);
-        return 0;
     } else if (rtype == &ffi_type_double) {
         double rv;
         ffi_call(&cif, fn_to_fnptr(fn), &rv, avalues);
-        int64_t bits;
-        memcpy(&bits, &rv, sizeof(bits));
-        return bits;
+        memcpy(&result, &rv, sizeof(result));
     } else if (rtype == &ffi_type_pointer) {
         void *rv;
         ffi_call(&cif, fn_to_fnptr(fn), &rv, avalues);
-        return (int64_t)(intptr_t)rv;
+        result = (int64_t)(intptr_t)rv;
     } else {
-        int64_t rv = 0;
-        ffi_call(&cif, fn_to_fnptr(fn), &rv, avalues);
-        return rv;
+        ffi_call(&cif, fn_to_fnptr(fn), &result, avalues);
     }
+
+done:
+    if (atypes  != atypes_s)  free(atypes);
+    if (args_i  != args_i_s)  free(args_i);
+    if (args_d  != args_d_s)  free(args_d);
+    if (args_p  != args_p_s)  free(args_p);
+    if (avalues != avalues_s) free(avalues);
+    return result;
 }
 
 #endif /* BASL_HAS_LIBFFI */
@@ -271,28 +306,36 @@ static basl_status_t basl_ffi_call(
     basl_vm_t *vm, size_t arg_count, basl_error_t *error
 ) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
-    int idx    = (int)pop_i64(vm, base, 0);
-    int64_t a0 = pop_i64(vm, base, 1);
-    int64_t a1 = pop_i64(vm, base, 2);
-    int64_t a2 = pop_i64(vm, base, 3);
-    int64_t a3 = pop_i64(vm, base, 4);
-    int64_t a4 = pop_i64(vm, base, 5);
-    int64_t a5 = pop_i64(vm, base, 6);
+    int idx = (int)pop_i64(vm, base, 0);
+    /* Remaining args (after the handle) are the C function args. */
+    int nargs = (int)arg_count - 1;
+    int64_t args_s[16];
+    int64_t *args = nargs <= 16 ? args_s : malloc((size_t)nargs * sizeof(*args));
+    if (!args) {
+        basl_vm_stack_pop_n(vm, arg_count);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "ffi.call: alloc failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    for (int i = 0; i < nargs; i++)
+        args[i] = pop_i64(vm, base, (size_t)(i + 1));
     basl_vm_stack_pop_n(vm, arg_count);
 
     if (idx < 0 || idx >= g_bound_count) {
+        if (args != args_s) free(args);
         basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                                "ffi.call: invalid handle");
         return BASL_STATUS_INTERNAL;
     }
 
 #ifdef BASL_HAS_LIBFFI
-    return push_i64(vm,
-        ffi_call_generic(g_bound[idx].fn, g_bound[idx].sig,
-                         a0, a1, a2, a3, a4, a5),
-        error);
+    {
+        int64_t rv = ffi_call_generic(g_bound[idx].fn, g_bound[idx].sig,
+                                       args, nargs);
+        if (args != args_s) free(args);
+        return push_i64(vm, rv, error);
+    }
 #else
-    (void)a0; (void)a1; (void)a2; (void)a3; (void)a4; (void)a5;
+    if (args != args_s) free(args);
     basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                            "ffi.call: not supported on this platform");
     return BASL_STATUS_INTERNAL;
@@ -305,12 +348,23 @@ static basl_status_t basl_ffi_call_f(
     basl_vm_t *vm, size_t arg_count, basl_error_t *error
 ) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
-    int idx    = (int)pop_i64(vm, base, 0);
-    double a0  = pop_f64(vm, base, 1);
-    double a1  = pop_f64(vm, base, 2);
+    int idx = (int)pop_i64(vm, base, 0);
+    int nargs = (int)arg_count - 1;
+    int64_t args_s[16];
+    int64_t *args = nargs <= 16 ? args_s : malloc((size_t)nargs * sizeof(*args));
+    if (!args) {
+        basl_vm_stack_pop_n(vm, arg_count);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "ffi.call_f: alloc failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    for (int i = 0; i < nargs; i++) {
+        double d = pop_f64(vm, base, (size_t)(i + 1));
+        memcpy(&args[i], &d, sizeof(d));
+    }
     basl_vm_stack_pop_n(vm, arg_count);
 
     if (idx < 0 || idx >= g_bound_count) {
+        if (args != args_s) free(args);
         basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                                "ffi.call_f: invalid handle");
         return BASL_STATUS_INTERNAL;
@@ -318,17 +372,15 @@ static basl_status_t basl_ffi_call_f(
 
 #ifdef BASL_HAS_LIBFFI
     {
-        int64_t a0_bits, a1_bits;
-        memcpy(&a0_bits, &a0, sizeof(a0_bits));
-        memcpy(&a1_bits, &a1, sizeof(a1_bits));
         int64_t rbits = ffi_call_generic(g_bound[idx].fn, g_bound[idx].sig,
-                                          a0_bits, a1_bits, 0, 0, 0, 0);
+                                          args, nargs);
+        if (args != args_s) free(args);
         double rv;
         memcpy(&rv, &rbits, sizeof(rv));
         return push_f64(vm, rv, error);
     }
 #else
-    (void)a0; (void)a1;
+    if (args != args_s) free(args);
     basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                            "ffi.call_f: not supported on this platform");
     return BASL_STATUS_INTERNAL;
@@ -341,12 +393,21 @@ static basl_status_t basl_ffi_call_s(
     basl_vm_t *vm, size_t arg_count, basl_error_t *error
 ) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
-    int idx    = (int)pop_i64(vm, base, 0);
-    int64_t a0 = pop_i64(vm, base, 1);
-    int64_t a1 = pop_i64(vm, base, 2);
+    int idx = (int)pop_i64(vm, base, 0);
+    int nargs = (int)arg_count - 1;
+    int64_t args_s[16];
+    int64_t *args = nargs <= 16 ? args_s : malloc((size_t)nargs * sizeof(*args));
+    if (!args) {
+        basl_vm_stack_pop_n(vm, arg_count);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "ffi.call_s: alloc failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    for (int i = 0; i < nargs; i++)
+        args[i] = pop_i64(vm, base, (size_t)(i + 1));
     basl_vm_stack_pop_n(vm, arg_count);
 
     if (idx < 0 || idx >= g_bound_count) {
+        if (args != args_s) free(args);
         basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                                "ffi.call_s: invalid handle");
         return BASL_STATUS_INTERNAL;
@@ -355,12 +416,13 @@ static basl_status_t basl_ffi_call_s(
 #ifdef BASL_HAS_LIBFFI
     {
         int64_t rbits = ffi_call_generic(g_bound[idx].fn, g_bound[idx].sig,
-                                          a0, a1, 0, 0, 0, 0);
+                                          args, nargs);
+        if (args != args_s) free(args);
         const char *r = (const char *)(intptr_t)rbits;
         return push_string(vm, r, error);
     }
 #else
-    (void)a0; (void)a1;
+    if (args != args_s) free(args);
     basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                            "ffi.call_s: not supported on this platform");
     return BASL_STATUS_INTERNAL;
