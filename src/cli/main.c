@@ -2916,6 +2916,12 @@ int main(int argc, char **argv) {
         return cmd_lsp();
     }
 
+    /* Handle "basl version" before CLI parser. */
+    if (argc >= 2 && strcmp(argv[1], "version") == 0) {
+        printf("basl %s\n", BASL_VERSION);
+        return 0;
+    }
+
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
 
     cmd = basl_cli_add_command(&cli, "run", "Run a BASL script");
@@ -2945,6 +2951,8 @@ int main(int argc, char **argv) {
     (void)basl_cli_add_command(&cli, "repl", "Start interactive REPL");
 
     (void)basl_cli_add_command(&cli, "lsp", "Start Language Server Protocol server");
+
+    (void)basl_cli_add_command(&cli, "version", "Print version information");
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
