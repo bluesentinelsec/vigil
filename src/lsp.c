@@ -449,6 +449,15 @@ static void handle_did_change(
     }
 }
 
+static void handle_did_close(
+    basl_lsp_server_t *server,
+    const basl_json_value_t *params
+) {
+    (void)server;
+    (void)params;
+    /* No cleanup needed - source registry doesn't support removal yet */
+}
+
 static basl_status_t handle_references(
     basl_lsp_server_t *server,
     const basl_json_value_t *id,
@@ -1151,6 +1160,8 @@ static basl_status_t lsp_handle_message(
         handle_did_open(server, params);
     } else if (method_len == 22 && strncmp(method, "textDocument/didChange", 22) == 0) {
         handle_did_change(server, params);
+    } else if (method_len == 21 && strncmp(method, "textDocument/didClose", 21) == 0) {
+        handle_did_close(server, params);
     } else if (method_len == 27 && strncmp(method, "textDocument/documentSymbol", 27) == 0) {
         status = handle_document_symbol(server, id, params, &response, error);
     } else if (method_len == 18 && strncmp(method, "textDocument/hover", 18) == 0) {
