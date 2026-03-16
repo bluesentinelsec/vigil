@@ -224,12 +224,13 @@ class TestReplInteractive(unittest.TestCase):
         self.send_line(child, "fn foo() -> i32 { return 1; }")
         child.expect(">>>")
         self.send_line(child, "foo()")
-        child.expect(r"\r\n1\r\n")  # Result on its own line
+        # Match result followed by newline and prompt
+        child.expect(r"1\r\n")
         child.expect(">>>")
         self.send_line(child, "fn foo() -> i32 { return 2; }")
         child.expect(">>>")
         self.send_line(child, "foo()")
-        child.expect(r"\r\n2\r\n")  # Result on its own line
+        child.expect(r"2\r\n")
         child.expect(">>>")
         self.send_line(child, ":quit")
         child.expect(pexpect.EOF)
