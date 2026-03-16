@@ -2895,9 +2895,26 @@ int main(int argc, char **argv) {
         return cmd_run(argv[2], script_argv, script_argc);
     }
 
+    /* Handle "basl <file.basl> [args...]" as shorthand for "basl run". */
+    if (argc >= 2 && argv[1][0] != '-') {
+        size_t len = strlen(argv[1]);
+        if (len > 5 && strcmp(argv[1] + len - 5, ".basl") == 0) {
+            const char *const *script_argv = argc > 2 ? (const char *const *)&argv[2] : NULL;
+            size_t script_argc = argc > 2 ? (size_t)(argc - 2) : 0;
+            return cmd_run(argv[1], script_argv, script_argc);
+        }
+    }
+
     /* Handle "basl embed <file|dir...> [-o output]" before CLI parser
      * since embed needs rest-args (multiple file targets). */
-    if (argc >= 3 && strcmp(argv[1], "embed") == 0) {
+    if (argc >= 2 && strcmp(argv[1], "embed") == 0) {
+        if (argc == 2 || strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0) {
+            printf("Usage: basl embed <file|dir...> [-o output.basl]\n\n");
+            printf("Embed files as BASL source code\n\n");
+            printf("Options:\n");
+            printf("  -o, --output         Output file (default: embed.basl)\n");
+            return 0;
+        }
         return cmd_embed(argc, argv);
     }
 
@@ -2912,7 +2929,7 @@ int main(int argc, char **argv) {
     }
 
     /* Handle "basl lsp" before CLI parser. */
-    if (argc >= 2 && strcmp(argv[1], "lsp") == 0) {
+    if (argc == 2 && strcmp(argv[1], "lsp") == 0) {
         return cmd_lsp();
     }
 
@@ -2953,6 +2970,10 @@ int main(int argc, char **argv) {
     (void)basl_cli_add_command(&cli, "lsp", "Start Language Server Protocol server");
 
     (void)basl_cli_add_command(&cli, "version", "Print version information");
+
+    (void)basl_cli_add_command(&cli, "embed", "Embed files as BASL source code");
+
+    (void)basl_cli_add_command(&cli, "test", "Run tests");
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);

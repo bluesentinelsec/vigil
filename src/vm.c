@@ -2921,6 +2921,8 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_STRING_LAST_INDEX_OF] = &&op_STRING_LAST_INDEX_OF,
             [BASL_OPCODE_STRING_TRIM_PREFIX] = &&op_STRING_TRIM_PREFIX,
             [BASL_OPCODE_STRING_TRIM_SUFFIX] = &&op_STRING_TRIM_SUFFIX,
+            [BASL_OPCODE_CHAR_FROM_INT] = &&op_CHAR_FROM_INT,
+            [BASL_OPCODE_STRING_TO_C] = &&op_STRING_TO_C,
             [BASL_OPCODE_SUBTRACT] = &&op_SUBTRACT,
             [BASL_OPCODE_TO_F64] = &&op_TO_F64,
             [BASL_OPCODE_TO_I32] = &&op_TO_I32,
@@ -5491,6 +5493,92 @@ basl_status_t basl_vm_execute_function(
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }
+                VM_BREAK();
+            }
+
+            VM_CASE(CHAR_FROM_INT) {
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+                
+                if (!basl_nanbox_is_int(left)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "char() requires an integer argument", error
+                    );
+                    goto cleanup;
+                }
+                
+                int32_t code_point = basl_nanbox_decode_i32(left);
+                BASL_VM_VALUE_RELEASE(&left);
+                
+                if (code_point < 0 || code_point > 255) {
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "char() argument must be 0-255", error
+                    );
+                    goto cleanup;
+                }
+                
+                char ch = (char)code_point;
+                status = basl_vm_new_string_value(vm, &ch, 1, &value, error);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_TO_C) {
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+                
+                const char *text;
+                size_t text_length;
+                if (!basl_vm_get_string_parts(&left, &text, &text_length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "to_c() requires a string", error
+                    );
+                    goto cleanup;
+                }
+                
+                /* Build C-style escaped string */
+                size_t out_cap = text_length * 4 + 3; /* worst case: all \xNN + quotes + null */
+                char *out_buf = NULL;
+                status = basl_runtime_alloc(vm->runtime, out_cap, (void **)&out_buf, error);
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    goto cleanup;
+                }
+                
+                size_t j = 0;
+                out_buf[j++] = '"';
+                for (size_t i = 0; i < text_length; i++) {
+                    unsigned char c = (unsigned char)text[i];
+                    if (c == '"') { out_buf[j++] = '\\'; out_buf[j++] = '"'; }
+                    else if (c == '\\') { out_buf[j++] = '\\'; out_buf[j++] = '\\'; }
+                    else if (c == '\n') { out_buf[j++] = '\\'; out_buf[j++] = 'n'; }
+                    else if (c == '\r') { out_buf[j++] = '\\'; out_buf[j++] = 'r'; }
+                    else if (c == '\t') { out_buf[j++] = '\\'; out_buf[j++] = 't'; }
+                    else if (c >= 32 && c < 127) { out_buf[j++] = (char)c; }
+                    else {
+                        out_buf[j++] = '\\';
+                        out_buf[j++] = 'x';
+                        out_buf[j++] = "0123456789abcdef"[c >> 4];
+                        out_buf[j++] = "0123456789abcdef"[c & 0xf];
+                    }
+                }
+                out_buf[j++] = '"';
+                
+                BASL_VM_VALUE_RELEASE(&left);
+                status = basl_vm_new_string_value(vm, out_buf, j, &value, error);
+                basl_runtime_free(vm->runtime, (void **)&out_buf);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) goto cleanup;
                 VM_BREAK();
             }
 
