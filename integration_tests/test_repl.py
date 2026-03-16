@@ -70,15 +70,15 @@ class TestReplInteractive(unittest.TestCase):
     def test_multiline_function(self):
         """Test multi-line input with brackets."""
         child = self.spawn_repl()
-        self.send_line(child, "fn add(i32 a, i32 b) -> i32 {")
-        child.expect(r"\.\.\.")  # Continuation prompt
-        self.send_line(child, "return a + b;")
-        child.expect(r"\.\.\.")
-        self.send_line(child, "}")
-        child.expect(">>>")
-        self.send_line(child, "add(3, 4)")
-        child.expect("7")
-        self.send_line(child, ":quit")
+        child.send("fn add(i32 a, i32 b) -> i32 {\r")
+        child.expect(r"\r\n\r\.\.\. ")  # Continuation prompt after newline
+        child.send("return a + b;\r")
+        child.expect(r"\r\n\r\.\.\. ")
+        child.send("}\r")
+        child.expect(r"\r\n\r>>> ")  # Back to main prompt
+        child.send("add(3, 4)\r")
+        child.expect(r"\r\n\r>>> ")
+        child.send(":quit\r")
         child.expect(pexpect.EOF)
 
     def test_history_up_arrow(self):
