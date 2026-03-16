@@ -5,6 +5,7 @@ project(basl VERSION 0.1.3 LANGUAGES C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BASL_BUILD_TESTS "Build BASL unit tests" ON)
+option(BASL_USE_LIBFFI "Build with vendored libffi for full FFI support" ON)
 
 if(MSVC)
     add_compile_options(/W4 /WX)
@@ -126,6 +127,14 @@ if(BASL_NEEDS_LIBDL)
     target_link_libraries(basl PRIVATE dl)
 endif()
 
+# Vendored libffi for full FFI support.
+if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN)
+    add_subdirectory(deps/libffi)
+    target_link_libraries(basl PRIVATE ffi_static)
+    target_compile_definitions(basl PRIVATE BASL_HAS_LIBFFI)
+    target_compile_definitions(basl_core PRIVATE BASL_HAS_LIBFFI)
+endif()
+
 # On MSVC multi-config generators, an OBJECT-library-backed shared
 # library may place its import library (.lib) in a different directory
 # than dependents expect.  Pin all output directories so the DLL,
@@ -194,6 +203,12 @@ if(BASL_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
+
+    # Vendored libffi for tests.
+    if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN)
+        target_link_libraries(basl_tests PRIVATE ffi_static)
+        target_compile_definitions(basl_tests PRIVATE BASL_HAS_LIBFFI)
+    endif()
 
     # Small shared library for FFI dlopen tests.
     if(NOT EMSCRIPTEN)

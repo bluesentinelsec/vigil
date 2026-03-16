@@ -329,6 +329,50 @@ TEST(FFIConversion, RoundtripIntPtr) {
     }
 }
 
+#ifdef BASL_HAS_LIBFFI
+#include <ffi.h>
+
+TEST(FFILibffi, BasicCall) {
+    /* Call test_add(3, 4) through libffi directly to verify the
+     * vendored build works. */
+    ffi_cif cif;
+    ffi_type *args[2] = { &ffi_type_sint32, &ffi_type_sint32 };
+    ffi_arg result;
+    int a = 3, b = 4;
+    void *vals[2] = { &a, &b };
+
+    EXPECT_EQ((int)FFI_OK,
+              (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 2,
+                                &ffi_type_sint32, args));
+    ffi_call(&cif, FFI_FN(fn_i32_i32_to_i32), &result, vals);
+    EXPECT_EQ(7, (int)result);
+}
+
+TEST(FFILibffi, FloatCall) {
+    /* Call a double->double function through libffi. */
+    ffi_cif cif;
+    ffi_type *args[1] = { &ffi_type_double };
+    double result;
+    double a = 3.0;
+    void *vals[1] = { &a };
+
+    EXPECT_EQ((int)FFI_OK,
+              (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 1,
+                                &ffi_type_double, args));
+    ffi_call(&cif, FFI_FN(fn_f64_to_f64), &result, vals);
+    EXPECT_NEAR(6.0, result, 0.001);
+}
+
+TEST(FFILibffi, VoidCall) {
+    ffi_cif cif;
+    EXPECT_EQ((int)FFI_OK,
+              (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0,
+                                &ffi_type_void, NULL));
+    ffi_call(&cif, FFI_FN(fn_void_to_void), NULL, NULL);
+    EXPECT_TRUE(1);
+}
+#endif /* BASL_HAS_LIBFFI */
+
 TEST(FFICallback, MultipleSlotDispatch) {
     basl_ffi_callback_set_dispatch(test_dispatch);
     void *ptrs[4];
@@ -413,6 +457,11 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFICallback, NullDispatch);
     /* Conversion */
     REGISTER_TEST(FFIConversion, RoundtripIntPtr);
+#ifdef BASL_HAS_LIBFFI
+    REGISTER_TEST(FFILibffi, BasicCall);
+    REGISTER_TEST(FFILibffi, FloatCall);
+    REGISTER_TEST(FFILibffi, VoidCall);
+#endif
 #ifdef FFI_TESTLIB_PATH
     /* Platform dlopen */
     REGISTER_TEST(FFIDlopen, OpenAndClose);

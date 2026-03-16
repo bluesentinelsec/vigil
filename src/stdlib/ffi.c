@@ -27,6 +27,10 @@
 #include "internal/ffi_trampoline.h"
 #include "platform/platform.h"
 
+#ifdef BASL_HAS_LIBFFI
+#include <ffi.h>
+#endif
+
 /* ── helpers ─────────────────────────────────────────────────────── */
 
 static basl_status_t push_i64(basl_vm_t *vm, int64_t v, basl_error_t *error) {
@@ -351,6 +355,91 @@ static basl_status_t basl_ffi_bind(
 
 /* ── ffi.call(i64 h, i64 a0..a5) -> i64 — signature-based dispatch ─ */
 
+#ifdef BASL_HAS_LIBFFI
+/* Parse a signature like "i32(i32,i32)" and call via libffi. */
+static ffi_type *sig_to_ffi_type(const char *t, size_t len) {
+    if (len == 3 && memcmp(t, "i32", 3) == 0) return &ffi_type_sint32;
+    if (len == 3 && memcmp(t, "i64", 3) == 0) return &ffi_type_sint64;
+    if (len == 3 && memcmp(t, "u32", 3) == 0) return &ffi_type_uint32;
+    if (len == 2 && memcmp(t, "u8", 2) == 0)  return &ffi_type_uint8;
+    if (len == 3 && memcmp(t, "f64", 3) == 0) return &ffi_type_double;
+    if (len == 3 && memcmp(t, "f32", 3) == 0) return &ffi_type_float;
+    if (len == 3 && memcmp(t, "ptr", 3) == 0) return &ffi_type_pointer;
+    if (len == 4 && memcmp(t, "void", 4) == 0) return &ffi_type_void;
+    return &ffi_type_pointer; /* fallback */
+}
+
+static int64_t ffi_call_libffi(void *fn, const char *sig,
+                                int64_t a0, int64_t a1, int64_t a2,
+                                int64_t a3, int64_t a4, int64_t a5) {
+    /* Parse return type: everything before '(' */
+    const char *paren = strchr(sig, '(');
+    if (!paren) return 0;
+    size_t ret_len = (size_t)(paren - sig);
+    ffi_type *rtype = sig_to_ffi_type(sig, ret_len);
+
+    /* Parse param types between '(' and ')' */
+    const char *p = paren + 1;
+    const char *end = strchr(p, ')');
+    if (!end) end = p + strlen(p);
+
+    ffi_type *atypes[6];
+    int nargs = 0;
+    while (p < end && nargs < 6) {
+        const char *comma = p;
+        while (comma < end && *comma != ',') comma++;
+        size_t tlen = (size_t)(comma - p);
+        if (tlen > 0)
+            atypes[nargs++] = sig_to_ffi_type(p, tlen);
+        p = comma + 1;
+    }
+
+    ffi_cif cif;
+    if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, (unsigned)nargs,
+                     rtype, nargs ? atypes : NULL) != FFI_OK)
+        return 0;
+
+    /* Set up argument storage and pointers */
+    int64_t args_i[6] = { a0, a1, a2, a3, a4, a5 };
+    double  args_d[6];
+    void   *args_p[6];
+    void   *avalues[6];
+
+    for (int i = 0; i < nargs; i++) {
+        if (atypes[i] == &ffi_type_double) {
+            /* Reinterpret the i64 bits as double */
+            memcpy(&args_d[i], &args_i[i], sizeof(double));
+            avalues[i] = &args_d[i];
+        } else if (atypes[i] == &ffi_type_pointer) {
+            args_p[i] = (void *)(intptr_t)args_i[i];
+            avalues[i] = &args_p[i];
+        } else {
+            avalues[i] = &args_i[i];
+        }
+    }
+
+    /* Call and return */
+    if (rtype == &ffi_type_void) {
+        ffi_call(&cif, FFI_FN(fn), NULL, avalues);
+        return 0;
+    } else if (rtype == &ffi_type_double) {
+        double rv;
+        ffi_call(&cif, FFI_FN(fn), &rv, avalues);
+        int64_t bits;
+        memcpy(&bits, &rv, sizeof(bits));
+        return bits;
+    } else if (rtype == &ffi_type_pointer) {
+        void *rv;
+        ffi_call(&cif, FFI_FN(fn), &rv, avalues);
+        return (int64_t)(intptr_t)rv;
+    } else {
+        int64_t rv = 0;
+        ffi_call(&cif, FFI_FN(fn), &rv, avalues);
+        return rv;
+    }
+}
+#endif /* BASL_HAS_LIBFFI */
+
 static basl_status_t basl_ffi_call(
     basl_vm_t *vm, size_t arg_count, basl_error_t *error
 ) {
@@ -409,12 +498,16 @@ static basl_status_t basl_ffi_call(
     if (strcmp(sig, "i32(ptr,i32,i32,i32,i32)") == 0)
         return push_i64(vm, basl_ffi_call_ptr_i32_i32_i32_i32_to_i32(fn, (void *)(intptr_t)a0, (int)a1, (int)a2, (int)a3, (int)a4), error);
 
-    /* Fallback: generic trampoline (all args as void*) */
+    /* Fallback: use libffi if available, else generic trampoline */
+#ifdef BASL_HAS_LIBFFI
+    return push_i64(vm, ffi_call_libffi(fn, sig, a0, a1, a2, a3, a4, a5), error);
+#else
     void *r = basl_ffi_call_generic(fn, 6,
         (void *)(intptr_t)a0, (void *)(intptr_t)a1,
         (void *)(intptr_t)a2, (void *)(intptr_t)a3,
         (void *)(intptr_t)a4, (void *)(intptr_t)a5);
     return push_i64(vm, (int64_t)(intptr_t)r, error);
+#endif
 }
 
 /* ── ffi.call_f(i64 h, f64 a0, f64 a1) -> f64 — float dispatch ──── */
@@ -444,9 +537,22 @@ static basl_status_t basl_ffi_call_f(
     if (strcmp(sig, "f64(f64,f64)") == 0)
         return push_f64(vm, basl_ffi_call_f64_f64_to_f64(fn, a0, a1), error);
 
+#ifdef BASL_HAS_LIBFFI
+    {
+        /* Use libffi for unknown float signatures */
+        int64_t a0_bits, a1_bits;
+        memcpy(&a0_bits, &a0, sizeof(a0_bits));
+        memcpy(&a1_bits, &a1, sizeof(a1_bits));
+        int64_t rbits = ffi_call_libffi(fn, sig, a0_bits, a1_bits, 0, 0, 0, 0);
+        double rv;
+        memcpy(&rv, &rbits, sizeof(rv));
+        return push_f64(vm, rv, error);
+    }
+#else
     basl_error_set_literal(error, BASL_STATUS_INTERNAL,
                            "ffi.call_f: signature is not a float function");
     return BASL_STATUS_INTERNAL;
+#endif
 }
 
 /* ── ffi.call_s(i64 h, i64 a0, i64 a1) -> string — string-return ── */
