@@ -8,6 +8,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -530,4 +532,63 @@ BASL_API basl_status_t basl_platform_dlclose(
     }
     dlclose(handle);
     return BASL_STATUS_OK;
+}
+
+/* ── Terminal raw mode ───────────────────────────────────────────── */
+
+struct basl_terminal_state {
+    struct termios orig;
+};
+
+int basl_platform_is_terminal(void) {
+    return isatty(STDIN_FILENO);
+}
+
+basl_status_t basl_platform_terminal_raw(
+    basl_terminal_state_t **out_state, basl_error_t *error
+) {
+    struct termios raw;
+    basl_terminal_state_t *state = malloc(sizeof(*state));
+    if (!state) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "out of memory");
+        return BASL_STATUS_INTERNAL;
+    }
+    if (tcgetattr(STDIN_FILENO, &state->orig) == -1) {
+        free(state);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "tcgetattr failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    raw = state->orig;
+    raw.c_iflag &= ~(unsigned)(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    raw.c_oflag &= ~(unsigned)(OPOST);
+    raw.c_cflag |= (unsigned)(CS8);
+    raw.c_lflag &= ~(unsigned)(ECHO | ICANON | IEXTEN | ISIG);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {
+        free(state);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "tcsetattr failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_state = state;
+    return BASL_STATUS_OK;
+}
+
+void basl_platform_terminal_restore(basl_terminal_state_t *state) {
+    if (!state) return;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &state->orig);
+    free(state);
+}
+
+int basl_platform_terminal_read_byte(void) {
+    unsigned char c;
+    ssize_t n = read(STDIN_FILENO, &c, 1);
+    return (n <= 0) ? -1 : (int)c;
+}
+
+int basl_platform_terminal_width(void) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
+        return 80;
+    return ws.ws_col;
 }

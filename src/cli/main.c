@@ -1941,6 +1941,7 @@ static int cmd_repl(void) {
     repl_buf_t preamble;
     repl_buf_t input;
     repl_decl_list_t decls;
+    basl_line_history_t history;
     char line[4096];
     char proj_root[4096];
     const char *project_root = NULL;
@@ -1959,6 +1960,7 @@ static int cmd_repl(void) {
     repl_buf_init(&preamble);
     repl_buf_init(&input);
     repl_decl_list_init(&decls);
+    basl_line_history_init(&history, 1000);
 
     /* Auto-inject fmt for expression printing. */
     repl_decl_list_put(&decls, NULL, "import \"fmt\";\n");
@@ -1977,7 +1979,7 @@ static int cmd_repl(void) {
 
         repl_buf_clear(&input);
 
-        rs = basl_platform_readline(prompt, line, sizeof(line), &error);
+        rs = basl_line_editor_readline(prompt, line, sizeof(line), &history, &error);
         if (rs != BASL_STATUS_OK) break; /* EOF / Ctrl-D */
 
         /* Skip empty lines. */
@@ -1988,6 +1990,11 @@ static int cmd_repl(void) {
         }
 
         repl_buf_append_cstr(&input, line);
+
+        /* Add to history (skip special commands and empty lines). */
+        if (line[0] != ':' && strcmp(line, "exit()") != 0) {
+            basl_line_history_add(&history, line);
+        }
 
         /* Special commands. */
         if (strcmp(line, ":quit") == 0 || strcmp(line, ":q") == 0 ||
@@ -2010,7 +2017,7 @@ static int cmd_repl(void) {
 
         /* Multi-line: accumulate while brackets are unbalanced or line needs continuation. */
         while (repl_bracket_depth(input.data) > 0 || repl_needs_continuation(input.data)) {
-            rs = basl_platform_readline("... ", line, sizeof(line), &error);
+            rs = basl_line_editor_readline("... ", line, sizeof(line), &history, &error);
             if (rs != BASL_STATUS_OK) goto done;
             repl_buf_append_cstr(&input, "\n");
             repl_buf_append_cstr(&input, line);
@@ -2101,6 +2108,7 @@ static int cmd_repl(void) {
 done:
     repl_buf_free(&preamble);
     repl_decl_list_free(&decls);
+    basl_line_history_free(&history);
     repl_buf_free(&input);
     basl_vm_close(&vm);
     basl_runtime_close(&runtime);

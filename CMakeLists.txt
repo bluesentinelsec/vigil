@@ -84,17 +84,18 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/math.c
+    src/stdlib/readline.c
     src/stdlib/test.c
     src/stdlib/unsafe.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
 if(WIN32)
-    target_sources(basl PRIVATE src/platform/platform_win32.c)
+    target_sources(basl PRIVATE src/platform/platform_win32.c src/platform/line_editor.c)
 elseif(UNIX OR EMSCRIPTEN)
-    target_sources(basl PRIVATE src/platform/platform_posix.c)
+    target_sources(basl PRIVATE src/platform/platform_posix.c src/platform/line_editor.c)
 else()
-    target_sources(basl PRIVATE src/platform/platform_stub.c)
+    target_sources(basl PRIVATE src/platform/platform_stub.c src/platform/line_editor.c)
 endif()
 
 target_include_directories(basl
