@@ -756,6 +756,340 @@ cleanup:
     return exit_code;
 }
 
+/* ── interactive debug command ────────────────────────────────────── */
+
+typedef struct {
+    basl_debugger_t *debugger;
+    const basl_source_registry_t *sources;
+    basl_line_history_t *history;
+    int quit_requested;
+} debug_cli_state_t;
+
+static void debug_cli_print_location(debug_cli_state_t *state) {
+    basl_source_id_t source_id;
+    uint32_t line, column;
+    const basl_source_file_t *source;
+
+    if (basl_debugger_current_location(state->debugger, &source_id, &line, &column) != BASL_STATUS_OK) {
+        printf("  (unknown location)\n");
+        return;
+    }
+
+    source = basl_source_registry_get(state->sources, source_id);
+    if (source) {
+        printf("  %s:%u:%u\n", basl_string_c_str(&source->path), line, column);
+        /* Print the source line */
+        const char *text = basl_string_c_str(&source->text);
+        const char *line_start = text;
+        uint32_t current_line = 1;
+        while (*line_start && current_line < line) {
+            if (*line_start == '\n') current_line++;
+            line_start++;
+        }
+        const char *line_end = line_start;
+        while (*line_end && *line_end != '\n') line_end++;
+        printf("  %u | %.*s\n", line, (int)(line_end - line_start), line_start);
+    }
+}
+
+static void debug_cli_print_backtrace(debug_cli_state_t *state) {
+    size_t frame_count = basl_debugger_frame_count(state->debugger);
+    for (size_t i = 0; i < frame_count; i++) {
+        const char *name;
+        size_t name_len;
+        basl_source_id_t source_id;
+        uint32_t line, column;
+        const basl_source_file_t *source;
+
+        if (basl_debugger_frame_info(state->debugger, i, &name, &name_len,
+                                      &source_id, &line, &column) != BASL_STATUS_OK) {
+            printf("  #%zu (unknown)\n", i);
+            continue;
+        }
+
+        source = basl_source_registry_get(state->sources, source_id);
+        const char *path = source ? basl_string_c_str(&source->path) : "?";
+        printf("  #%zu %.*s at %s:%u\n", i, (int)name_len, name, path, line);
+    }
+}
+
+static void debug_cli_print_locals(debug_cli_state_t *state, size_t frame_idx) {
+    const char *names[32];
+    size_t name_lens[32];
+    basl_value_t values[32];
+    size_t count = basl_debugger_frame_locals(state->debugger, frame_idx,
+                                               names, name_lens, values, 32);
+    if (count == 0) {
+        printf("  (no locals)\n");
+        return;
+    }
+    for (size_t i = 0; i < count; i++) {
+        printf("  %.*s = ", (int)name_lens[i], names[i]);
+        basl_value_kind_t kind = basl_value_kind(&values[i]);
+        switch (kind) {
+        case BASL_VALUE_NIL:
+            printf("nil\n");
+            break;
+        case BASL_VALUE_BOOL:
+            printf("%s\n", basl_value_as_bool(&values[i]) ? "true" : "false");
+            break;
+        case BASL_VALUE_INT:
+            printf("%lld\n", (long long)basl_value_as_int(&values[i]));
+            break;
+        case BASL_VALUE_UINT:
+            printf("%llu\n", (unsigned long long)basl_value_as_uint(&values[i]));
+            break;
+        case BASL_VALUE_FLOAT:
+            printf("%g\n", basl_value_as_float(&values[i]));
+            break;
+        case BASL_VALUE_OBJECT: {
+            basl_object_t *obj = basl_value_as_object(&values[i]);
+            if (obj && basl_object_type(obj) == BASL_OBJECT_STRING) {
+                printf("\"%s\"\n", basl_string_object_c_str(obj));
+            } else {
+                printf("<object>\n");
+            }
+            break;
+        }
+        default:
+            printf("<unknown>\n");
+            break;
+        }
+        basl_value_release(&values[i]);
+    }
+}
+
+static void debug_cli_help(void) {
+    printf("Debugger commands:\n");
+    printf("  c, continue    Resume execution\n");
+    printf("  s, step        Step into\n");
+    printf("  n, next        Step over\n");
+    printf("  o, out         Step out\n");
+    printf("  b <line>       Set breakpoint at line\n");
+    printf("  d <id>         Delete breakpoint\n");
+    printf("  bt, backtrace  Show call stack\n");
+    printf("  l, locals      Show local variables\n");
+    printf("  w, where       Show current location\n");
+    printf("  q, quit        Stop debugging\n");
+    printf("  h, help        Show this help\n");
+}
+
+static basl_debug_action_t debug_cli_callback(
+    basl_debugger_t *debugger,
+    basl_debug_stop_reason_t reason,
+    void *userdata
+) {
+    debug_cli_state_t *state = (debug_cli_state_t *)userdata;
+    char line[256];
+    basl_error_t error = {0};
+
+    (void)debugger;
+
+    /* Print stop reason */
+    switch (reason) {
+    case BASL_DEBUG_STOP_BREAKPOINT:
+        printf("Breakpoint hit:\n");
+        break;
+    case BASL_DEBUG_STOP_STEP:
+        printf("Stepped:\n");
+        break;
+    case BASL_DEBUG_STOP_ENTRY:
+        printf("Program entry:\n");
+        break;
+    }
+    debug_cli_print_location(state);
+
+    /* Command loop */
+    for (;;) {
+        if (basl_line_editor_readline("(debug) ", line, sizeof(line),
+                                       state->history, &error) != BASL_STATUS_OK) {
+            state->quit_requested = 1;
+            return BASL_DEBUG_CONTINUE;
+        }
+
+        /* Skip empty lines - repeat last command would be nice but keep it simple */
+        const char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0') continue;
+
+        basl_line_history_add(state->history, line);
+
+        /* Parse command */
+        if (strcmp(p, "c") == 0 || strcmp(p, "continue") == 0) {
+            basl_debugger_continue(state->debugger);
+            return BASL_DEBUG_CONTINUE;
+        }
+        if (strcmp(p, "s") == 0 || strcmp(p, "step") == 0) {
+            basl_debugger_step_into(state->debugger);
+            return BASL_DEBUG_CONTINUE;
+        }
+        if (strcmp(p, "n") == 0 || strcmp(p, "next") == 0) {
+            basl_debugger_step_over(state->debugger);
+            return BASL_DEBUG_CONTINUE;
+        }
+        if (strcmp(p, "o") == 0 || strcmp(p, "out") == 0) {
+            basl_debugger_step_out(state->debugger);
+            return BASL_DEBUG_CONTINUE;
+        }
+        if (strcmp(p, "bt") == 0 || strcmp(p, "backtrace") == 0) {
+            debug_cli_print_backtrace(state);
+            continue;
+        }
+        if (strcmp(p, "l") == 0 || strcmp(p, "locals") == 0) {
+            debug_cli_print_locals(state, 0);
+            continue;
+        }
+        if (strcmp(p, "w") == 0 || strcmp(p, "where") == 0) {
+            debug_cli_print_location(state);
+            continue;
+        }
+        if (strcmp(p, "q") == 0 || strcmp(p, "quit") == 0) {
+            state->quit_requested = 1;
+            return BASL_DEBUG_CONTINUE;
+        }
+        if (strcmp(p, "h") == 0 || strcmp(p, "help") == 0) {
+            debug_cli_help();
+            continue;
+        }
+        if (p[0] == 'b' && (p[1] == ' ' || p[1] == '\t')) {
+            /* Set breakpoint: b <line> */
+            uint32_t bp_line = (uint32_t)atoi(p + 2);
+            if (bp_line > 0) {
+                basl_source_id_t src_id;
+                uint32_t cur_line, cur_col;
+                size_t bp_id;
+                if (basl_debugger_current_location(state->debugger, &src_id, &cur_line, &cur_col) == BASL_STATUS_OK) {
+                    if (basl_debugger_set_breakpoint(state->debugger, src_id, bp_line, &bp_id, &error) == BASL_STATUS_OK) {
+                        printf("Breakpoint %zu set at line %u\n", bp_id, bp_line);
+                    } else {
+                        printf("Failed to set breakpoint\n");
+                    }
+                }
+            } else {
+                printf("Usage: b <line>\n");
+            }
+            continue;
+        }
+        if (p[0] == 'd' && (p[1] == ' ' || p[1] == '\t')) {
+            /* Delete breakpoint: d <id> */
+            size_t bp_id = (size_t)atoi(p + 2);
+            if (basl_debugger_clear_breakpoint(state->debugger, bp_id) == BASL_STATUS_OK) {
+                printf("Breakpoint %zu deleted\n", bp_id);
+            } else {
+                printf("No such breakpoint\n");
+            }
+            continue;
+        }
+
+        printf("Unknown command: %s (type 'help' for commands)\n", p);
+    }
+}
+
+static int cmd_debug_interactive(const char *script_path) {
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_debugger_t *debugger = NULL;
+    basl_error_t error = {0};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_source_id_t source_id = 0U;
+    basl_object_t *function = NULL;
+    basl_status_t status;
+    basl_line_history_t history;
+    debug_cli_state_t cli_state = {0};
+    int exit_code = 0;
+
+    if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
+        return 1;
+    }
+    if (basl_vm_open(&vm, runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize vm: %s\n", basl_error_message(&error));
+        basl_runtime_close(&runtime);
+        return 1;
+    }
+
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+    basl_line_history_init(&history, 100);
+
+    {
+        char proj_root[4096];
+        const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
+        if (!register_source_tree(&registry, script_path, root, &source_id, &error)) {
+            fprintf(stderr, "failed to register source: %s\n", basl_error_message(&error));
+            exit_code = 1;
+            goto cleanup;
+        }
+    }
+
+    /* Compile. */
+    {
+        basl_native_registry_t natives;
+        basl_native_registry_init(&natives);
+        basl_stdlib_register_all(&natives, &error);
+        status = basl_compile_source_with_natives(&registry, source_id, &natives,
+                                                   &function, &diagnostics, &error);
+        basl_native_registry_free(&natives);
+    }
+    if (status != BASL_STATUS_OK) {
+        if (basl_diagnostic_list_count(&diagnostics) != 0U) {
+            print_diagnostics(&registry, &diagnostics);
+        } else {
+            print_error(&registry, "compile failed", &error);
+        }
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Create debugger. */
+    if (basl_debugger_create(&debugger, vm, &registry, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to create debugger: %s\n", basl_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    /* Set up CLI state. */
+    cli_state.debugger = debugger;
+    cli_state.sources = &registry;
+    cli_state.history = &history;
+    cli_state.quit_requested = 0;
+
+    basl_debugger_set_callback(debugger, debug_cli_callback, &cli_state);
+    basl_debugger_attach(debugger);
+
+    /* Start paused at entry. */
+    basl_debugger_pause(debugger);
+
+    printf("BASL Interactive Debugger\n");
+    printf("Type 'help' for commands.\n\n");
+
+    /* Execute. */
+    {
+        basl_value_t result;
+        basl_value_init_nil(&result);
+        status = basl_vm_execute_function(vm, function, &result, &error);
+        if (!cli_state.quit_requested) {
+            if (status == BASL_STATUS_OK) {
+                printf("\nProgram finished normally.\n");
+            } else {
+                printf("\nProgram error: %s\n", basl_error_message(&error));
+            }
+        }
+        basl_value_release(&result);
+    }
+
+cleanup:
+    basl_debugger_destroy(&debugger);
+    basl_line_history_free(&history);
+    basl_object_release(&function);
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+    return exit_code;
+}
+
 /* ── doc command ──────────────────────────────────────────────────── */
 
 static int cmd_doc(const char *file_path, const char *symbol) {
@@ -2239,6 +2573,7 @@ int main(int argc, char **argv) {
     const char *check_file = NULL;
     const char *new_name = NULL;
     const char *debug_file = NULL;
+    int debug_interactive = 0;
     const char *doc_file = NULL;
     const char *doc_symbol = NULL;
     const char *fmt_file = NULL;
@@ -2294,8 +2629,9 @@ int main(int argc, char **argv) {
     basl_cli_add_positional(cmd, "name", "Project name", &new_name);
     basl_cli_add_bool_flag(cmd, "lib", 'l', "Create a library project", &new_lib);
 
-    cmd = basl_cli_add_command(&cli, "debug", "Start DAP debug server for a BASL script");
+    cmd = basl_cli_add_command(&cli, "debug", "Debug a BASL script");
     basl_cli_add_positional(cmd, "file", "Script file to debug", &debug_file);
+    basl_cli_add_bool_flag(cmd, "interactive", 'i', "Use interactive CLI debugger (default: DAP server)", &debug_interactive);
 
     cmd = basl_cli_add_command(&cli, "doc", "Show public API documentation for a BASL source file");
     basl_cli_add_positional(cmd, "file", "Source file to document", &doc_file);
@@ -2353,6 +2689,9 @@ int main(int argc, char **argv) {
             if (debug_file == NULL) {
                 fprintf(stderr, "error: missing file argument\n");
                 return 2;
+            }
+            if (debug_interactive) {
+                return cmd_debug_interactive(debug_file);
             }
             return cmd_debug(debug_file);
         }
