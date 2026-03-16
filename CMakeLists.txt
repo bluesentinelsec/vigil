@@ -84,6 +84,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/fmt.c
     src/stdlib/math.c
     src/stdlib/test.c
+    src/stdlib/unsafe.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
@@ -169,6 +170,7 @@ if(BASL_BUILD_TESTS)
         tests/debug_info_test.c
         tests/debugger_test.c
         tests/diagnostic_test.c
+        tests/ffi_test.c
         tests/json_test.c
         tests/lexer_test.c
         tests/log_test.c

@@ -48,4 +48,34 @@ void  *basl_ffi_call_generic(void *fn, int nargs,
 void     *basl_ffi_int_to_ptr(uintptr_t v);
 uintptr_t basl_ffi_ptr_to_int(void *p);
 
+/* ── Callback trampoline pool ──────────────────────────────────── */
+
+#define BASL_FFI_MAX_CALLBACKS 8
+
+/*
+ * Callback dispatch function type.
+ * The user registers one of these per slot; the C trampoline calls it
+ * with the slot index and up to 4 intptr_t arguments.
+ */
+typedef intptr_t (*basl_ffi_callback_dispatch_fn)(
+    int slot, intptr_t a0, intptr_t a1, intptr_t a2, intptr_t a3);
+
+/*
+ * Set the global dispatch function.  Must be called before any
+ * callback slot is invoked from C code.
+ */
+void basl_ffi_callback_set_dispatch(basl_ffi_callback_dispatch_fn fn);
+
+/*
+ * Allocate a callback slot.  Returns the slot index (0..7) or -1 if
+ * all slots are in use.  *out_ptr receives the C function pointer
+ * that can be passed to foreign code.
+ */
+int basl_ffi_callback_alloc(void **out_ptr);
+
+/*
+ * Free a previously allocated callback slot.
+ */
+void basl_ffi_callback_free(int slot);
+
 #endif
