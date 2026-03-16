@@ -202,14 +202,14 @@ class TestReplInteractive(unittest.TestCase):
     def test_special_commands(self):
         """Test :help and :clear commands."""
         child = self.spawn_repl()
-        self.send_line(child, ":help")
+        child.send(":help\r")
         child.expect(":quit")  # Help text mentions :quit
-        child.expect(">>>")
-        self.send_line(child, "i32 x = 42")
-        child.expect(">>>")
-        self.send_line(child, ":clear")
+        child.expect(r"\r\n\r>>> ")
+        child.send("i32 x = 42\r")
+        child.expect(r"\r\n\r>>> ")
+        child.send(":clear\r")
         child.expect("State cleared")
-        self.send_line(child, ":quit")
+        child.send(":quit\r")
         child.expect(pexpect.EOF)
 
     def test_exit_command(self):
