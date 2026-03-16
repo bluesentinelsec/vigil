@@ -9,6 +9,12 @@
 
 #ifdef BASL_HAS_LIBFFI
 #include <ffi.h>
+/*
+ * Pedantic-safe casts for ffi_call's function pointer argument.
+ * For local function pointers, a direct cast between function pointer
+ * types is allowed, so we use (void(*)(void))(fn) directly.
+ */
+#define BASL_FFI_FN(f) ((void (*)(void))(f))
 #endif
 
 /*
@@ -139,7 +145,7 @@ TEST(FFILibffi, IntCall) {
     EXPECT_EQ((int)FFI_OK,
               (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 2,
                                 &ffi_type_sint32, args));
-    ffi_call(&cif, FFI_FN(fn_i32_i32_to_i32), &result, vals);
+    ffi_call(&cif, BASL_FFI_FN(fn_i32_i32_to_i32), &result, vals);
     EXPECT_EQ(7, (int)result);
 }
 
@@ -153,7 +159,7 @@ TEST(FFILibffi, FloatCall) {
     EXPECT_EQ((int)FFI_OK,
               (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 1,
                                 &ffi_type_double, args));
-    ffi_call(&cif, FFI_FN(fn_f64_to_f64), &result, vals);
+    ffi_call(&cif, BASL_FFI_FN(fn_f64_to_f64), &result, vals);
     EXPECT_NEAR(2.5, result, 0.001);
 }
 
@@ -162,7 +168,7 @@ TEST(FFILibffi, VoidCall) {
     EXPECT_EQ((int)FFI_OK,
               (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0,
                                 &ffi_type_void, NULL));
-    ffi_call(&cif, FFI_FN(fn_void_to_void), NULL, NULL);
+    ffi_call(&cif, BASL_FFI_FN(fn_void_to_void), NULL, NULL);
     EXPECT_TRUE(1);
 }
 
@@ -172,7 +178,7 @@ TEST(FFILibffi, NoArgsIntReturn) {
     EXPECT_EQ((int)FFI_OK,
               (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0,
                                 &ffi_type_sint32, NULL));
-    ffi_call(&cif, FFI_FN(fn_void_to_i32), &result, NULL);
+    ffi_call(&cif, BASL_FFI_FN(fn_void_to_i32), &result, NULL);
     EXPECT_EQ(42, (int)result);
 }
 
@@ -182,7 +188,7 @@ TEST(FFILibffi, NoArgsDoubleReturn) {
     EXPECT_EQ((int)FFI_OK,
               (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0,
                                 &ffi_type_double, NULL));
-    ffi_call(&cif, FFI_FN(fn_void_to_f64), &result, NULL);
+    ffi_call(&cif, BASL_FFI_FN(fn_void_to_f64), &result, NULL);
     EXPECT_NEAR(3.14159, result, 0.001);
 }
 
@@ -192,7 +198,7 @@ TEST(FFILibffi, PointerReturn) {
     EXPECT_EQ((int)FFI_OK,
               (int)ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0,
                                 &ffi_type_pointer, NULL));
-    ffi_call(&cif, FFI_FN(fn_void_to_str), &result, NULL);
+    ffi_call(&cif, BASL_FFI_FN(fn_void_to_str), &result, NULL);
     EXPECT_STREQ("hello", (const char *)result);
 }
 
@@ -249,6 +255,14 @@ TEST(FFIDlopen, OpenBadPath) {
 
 #ifdef BASL_HAS_LIBFFI
 
+/* Pedantic-safe void* -> void(*)(void) for dlsym results. */
+static void (*dlsym_to_fnptr(void *p))(void) {
+    void (*f)(void);
+    memcpy(&f, &p, sizeof(f));
+    return f;
+}
+#define BASL_FFI_FN_P(p) dlsym_to_fnptr(p)
+
 TEST(FFIDlopen, CallViaLibffi) {
     void *handle = NULL;
     basl_error_t error = {0};
@@ -264,7 +278,7 @@ TEST(FFIDlopen, CallViaLibffi) {
         int a = 3, b = 4;
         void *vals[2] = { &a, &b };
         ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 2, &ffi_type_sint32, args);
-        ffi_call(&cif, FFI_FN(add_fn), &result, vals);
+        ffi_call(&cif, BASL_FFI_FN_P(add_fn), &result, vals);
         EXPECT_EQ(7, (int)result);
     }
 
@@ -278,7 +292,7 @@ TEST(FFIDlopen, CallViaLibffi) {
         double a = 5.0;
         void *vals[1] = { &a };
         ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 1, &ffi_type_double, args);
-        ffi_call(&cif, FFI_FN(half_fn), &result, vals);
+        ffi_call(&cif, BASL_FFI_FN_P(half_fn), &result, vals);
         EXPECT_NEAR(2.5, result, 0.001);
     }
 
@@ -289,7 +303,7 @@ TEST(FFIDlopen, CallViaLibffi) {
         ffi_cif cif;
         ffi_arg result;
         ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0, &ffi_type_sint32, NULL);
-        ffi_call(&cif, FFI_FN(answer_fn), &result, NULL);
+        ffi_call(&cif, BASL_FFI_FN_P(answer_fn), &result, NULL);
         EXPECT_EQ(42, (int)result);
     }
 
@@ -300,7 +314,7 @@ TEST(FFIDlopen, CallViaLibffi) {
         ffi_cif cif;
         void *result;
         ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0, &ffi_type_pointer, NULL);
-        ffi_call(&cif, FFI_FN(greet_fn), &result, NULL);
+        ffi_call(&cif, BASL_FFI_FN_P(greet_fn), &result, NULL);
         EXPECT_STREQ("hello from C", (const char *)result);
     }
 
@@ -310,7 +324,7 @@ TEST(FFIDlopen, CallViaLibffi) {
     {
         ffi_cif cif;
         ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0, &ffi_type_void, NULL);
-        ffi_call(&cif, FFI_FN(noop_fn), NULL, NULL);
+        ffi_call(&cif, BASL_FFI_FN_P(noop_fn), NULL, NULL);
         EXPECT_TRUE(1);
     }
 
@@ -321,7 +335,7 @@ TEST(FFIDlopen, CallViaLibffi) {
         ffi_cif cif;
         double result;
         ffi_prep_cif(&cif, FFI_DEFAULT_ABI, 0, &ffi_type_double, NULL);
-        ffi_call(&cif, FFI_FN(pi_fn), &result, NULL);
+        ffi_call(&cif, BASL_FFI_FN_P(pi_fn), &result, NULL);
         EXPECT_NEAR(3.14159, result, 0.001);
     }
 

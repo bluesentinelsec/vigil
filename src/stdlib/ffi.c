@@ -37,10 +37,12 @@ static basl_status_t push_i64(basl_vm_t *vm, int64_t v, basl_error_t *error) {
     return basl_vm_stack_push(vm, &val, error);
 }
 
+#ifdef BASL_HAS_LIBFFI
 static basl_status_t push_f64(basl_vm_t *vm, double v, basl_error_t *error) {
     basl_value_t val = basl_nanbox_encode_double(v);
     return basl_vm_stack_push(vm, &val, error);
 }
+#endif
 
 static int64_t pop_i64(basl_vm_t *vm, size_t base, size_t idx) {
     basl_value_t v = basl_vm_stack_get(vm, base + idx);
@@ -60,6 +62,7 @@ static const char *pop_str(basl_vm_t *vm, size_t base, size_t idx) {
     return "";
 }
 
+#ifdef BASL_HAS_LIBFFI
 static basl_status_t push_string(basl_vm_t *vm, const char *s,
                                   basl_error_t *error) {
     basl_runtime_t *rt = basl_vm_runtime(vm);
@@ -72,6 +75,7 @@ static basl_status_t push_string(basl_vm_t *vm, const char *s,
     basl_value_release(&val);
     return st;
 }
+#endif
 
 /* ── Bind table ──────────────────────────────────────────────────── */
 
