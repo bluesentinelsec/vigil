@@ -32,6 +32,7 @@ struct basl_debugger {
     basl_runtime_t *runtime;
     basl_vm_t *vm;
     const basl_source_registry_t *sources;
+    const basl_debug_symbol_table_t *symbols;
     basl_debug_callback_t callback;
     void *callback_userdata;
     basl_debug_mode_t mode;
@@ -306,6 +307,68 @@ basl_status_t basl_debugger_set_breakpoint(
     return BASL_STATUS_OK;
 }
 
+basl_status_t basl_debugger_set_breakpoint_function(
+    basl_debugger_t *debugger,
+    const char *function_name,
+    size_t *out_breakpoint_id,
+    basl_error_t *error
+) {
+    size_t i, count;
+    size_t name_len;
+    const basl_debug_symbol_t *sym;
+    basl_source_location_t loc;
+
+    if (debugger == NULL || function_name == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "debugger and function_name must not be null");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    if (debugger->symbols == NULL) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                               "no symbol table attached to debugger");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    name_len = strlen(function_name);
+    count = basl_debug_symbol_table_count(debugger->symbols);
+
+    for (i = 0; i < count; i++) {
+        sym = basl_debug_symbol_table_get(debugger->symbols, i);
+        if (sym->kind != BASL_DEBUG_SYMBOL_FUNCTION &&
+            sym->kind != BASL_DEBUG_SYMBOL_METHOD) {
+            continue;
+        }
+        if (sym->name_length == name_len &&
+            memcmp(sym->name, function_name, name_len) == 0) {
+            /* Found it - resolve span to line number */
+            basl_source_location_clear(&loc);
+            loc.source_id = sym->span.source_id;
+            loc.offset = sym->span.start_offset;
+            if (basl_source_registry_resolve_location(debugger->sources, &loc, NULL) != BASL_STATUS_OK) {
+                basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                                       "failed to resolve function location");
+                return BASL_STATUS_INTERNAL;
+            }
+            /* Set breakpoint on line after declaration (first line of body) */
+            return basl_debugger_set_breakpoint(debugger, loc.source_id,
+                                                 loc.line + 1, out_breakpoint_id, error);
+        }
+    }
+
+    basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                           "function not found");
+    return BASL_STATUS_INVALID_ARGUMENT;
+}
+
+void basl_debugger_set_symbols(
+    basl_debugger_t *debugger,
+    const basl_debug_symbol_table_t *symbols
+) {
+    if (debugger != NULL) {
+        debugger->symbols = symbols;
+    }
+}
+
 basl_status_t basl_debugger_clear_breakpoint(
     basl_debugger_t *debugger,
     size_t breakpoint_id
@@ -470,4 +533,50 @@ size_t basl_debugger_frame_locals(
     }
 
     return count;
+}
+
+basl_status_t basl_debugger_get_local(
+    const basl_debugger_t *debugger,
+    size_t frame_index,
+    const char *name,
+    basl_value_t *out_value
+) {
+    size_t vm_frame_count;
+    size_t vm_frame_idx;
+    const basl_chunk_t *chunk;
+    size_t ip;
+    size_t base_slot;
+    size_t name_len;
+    size_t i;
+
+    if (debugger == NULL || name == NULL || out_value == NULL) {
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    name_len = strlen(name);
+    vm_frame_count = basl_vm_frame_depth(debugger->vm);
+    if (frame_index >= vm_frame_count) return BASL_STATUS_INVALID_ARGUMENT;
+    vm_frame_idx = vm_frame_count - 1U - frame_index;
+
+    chunk = basl_vm_frame_chunk(debugger->vm, vm_frame_idx);
+    ip = basl_vm_frame_ip(debugger->vm, vm_frame_idx);
+    base_slot = basl_vm_frame_base_slot(debugger->vm, vm_frame_idx);
+
+    if (chunk == NULL) return BASL_STATUS_INVALID_ARGUMENT;
+
+    for (i = 0U; i < basl_debug_local_table_count(&chunk->debug_locals); i += 1U) {
+        const basl_debug_local_t *local = basl_debug_local_table_get(&chunk->debug_locals, i);
+        if (local == NULL) continue;
+        if (ip >= local->scope_start_ip &&
+            (local->scope_end_ip == SIZE_MAX || ip < local->scope_end_ip)) {
+            if (local->name_length == name_len &&
+                memcmp(local->name, name, name_len) == 0) {
+                size_t stack_slot = base_slot + local->slot;
+                *out_value = basl_vm_stack_get(debugger->vm, stack_slot);
+                return BASL_STATUS_OK;
+            }
+        }
+    }
+
+    return BASL_STATUS_INVALID_ARGUMENT;
 }

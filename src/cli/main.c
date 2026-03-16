@@ -813,6 +813,41 @@ static void debug_cli_print_backtrace(debug_cli_state_t *state) {
     }
 }
 
+static void debug_cli_print_value(const basl_value_t *val) {
+    basl_value_kind_t kind = basl_value_kind(val);
+    switch (kind) {
+    case BASL_VALUE_NIL:
+        printf("nil\n");
+        break;
+    case BASL_VALUE_BOOL:
+        printf("%s\n", basl_value_as_bool(val) ? "true" : "false");
+        break;
+    case BASL_VALUE_INT:
+        printf("%lld\n", (long long)basl_value_as_int(val));
+        break;
+    case BASL_VALUE_UINT:
+        printf("%llu\n", (unsigned long long)basl_value_as_uint(val));
+        break;
+    case BASL_VALUE_FLOAT:
+        printf("%g\n", basl_value_as_float(val));
+        break;
+    case BASL_VALUE_OBJECT: {
+        basl_object_t *obj = basl_value_as_object(val);
+        if (obj && basl_object_type(obj) == BASL_OBJECT_STRING) {
+            printf("\"%s\"\n", basl_string_object_c_str(obj));
+        } else if (obj && basl_object_type(obj) == BASL_OBJECT_ARRAY) {
+            printf("<array[%zu]>\n", basl_array_object_length(obj));
+        } else {
+            printf("<object>\n");
+        }
+        break;
+    }
+    default:
+        printf("<unknown>\n");
+        break;
+    }
+}
+
 static void debug_cli_print_locals(debug_cli_state_t *state, size_t frame_idx) {
     const char *names[32];
     size_t name_lens[32];
@@ -894,18 +929,20 @@ static void debug_cli_list_source(debug_cli_state_t *state, int around_line) {
 
 static void debug_cli_help(void) {
     printf("Debugger commands:\n");
-    printf("  c, continue    Resume execution\n");
-    printf("  s, step        Step into\n");
-    printf("  n, next        Step over\n");
-    printf("  o, out         Step out\n");
-    printf("  b <line>       Set breakpoint at line\n");
-    printf("  d <id>         Delete breakpoint\n");
-    printf("  bt, backtrace  Show call stack\n");
-    printf("  l, locals      Show local variables\n");
-    printf("  list [line]    Show source around line\n");
-    printf("  w, where       Show current location\n");
-    printf("  q, quit        Stop debugging\n");
-    printf("  h, help        Show this help\n");
+    printf("  c, continue       Resume execution\n");
+    printf("  s, step           Step into\n");
+    printf("  n, next           Step over\n");
+    printf("  o, out            Step out\n");
+    printf("  b <line>          Set breakpoint at line\n");
+    printf("  b <function>      Set breakpoint on function\n");
+    printf("  d <id>            Delete breakpoint\n");
+    printf("  bt, backtrace     Show call stack\n");
+    printf("  l, locals         Show local variables\n");
+    printf("  p <var>           Print variable value\n");
+    printf("  list [line]       Show source around line\n");
+    printf("  w, where          Show current location\n");
+    printf("  q, quit           Stop debugging\n");
+    printf("  h, help           Show this help\n");
 }
 
 static basl_debug_action_t debug_cli_callback(
@@ -992,12 +1029,15 @@ static basl_debug_action_t debug_cli_callback(
             continue;
         }
         if (p[0] == 'b' && (p[1] == ' ' || p[1] == '\t')) {
-            /* Set breakpoint: b <line> */
-            uint32_t bp_line = (uint32_t)atoi(p + 2);
-            if (bp_line > 0) {
+            /* Set breakpoint: b <line> or b <function> */
+            const char *arg = p + 2;
+            while (*arg == ' ' || *arg == '\t') arg++;
+            size_t bp_id;
+            if (*arg >= '0' && *arg <= '9') {
+                /* Numeric - line breakpoint */
+                uint32_t bp_line = (uint32_t)atoi(arg);
                 basl_source_id_t src_id;
                 uint32_t cur_line, cur_col;
-                size_t bp_id;
                 if (basl_debugger_current_location(state->debugger, &src_id, &cur_line, &cur_col) == BASL_STATUS_OK) {
                     if (basl_debugger_set_breakpoint(state->debugger, src_id, bp_line, &bp_id, &error) == BASL_STATUS_OK) {
                         printf("Breakpoint %zu set at line %u\n", bp_id, bp_line);
@@ -1005,8 +1045,32 @@ static basl_debug_action_t debug_cli_callback(
                         printf("Failed to set breakpoint\n");
                     }
                 }
+            } else if (*arg) {
+                /* Function name breakpoint */
+                if (basl_debugger_set_breakpoint_function(state->debugger, arg, &bp_id, &error) == BASL_STATUS_OK) {
+                    printf("Breakpoint %zu set on function '%s'\n", bp_id, arg);
+                } else {
+                    printf("Function '%s' not found\n", arg);
+                }
             } else {
-                printf("Usage: b <line>\n");
+                printf("Usage: b <line> or b <function>\n");
+            }
+            continue;
+        }
+        if (p[0] == 'p' && (p[1] == ' ' || p[1] == '\t')) {
+            /* Print variable: p <name> */
+            const char *var_name = p + 2;
+            while (*var_name == ' ' || *var_name == '\t') var_name++;
+            if (*var_name) {
+                basl_value_t val;
+                if (basl_debugger_get_local(state->debugger, 0, var_name, &val) == BASL_STATUS_OK) {
+                    debug_cli_print_value(&val);
+                    basl_value_release(&val);
+                } else {
+                    printf("Variable '%s' not found in current scope\n", var_name);
+                }
+            } else {
+                printf("Usage: p <variable>\n");
             }
             continue;
         }
@@ -1032,12 +1096,14 @@ static int cmd_debug_interactive(const char *script_path) {
     basl_error_t error = {0};
     basl_source_registry_t registry;
     basl_diagnostic_list_t diagnostics;
+    basl_debug_symbol_table_t symbols;
     basl_source_id_t source_id = 0U;
     basl_object_t *function = NULL;
     basl_status_t status;
     basl_line_history_t history;
     debug_cli_state_t cli_state = {0};
     int exit_code = 0;
+    int symbols_initialized = 0;
 
     if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
@@ -1051,6 +1117,8 @@ static int cmd_debug_interactive(const char *script_path) {
 
     basl_source_registry_init(&registry, runtime);
     basl_diagnostic_list_init(&diagnostics, runtime);
+    basl_debug_symbol_table_init(&symbols, runtime);
+    symbols_initialized = 1;
     basl_line_history_init(&history, 100);
 
     {
@@ -1063,13 +1131,13 @@ static int cmd_debug_interactive(const char *script_path) {
         }
     }
 
-    /* Compile. */
+    /* Compile with debug info. */
     {
         basl_native_registry_t natives;
         basl_native_registry_init(&natives);
         basl_stdlib_register_all(&natives, &error);
-        status = basl_compile_source_with_natives(&registry, source_id, &natives,
-                                                   &function, &diagnostics, &error);
+        status = basl_compile_source_with_debug_info(&registry, source_id, &natives,
+                                                      &function, &diagnostics, &symbols, &error);
         basl_native_registry_free(&natives);
     }
     if (status != BASL_STATUS_OK) {
@@ -1088,6 +1156,9 @@ static int cmd_debug_interactive(const char *script_path) {
         exit_code = 1;
         goto cleanup;
     }
+
+    /* Attach symbol table for function breakpoints. */
+    basl_debugger_set_symbols(debugger, &symbols);
 
     /* Set up CLI state. */
     cli_state.debugger = debugger;
@@ -1123,6 +1194,7 @@ cleanup:
     basl_debugger_destroy(&debugger);
     basl_line_history_free(&history);
     basl_object_release(&function);
+    if (symbols_initialized) basl_debug_symbol_table_free(&symbols);
     basl_diagnostic_list_free(&diagnostics);
     basl_source_registry_free(&registry);
     basl_vm_close(&vm);
