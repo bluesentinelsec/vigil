@@ -80,6 +80,7 @@ set_target_properties(basl_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(basl ${BASL_LIBRARY_TYPE}
     $<TARGET_OBJECTS:basl_core>
     src/stdlib/args.c
+    src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/math.c
     src/stdlib/test.c

@@ -11,6 +11,7 @@ extern "C" {
 
 /* Each stdlib module exports a const descriptor. */
 extern BASL_API const basl_native_module_t basl_stdlib_args;
+extern BASL_API const basl_native_module_t basl_stdlib_ffi;
 extern BASL_API const basl_native_module_t basl_stdlib_fmt;
 extern BASL_API const basl_native_module_t basl_stdlib_math;
 extern BASL_API const basl_native_module_t basl_stdlib_test;
@@ -22,6 +23,8 @@ static inline basl_status_t basl_stdlib_register_all(
 ) {
     basl_status_t status;
     status = basl_native_registry_add(registry, &basl_stdlib_args, error);
+    if (status != BASL_STATUS_OK) return status;
+    status = basl_native_registry_add(registry, &basl_stdlib_ffi, error);
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_fmt, error);
     if (status != BASL_STATUS_OK) return status;
@@ -36,6 +39,7 @@ static inline int basl_stdlib_is_native_module(
     size_t name_length
 ) {
     return (name_length == 4U && memcmp(name, "args", 4U) == 0) ||
+           (name_length == 3U && memcmp(name, "ffi", 3U) == 0) ||
            (name_length == 3U && memcmp(name, "fmt", 3U) == 0) ||
            (name_length == 4U && memcmp(name, "math", 4U) == 0) ||
            (name_length == 4U && memcmp(name, "test", 4U) == 0);
