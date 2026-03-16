@@ -40,6 +40,7 @@ add_library(basl_core OBJECT
     src/package.c
     src/debug_info.c
     src/semantic.c
+    src/lsp.c
     src/debugger.c
     src/compiler_program.c
     src/compiler_builtins.c
@@ -195,6 +196,7 @@ if(BASL_BUILD_TESTS)
         tests/platform_test.c
         tests/runtime_test.c
         tests/semantic_test.c
+        tests/lsp_test.c
         tests/source_test.c
         tests/stdlib_test.c
         tests/string_test.c
