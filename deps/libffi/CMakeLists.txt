@@ -38,14 +38,20 @@ if(FFI_ARCH STREQUAL "x86_64")
         # MSVC: preprocess win64_intel.S with cl /EP, then assemble with ml64.
         set(FFI_ASM_INPUT ${FFI_SRC}/x86/win64_intel.S)
         set(FFI_ASM_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/win64_intel.asm)
-        # Use cmd /c so the > redirect works on Windows.
         add_custom_command(
             OUTPUT ${FFI_ASM_OUTPUT}
-            COMMAND cmd /c "${CMAKE_C_COMPILER} /nologo /EP /I\"${FFI_GEN_DIR}\" /I\"${FFI_INC}\" /I\"${FFI_SRC}/x86\" /DLIBFFI_ASM /DX86_WIN64 /DFFI_STATIC_BUILD /DFFI_BUILDING \"${FFI_ASM_INPUT}\" > \"${FFI_ASM_OUTPUT}\""
+            COMMAND ${CMAKE_COMMAND}
+                -DCC=${CMAKE_C_COMPILER}
+                -DINPUT=${FFI_ASM_INPUT}
+                -DOUTPUT=${FFI_ASM_OUTPUT}
+                "-DINCLUDES=/I${FFI_GEN_DIR} /I${FFI_INC} /I${FFI_SRC}/x86"
+                "-DDEFINES=/DLIBFFI_ASM /DX86_WIN64 /DFFI_STATIC_BUILD /DFFI_BUILDING"
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/preprocess_asm.cmake
             DEPENDS ${FFI_ASM_INPUT}
                     ${FFI_INC}/ffi_cfi.h
                     ${FFI_SRC}/x86/asmnames.h
             COMMENT "Preprocessing win64_intel.S -> win64_intel.asm"
+            VERBATIM
         )
         set(FFI_ARCH_SOURCES
             ${FFI_SRC}/x86/ffiw64.c
