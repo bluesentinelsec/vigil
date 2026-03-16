@@ -38,6 +38,7 @@
  *   unsafe.cb_alloc() -> i64               allocate a callback slot
  *   unsafe.cb_free(i32 slot)               free a callback slot
  */
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -685,6 +686,163 @@ static basl_status_t basl_unsafe_poke_ptr(
     return BASL_STATUS_OK;
 }
 
+/* ── unsafe.sizeof(string type_name) -> i32 ──────────────────────── */
+/* Returns the size in bytes of a C primitive type.                    */
+/* Supported: u8, i8, i16, u16, i32, u32, i64, u64, f32, f64, ptr.   */
+
+static int32_t type_sizeof(const char *t) {
+    if (strcmp(t, "u8")  == 0 || strcmp(t, "i8")  == 0) return 1;
+    if (strcmp(t, "i16") == 0 || strcmp(t, "u16") == 0) return 2;
+    if (strcmp(t, "i32") == 0 || strcmp(t, "u32") == 0) return 4;
+    if (strcmp(t, "i64") == 0 || strcmp(t, "u64") == 0) return 8;
+    if (strcmp(t, "f32") == 0) return 4;
+    if (strcmp(t, "f64") == 0) return 8;
+    if (strcmp(t, "ptr") == 0) return (int32_t)sizeof(void *);
+    return 0;
+}
+
+static int32_t type_align(const char *t) {
+    /* On all modern platforms, alignment == size for primitives up to 8. */
+    return type_sizeof(t);
+}
+
+static basl_status_t basl_unsafe_sizeof(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    char name[32];
+    arg_str_buf(vm, base, 0, name, sizeof(name));
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    int32_t sz = type_sizeof(name);
+    if (sz == 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                               "unsafe.sizeof: unknown type");
+        return BASL_STATUS_INTERNAL;
+    }
+    return push_i32(vm, sz, error);
+}
+
+/* ── unsafe.alignof(string type_name) -> i32 ─────────────────────── */
+
+static basl_status_t basl_unsafe_alignof(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    char name[32];
+    arg_str_buf(vm, base, 0, name, sizeof(name));
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    int32_t a = type_align(name);
+    if (a == 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                               "unsafe.alignof: unknown type");
+        return BASL_STATUS_INTERNAL;
+    }
+    return push_i32(vm, a, error);
+}
+
+/* ── unsafe.offsetof(string types_csv, i32 field_index) -> i32 ───── */
+/* Given a comma-separated list of type names (e.g. "i32,f32,ptr"),    */
+/* compute the byte offset of the field at field_index, respecting     */
+/* natural alignment and padding.                                      */
+
+static basl_status_t basl_unsafe_offsetof(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    char layout[256];
+    arg_str_buf(vm, base, 0, layout, sizeof(layout));
+    int32_t target = arg_i32(vm, base, 1);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    int32_t offset = 0;
+    int32_t idx = 0;
+    char *p = layout;
+    while (*p) {
+        char *comma = strchr(p, ',');
+        if (comma) *comma = '\0';
+        /* Trim leading spaces. */
+        while (*p == ' ') p++;
+
+        int32_t sz = type_sizeof(p);
+        int32_t al = type_align(p);
+        if (sz == 0) {
+            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                                   "unsafe.offsetof: unknown type in layout");
+            return BASL_STATUS_INTERNAL;
+        }
+        /* Align offset. */
+        if (al > 0) offset = (offset + al - 1) & ~(al - 1);
+        if (idx == target) return push_i32(vm, offset, error);
+        offset += sz;
+        idx++;
+        p = comma ? comma + 1 : p + strlen(p);
+    }
+    basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                           "unsafe.offsetof: field index out of range");
+    return BASL_STATUS_INTERNAL;
+}
+
+/* ── unsafe.struct_size(string types_csv) -> i32 ─────────────────── */
+/* Total size of a struct with the given field types, including tail   */
+/* padding for alignment.                                              */
+
+static basl_status_t basl_unsafe_struct_size(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    char layout[256];
+    arg_str_buf(vm, base, 0, layout, sizeof(layout));
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    int32_t offset = 0;
+    int32_t max_align = 1;
+    char *p = layout;
+    while (*p) {
+        char *comma = strchr(p, ',');
+        if (comma) *comma = '\0';
+        while (*p == ' ') p++;
+
+        int32_t sz = type_sizeof(p);
+        int32_t al = type_align(p);
+        if (sz == 0) {
+            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                                   "unsafe.struct_size: unknown type in layout");
+            return BASL_STATUS_INTERNAL;
+        }
+        if (al > max_align) max_align = al;
+        offset = (offset + al - 1) & ~(al - 1);
+        offset += sz;
+        p = comma ? comma + 1 : p + strlen(p);
+    }
+    /* Tail padding: round up to max alignment. */
+    offset = (offset + max_align - 1) & ~(max_align - 1);
+    return push_i32(vm, offset, error);
+}
+
+/* ── unsafe.errno() -> i32 ───────────────────────────────────────── */
+
+static basl_status_t basl_unsafe_errno(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    basl_vm_stack_pop_n(vm, arg_count);
+    return push_i32(vm, (int32_t)errno, error);
+}
+
+/* ── unsafe.set_errno(i32 val) ───────────────────────────────────── */
+
+static basl_status_t basl_unsafe_set_errno(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int32_t val = arg_i32(vm, base, 0);
+    (void)error;
+    basl_vm_stack_pop_n(vm, arg_count);
+    errno = val;
+    return BASL_STATUS_OK;
+}
+
 /* ── unsafe.cb_alloc() -> i64 ────────────────────────────────────── */
 
 static basl_status_t basl_unsafe_cb_alloc(
@@ -723,6 +881,8 @@ static const int p_i64_i32_i32[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I32
 static const int p_i64_i32_i64[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64 };
 static const int p_i64_i32_f64[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_F64 };
 static const int p_i64_i32_str[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING };
+static const int p_str[] = { BASL_TYPE_STRING };
+static const int p_str_i32[] = { BASL_TYPE_STRING, BASL_TYPE_I32 };
 static const int p_copy[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64,
                                BASL_TYPE_I32, BASL_TYPE_I32 };
 
@@ -764,11 +924,17 @@ static const basl_native_module_function_t basl_unsafe_functions[] = {
     FV("poke_f64",  8U,  basl_unsafe_poke_f64,   3U, p_i64_i32_f64),
     FV("poke_ptr",  8U,  basl_unsafe_poke_ptr,   3U, p_i64_i32_i64),
     /* Utility */
-    F("null",       4U,  basl_unsafe_null,       0U, NULL,           BASL_TYPE_I64),
-    F("sizeof_ptr", 10U, basl_unsafe_sizeof_ptr, 0U, NULL,           BASL_TYPE_I32),
-    F("str",        3U,  basl_unsafe_str,        1U, p_i64,         BASL_TYPE_STRING),
-    F("cb_alloc",   8U,  basl_unsafe_cb_alloc,   0U, NULL,           BASL_TYPE_I64),
-    FV("cb_free",   7U,  basl_unsafe_cb_free,    1U, p_i32),
+    F("null",        4U,  basl_unsafe_null,        0U, NULL,           BASL_TYPE_I64),
+    F("sizeof_ptr",  10U, basl_unsafe_sizeof_ptr,  0U, NULL,           BASL_TYPE_I32),
+    F("sizeof",      6U,  basl_unsafe_sizeof,      1U, p_str,         BASL_TYPE_I32),
+    F("alignof",     7U,  basl_unsafe_alignof,     1U, p_str,         BASL_TYPE_I32),
+    F("offsetof",    8U,  basl_unsafe_offsetof,    2U, p_str_i32,     BASL_TYPE_I32),
+    F("struct_size", 11U, basl_unsafe_struct_size,  1U, p_str,         BASL_TYPE_I32),
+    F("errno",       5U,  basl_unsafe_errno,       0U, NULL,           BASL_TYPE_I32),
+    FV("set_errno",  9U,  basl_unsafe_set_errno,   1U, p_i32),
+    F("str",         3U,  basl_unsafe_str,         1U, p_i64,         BASL_TYPE_STRING),
+    F("cb_alloc",    8U,  basl_unsafe_cb_alloc,    0U, NULL,           BASL_TYPE_I64),
+    FV("cb_free",    7U,  basl_unsafe_cb_free,     1U, p_i32),
 };
 
 #undef F

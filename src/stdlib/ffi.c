@@ -197,13 +197,27 @@ static ffi_type *sig_to_ffi_type(const char *t, size_t len) {
     return &ffi_type_pointer; /* fallback */
 }
 
-/* Parse "ret(p1,p2,...)" and call fn via ffi_call.  Returns raw i64 bits. */
+/* Parse "[stdcall:]ret(p1,p2,...)" and call fn via ffi_call.
+ * Returns raw i64 bits.  Prefix "stdcall:" selects FFI_STDCALL on
+ * platforms that support it (32-bit x86 Windows); ignored elsewhere. */
 static int64_t ffi_call_generic(void *fn, const char *sig,
                                 const int64_t *args, int nargs_avail) {
-    const char *paren = strchr(sig, '(');
+    ffi_abi abi = FFI_DEFAULT_ABI;
+    const char *s = sig;
+#ifdef FFI_STDCALL
+    if (strncmp(s, "stdcall:", 8) == 0) {
+        abi = FFI_STDCALL;
+        s += 8;
+    }
+#else
+    if (strncmp(s, "stdcall:", 8) == 0)
+        s += 8; /* skip prefix, use default ABI */
+#endif
+
+    const char *paren = strchr(s, '(');
     if (!paren) return 0;
-    size_t ret_len = (size_t)(paren - sig);
-    ffi_type *rtype = sig_to_ffi_type(sig, ret_len);
+    size_t ret_len = (size_t)(paren - s);
+    ffi_type *rtype = sig_to_ffi_type(s, ret_len);
 
     const char *p = paren + 1;
     const char *end = strchr(p, ')');
@@ -258,7 +272,7 @@ static int64_t ffi_call_generic(void *fn, const char *sig,
 
     ffi_cif cif;
     int64_t result = 0;
-    if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, (unsigned)nargs,
+    if (ffi_prep_cif(&cif, abi, (unsigned)nargs,
                      rtype, nargs ? atypes : NULL) != FFI_OK)
         goto done;
 
