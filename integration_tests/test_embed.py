@@ -35,11 +35,9 @@ class TestBaslEmbed(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         with open(out) as f:
             text = f.read()
-        self.assertIn('import "base64"', text)
         self.assertIn('pub string name = "hello.txt"', text)
         self.assertIn("pub i32 size = 6", text)
-        self.assertIn("pub fn bytes()", text)
-        self.assertIn("base64.decode(_b64)", text)
+        self.assertIn("pub array<i32> data", text)
 
     def test_multi_file(self):
         a = self._write("a.txt", "AAA")
@@ -71,27 +69,22 @@ class TestBaslEmbed(unittest.TestCase):
         self.assertIn("sub/nested.txt", text)
         self.assertIn("root.txt", text)
 
-    def test_base64_correctness(self):
-        import base64
-        src = self._write("data.bin", "test data 123")
+    def test_string_correctness(self):
+        src = self._write("data.txt", "test data 123")
         out = os.path.join(self.tmpdir, "data.basl")
         result = run_embed(src, "-o", out)
         self.assertEqual(result.returncode, 0)
         with open(out) as f:
             text = f.read()
-        # Extract the base64 string
-        for line in text.split("\n"):
-            if line.startswith("string _b64"):
-                b64_str = line.split('"')[1]
-                decoded = base64.b64decode(b64_str).decode("utf-8")
-                self.assertEqual(decoded, "test data 123")
-                break
-        else:
-            self.fail("No _b64 variable found")
+        # Check byte array format
+        self.assertIn("pub array<i32> data", text)
+        self.assertIn("0x74", text)  # 't'
 
     def test_no_args(self):
         result = run_embed()
-        self.assertEqual(result.returncode, 2)
+        # Shows help and exits 0
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Usage:", result.stdout)
 
     def test_missing_file(self):
         result = run_embed("/nonexistent/file.txt", "-o", "/tmp/out.basl")

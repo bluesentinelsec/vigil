@@ -6577,6 +6577,36 @@ static basl_status_t basl_parser_parse_builtin_error_constructor(
     return BASL_STATUS_OK;
 }
 
+static basl_status_t basl_parser_parse_builtin_char(
+    basl_parser_state_t *state,
+    const basl_token_t *name_token,
+    basl_expression_result_t *out_result
+) {
+    basl_status_t status;
+    basl_expression_result_t arg_result;
+
+    basl_expression_result_clear(&arg_result);
+
+    status = basl_parser_expect(state, BASL_TOKEN_LPAREN, "expected '(' after char", NULL);
+    if (status != BASL_STATUS_OK) return status;
+
+    status = basl_parser_parse_expression(state, &arg_result);
+    if (status != BASL_STATUS_OK) return status;
+
+    if (!basl_parser_type_is_integer(arg_result.type)) {
+        return basl_parser_report(state, name_token->span, "char() requires an integer argument");
+    }
+
+    status = basl_parser_expect(state, BASL_TOKEN_RPAREN, "expected ')' after char argument", NULL);
+    if (status != BASL_STATUS_OK) return status;
+
+    status = basl_parser_emit_opcode(state, BASL_OPCODE_CHAR_FROM_INT, name_token->span);
+    if (status != BASL_STATUS_OK) return status;
+
+    basl_expression_result_set_type(out_result, basl_binding_type_primitive(BASL_TYPE_STRING));
+    return BASL_STATUS_OK;
+}
+
 static int basl_parser_resolve_builtin_conversion_kind(
     const basl_parser_state_t *state,
     const basl_token_t *name_token,
@@ -9403,6 +9433,12 @@ static basl_status_t basl_parser_parse_primary_base(
                     basl_program_names_equal(name_text, name_length, "err", 3U)
                 ) {
                     return basl_parser_parse_builtin_error_constructor(state, token, out_result);
+                }
+                if (
+                    !local_found &&
+                    basl_program_names_equal(name_text, name_length, "char", 4U)
+                ) {
+                    return basl_parser_parse_builtin_char(state, token, out_result);
                 }
                 if (basl_binding_type_is_valid(local_type) && basl_parser_type_is_function(local_type)) {
                     basl_expression_result_set_type(out_result, local_type);

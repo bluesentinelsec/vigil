@@ -58,6 +58,13 @@ static const basl_doc_entry_t builtin_docs[] = {
         NULL,
         "exit(0)  // success\nexit(1)  // failure"
     },
+    {
+        "char",
+        "char(code: int) -> string",
+        "Convert a byte value (0-255) to a single-character string.",
+        NULL,
+        "char(65)   // \"A\"\nchar(0x0a) // \"\\n\""
+    },
 };
 
 #define BUILTIN_COUNT (sizeof(builtin_docs) / sizeof(builtin_docs[0]))
