@@ -2895,6 +2895,16 @@ int main(int argc, char **argv) {
         return cmd_run(argv[2], script_argv, script_argc);
     }
 
+    /* Handle "basl <file.basl> [args...]" as shorthand for "basl run <file.basl>". */
+    if (argc >= 2 && argv[1][0] != '-') {
+        size_t len = strlen(argv[1]);
+        if (len > 5 && strcmp(argv[1] + len - 5, ".basl") == 0) {
+            const char *const *script_argv = argc > 2 ? (const char *const *)&argv[2] : NULL;
+            size_t script_argc = argc > 2 ? (size_t)(argc - 2) : 0;
+            return cmd_run(argv[1], script_argv, script_argc);
+        }
+    }
+
     /* Handle "basl embed <file|dir...> [-o output]" before CLI parser
      * since embed needs rest-args (multiple file targets). */
     if (argc >= 3 && strcmp(argv[1], "embed") == 0) {
@@ -2914,6 +2924,12 @@ int main(int argc, char **argv) {
     /* Handle "basl lsp" before CLI parser. */
     if (argc >= 2 && strcmp(argv[1], "lsp") == 0) {
         return cmd_lsp();
+    }
+
+    /* Handle "basl version" before CLI parser. */
+    if (argc >= 2 && strcmp(argv[1], "version") == 0) {
+        printf("basl %s\n", BASL_VERSION);
+        return 0;
     }
 
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
@@ -2945,6 +2961,8 @@ int main(int argc, char **argv) {
     (void)basl_cli_add_command(&cli, "repl", "Start interactive REPL");
 
     (void)basl_cli_add_command(&cli, "lsp", "Start Language Server Protocol server");
+
+    (void)basl_cli_add_command(&cli, "version", "Print version information");
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
