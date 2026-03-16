@@ -859,6 +859,39 @@ static void debug_cli_print_locals(debug_cli_state_t *state, size_t frame_idx) {
     }
 }
 
+static void debug_cli_list_source(debug_cli_state_t *state, int around_line) {
+    basl_source_id_t source_id;
+    uint32_t line, column;
+    const basl_source_file_t *source;
+
+    if (basl_debugger_current_location(state->debugger, &source_id, &line, &column) != BASL_STATUS_OK)
+        return;
+    source = basl_source_registry_get(state->sources, source_id);
+    if (!source) return;
+
+    const char *text = basl_string_c_str(&source->text);
+    int center = (around_line > 0) ? around_line : (int)line;
+    int start = center - 5;
+    int end = center + 5;
+    if (start < 1) start = 1;
+
+    const char *p = text;
+    int cur = 1;
+    while (*p && cur < start) {
+        if (*p == '\n') cur++;
+        p++;
+    }
+    while (*p && cur <= end) {
+        const char *eol = p;
+        while (*eol && *eol != '\n') eol++;
+        char marker = (cur == (int)line) ? '>' : ' ';
+        printf("%c%4d | %.*s\n", marker, cur, (int)(eol - p), p);
+        if (*eol) eol++;
+        p = eol;
+        cur++;
+    }
+}
+
 static void debug_cli_help(void) {
     printf("Debugger commands:\n");
     printf("  c, continue    Resume execution\n");
@@ -869,6 +902,7 @@ static void debug_cli_help(void) {
     printf("  d <id>         Delete breakpoint\n");
     printf("  bt, backtrace  Show call stack\n");
     printf("  l, locals      Show local variables\n");
+    printf("  list [line]    Show source around line\n");
     printf("  w, where       Show current location\n");
     printf("  q, quit        Stop debugging\n");
     printf("  h, help        Show this help\n");
@@ -937,6 +971,12 @@ static basl_debug_action_t debug_cli_callback(
         }
         if (strcmp(p, "l") == 0 || strcmp(p, "locals") == 0) {
             debug_cli_print_locals(state, 0);
+            continue;
+        }
+        if (strncmp(p, "list", 4) == 0 && (p[4] == '\0' || p[4] == ' ')) {
+            int around = 0;
+            if (p[4] == ' ') around = atoi(p + 5);
+            debug_cli_list_source(state, around);
             continue;
         }
         if (strcmp(p, "w") == 0 || strcmp(p, "where") == 0) {
