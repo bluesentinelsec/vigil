@@ -3,6 +3,7 @@
 
 #include "basl/diagnostic.h"
 #include "basl/export.h"
+#include "basl/native_module.h"
 #include "basl/source.h"
 #include "basl/status.h"
 #include "basl/value.h"
@@ -24,6 +25,23 @@ BASL_API basl_status_t basl_compile_source(
     const basl_source_registry_t *registry,
     basl_source_id_t source_id,
     basl_object_t **out_function,
+    basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error
+);
+
+/*
+ * Compile in REPL mode.  Top-level statements and expressions are allowed
+ * without a fn main() wrapper.  The compiler synthesizes an entrypoint
+ * from any non-declaration tokens found at the top level.  If the source
+ * contains only declarations and no statements, *out_has_statements is set
+ * to 0 (the returned function still validates global initializers).
+ */
+BASL_API basl_status_t basl_compile_source_repl(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    const basl_native_registry_t *natives,
+    basl_object_t **out_function,
+    int *out_has_statements,
     basl_diagnostic_list_t *diagnostics,
     basl_error_t *error
 );

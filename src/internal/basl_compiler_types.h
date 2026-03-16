@@ -214,6 +214,10 @@ typedef struct basl_program_state {
     size_t global_count;
     size_t global_capacity;
     const struct basl_native_registry *natives;
+    int compile_mode;
+    size_t repl_stmts_start;
+    size_t repl_stmts_end;
+    int repl_has_statements;
 } basl_program_state_t;
 
 typedef struct basl_parser_state {

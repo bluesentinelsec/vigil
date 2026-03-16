@@ -1608,6 +1608,505 @@ static int cmd_embed(int argc, char **argv) {
     return 0;
 }
 
+/* ── repl command ────────────────────────────────────────────────── */
+
+/* Simple growable string buffer for the REPL preamble. */
+typedef struct {
+    char *data;
+    size_t length;
+    size_t capacity;
+} repl_buf_t;
+
+static void repl_buf_init(repl_buf_t *buf) {
+    buf->data = NULL;
+    buf->length = 0;
+    buf->capacity = 0;
+}
+
+static void repl_buf_free(repl_buf_t *buf) {
+    free(buf->data);
+    buf->data = NULL;
+    buf->length = 0;
+    buf->capacity = 0;
+}
+
+static int repl_buf_append(repl_buf_t *buf, const char *text, size_t len) {
+    if (buf->length + len + 1U > buf->capacity) {
+        size_t new_cap = buf->capacity == 0 ? 256 : buf->capacity;
+        while (new_cap < buf->length + len + 1U) new_cap *= 2;
+        char *new_data = realloc(buf->data, new_cap);
+        if (!new_data) return 0;
+        buf->data = new_data;
+        buf->capacity = new_cap;
+    }
+    memcpy(buf->data + buf->length, text, len);
+    buf->length += len;
+    buf->data[buf->length] = '\0';
+    return 1;
+}
+
+static int repl_buf_append_cstr(repl_buf_t *buf, const char *text) {
+    return repl_buf_append(buf, text, strlen(text));
+}
+
+static void repl_buf_clear(repl_buf_t *buf) {
+    buf->length = 0;
+    if (buf->data) buf->data[0] = '\0';
+}
+
+/* Named preamble entry for redefinition support. */
+typedef struct {
+    char *name;   /* declaration name (NULL for imports) */
+    char *source; /* full source text including trailing newline */
+} repl_decl_t;
+
+typedef struct {
+    repl_decl_t *entries;
+    size_t count;
+    size_t capacity;
+} repl_decl_list_t;
+
+static void repl_decl_list_init(repl_decl_list_t *list) {
+    list->entries = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+static void repl_decl_list_free(repl_decl_list_t *list) {
+    for (size_t i = 0; i < list->count; i++) {
+        free(list->entries[i].name);
+        free(list->entries[i].source);
+    }
+    free(list->entries);
+    list->entries = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
+
+/* Extract the declaration name from input. Recognizes:
+   fn <name>, class <name>, enum <name>, interface <name>,
+   const <type> <name>, <type> <name> = ... (global var) */
+static char *repl_extract_decl_name(const char *input) {
+    const char *p = input;
+    while (*p == ' ' || *p == '\t') p++;
+    /* fn, class, enum, interface — name is the token after the keyword */
+    const char *keywords[] = {"fn ", "class ", "enum ", "interface ", NULL};
+    for (int i = 0; keywords[i]; i++) {
+        size_t klen = strlen(keywords[i]);
+        if (strncmp(p, keywords[i], klen) == 0) {
+            const char *start = p + klen;
+            while (*start == ' ' || *start == '\t') start++;
+            const char *end = start;
+            while (*end && *end != '(' && *end != ' ' && *end != '{' && *end != '\t' && *end != '<') end++;
+            if (end > start) {
+                char *name = malloc((size_t)(end - start) + 1);
+                if (name) { memcpy(name, start, (size_t)(end - start)); name[end - start] = '\0'; }
+                return name;
+            }
+            return NULL;
+        }
+    }
+    /* const <type> <name> OR <type> <name> = ... */
+    if (strncmp(p, "const ", 6) == 0) p += 6;
+    /* skip type token(s) — simplified: skip first word */
+    while (*p == ' ' || *p == '\t') p++;
+    const char *type_start = p;
+    while (*p && *p != ' ' && *p != '\t') p++;
+    if (p == type_start) return NULL;
+    while (*p == ' ' || *p == '\t') p++;
+    /* p should now be at the name */
+    const char *nstart = p;
+    while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n') p++;
+    if (p > nstart) {
+        char *name = malloc((size_t)(p - nstart) + 1);
+        if (name) { memcpy(name, nstart, (size_t)(p - nstart)); name[p - nstart] = '\0'; }
+        return name;
+    }
+    return NULL;
+}
+
+/* Add or replace a declaration in the list. */
+static void repl_decl_list_put(repl_decl_list_t *list, const char *name, const char *source) {
+    /* If name is non-NULL, look for existing entry to replace. */
+    if (name) {
+        for (size_t i = 0; i < list->count; i++) {
+            if (list->entries[i].name && strcmp(list->entries[i].name, name) == 0) {
+                free(list->entries[i].source);
+                list->entries[i].source = cli_strdup(source);
+                return;
+            }
+        }
+    }
+    if (list->count >= list->capacity) {
+        size_t new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
+        repl_decl_t *new_entries = realloc(list->entries, new_cap * sizeof(repl_decl_t));
+        if (!new_entries) return;
+        list->entries = new_entries;
+        list->capacity = new_cap;
+    }
+    list->entries[list->count].name = name ? cli_strdup(name) : NULL;
+    list->entries[list->count].source = cli_strdup(source);
+    list->count++;
+}
+
+/* Rebuild the preamble buffer from the declaration list. */
+static void repl_rebuild_preamble(repl_buf_t *preamble, const repl_decl_list_t *list) {
+    repl_buf_clear(preamble);
+    for (size_t i = 0; i < list->count; i++) {
+        repl_buf_append_cstr(preamble, list->entries[i].source);
+    }
+}
+
+/* Print a runtime error with source location when available. */
+static void repl_print_error(const basl_error_t *err) {
+    if (err->location.line > 0) {
+        fprintf(stderr, "error: <repl>:%u:%u: %s\n",
+                err->location.line, err->location.column,
+                basl_error_message(err));
+    } else {
+        fprintf(stderr, "error: %s\n", basl_error_message(err));
+    }
+}
+
+/* Check if input needs continuation (trailing operator, comma, arrow, or unterminated string). */
+static int repl_needs_continuation(const char *text) {
+    const char *p;
+    int quotes = 0;
+
+    /* Count unescaped double quotes for unterminated string detection. */
+    for (p = text; *p; p++) {
+        if (*p == '\\' && p[1]) { p++; continue; }
+        if (*p == '"') quotes++;
+    }
+    if (quotes % 2 != 0) return 1;
+
+    /* Find last non-whitespace character. */
+    p = text + strlen(text);
+    while (p > text && (p[-1] == ' ' || p[-1] == '\t' || p[-1] == '\n' || p[-1] == '\r')) p--;
+    if (p == text) return 0;
+
+    /* Single-char trailing tokens. */
+    char last = p[-1];
+    if (last == ',' || last == '+' || last == '*' || last == '/' ||
+        last == '%' || last == '^') return 1;
+
+    /* Trailing - but not -> (handled below) or -- */
+    if (last == '-' && (p - 1 == text || p[-2] != '-')) return 1;
+
+    /* Two-char trailing tokens. */
+    if (p - text >= 2) {
+        if (p[-2] == '-' && p[-1] == '>') return 1; /* -> */
+        if (p[-2] == '&' && p[-1] == '&') return 1;
+        if (p[-2] == '|' && p[-1] == '|') return 1;
+        if (p[-2] == '=' && p[-1] == '=') return 1;
+        if (p[-2] == '!' && p[-1] == '=') return 1;
+        if (p[-2] == '<' && p[-1] == '=') return 1;
+        if (p[-2] == '>' && p[-1] == '=') return 1;
+    }
+
+    /* Single < > | & = as trailing (but not <=, >=, ==, etc. already handled) */
+    if (last == '<' || last == '>' || last == '|' || last == '&' || last == '=') return 1;
+
+    return 0;
+}
+
+/* Count net open brackets in text. */
+static int repl_bracket_depth(const char *text) {
+    int depth = 0;
+    int in_string = 0;
+    char quote = 0;
+    for (; *text; text++) {
+        if (in_string) {
+            if (*text == '\\') { if (text[1]) text++; continue; }
+            if (*text == quote) in_string = 0;
+            continue;
+        }
+        if (*text == '"' || *text == '\'') { in_string = 1; quote = *text; continue; }
+        if (*text == '{' || *text == '(' || *text == '[') depth++;
+        else if (*text == '}' || *text == ')' || *text == ']') depth--;
+    }
+    return depth;
+}
+
+/* Try to compile source in REPL mode.  If out_function is non-NULL after
+   a successful call, the source contained executable statements.  If NULL,
+   it contained only declarations.  Returns 1 on success. */
+static int repl_compile_and_run(
+    basl_runtime_t *runtime,
+    const char *source_text,
+    const char *project_root,
+    basl_object_t **out_function,
+    int *out_has_statements,
+    int print_errors
+) {
+    basl_error_t error = {0};
+    basl_source_registry_t registry;
+    basl_diagnostic_list_t diagnostics;
+    basl_source_id_t source_id = 0;
+    basl_status_t status;
+    int ok = 0;
+
+    if (out_function) *out_function = NULL;
+
+    basl_source_registry_init(&registry, runtime);
+    basl_diagnostic_list_init(&diagnostics, runtime);
+
+    if (basl_source_registry_register_cstr(&registry, "<repl>", source_text,
+            &source_id, &error) != BASL_STATUS_OK) {
+        if (print_errors) fprintf(stderr, "error: %s\n", basl_error_message(&error));
+        goto done;
+    }
+
+    /* Register non-native imports. */
+    {
+        const basl_source_file_t *source = basl_source_registry_get(&registry, source_id);
+        basl_token_list_t tokens;
+        size_t cursor = 0, brace_depth = 0;
+
+        basl_token_list_init(&tokens, runtime);
+        if (basl_lex_source(&registry, source_id, &tokens, &diagnostics, &error) == BASL_STATUS_OK) {
+            while (1) {
+                const basl_token_t *token = basl_token_list_get(&tokens, cursor);
+                if (!token || token->kind == BASL_TOKEN_EOF) break;
+                if (token->kind == BASL_TOKEN_LBRACE) { brace_depth++; cursor++; continue; }
+                if (token->kind == BASL_TOKEN_RBRACE) {
+                    if (brace_depth) brace_depth--;
+                    cursor++;
+                    continue;
+                }
+                if (brace_depth == 0 && token->kind == BASL_TOKEN_IMPORT) {
+                    const basl_token_t *path_token;
+                    const char *import_text;
+                    size_t import_length;
+                    cursor++;
+                    path_token = basl_token_list_get(&tokens, cursor);
+                    if (!path_token ||
+                        (path_token->kind != BASL_TOKEN_STRING_LITERAL &&
+                         path_token->kind != BASL_TOKEN_RAW_STRING_LITERAL)) break;
+                    import_text = source_token_text(source, path_token, &import_length);
+                    if (!import_text || import_length < 2) break;
+                    if (!basl_stdlib_is_native_module(import_text + 1, import_length - 2)) {
+                        basl_string_t import_path;
+                        basl_string_init(&import_path, runtime);
+                        if (resolve_import_path(runtime, "<repl>",
+                                import_text + 1, import_length - 2,
+                                &import_path, &error) == BASL_STATUS_OK) {
+                            register_source_tree(&registry, basl_string_c_str(&import_path),
+                                project_root, NULL, &error);
+                        }
+                        basl_string_free(&import_path);
+                    }
+                }
+                cursor++;
+            }
+        }
+        basl_token_list_free(&tokens);
+        basl_diagnostic_list_free(&diagnostics);
+        basl_diagnostic_list_init(&diagnostics, runtime);
+    }
+
+    {
+        basl_native_registry_t natives;
+        basl_object_t *function = NULL;
+        basl_native_registry_init(&natives);
+        basl_stdlib_register_all(&natives, &error);
+        status = basl_compile_source_repl(&registry, source_id, &natives,
+                                           &function, out_has_statements, &diagnostics, &error);
+        basl_native_registry_free(&natives);
+        if (status != BASL_STATUS_OK) {
+            if (print_errors) {
+                if (basl_diagnostic_list_count(&diagnostics))
+                    print_diagnostics(&registry, &diagnostics);
+                else
+                    fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            }
+            basl_object_release(&function);
+            goto done;
+        }
+        if (out_function) *out_function = function;
+        else basl_object_release(&function);
+    }
+    ok = 1;
+
+done:
+    basl_diagnostic_list_free(&diagnostics);
+    basl_source_registry_free(&registry);
+    return ok;
+}
+
+static int cmd_repl(void) {
+    basl_runtime_t *runtime = NULL;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    repl_buf_t preamble;
+    repl_buf_t input;
+    repl_decl_list_t decls;
+    char line[4096];
+    char proj_root[4096];
+    const char *project_root = NULL;
+    int exit_code = 0;
+
+    if (basl_runtime_open(&runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize runtime: %s\n", basl_error_message(&error));
+        return 1;
+    }
+    if (basl_vm_open(&vm, runtime, NULL, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "failed to initialize vm: %s\n", basl_error_message(&error));
+        basl_runtime_close(&runtime);
+        return 1;
+    }
+
+    repl_buf_init(&preamble);
+    repl_buf_init(&input);
+    repl_decl_list_init(&decls);
+
+    /* Auto-inject fmt for expression printing. */
+    repl_decl_list_put(&decls, NULL, "import \"fmt\";\n");
+    repl_rebuild_preamble(&preamble, &decls);
+
+    /* Detect project root from cwd. */
+    if (find_project_root("./dummy.basl", proj_root, sizeof(proj_root)))
+        project_root = proj_root;
+
+    printf("basl %s\n", BASL_VERSION);
+    printf("Type :help for help, :quit to exit.\n");
+
+    for (;;) {
+        const char *prompt = ">>> ";
+        basl_status_t rs;
+
+        repl_buf_clear(&input);
+
+        rs = basl_platform_readline(prompt, line, sizeof(line), &error);
+        if (rs != BASL_STATUS_OK) break; /* EOF / Ctrl-D */
+
+        /* Skip empty lines. */
+        {
+            const char *p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '\0') continue;
+        }
+
+        repl_buf_append_cstr(&input, line);
+
+        /* Special commands. */
+        if (strcmp(line, ":quit") == 0 || strcmp(line, ":q") == 0 ||
+            strcmp(line, "exit()") == 0) break;
+        if (strcmp(line, ":help") == 0 || strcmp(line, ":h") == 0) {
+            printf("  :help    Show this message\n");
+            printf("  :quit    Exit the REPL (also Ctrl-D or exit())\n");
+            printf("  :clear   Reset all state\n");
+            printf("  __ans    Last expression result (string)\n");
+            continue;
+        }
+        if (strcmp(line, ":clear") == 0) {
+            repl_decl_list_free(&decls);
+            repl_decl_list_init(&decls);
+            repl_decl_list_put(&decls, NULL, "import \"fmt\";\n");
+            repl_rebuild_preamble(&preamble, &decls);
+            printf("State cleared.\n");
+            continue;
+        }
+
+        /* Multi-line: accumulate while brackets are unbalanced or line needs continuation. */
+        while (repl_bracket_depth(input.data) > 0 || repl_needs_continuation(input.data)) {
+            rs = basl_platform_readline("... ", line, sizeof(line), &error);
+            if (rs != BASL_STATUS_OK) goto done;
+            repl_buf_append_cstr(&input, "\n");
+            repl_buf_append_cstr(&input, line);
+        }
+
+        {
+            repl_buf_t src;
+            basl_object_t *function = NULL;
+            const char *tail;
+            int needs_semi;
+
+            repl_buf_init(&src);
+
+            /* Auto-append semicolon if input doesn't end with ; or } */
+            tail = input.data + input.length;
+            while (tail > input.data && (tail[-1] == ' ' || tail[-1] == '\t' || tail[-1] == '\n'))
+                tail--;
+            needs_semi = (tail > input.data && tail[-1] != ';' && tail[-1] != '}');
+
+            /* 1) Try as expression with auto-print: fmt.println(string(<input>)) */
+            repl_buf_append_cstr(&src, preamble.data ? preamble.data : "");
+            repl_buf_append_cstr(&src, "fmt.println(string(");
+            repl_buf_append_cstr(&src, input.data);
+            repl_buf_append_cstr(&src, "));\n");
+
+            if (repl_compile_and_run(runtime, src.data, project_root, &function, NULL, 0) && function) {
+                basl_value_t result;
+                basl_value_init_nil(&result);
+                if (basl_vm_execute_function(vm, function, &result, &error) != BASL_STATUS_OK) {
+                    repl_print_error(&error);
+                } else {
+                    /* Store expression result as __ans. */
+                    repl_buf_t ans;
+                    repl_buf_init(&ans);
+                    repl_buf_append_cstr(&ans, "string __ans = string(");
+                    repl_buf_append_cstr(&ans, input.data);
+                    repl_buf_append_cstr(&ans, ");\n");
+                    repl_decl_list_put(&decls, "__ans", ans.data);
+                    repl_rebuild_preamble(&preamble, &decls);
+                    repl_buf_free(&ans);
+                }
+                basl_value_release(&result);
+                basl_object_release(&function);
+            } else {
+                /* 2) Try as bare code (declarations, statements, or mix).
+                   Compile with REPL mode — the compiler synthesizes main
+                   from any top-level statements and validates globals. */
+                int has_stmts = 0;
+                basl_object_release(&function); function = NULL;
+                repl_buf_clear(&src);
+                repl_buf_append_cstr(&src, preamble.data ? preamble.data : "");
+                repl_buf_append_cstr(&src, input.data);
+                if (needs_semi) repl_buf_append_cstr(&src, ";");
+                repl_buf_append_cstr(&src, "\n");
+
+                if (repl_compile_and_run(runtime, src.data, project_root, &function, &has_stmts, 1)) {
+                    if (function) {
+                        basl_value_t result;
+                        basl_value_init_nil(&result);
+                        if (basl_vm_execute_function(vm, function, &result, &error) != BASL_STATUS_OK)
+                            repl_print_error(&error);
+                        basl_value_release(&result);
+                        basl_object_release(&function);
+                    }
+                    if (!has_stmts) {
+                        /* Declarations only — add/replace in preamble. */
+                        repl_buf_t decl_src;
+                        char *dname;
+                        repl_buf_init(&decl_src);
+                        repl_buf_append_cstr(&decl_src, input.data);
+                        if (needs_semi) repl_buf_append_cstr(&decl_src, ";");
+                        repl_buf_append_cstr(&decl_src, "\n");
+                        dname = repl_extract_decl_name(input.data);
+                        repl_decl_list_put(&decls, dname, decl_src.data);
+                        repl_rebuild_preamble(&preamble, &decls);
+                        free(dname);
+                        repl_buf_free(&decl_src);
+                    }
+                } else {
+                    basl_object_release(&function);
+                }
+            }
+
+            repl_buf_free(&src);
+        }
+    }
+
+done:
+    repl_buf_free(&preamble);
+    repl_decl_list_free(&decls);
+    repl_buf_free(&input);
+    basl_vm_close(&vm);
+    basl_runtime_close(&runtime);
+    return exit_code;
+}
+
 /* ── package command ─────────────────────────────────────────────── */
 
 static int cmd_package(const char *entry_path, const char *output_path,
@@ -1770,6 +2269,11 @@ int main(int argc, char **argv) {
         return cmd_test(argc, argv);
     }
 
+    /* Handle "basl repl" before CLI parser. */
+    if (argc >= 2 && strcmp(argv[1], "repl") == 0) {
+        return cmd_repl();
+    }
+
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
 
     cmd = basl_cli_add_command(&cli, "run", "Run a BASL script");
@@ -1792,6 +2296,8 @@ int main(int argc, char **argv) {
     cmd = basl_cli_add_command(&cli, "fmt", "Format BASL source files");
     basl_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
     basl_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
+
+    (void)basl_cli_add_command(&cli, "repl", "Start interactive REPL");
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);

@@ -704,9 +704,11 @@ static basl_status_t basl_program_add_module_import(
     basl_module_import_t *import_decl;
     void *memory;
 
+    if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
     if (basl_program_module_find_import(module, alias, alias_length, NULL)) {
         return basl_compile_report(program, alias_span, "import alias is already declared");
     }
+    } /* end REPL redefinition guard */
 
     status = basl_program_module_grow_imports(program, module, module->import_count + 1U);
     if (status != BASL_STATUS_OK) {
@@ -4805,6 +4807,22 @@ static basl_status_t basl_program_parse_declarations(
             continue;
         }
         if (token->kind != BASL_TOKEN_FN) {
+            if (program->compile_mode == BASL_COMPILE_MODE_REPL && !is_public) {
+                /* In REPL mode, non-declaration tokens are top-level
+                   statements.  Record their bounds for the synthetic main. */
+                size_t end_cursor = cursor;
+                size_t depth = 0;
+                while (1) {
+                    const basl_token_t *t = basl_program_token_at(program, end_cursor);
+                    if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
+                    if (t->kind == BASL_TOKEN_LBRACE) depth++;
+                    else if (t->kind == BASL_TOKEN_RBRACE) { if (depth) depth--; }
+                    end_cursor++;
+                }
+                program->repl_stmts_start = cursor;
+                program->repl_stmts_end = end_cursor;
+                break;
+            }
             return basl_compile_report(
                 program,
                 token->span,
@@ -4823,6 +4841,7 @@ static basl_status_t basl_program_parse_declarations(
         }
 
         name_text = basl_program_token_text(program, name_token, &name_length);
+        if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
         if (
             basl_program_find_top_level_function_name_in_source(
                 program,
@@ -4918,6 +4937,7 @@ static basl_status_t basl_program_parse_declarations(
                 "function name conflicts with interface"
             );
         }
+        } /* end REPL redefinition guard */
 
         status = basl_program_grow_functions(program, program->functions.count + 1U);
         if (status != BASL_STATUS_OK) {
@@ -14945,6 +14965,51 @@ static basl_status_t basl_compile_function_with_parent(
         body_result.guaranteed_return = 1;
     }
 
+    /* In REPL mode, emit a synthetic 'return 0' for the synthetic main
+       when the user's statements don't include an explicit return. */
+    if (
+        !body_result.guaranteed_return &&
+        program->compile_mode == BASL_COMPILE_MODE_REPL &&
+        function_index == program->functions.main_index
+    ) {
+        status = basl_parser_emit_opcode(&state, BASL_OPCODE_CONSTANT, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            basl_chunk_free(&state.chunk);
+            basl_parser_state_free(&state);
+            return status;
+        }
+        {
+            basl_value_t zero_val;
+            size_t const_index;
+            basl_value_init_int(&zero_val, 0);
+            status = basl_chunk_add_constant(&state.chunk, &zero_val, &const_index, program->error);
+            if (status != BASL_STATUS_OK) {
+                basl_chunk_free(&state.chunk);
+                basl_parser_state_free(&state);
+                return status;
+            }
+            status = basl_parser_emit_u32(&state, (uint32_t)const_index, decl->name_span);
+        }
+        if (status != BASL_STATUS_OK) {
+            basl_chunk_free(&state.chunk);
+            basl_parser_state_free(&state);
+            return status;
+        }
+        status = basl_parser_emit_opcode(&state, BASL_OPCODE_RETURN, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            basl_chunk_free(&state.chunk);
+            basl_parser_state_free(&state);
+            return status;
+        }
+        status = basl_parser_emit_u32(&state, 1U, decl->name_span);
+        if (status != BASL_STATUS_OK) {
+            basl_chunk_free(&state.chunk);
+            basl_parser_state_free(&state);
+            return status;
+        }
+        body_result.guaranteed_return = 1;
+    }
+
     status = basl_compile_require_function_returns(
         program,
         decl,
@@ -15000,7 +15065,7 @@ static basl_status_t basl_compile_validate_inputs(
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "diagnostic list must not be null");
         return BASL_STATUS_INVALID_ARGUMENT;
     }
-    if (mode == BASL_COMPILE_MODE_BUILD_ENTRYPOINT && out_function == NULL) {
+    if ((mode == BASL_COMPILE_MODE_BUILD_ENTRYPOINT || mode == BASL_COMPILE_MODE_REPL) && out_function == NULL) {
         basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "out_function must not be null");
         return BASL_STATUS_INVALID_ARGUMENT;
     }
@@ -15192,6 +15257,7 @@ basl_status_t basl_compile_source_internal(
     basl_compile_mode_t mode,
     const basl_native_registry_t *natives,
     basl_object_t **out_function,
+    int *out_repl_has_statements,
     basl_diagnostic_list_t *diagnostics,
     basl_error_t *error
 ) {
@@ -15200,6 +15266,7 @@ basl_status_t basl_compile_source_internal(
     const basl_source_file_t *source;
 
     basl_error_clear(error);
+    if (out_repl_has_statements) *out_repl_has_statements = 0;
     if (out_function != NULL) {
         *out_function = NULL;
     }
@@ -15230,6 +15297,7 @@ basl_status_t basl_compile_source_internal(
     program.diagnostics = diagnostics;
     program.error = error;
     program.natives = natives;
+    program.compile_mode = (int)mode;
     basl_binding_function_table_init(&program.functions, registry->runtime);
     basl_program_set_module_context(&program, source, NULL);
 
@@ -15240,7 +15308,50 @@ basl_status_t basl_compile_source_internal(
     }
 
     basl_program_set_module_context(&program, source, NULL);
+
+    /* In REPL mode, synthesize fn main from top-level statements.
+       Also synthesize when there are globals (even without statements)
+       so their initializers get compiled and type-checked. */
+    if (mode == BASL_COMPILE_MODE_REPL && !program.functions.has_main &&
+        (program.repl_stmts_start < program.repl_stmts_end || program.global_count > 0U)) {
+        basl_binding_function_t *decl;
+        basl_binding_type_t ret_type;
+        size_t mod_idx = 0;
+
+        status = basl_program_grow_functions(&program, program.functions.count + 1U);
+        if (status != BASL_STATUS_OK) {
+            basl_program_free(&program);
+            return status;
+        }
+        decl = &program.functions.functions[program.functions.count];
+        basl_binding_function_init(decl);
+        decl->name = "main";
+        decl->name_length = 4U;
+        decl->name_span = basl_program_eof_span(&program);
+        decl->is_public = 0;
+        decl->source = source;
+        /* Retrieve the module's token list so the parser can read the body. */
+        if (basl_program_module_find(&program, source_id, &mod_idx)) {
+            decl->tokens = program.modules[mod_idx].tokens;
+        }
+        decl->body_start = program.repl_stmts_start;
+        decl->body_end = program.repl_stmts_end;
+        memset(&ret_type, 0, sizeof(ret_type));
+        ret_type.kind = BASL_TYPE_I32;
+        decl->return_type = ret_type;
+        decl->return_count = 1U;
+        program.functions.main_index = program.functions.count;
+        program.functions.has_main = 1;
+        program.repl_has_statements = (program.repl_stmts_start < program.repl_stmts_end) ? 1 : 0;
+        program.functions.count += 1U;
+    }
+
     if (!program.functions.has_main) {
+        if (mode == BASL_COMPILE_MODE_REPL) {
+            /* No statements and no main — nothing to execute. */
+            basl_program_free(&program);
+            return BASL_STATUS_OK;
+        }
         status = basl_compile_report(
             &program,
             basl_program_eof_span(&program),
@@ -15256,7 +15367,7 @@ basl_status_t basl_compile_source_internal(
         return status;
     }
 
-    if (mode == BASL_COMPILE_MODE_BUILD_ENTRYPOINT) {
+    if (mode == BASL_COMPILE_MODE_BUILD_ENTRYPOINT || mode == BASL_COMPILE_MODE_REPL) {
         status = basl_compile_attach_entrypoint(&program, out_function);
         if (status != BASL_STATUS_OK) {
             basl_program_free(&program);
@@ -15264,6 +15375,7 @@ basl_status_t basl_compile_source_internal(
         }
     }
 
+    if (out_repl_has_statements) *out_repl_has_statements = program.repl_has_statements;
     basl_program_free(&program);
     return BASL_STATUS_OK;
 }
@@ -15281,6 +15393,7 @@ basl_status_t basl_compile_source(
         BASL_COMPILE_MODE_BUILD_ENTRYPOINT,
         NULL,
         out_function,
+        NULL,
         diagnostics,
         error
     );
@@ -15300,6 +15413,28 @@ basl_status_t basl_compile_source_with_natives(
         BASL_COMPILE_MODE_BUILD_ENTRYPOINT,
         natives,
         out_function,
+        NULL,
+        diagnostics,
+        error
+    );
+}
+
+basl_status_t basl_compile_source_repl(
+    const basl_source_registry_t *registry,
+    basl_source_id_t source_id,
+    const basl_native_registry_t *natives,
+    basl_object_t **out_function,
+    int *out_has_statements,
+    basl_diagnostic_list_t *diagnostics,
+    basl_error_t *error
+) {
+    return basl_compile_source_internal(
+        registry,
+        source_id,
+        BASL_COMPILE_MODE_REPL,
+        natives,
+        out_function,
+        out_has_statements,
         diagnostics,
         error
     );

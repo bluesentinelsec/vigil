@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "internal/basl_compiler_types.h"
+#include "internal/basl_compiler_internal.h"
 #include "internal/basl_internal.h"
 
 int basl_program_token_is_identifier_text(
@@ -315,6 +316,7 @@ basl_status_t basl_program_parse_global_variable_declaration(
         );
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
+    if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
     if (
         basl_program_find_top_level_function_name_in_source(
             program,
@@ -410,6 +412,7 @@ basl_status_t basl_program_parse_global_variable_declaration(
             "global variable is already declared"
         );
     }
+    } /* end REPL redefinition guard */
     basl_program_cursor_advance(program, cursor);
 
     token = basl_program_cursor_peek(program, *cursor);
@@ -517,6 +520,7 @@ basl_status_t basl_program_parse_constant_declaration(
         );
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
+    if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
     if (
         basl_program_find_top_level_function_name_in_source(
             program,
@@ -612,6 +616,7 @@ basl_status_t basl_program_parse_constant_declaration(
             "global constant name conflicts with global variable"
         );
     }
+    } /* end REPL redefinition guard */
     basl_program_cursor_advance(program, cursor);
 
     type_token = basl_program_cursor_peek(program, *cursor);
@@ -705,6 +710,7 @@ basl_status_t basl_program_parse_enum_declaration(
         return basl_compile_report(program, enum_token->span, "expected enum name");
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
+    if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
     if (
         basl_program_find_enum_in_source(
             program,
@@ -788,6 +794,7 @@ basl_status_t basl_program_parse_enum_declaration(
     ) {
         return basl_compile_report(program, name_token->span, "enum name conflicts with function");
     }
+    } /* end REPL redefinition guard */
 
     status = basl_program_grow_enums(program, program->enum_count + 1U);
     if (status != BASL_STATUS_OK) {
@@ -935,6 +942,7 @@ basl_status_t basl_program_parse_interface_declaration(
         return basl_compile_report(program, interface_token->span, "expected interface name");
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
+    if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
     if (
         basl_program_find_interface_in_source(
             program,
@@ -1014,6 +1022,7 @@ basl_status_t basl_program_parse_interface_declaration(
     ) {
         return basl_compile_report(program, name_token->span, "interface name conflicts with function");
     }
+    } /* end REPL redefinition guard */
 
     status = basl_program_grow_interfaces(program, program->interface_count + 1U);
     if (status != BASL_STATUS_OK) {
@@ -1449,6 +1458,7 @@ basl_status_t basl_program_parse_class_declaration(
         return basl_compile_report(program, class_token->span, "expected class name");
     }
     name_text = basl_program_token_text(program, name_token, &name_length);
+    if (program->compile_mode != BASL_COMPILE_MODE_REPL) {
     if (
         basl_program_find_class_in_source(
             program,
@@ -1528,6 +1538,7 @@ basl_status_t basl_program_parse_class_declaration(
     ) {
         return basl_compile_report(program, name_token->span, "class name conflicts with interface");
     }
+    } /* end REPL redefinition guard */
 
     status = basl_program_grow_classes(program, program->class_count + 1U);
     if (status != BASL_STATUS_OK) {
