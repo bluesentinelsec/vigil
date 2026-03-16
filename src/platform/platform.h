@@ -223,6 +223,60 @@ BASL_API basl_status_t basl_platform_dlclose(
     basl_error_t *error
 );
 
+/* ── Terminal raw mode and key reading (for line editor) ──────────── */
+
+/** Opaque terminal state saved before entering raw mode. */
+typedef struct basl_terminal_state basl_terminal_state_t;
+
+/** Return 1 if file descriptor 0 (stdin) is a terminal. */
+BASL_API int basl_platform_is_terminal(void);
+
+/** Enter raw mode.  Caller must call basl_platform_terminal_restore. */
+BASL_API basl_status_t basl_platform_terminal_raw(
+    basl_terminal_state_t **out_state,
+    basl_error_t *error
+);
+
+/** Restore terminal to the state saved by basl_platform_terminal_raw. */
+BASL_API void basl_platform_terminal_restore(basl_terminal_state_t *state);
+
+/** Read a single byte from stdin (blocking). Returns -1 on EOF. */
+BASL_API int basl_platform_terminal_read_byte(void);
+
+/** Get terminal width in columns.  Returns 80 on failure. */
+BASL_API int basl_platform_terminal_width(void);
+
+/* ── Portable line editor (implemented in line_editor.c) ─────────── */
+
+/** History buffer. */
+typedef struct basl_line_history {
+    char **entries;
+    size_t count;
+    size_t capacity;
+    size_t max_entries;
+} basl_line_history_t;
+
+BASL_API void basl_line_history_init(basl_line_history_t *h, size_t max_entries);
+BASL_API void basl_line_history_free(basl_line_history_t *h);
+BASL_API void basl_line_history_add(basl_line_history_t *h, const char *line);
+BASL_API const char *basl_line_history_get(const basl_line_history_t *h, size_t index);
+BASL_API void basl_line_history_clear(basl_line_history_t *h);
+BASL_API basl_status_t basl_line_history_load(basl_line_history_t *h, const char *path, basl_error_t *error);
+BASL_API basl_status_t basl_line_history_save(const basl_line_history_t *h, const char *path, basl_error_t *error);
+
+/**
+ * Read a line with editing and history support.
+ * Uses raw mode when stdin is a terminal, falls back to fgets otherwise.
+ * Returns BASL_STATUS_INTERNAL on EOF.
+ */
+BASL_API basl_status_t basl_line_editor_readline(
+    const char *prompt,
+    char *out_buf,
+    size_t buf_size,
+    basl_line_history_t *history,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif

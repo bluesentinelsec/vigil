@@ -537,3 +537,63 @@ BASL_API basl_status_t basl_platform_dlclose(
     FreeLibrary((HMODULE)handle);
     return BASL_STATUS_OK;
 }
+
+/* ── Terminal raw mode ───────────────────────────────────────────── */
+
+struct basl_terminal_state {
+    DWORD orig_in_mode;
+    DWORD orig_out_mode;
+    HANDLE h_in;
+    HANDLE h_out;
+};
+
+int basl_platform_is_terminal(void) {
+    DWORD mode;
+    return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode) != 0;
+}
+
+basl_status_t basl_platform_terminal_raw(
+    basl_terminal_state_t **out_state, basl_error_t *error
+) {
+    basl_terminal_state_t *state = malloc(sizeof(*state));
+    if (!state) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "out of memory");
+        return BASL_STATUS_INTERNAL;
+    }
+    state->h_in = GetStdHandle(STD_INPUT_HANDLE);
+    state->h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (!GetConsoleMode(state->h_in, &state->orig_in_mode)) {
+        free(state);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "GetConsoleMode failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    GetConsoleMode(state->h_out, &state->orig_out_mode);
+    SetConsoleMode(state->h_in,
+        ENABLE_VIRTUAL_TERMINAL_INPUT);
+    SetConsoleMode(state->h_out,
+        state->orig_out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    *out_state = state;
+    return BASL_STATUS_OK;
+}
+
+void basl_platform_terminal_restore(basl_terminal_state_t *state) {
+    if (!state) return;
+    SetConsoleMode(state->h_in, state->orig_in_mode);
+    SetConsoleMode(state->h_out, state->orig_out_mode);
+    free(state);
+}
+
+int basl_platform_terminal_read_byte(void) {
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    char c;
+    DWORD n;
+    if (!ReadFile(h, &c, 1, &n, NULL) || n == 0) return -1;
+    return (unsigned char)c;
+}
+
+int basl_platform_terminal_width(void) {
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info))
+        return info.srWindow.Right - info.srWindow.Left + 1;
+    return 80;
+}

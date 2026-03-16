@@ -182,3 +182,19 @@ basl_status_t basl_platform_dlclose(
     if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "not supported"; error->length = 13; }
     return BASL_STATUS_UNSUPPORTED;
 }
+
+/* ── Terminal raw mode (stub — no terminal support) ──────────────── */
+
+int basl_platform_is_terminal(void) { return 0; }
+
+basl_status_t basl_platform_terminal_raw(
+    basl_terminal_state_t **out_state, basl_error_t *error
+) {
+    (void)out_state;
+    basl_error_set_literal(error, BASL_STATUS_UNSUPPORTED, "no terminal support");
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+void basl_platform_terminal_restore(basl_terminal_state_t *state) { (void)state; }
+int basl_platform_terminal_read_byte(void) { return -1; }
+int basl_platform_terminal_width(void) { return 80; }

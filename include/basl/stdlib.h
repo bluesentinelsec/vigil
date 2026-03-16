@@ -14,6 +14,7 @@ extern BASL_API const basl_native_module_t basl_stdlib_args;
 extern BASL_API const basl_native_module_t basl_stdlib_ffi;
 extern BASL_API const basl_native_module_t basl_stdlib_fmt;
 extern BASL_API const basl_native_module_t basl_stdlib_math;
+extern BASL_API const basl_native_module_t basl_stdlib_readline;
 extern BASL_API const basl_native_module_t basl_stdlib_test;
 extern BASL_API const basl_native_module_t basl_stdlib_unsafe;
 
@@ -31,6 +32,8 @@ static inline basl_status_t basl_stdlib_register_all(
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_math, error);
     if (status != BASL_STATUS_OK) return status;
+    status = basl_native_registry_add(registry, &basl_stdlib_readline, error);
+    if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_test, error);
     if (status != BASL_STATUS_OK) return status;
     return basl_native_registry_add(registry, &basl_stdlib_unsafe, error);
@@ -45,6 +48,7 @@ static inline int basl_stdlib_is_native_module(
            (name_length == 3U && memcmp(name, "ffi", 3U) == 0) ||
            (name_length == 3U && memcmp(name, "fmt", 3U) == 0) ||
            (name_length == 4U && memcmp(name, "math", 4U) == 0) ||
+           (name_length == 8U && memcmp(name, "readline", 8U) == 0) ||
            (name_length == 4U && memcmp(name, "test", 4U) == 0) ||
            (name_length == 6U && memcmp(name, "unsafe", 6U) == 0);
 }
