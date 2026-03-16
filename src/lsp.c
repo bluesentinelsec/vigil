@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "basl/doc_registry.h"
 #include "basl/fmt.h"
 #include "basl/json.h"
 #include "basl/lexer.h"
@@ -992,9 +993,10 @@ static basl_status_t handle_hover(
     const basl_json_value_t *char_val;
     const basl_source_file_t *src;
     const basl_semantic_file_t *sem_file;
+    const basl_semantic_node_t *node;
     basl_semantic_type_t type;
     basl_source_id_t source_id;
-    char *type_str;
+    char *hover_text = NULL;
     size_t line, col, offset;
 
     text_doc = basl_json_object_get(params, "textDocument");
@@ -1026,13 +1028,34 @@ static basl_status_t handle_hover(
     col = (size_t)basl_json_number_value(char_val);
     offset = line_col_to_offset(basl_string_c_str(&src->text), basl_string_length(&src->text), line, col);
 
-    type = basl_semantic_file_type_at(sem_file, offset);
-    if (!basl_semantic_type_is_valid(type)) {
-        return lsp_make_response(a, id, NULL, out, error);
+    /* Try to get node at position for doc lookup */
+    node = basl_semantic_file_node_at(sem_file, offset);
+    if (node != NULL) {
+        const char *name = NULL;
+        if (node->kind == BASL_NODE_IDENTIFIER_EXPR) {
+            name = node->data.identifier.name;
+        } else if (node->kind == BASL_NODE_CALL_EXPR && 
+                   node->data.call.callee != NULL &&
+                   node->data.call.callee->kind == BASL_NODE_IDENTIFIER_EXPR) {
+            name = node->data.call.callee->data.identifier.name;
+        }
+        if (name != NULL) {
+            const basl_doc_entry_t *doc = basl_doc_lookup(name);
+            if (doc != NULL) {
+                basl_doc_entry_render(doc, &hover_text, NULL, error);
+            }
+        }
     }
 
-    type_str = basl_semantic_type_to_string(server->index, type);
-    if (type_str != NULL) {
+    /* Fall back to type info if no doc */
+    if (hover_text == NULL) {
+        type = basl_semantic_file_type_at(sem_file, offset);
+        if (basl_semantic_type_is_valid(type)) {
+            hover_text = basl_semantic_type_to_string(server->index, type);
+        }
+    }
+
+    if (hover_text != NULL) {
         basl_json_value_t *result = NULL;
         basl_json_value_t *contents = NULL;
 
@@ -1040,10 +1063,10 @@ static basl_status_t handle_hover(
         basl_json_object_new(a, &contents, error);
 
         jset_str(contents, "kind", "plaintext", a, error);
-        jset_str(contents, "value", type_str, a, error);
+        jset_str(contents, "value", hover_text, a, error);
         jset_obj(result, "contents", contents, error);
 
-        free(type_str);
+        free(hover_text);
         return lsp_make_response(a, id, result, out, error);
     }
 

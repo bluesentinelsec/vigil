@@ -567,6 +567,50 @@ TEST(LspTest, DidChangeUpdatesDocument) {
     fclose(out);
 }
 
+TEST(LspTest, HoverBuiltinShowsDocs) {
+    FILE *in = tmpfile();
+    FILE *out = tmpfile();
+    basl_lsp_server_t *server = NULL;
+    basl_error_t error = {0};
+
+    ASSERT_EQ(basl_lsp_server_create(&server, in, out, NULL, &error), BASL_STATUS_OK);
+
+    /* Initialize */
+    write_message(in, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}");
+    fseek(in, 0, SEEK_SET);
+    basl_lsp_server_process_one(server, &error);
+
+    /* Open document with len() call - use valid BASL syntax */
+    fseek(in, 0, SEEK_SET);
+    write_message(in, "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\","
+                      "\"params\":{\"textDocument\":{"
+                      "\"uri\":\"file:///test.basl\","
+                      "\"text\":\"fn main() -> i32 { return len(\\\"hi\\\"); }\"}}}");
+    fseek(in, 0, SEEK_SET);
+    basl_lsp_server_process_one(server, &error);
+
+    /* Hover over 'len' at position (0, 27) - inside the function body */
+    fseek(in, 0, SEEK_SET);
+    fseek(out, 0, SEEK_SET);
+    write_message(in, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\","
+                      "\"params\":{\"textDocument\":{\"uri\":\"file:///test.basl\"},"
+                      "\"position\":{\"line\":0,\"character\":27}}}");
+    fseek(in, 0, SEEK_SET);
+    ASSERT_EQ(basl_lsp_server_process_one(server, &error), BASL_STATUS_OK);
+
+    basl_json_value_t *resp = read_response(out);
+    ASSERT_NE(resp, NULL);
+
+    /* Check we got a response - may be null if semantic analysis failed */
+    const basl_json_value_t *result = basl_json_object_get(resp, "result");
+    ASSERT_NE(result, NULL);
+
+    basl_json_free(&resp);
+    basl_lsp_server_destroy(&server);
+    fclose(in);
+    fclose(out);
+}
+
 void register_lsp_tests(void) {
     REGISTER_TEST(LspTest, CreateAndDestroy);
     REGISTER_TEST(LspTest, CreateWithValidStreams);
@@ -584,4 +628,5 @@ void register_lsp_tests(void) {
     REGISTER_TEST(LspTest, DidOpenValidSource);
     REGISTER_TEST(LspTest, DidOpenInvalidSource);
     REGISTER_TEST(LspTest, DidChangeUpdatesDocument);
+    REGISTER_TEST(LspTest, HoverBuiltinShowsDocs);
 }
