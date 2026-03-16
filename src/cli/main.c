@@ -532,7 +532,7 @@ static basl_status_t make_subdir(const char *base, const char *name, basl_error_
     return basl_platform_mkdir(path, error);
 }
 
-static int cmd_new(const char *name, int is_lib) {
+static int cmd_new(const char *name, int is_lib, int scaffold, const char *output_dir) {
     basl_error_t error = {0};
     basl_toml_value_t *root = NULL;
     basl_toml_value_t *str_val = NULL;
@@ -540,6 +540,8 @@ static int cmd_new(const char *name, int is_lib) {
     size_t toml_len = 0;
     int exists = 0;
     char project_name[256];
+    char project_path[512];
+    const char *dir;
 
     /* If name not provided, prompt for it. */
     if (name == NULL || name[0] == '\0') {
@@ -555,22 +557,30 @@ static int cmd_new(const char *name, int is_lib) {
         name = project_name;
     }
 
+    /* Compute project directory path. */
+    if (output_dir != NULL && output_dir[0] != '\0') {
+        snprintf(project_path, sizeof(project_path), "%s/%s", output_dir, name);
+        dir = project_path;
+    } else {
+        dir = name;
+    }
+
     /* Check if directory already exists. */
-    if (basl_platform_file_exists(name, &exists) == BASL_STATUS_OK && exists) {
-        fprintf(stderr, "error: '%s' already exists\n", name);
+    if (basl_platform_file_exists(dir, &exists) == BASL_STATUS_OK && exists) {
+        fprintf(stderr, "error: '%s' already exists\n", dir);
         return 1;
     }
 
     /* Create project directory tree. */
-    if (basl_platform_mkdir_p(name, &error) != BASL_STATUS_OK) {
+    if (basl_platform_mkdir_p(dir, &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
         return 1;
     }
-    if (make_subdir(name, "lib", &error) != BASL_STATUS_OK) {
+    if (make_subdir(dir, "lib", &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
         return 1;
     }
-    if (make_subdir(name, "test", &error) != BASL_STATUS_OK) {
+    if (make_subdir(dir, "test", &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
         return 1;
     }
@@ -591,7 +601,7 @@ static int cmd_new(const char *name, int is_lib) {
     str_val = NULL;
 
     if (basl_toml_emit(root, &toml_str, &toml_len, &error) != BASL_STATUS_OK) goto toml_err;
-    if (write_text_file(name, "basl.toml", toml_str, &error) != BASL_STATUS_OK) {
+    if (write_text_file(dir, "basl.toml", toml_str, &error) != BASL_STATUS_OK) {
         free(toml_str);
         goto toml_err;
     }
@@ -599,7 +609,7 @@ static int cmd_new(const char *name, int is_lib) {
     basl_toml_free(&root);
 
     /* Write .gitignore. */
-    if (write_text_file(name, ".gitignore", "deps/\n", &error) != BASL_STATUS_OK) {
+    if (write_text_file(dir, ".gitignore", "deps/\n", &error) != BASL_STATUS_OK) {
         fprintf(stderr, "error: %s\n", basl_error_message(&error));
         return 1;
     }
@@ -629,30 +639,77 @@ static int cmd_new(const char *name, int is_lib) {
             "    t.assert(%s.hello() == \"hello from %s\", \"hello should match\");\n"
             "}\n", name, name, name);
 
-        if (write_text_file(name, lib_file, lib_content, &error) != BASL_STATUS_OK ||
-            write_text_file(name, test_file, test_content, &error) != BASL_STATUS_OK) {
+        if (write_text_file(dir, lib_file, lib_content, &error) != BASL_STATUS_OK ||
+            write_text_file(dir, test_file, test_content, &error) != BASL_STATUS_OK) {
             fprintf(stderr, "error: %s\n", basl_error_message(&error));
             return 1;
         }
     } else {
         /* Application project. */
-        const char *main_content =
-            "import \"fmt\";\n"
-            "\n"
-            "fn main() -> i32 {\n"
-            "    fmt.println(\"hello, world!\");\n"
-            "    return 0;\n"
-            "}\n";
+        if (scaffold) {
+            /* Create module + test scaffold. */
+            char lib_file[512];
+            char test_file[512];
+            char lib_content[512];
+            char test_content[512];
+            char main_content[512];
 
-        if (write_text_file(name, "main.basl", main_content, &error) != BASL_STATUS_OK) {
-            fprintf(stderr, "error: %s\n", basl_error_message(&error));
-            return 1;
+            snprintf(lib_file, sizeof(lib_file), "lib/%s.basl", name);
+            snprintf(test_file, sizeof(test_file), "test/%s_test.basl", name);
+
+            snprintf(lib_content, sizeof(lib_content),
+                "/// %s module.\n"
+                "\n"
+                "pub fn greet(string name) -> string {\n"
+                "    return \"hello, \" + name;\n"
+                "}\n", name);
+
+            snprintf(test_content, sizeof(test_content),
+                "import \"test\";\n"
+                "import \"%s\";\n"
+                "\n"
+                "fn test_greet(test.T t) -> void {\n"
+                "    t.assert(%s.greet(\"world\") == \"hello, world\", \"greet should work\");\n"
+                "}\n", name, name);
+
+            snprintf(main_content, sizeof(main_content),
+                "import \"fmt\";\n"
+                "import \"%s\";\n"
+                "\n"
+                "fn main() -> i32 {\n"
+                "    fmt.println(%s.greet(\"world\"));\n"
+                "    return 0;\n"
+                "}\n", name, name);
+
+            if (write_text_file(dir, lib_file, lib_content, &error) != BASL_STATUS_OK ||
+                write_text_file(dir, test_file, test_content, &error) != BASL_STATUS_OK ||
+                write_text_file(dir, "main.basl", main_content, &error) != BASL_STATUS_OK) {
+                fprintf(stderr, "error: %s\n", basl_error_message(&error));
+                return 1;
+            }
+        } else {
+            const char *main_content =
+                "import \"fmt\";\n"
+                "\n"
+                "fn main() -> i32 {\n"
+                "    fmt.println(\"hello, world!\");\n"
+                "    return 0;\n"
+                "}\n";
+
+            if (write_text_file(dir, "main.basl", main_content, &error) != BASL_STATUS_OK) {
+                fprintf(stderr, "error: %s\n", basl_error_message(&error));
+                return 1;
+            }
         }
     }
 
-    printf("created %s\n", name);
+    printf("created %s\n", dir);
     printf("  basl.toml\n");
     if (is_lib) {
+        printf("  lib/%s.basl\n", name);
+        printf("  test/%s_test.basl\n", name);
+    } else if (scaffold) {
+        printf("  main.basl\n");
         printf("  lib/%s.basl\n", name);
         printf("  test/%s_test.basl\n", name);
     } else {
@@ -2806,6 +2863,7 @@ int main(int argc, char **argv) {
     basl_cli_t cli;
     const char *check_file = NULL;
     const char *new_name = NULL;
+    const char *new_output = NULL;
     const char *debug_file = NULL;
     int debug_interactive = 0;
     const char *doc_file = NULL;
@@ -2817,6 +2875,7 @@ int main(int argc, char **argv) {
     const char *pkg_key = NULL;
     int pkg_inspect = 0;
     int new_lib = 0;
+    int new_scaffold = 0;
     basl_error_t error = {0};
     const basl_cli_command_t *matched;
     basl_cli_command_t *cmd;
@@ -2829,7 +2888,8 @@ int main(int argc, char **argv) {
 
     /* Handle "basl run <file> [args...]" before CLI parser since run
      * needs to pass through arbitrary script arguments. */
-    if (argc >= 3 && strcmp(argv[1], "run") == 0) {
+    if (argc >= 3 && strcmp(argv[1], "run") == 0 &&
+        strcmp(argv[2], "--help") != 0 && strcmp(argv[2], "-h") != 0) {
         const char *const *script_argv = argc > 3 ? (const char *const *)&argv[3] : NULL;
         size_t script_argc = argc > 3 ? (size_t)(argc - 3) : 0;
         return cmd_run(argv[2], script_argv, script_argc);
@@ -2867,6 +2927,8 @@ int main(int argc, char **argv) {
     cmd = basl_cli_add_command(&cli, "new", "Create a new BASL project");
     basl_cli_add_positional(cmd, "name", "Project name", &new_name);
     basl_cli_add_bool_flag(cmd, "lib", 'l', "Create a library project", &new_lib);
+    basl_cli_add_bool_flag(cmd, "scaffold", 's', "Include example module and test", &new_scaffold);
+    basl_cli_add_string_flag(cmd, "output", 'o', "Output directory", &new_output);
 
     cmd = basl_cli_add_command(&cli, "debug", "Debug a BASL script");
     basl_cli_add_positional(cmd, "file", "Script file to debug", &debug_file);
@@ -2898,9 +2960,8 @@ int main(int argc, char **argv) {
 
     matched = basl_cli_matched_command(&cli);
     if (matched == NULL) {
-        /* Only print help if the parser didn't already (i.e. not --help). */
-        if (argc < 2 ||
-            (strcmp(argv[1], "--help") != 0 && strcmp(argv[1], "-h") != 0)) {
+        /* Only print help if the parser didn't already. */
+        if (!cli.help_shown) {
             basl_cli_print_help(&cli);
         }
         basl_cli_free(&cli);
@@ -2924,7 +2985,7 @@ int main(int argc, char **argv) {
             return cmd_check(check_file);
         }
         if (strcmp(matched_name, "new") == 0) {
-            return cmd_new(new_name, new_lib);
+            return cmd_new(new_name, new_lib, new_scaffold, new_output);
         }
         if (strcmp(matched_name, "debug") == 0) {
             if (debug_file == NULL) {

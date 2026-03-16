@@ -313,6 +313,7 @@ basl_status_t basl_cli_parse(
         /* Check if first arg is --help before command matching. */
         if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
             basl_cli_print_help(cli);
+            cli->help_shown = 1;
             return BASL_STATUS_OK;
         }
         for (size_t i = 0; i < cli->command_count; i++) {
@@ -351,6 +352,8 @@ basl_status_t basl_cli_parse(
             } else {
                 basl_cli_print_help(cli);
             }
+            cli->matched_command = NULL;
+            cli->help_shown = 1;
             return BASL_STATUS_OK;
         }
 
