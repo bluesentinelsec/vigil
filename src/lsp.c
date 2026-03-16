@@ -155,6 +155,130 @@ static basl_status_t handle_shutdown(
     return lsp_make_response(&server->allocator, id, NULL, out, error);
 }
 
+/* ── Notifications ────────────────────────────────────────── */
+
+static void offset_to_line_col(
+    const char *text, size_t text_len, size_t offset,
+    size_t *line, size_t *col
+) {
+    size_t l = 0, c = 0, i;
+    for (i = 0; i < text_len && i < offset; i++) {
+        if (text[i] == '\n') {
+            l++;
+            c = 0;
+        } else {
+            c++;
+        }
+    }
+    *line = l;
+    *col = c;
+}
+
+static basl_status_t lsp_send_notification(
+    basl_lsp_server_t *server,
+    const char *method,
+    basl_json_value_t *params,
+    basl_error_t *error
+) {
+    const basl_allocator_t *a = &server->allocator;
+    basl_json_value_t *msg = NULL;
+    basl_status_t st;
+
+    st = basl_json_object_new(a, &msg, error);
+    if (st != BASL_STATUS_OK) { basl_json_free(&params); return st; }
+
+    jset_str(msg, "jsonrpc", "2.0", a, error);
+    jset_str(msg, "method", method, a, error);
+    if (params != NULL) {
+        jset_obj(msg, "params", params, error);
+    }
+
+    st = basl_jsonrpc_write(&server->transport, msg, error);
+    basl_json_free(&msg);
+    return st;
+}
+
+static basl_status_t publish_diagnostics(
+    basl_lsp_server_t *server,
+    const char *uri,
+    size_t uri_len,
+    basl_source_id_t source_id,
+    basl_error_t *error
+) {
+    const basl_allocator_t *a = &server->allocator;
+    basl_json_value_t *params = NULL;
+    basl_json_value_t *diag_array = NULL;
+    basl_json_value_t *uri_val = NULL;
+    const basl_source_file_t *src;
+    const basl_semantic_file_t *sem_file = NULL;
+    size_t i, count;
+
+    /* Find semantic file for this source */
+    for (i = 0; i < server->index->file_count; i++) {
+        if (server->index->files[i]->source_id == source_id) {
+            sem_file = server->index->files[i];
+            break;
+        }
+    }
+
+    basl_json_object_new(a, &params, error);
+    basl_json_array_new(a, &diag_array, error);
+    basl_json_string_new(a, uri, uri_len, &uri_val, error);
+    jset_obj(params, "uri", uri_val, error);
+
+    if (sem_file != NULL) {
+        src = basl_source_registry_get(&server->sources, source_id);
+        count = basl_diagnostic_list_count(&sem_file->diagnostics);
+
+        for (i = 0; i < count; i++) {
+            const basl_diagnostic_t *d = basl_diagnostic_list_get(&sem_file->diagnostics, i);
+            basl_json_value_t *diag = NULL;
+            basl_json_value_t *range = NULL;
+            basl_json_value_t *start_pos = NULL;
+            basl_json_value_t *end_pos = NULL;
+            size_t start_line, start_col, end_line, end_col;
+            int severity;
+
+            /* Map severity: LSP uses 1=Error, 2=Warning, 3=Info, 4=Hint */
+            switch (d->severity) {
+                case BASL_DIAGNOSTIC_ERROR: severity = 1; break;
+                case BASL_DIAGNOSTIC_WARNING: severity = 2; break;
+                default: severity = 3; break;
+            }
+
+            /* Convert offsets to line/column */
+            offset_to_line_col(basl_string_c_str(&src->text), basl_string_length(&src->text), d->span.start_offset, &start_line, &start_col);
+            offset_to_line_col(basl_string_c_str(&src->text), basl_string_length(&src->text), d->span.end_offset, &end_line, &end_col);
+
+            basl_json_object_new(a, &diag, error);
+            basl_json_object_new(a, &range, error);
+            basl_json_object_new(a, &start_pos, error);
+            basl_json_object_new(a, &end_pos, error);
+
+            jset_int(start_pos, "line", (int64_t)start_line, a, error);
+            jset_int(start_pos, "character", (int64_t)start_col, a, error);
+            jset_int(end_pos, "line", (int64_t)end_line, a, error);
+            jset_int(end_pos, "character", (int64_t)end_col, a, error);
+
+            jset_obj(range, "start", start_pos, error);
+            jset_obj(range, "end", end_pos, error);
+            jset_obj(diag, "range", range, error);
+            jset_int(diag, "severity", severity, a, error);
+            jset_str(diag, "source", "basl", a, error);
+            {
+                basl_json_value_t *msg_val = NULL;
+                basl_json_string_new(a, basl_string_c_str(&d->message), basl_string_length(&d->message), &msg_val, error);
+                jset_obj(diag, "message", msg_val, error);
+            }
+
+            basl_json_array_push(diag_array, diag, error);
+        }
+    }
+
+    jset_obj(params, "diagnostics", diag_array, error);
+    return lsp_send_notification(server, "textDocument/publishDiagnostics", params, error);
+}
+
 static void handle_did_open(
     basl_lsp_server_t *server,
     const basl_json_value_t *params
@@ -187,6 +311,7 @@ static void handle_did_open(
     if (basl_source_registry_register(&server->sources, uri, uri_len,
                                        text, text_len, &source_id, &error) == BASL_STATUS_OK) {
         basl_semantic_index_analyze(server->index, source_id, &error);
+        publish_diagnostics(server, uri, uri_len, source_id, &error);
     }
 }
 
