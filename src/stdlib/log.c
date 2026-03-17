@@ -85,6 +85,9 @@ static const char *level_name(int level) {
 static void format_time(char *buf, size_t len) {
     time_t now;
     struct tm *tm_info;
+#ifdef _WIN32
+    struct tm tm_storage;
+#endif
 
     if (g_time_format == LOG_TIME_NONE) {
         buf[0] = '\0';
@@ -98,7 +101,12 @@ static void format_time(char *buf, size_t len) {
     }
 
     /* RFC3339 */
+#ifdef _WIN32
+    localtime_s(&tm_storage, &now);
+    tm_info = &tm_storage;
+#else
     tm_info = localtime(&now);
+#endif
     if (tm_info) {
         strftime(buf, len, "%Y-%m-%dT%H:%M:%S", tm_info);
     } else {
@@ -410,7 +418,13 @@ static basl_status_t log_set_output(basl_vm_t *vm, size_t arg_count, basl_error_
             g_output_path[0] = '\0';
         } else {
             /* File path */
+#ifdef _WIN32
+            if (fopen_s(&g_output, out_str, "a") != 0) {
+                g_output = NULL;
+            }
+#else
             g_output = fopen(out_str, "a");
+#endif
             if (g_output) {
                 snprintf(g_output_path, sizeof(g_output_path), "%s", out_str);
             }
