@@ -541,6 +541,85 @@ static const basl_doc_entry_t random_docs[] = {
 
 #define RANDOM_COUNT (sizeof(random_docs) / sizeof(random_docs[0]))
 
+/* ── url Module Docs ──────────────────────────────────────── */
+
+static const basl_doc_entry_t url_docs[] = {
+    {
+        "url",
+        NULL,
+        "URL parsing and manipulation.",
+        "The url module provides functions for parsing and manipulating URLs\n"
+        "according to RFC 3986.",
+        NULL
+    },
+    {
+        "url.parse",
+        "url.parse(url: string) -> string",
+        "Parse a URL into components.",
+        "Returns components as pipe-separated string:\n"
+        "scheme|user|pass|host|port|path|query|fragment",
+        "url.parse(\"https://user:pass@example.com:8080/path?q=1#frag\")"
+    },
+    {
+        "url.scheme",
+        "url.scheme(url: string) -> string",
+        "Get the scheme (protocol) from a URL.",
+        "Returns the scheme component (e.g. \"https\", \"http\").",
+        "url.scheme(\"https://example.com\")  // \"https\""
+    },
+    {
+        "url.host",
+        "url.host(url: string) -> string",
+        "Get the hostname from a URL.",
+        "Returns the host component without port.",
+        "url.host(\"https://example.com:8080/path\")  // \"example.com\""
+    },
+    {
+        "url.port",
+        "url.port(url: string) -> string",
+        "Get the port from a URL.",
+        "Returns the port as a string, or empty if not specified.",
+        "url.port(\"https://example.com:8080\")  // \"8080\""
+    },
+    {
+        "url.path",
+        "url.path(url: string) -> string",
+        "Get the path from a URL.",
+        "Returns the decoded path component.",
+        "url.path(\"https://example.com/foo/bar\")  // \"/foo/bar\""
+    },
+    {
+        "url.query",
+        "url.query(url: string) -> string",
+        "Get the query string from a URL.",
+        "Returns the raw query string without the leading '?'.",
+        "url.query(\"https://example.com?a=1&b=2\")  // \"a=1&b=2\""
+    },
+    {
+        "url.fragment",
+        "url.fragment(url: string) -> string",
+        "Get the fragment from a URL.",
+        "Returns the decoded fragment without the leading '#'.",
+        "url.fragment(\"https://example.com#section\")  // \"section\""
+    },
+    {
+        "url.encode",
+        "url.encode(s: string) -> string",
+        "Percent-encode a string for use in URLs.",
+        "Encodes special characters as %XX sequences.",
+        "url.encode(\"hello world\")  // \"hello+world\""
+    },
+    {
+        "url.decode",
+        "url.decode(s: string) -> string",
+        "Decode a percent-encoded string.",
+        "Decodes %XX sequences and '+' to space.",
+        "url.decode(\"hello%20world\")  // \"hello world\""
+    },
+};
+
+#define URL_COUNT (sizeof(url_docs) / sizeof(url_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -552,6 +631,7 @@ static const char *module_names[] = {
     "strings",
     "regex",
     "random",
+    "url",
 };
 
 #define MODULE_COUNT (sizeof(module_names) / sizeof(module_names[0]))
@@ -620,6 +700,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check url */
+    for (i = 0; i < URL_COUNT; i++) {
+        if (strcmp(url_docs[i].name, name) == 0) {
+            return &url_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -668,6 +755,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "random") == 0) {
         if (count) *count = RANDOM_COUNT;
         return random_docs;
+    }
+    if (strcmp(module_name, "url") == 0) {
+        if (count) *count = URL_COUNT;
+        return url_docs;
     }
 
     return NULL;
