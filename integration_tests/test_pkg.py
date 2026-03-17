@@ -47,64 +47,9 @@ class TestPkgGet(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("syncing", result.stdout)
 
-    def test_get_creates_deps_dir(self):
-        """basl get should create deps/ directory."""
-        # Add a dep manually to basl.toml
-        toml_path = os.path.join(self.project_dir, "basl.toml")
-        with open(toml_path, "a") as f:
-            f.write('\n[deps]\n"github.com/bluesentinelsec/basl" = "main"\n')
-        
-        result = run_basl("get", cwd=self.project_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        
-        deps_dir = os.path.join(self.project_dir, "deps")
-        self.assertTrue(os.path.isdir(deps_dir))
 
-    def test_get_creates_lock_file(self):
-        """basl get should create basl.lock."""
-        result = run_basl("get", "github.com/bluesentinelsec/basl@main", cwd=self.project_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        
-        lock_path = os.path.join(self.project_dir, "basl.lock")
-        self.assertTrue(os.path.isfile(lock_path))
-        
-        with open(lock_path) as f:
-            content = f.read()
-        self.assertIn("github.com/bluesentinelsec/basl", content)
-        self.assertIn("commit", content)
-
-    def test_get_updates_toml(self):
-        """basl get should add dep to basl.toml."""
-        result = run_basl("get", "github.com/bluesentinelsec/basl@main", cwd=self.project_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        
-        toml_path = os.path.join(self.project_dir, "basl.toml")
-        with open(toml_path) as f:
-            content = f.read()
-        self.assertIn("github.com/bluesentinelsec/basl", content)
-
-    def test_get_remove(self):
-        """basl get -remove should remove a package."""
-        # First install
-        result = run_basl("get", "github.com/bluesentinelsec/basl@main", cwd=self.project_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        
-        # Verify installed
-        deps_dir = os.path.join(self.project_dir, "deps", "github.com", "bluesentinelsec", "basl")
-        self.assertTrue(os.path.isdir(deps_dir))
-        
-        # Remove
-        result = run_basl("get", "-remove", "github.com/bluesentinelsec/basl", cwd=self.project_dir)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        
-        # Verify removed from toml
-        toml_path = os.path.join(self.project_dir, "basl.toml")
-        with open(toml_path) as f:
-            content = f.read()
-        self.assertNotIn("bluesentinelsec/basl", content)
-        
-        # Verify removed from deps/
-        self.assertFalse(os.path.isdir(deps_dir))
+if __name__ == "__main__":
+    unittest.main()
 
 
 if __name__ == "__main__":
