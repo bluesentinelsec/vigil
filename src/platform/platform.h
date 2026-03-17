@@ -365,6 +365,147 @@ BASL_API basl_status_t basl_platform_append_file(
     basl_error_t *error
 );
 
+/* ── Threading primitives ────────────────────────────────────────── */
+
+/** Opaque thread handle. */
+typedef struct basl_platform_thread basl_platform_thread_t;
+
+/** Opaque mutex handle. */
+typedef struct basl_platform_mutex basl_platform_mutex_t;
+
+/** Opaque condition variable handle. */
+typedef struct basl_platform_cond basl_platform_cond_t;
+
+/** Opaque read-write lock handle. */
+typedef struct basl_platform_rwlock basl_platform_rwlock_t;
+
+/** Thread entry function type. */
+typedef void (*basl_thread_func_t)(void *arg);
+
+/** Create and start a new thread. Caller must free with thread_join or thread_detach. */
+BASL_API basl_status_t basl_platform_thread_create(
+    basl_platform_thread_t **out_thread,
+    basl_thread_func_t func,
+    void *arg,
+    basl_error_t *error
+);
+
+/** Wait for thread to complete and free resources. */
+BASL_API basl_status_t basl_platform_thread_join(
+    basl_platform_thread_t *thread,
+    basl_error_t *error
+);
+
+/** Detach thread (will clean up automatically when done). */
+BASL_API basl_status_t basl_platform_thread_detach(
+    basl_platform_thread_t *thread,
+    basl_error_t *error
+);
+
+/** Get current thread ID. */
+BASL_API uint64_t basl_platform_thread_current_id(void);
+
+/** Yield execution to other threads. */
+BASL_API void basl_platform_thread_yield(void);
+
+/** Sleep for specified milliseconds. */
+BASL_API void basl_platform_thread_sleep(uint64_t milliseconds);
+
+/** Create a mutex. Caller must free with mutex_destroy. */
+BASL_API basl_status_t basl_platform_mutex_create(
+    basl_platform_mutex_t **out_mutex,
+    basl_error_t *error
+);
+
+/** Destroy a mutex. */
+BASL_API void basl_platform_mutex_destroy(basl_platform_mutex_t *mutex);
+
+/** Lock a mutex (blocking). */
+BASL_API void basl_platform_mutex_lock(basl_platform_mutex_t *mutex);
+
+/** Unlock a mutex. */
+BASL_API void basl_platform_mutex_unlock(basl_platform_mutex_t *mutex);
+
+/** Try to lock a mutex without blocking. Returns 1 if acquired, 0 if not. */
+BASL_API int basl_platform_mutex_trylock(basl_platform_mutex_t *mutex);
+
+/** Create a condition variable. Caller must free with cond_destroy. */
+BASL_API basl_status_t basl_platform_cond_create(
+    basl_platform_cond_t **out_cond,
+    basl_error_t *error
+);
+
+/** Destroy a condition variable. */
+BASL_API void basl_platform_cond_destroy(basl_platform_cond_t *cond);
+
+/** Wait on condition variable. Mutex must be held; released while waiting. */
+BASL_API void basl_platform_cond_wait(
+    basl_platform_cond_t *cond,
+    basl_platform_mutex_t *mutex
+);
+
+/** Signal one waiting thread. */
+BASL_API void basl_platform_cond_signal(basl_platform_cond_t *cond);
+
+/** Signal all waiting threads. */
+BASL_API void basl_platform_cond_broadcast(basl_platform_cond_t *cond);
+
+/** Create a read-write lock. Caller must free with rwlock_destroy. */
+BASL_API basl_status_t basl_platform_rwlock_create(
+    basl_platform_rwlock_t **out_rwlock,
+    basl_error_t *error
+);
+
+/** Destroy a read-write lock. */
+BASL_API void basl_platform_rwlock_destroy(basl_platform_rwlock_t *rwlock);
+
+/** Acquire read lock (shared, multiple readers allowed). */
+BASL_API void basl_platform_rwlock_rdlock(basl_platform_rwlock_t *rwlock);
+
+/** Acquire write lock (exclusive). */
+BASL_API void basl_platform_rwlock_wrlock(basl_platform_rwlock_t *rwlock);
+
+/** Release read or write lock. */
+BASL_API void basl_platform_rwlock_unlock(basl_platform_rwlock_t *rwlock);
+
+/* ── Thread-local storage ────────────────────────────────────────── */
+
+/** Opaque TLS key. */
+typedef struct basl_platform_tls_key basl_platform_tls_key_t;
+
+/** Create a TLS key. Optional destructor called when thread exits. */
+BASL_API basl_status_t basl_platform_tls_create(
+    basl_platform_tls_key_t **out_key,
+    void (*destructor)(void *),
+    basl_error_t *error
+);
+
+/** Destroy a TLS key. */
+BASL_API void basl_platform_tls_destroy(basl_platform_tls_key_t *key);
+
+/** Set TLS value for current thread. */
+BASL_API void basl_platform_tls_set(basl_platform_tls_key_t *key, void *value);
+
+/** Get TLS value for current thread. */
+BASL_API void *basl_platform_tls_get(basl_platform_tls_key_t *key);
+
+/* ── Atomic operations ───────────────────────────────────────────── */
+
+/** Atomically load a 64-bit value. */
+BASL_API int64_t basl_atomic_load(const volatile int64_t *ptr);
+
+/** Atomically store a 64-bit value. */
+BASL_API void basl_atomic_store(volatile int64_t *ptr, int64_t value);
+
+/** Atomically add to a 64-bit value, return previous value. */
+BASL_API int64_t basl_atomic_add(volatile int64_t *ptr, int64_t value);
+
+/** Atomically subtract from a 64-bit value, return previous value. */
+BASL_API int64_t basl_atomic_sub(volatile int64_t *ptr, int64_t value);
+
+/** Atomically compare and swap. Returns 1 if swapped, 0 if not. */
+BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired);
+
 #ifdef __cplusplus
 }
 #endif
