@@ -160,6 +160,10 @@ endif()
 add_subdirectory(deps/miniz)
 target_link_libraries(basl PRIVATE miniz)
 
+# Vendored lz4 for fast compression.
+add_subdirectory(deps/lz4)
+target_link_libraries(basl PRIVATE lz4)
+
 # On MSVC multi-config generators, an OBJECT-library-backed shared
 # library may place its import library (.lib) in a different directory
 # than dependents expect.  Pin all output directories so the DLL,

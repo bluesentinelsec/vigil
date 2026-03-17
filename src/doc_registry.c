@@ -782,8 +782,8 @@ static const basl_doc_entry_t compress_docs[] = {
         "compress",
         NULL,
         "Data compression and decompression.",
-        "The compress module provides deflate, zlib, and gzip compression.\n"
-        "Uses the miniz library (MIT license).",
+        "The compress module provides deflate, zlib, gzip, lz4, zip, and tar support.\n"
+        "Uses miniz (MIT) and lz4 (BSD-2) libraries.",
         NULL
     },
     {"compress.deflate_compress", "compress.deflate_compress(data: string) -> string", "Compress with raw deflate.", "Returns deflate-compressed data.", "compress.deflate_compress(data)"},
@@ -792,6 +792,14 @@ static const basl_doc_entry_t compress_docs[] = {
     {"compress.zlib_decompress", "compress.zlib_decompress(data: string) -> string", "Decompress zlib format.", "Returns decompressed data.", "compress.zlib_decompress(compressed)"},
     {"compress.gzip_compress", "compress.gzip_compress(data: string) -> string", "Compress with gzip format.", "Returns gzip-compressed data.", "compress.gzip_compress(data)"},
     {"compress.gzip_decompress", "compress.gzip_decompress(data: string) -> string", "Decompress gzip format.", "Returns decompressed data.", "compress.gzip_decompress(compressed)"},
+    {"compress.lz4_compress", "compress.lz4_compress(data: string) -> string", "Compress with LZ4.", "Returns LZ4-compressed data. Very fast.", "compress.lz4_compress(data)"},
+    {"compress.lz4_decompress", "compress.lz4_decompress(data: string) -> string", "Decompress LZ4.", "Returns decompressed data.", "compress.lz4_decompress(compressed)"},
+    {"compress.zip_list", "compress.zip_list(data: string) -> array<string>", "List files in ZIP archive.", "Returns array of filenames in the archive.", "compress.zip_list(zip_data)"},
+    {"compress.zip_read", "compress.zip_read(data: string, filename: string) -> string", "Read file from ZIP archive.", "Extracts and returns contents of named file.", "compress.zip_read(zip_data, \"file.txt\")"},
+    {"compress.zip_create", "compress.zip_create(names: array<string>, contents: array<string>) -> string", "Create ZIP archive.", "Creates archive from parallel arrays of names and contents.", "compress.zip_create([\"a.txt\"], [\"data\"])"},
+    {"compress.tar_list", "compress.tar_list(data: string) -> array<string>", "List files in TAR archive.", "Returns array of filenames in the archive.", "compress.tar_list(tar_data)"},
+    {"compress.tar_read", "compress.tar_read(data: string, filename: string) -> string", "Read file from TAR archive.", "Extracts and returns contents of named file.", "compress.tar_read(tar_data, \"file.txt\")"},
+    {"compress.tar_create", "compress.tar_create(names: array<string>, contents: array<string>) -> string", "Create TAR archive.", "Creates archive from parallel arrays of names and contents.", "compress.tar_create([\"a.txt\"], [\"data\"])"},
 };
 
 #define COMPRESS_COUNT (sizeof(compress_docs) / sizeof(compress_docs[0]))
