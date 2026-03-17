@@ -650,11 +650,55 @@ static const basl_doc_entry_t yaml_docs[] = {
 
 #define YAML_COUNT (sizeof(yaml_docs) / sizeof(yaml_docs[0]))
 
+/* ── fs module ────────────────────────────────────────────── */
+
+static const basl_doc_entry_t fs_docs[] = {
+    {
+        "fs",
+        NULL,
+        "Filesystem operations.",
+        "The fs module provides cross-platform filesystem operations:\n"
+        "path manipulation, file I/O, directory operations, and standard locations.",
+        NULL
+    },
+    {"fs.join", "fs.join(a: string, b: string) -> string", "Join path segments.", "Joins two path segments with the platform separator.", "fs.join(\"dir\", \"file.txt\")  // \"dir/file.txt\""},
+    {"fs.clean", "fs.clean(path: string) -> string", "Normalize a path.", "Removes . and .. components and duplicate separators.", "fs.clean(\"a/./b/../c\")  // \"a/c\""},
+    {"fs.dir", "fs.dir(path: string) -> string", "Get directory portion.", "Returns the directory part of a path.", "fs.dir(\"/foo/bar.txt\")  // \"/foo\""},
+    {"fs.base", "fs.base(path: string) -> string", "Get filename portion.", "Returns the filename part of a path.", "fs.base(\"/foo/bar.txt\")  // \"bar.txt\""},
+    {"fs.ext", "fs.ext(path: string) -> string", "Get file extension.", "Returns the extension including the dot.", "fs.ext(\"file.txt\")  // \".txt\""},
+    {"fs.is_abs", "fs.is_abs(path: string) -> bool", "Check if path is absolute.", "Returns true if the path is absolute.", "fs.is_abs(\"/foo\")  // true"},
+    {"fs.read", "fs.read(path: string) -> string", "Read file contents.", "Reads entire file as a string.", "fs.read(\"config.txt\")"},
+    {"fs.write", "fs.write(path: string, data: string) -> bool", "Write to file.", "Writes data to file, creating or truncating.", "fs.write(\"out.txt\", \"hello\")"},
+    {"fs.append", "fs.append(path: string, data: string) -> bool", "Append to file.", "Appends data to end of file.", "fs.append(\"log.txt\", \"entry\\n\")"},
+    {"fs.copy", "fs.copy(src: string, dst: string) -> bool", "Copy a file.", "Copies file from src to dst.", "fs.copy(\"a.txt\", \"b.txt\")"},
+    {"fs.move", "fs.move(src: string, dst: string) -> bool", "Move/rename a file.", "Moves or renames a file or directory.", "fs.move(\"old.txt\", \"new.txt\")"},
+    {"fs.remove", "fs.remove(path: string) -> bool", "Delete file or directory.", "Removes a file or empty directory.", "fs.remove(\"temp.txt\")"},
+    {"fs.exists", "fs.exists(path: string) -> bool", "Check if path exists.", "Returns true if path exists.", "fs.exists(\"/tmp\")  // true"},
+    {"fs.is_dir", "fs.is_dir(path: string) -> bool", "Check if path is directory.", "Returns true if path is a directory.", "fs.is_dir(\"/tmp\")  // true"},
+    {"fs.is_file", "fs.is_file(path: string) -> bool", "Check if path is file.", "Returns true if path is a regular file.", "fs.is_file(\"test.txt\")"},
+    {"fs.mkdir", "fs.mkdir(path: string) -> bool", "Create directory.", "Creates a single directory.", "fs.mkdir(\"newdir\")"},
+    {"fs.mkdir_all", "fs.mkdir_all(path: string) -> bool", "Create directory tree.", "Creates directory and all parents.", "fs.mkdir_all(\"a/b/c\")"},
+    {"fs.list", "fs.list(path: string) -> array<string>", "List directory contents.", "Returns array of filenames in directory.", "fs.list(\"/tmp\")"},
+    {"fs.walk", "fs.walk(path: string) -> array<string>", "Recursively list directory.", "Returns all files and directories recursively.", "fs.walk(\"src\")"},
+    {"fs.size", "fs.size(path: string) -> i64", "Get file size.", "Returns file size in bytes, -1 on error.", "fs.size(\"file.txt\")"},
+    {"fs.mtime", "fs.mtime(path: string) -> i64", "Get modification time.", "Returns Unix timestamp of last modification.", "fs.mtime(\"file.txt\")"},
+    {"fs.temp_dir", "fs.temp_dir() -> string", "Get temp directory.", "Returns system temporary directory path.", "fs.temp_dir()  // \"/tmp\""},
+    {"fs.temp_file", "fs.temp_file(prefix: string) -> string", "Create temp file.", "Creates a unique temporary file.", "fs.temp_file(\"myapp\")"},
+    {"fs.home_dir", "fs.home_dir() -> string", "Get home directory.", "Returns user's home directory.", "fs.home_dir()"},
+    {"fs.config_dir", "fs.config_dir() -> string", "Get config directory.", "Returns user config directory (XDG/AppSupport/APPDATA).", "fs.config_dir()"},
+    {"fs.cache_dir", "fs.cache_dir() -> string", "Get cache directory.", "Returns user cache directory.", "fs.cache_dir()"},
+    {"fs.data_dir", "fs.data_dir() -> string", "Get data directory.", "Returns user data directory.", "fs.data_dir()"},
+    {"fs.cwd", "fs.cwd() -> string", "Get current directory.", "Returns current working directory.", "fs.cwd()"},
+};
+
+#define FS_COUNT (sizeof(fs_docs) / sizeof(fs_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
     "builtins",
     "fmt",
+    "fs",
     "math",
     "args",
     "test",
@@ -745,6 +789,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check fs */
+    for (i = 0; i < FS_COUNT; i++) {
+        if (strcmp(fs_docs[i].name, name) == 0) {
+            return &fs_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -801,6 +852,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "yaml") == 0) {
         if (count) *count = YAML_COUNT;
         return yaml_docs;
+    }
+    if (strcmp(module_name, "fs") == 0) {
+        if (count) *count = FS_COUNT;
+        return fs_docs;
     }
 
     return NULL;

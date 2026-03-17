@@ -87,6 +87,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/args.c
     src/stdlib/ffi.c
     src/stdlib/fmt.c
+    src/stdlib/fs.c
     src/stdlib/math.c
     src/stdlib/random.c
     src/stdlib/readline.c
@@ -196,6 +197,7 @@ if(BASL_BUILD_TESTS)
         tests/debugger_test.c
         tests/diagnostic_test.c
         tests/ffi_test.c
+        tests/fs_test.c
         tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c
