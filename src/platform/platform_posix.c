@@ -1,6 +1,7 @@
 #include "platform.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -591,4 +592,265 @@ int basl_platform_terminal_width(void) {
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
         return 80;
     return ws.ws_col;
+}
+
+/* ── Extended filesystem operations ──────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_copy_file(
+    const char *src,
+    const char *dst,
+    basl_error_t *error
+) {
+    FILE *in = fopen(src, "rb");
+    if (!in) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "copy: cannot open source");
+        return BASL_STATUS_INTERNAL;
+    }
+    FILE *out = fopen(dst, "wb");
+    if (!out) {
+        fclose(in);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "copy: cannot create destination");
+        return BASL_STATUS_INTERNAL;
+    }
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (fwrite(buf, 1, n, out) != n) {
+            fclose(in);
+            fclose(out);
+            basl_error_set_literal(error, BASL_STATUS_INTERNAL, "copy: write failed");
+            return BASL_STATUS_INTERNAL;
+        }
+    }
+    fclose(in);
+    fclose(out);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_rename(
+    const char *src,
+    const char *dst,
+    basl_error_t *error
+) {
+    if (rename(src, dst) != 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "rename failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API int64_t basl_platform_file_size(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    return (int64_t)st.st_size;
+}
+
+BASL_API int64_t basl_platform_file_mtime(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return -1;
+    return (int64_t)st.st_mtime;
+}
+
+BASL_API basl_status_t basl_platform_is_file(const char *path, int *out_is_file) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        *out_is_file = 0;
+        return BASL_STATUS_OK;
+    }
+    *out_is_file = S_ISREG(st.st_mode) ? 1 : 0;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_symlink(
+    const char *target,
+    const char *linkpath,
+    basl_error_t *error
+) {
+    if (symlink(target, linkpath) != 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "symlink failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_hardlink(
+    const char *target,
+    const char *linkpath,
+    basl_error_t *error
+) {
+    if (link(target, linkpath) != 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "hardlink failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_readlink(
+    const char *path,
+    char **out_target,
+    basl_error_t *error
+) {
+    char buf[PATH_MAX];
+    ssize_t len = readlink(path, buf, sizeof(buf) - 1);
+    if (len < 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "readlink failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    buf[len] = '\0';
+    *out_target = strdup(buf);
+    if (!*out_target) return BASL_STATUS_OUT_OF_MEMORY;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_home_dir(char **out_path, basl_error_t *error) {
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_path = strdup(home);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_config_dir(char **out_path, basl_error_t *error) {
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg && xdg[0]) {
+        *out_path = strdup(xdg);
+        if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+        return BASL_STATUS_OK;
+    }
+#ifdef __APPLE__
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    size_t len = strlen(home) + 32;
+    *out_path = malloc(len);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    snprintf(*out_path, len, "%s/Library/Application Support", home);
+#else
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    size_t len = strlen(home) + 16;
+    *out_path = malloc(len);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    snprintf(*out_path, len, "%s/.config", home);
+#endif
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_cache_dir(char **out_path, basl_error_t *error) {
+    const char *xdg = getenv("XDG_CACHE_HOME");
+    if (xdg && xdg[0]) {
+        *out_path = strdup(xdg);
+        if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+        return BASL_STATUS_OK;
+    }
+#ifdef __APPLE__
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    size_t len = strlen(home) + 20;
+    *out_path = malloc(len);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    snprintf(*out_path, len, "%s/Library/Caches", home);
+#else
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    size_t len = strlen(home) + 16;
+    *out_path = malloc(len);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    snprintf(*out_path, len, "%s/.cache", home);
+#endif
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_data_dir(char **out_path, basl_error_t *error) {
+    const char *xdg = getenv("XDG_DATA_HOME");
+    if (xdg && xdg[0]) {
+        *out_path = strdup(xdg);
+        if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+        return BASL_STATUS_OK;
+    }
+#ifdef __APPLE__
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    size_t len = strlen(home) + 32;
+    *out_path = malloc(len);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    snprintf(*out_path, len, "%s/Library/Application Support", home);
+#else
+    const char *home = getenv("HOME");
+    if (!home) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "HOME not set");
+        return BASL_STATUS_INTERNAL;
+    }
+    size_t len = strlen(home) + 20;
+    *out_path = malloc(len);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    snprintf(*out_path, len, "%s/.local/share", home);
+#endif
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_temp_file(
+    const char *prefix,
+    char **out_path,
+    basl_error_t *error
+) {
+    char *tmpdir = NULL;
+    basl_status_t s = basl_platform_temp_dir(&tmpdir, error);
+    if (s != BASL_STATUS_OK) return s;
+    
+    size_t len = strlen(tmpdir) + strlen(prefix ? prefix : "tmp") + 16;
+    char *path = malloc(len);
+    if (!path) {
+        free(tmpdir);
+        return BASL_STATUS_OUT_OF_MEMORY;
+    }
+    snprintf(path, len, "%s/%sXXXXXX", tmpdir, prefix ? prefix : "tmp");
+    free(tmpdir);
+    
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        free(path);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "mkstemp failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    close(fd);
+    *out_path = path;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_append_file(
+    const char *path,
+    const void *data,
+    size_t length,
+    basl_error_t *error
+) {
+    FILE *f = fopen(path, "ab");
+    if (!f) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "cannot open file for append");
+        return BASL_STATUS_INTERNAL;
+    }
+    if (fwrite(data, 1, length, f) != length) {
+        fclose(f);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "append write failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    fclose(f);
+    return BASL_STATUS_OK;
 }

@@ -277,6 +277,94 @@ BASL_API basl_status_t basl_line_editor_readline(
     basl_error_t *error
 );
 
+/* ── Extended filesystem operations ──────────────────────────────── */
+
+/** Copy a file from src to dst. */
+BASL_API basl_status_t basl_platform_copy_file(
+    const char *src,
+    const char *dst,
+    basl_error_t *error
+);
+
+/** Move/rename a file or directory. */
+BASL_API basl_status_t basl_platform_rename(
+    const char *src,
+    const char *dst,
+    basl_error_t *error
+);
+
+/** Get file size in bytes. Returns -1 on error. */
+BASL_API int64_t basl_platform_file_size(const char *path);
+
+/** Get file modification time as Unix timestamp. Returns -1 on error. */
+BASL_API int64_t basl_platform_file_mtime(const char *path);
+
+/** Check if path is a regular file (not directory/symlink). */
+BASL_API basl_status_t basl_platform_is_file(
+    const char *path,
+    int *out_is_file
+);
+
+/** Create a symbolic link. */
+BASL_API basl_status_t basl_platform_symlink(
+    const char *target,
+    const char *linkpath,
+    basl_error_t *error
+);
+
+/** Create a hard link. */
+BASL_API basl_status_t basl_platform_hardlink(
+    const char *target,
+    const char *linkpath,
+    basl_error_t *error
+);
+
+/** Read the target of a symbolic link. Caller must free *out_target. */
+BASL_API basl_status_t basl_platform_readlink(
+    const char *path,
+    char **out_target,
+    basl_error_t *error
+);
+
+/** Get user home directory. Caller must free *out_path. */
+BASL_API basl_status_t basl_platform_home_dir(
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Get user config directory (XDG_CONFIG_HOME / ~/Library/Application Support / APPDATA). */
+BASL_API basl_status_t basl_platform_config_dir(
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Get user cache directory (XDG_CACHE_HOME / ~/Library/Caches / LOCALAPPDATA). */
+BASL_API basl_status_t basl_platform_cache_dir(
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Get user data directory (XDG_DATA_HOME / ~/Library/Application Support / APPDATA). */
+BASL_API basl_status_t basl_platform_data_dir(
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Create a unique temporary file. Returns path in out_path (caller must free). */
+BASL_API basl_status_t basl_platform_temp_file(
+    const char *prefix,
+    char **out_path,
+    basl_error_t *error
+);
+
+/** Append data to a file. */
+BASL_API basl_status_t basl_platform_append_file(
+    const char *path,
+    const void *data,
+    size_t length,
+    basl_error_t *error
+);
+
 #ifdef __cplusplus
 }
 #endif

@@ -597,3 +597,175 @@ int basl_platform_terminal_width(void) {
         return info.srWindow.Right - info.srWindow.Left + 1;
     return 80;
 }
+
+/* ── Extended filesystem operations ──────────────────────────────── */
+
+BASL_API basl_status_t basl_platform_copy_file(
+    const char *src,
+    const char *dst,
+    basl_error_t *error
+) {
+    if (!CopyFileA(src, dst, FALSE)) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "CopyFile failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_rename(
+    const char *src,
+    const char *dst,
+    basl_error_t *error
+) {
+    if (!MoveFileExA(src, dst, MOVEFILE_REPLACE_EXISTING)) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "MoveFileEx failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API int64_t basl_platform_file_size(const char *path) {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data)) return -1;
+    LARGE_INTEGER size;
+    size.HighPart = data.nFileSizeHigh;
+    size.LowPart = data.nFileSizeLow;
+    return size.QuadPart;
+}
+
+BASL_API int64_t basl_platform_file_mtime(const char *path) {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data)) return -1;
+    /* Convert FILETIME to Unix timestamp */
+    ULARGE_INTEGER ull;
+    ull.LowPart = data.ftLastWriteTime.dwLowDateTime;
+    ull.HighPart = data.ftLastWriteTime.dwHighDateTime;
+    return (int64_t)((ull.QuadPart - 116444736000000000ULL) / 10000000ULL);
+}
+
+BASL_API basl_status_t basl_platform_is_file(const char *path, int *out_is_file) {
+    DWORD attr = GetFileAttributesA(path);
+    if (attr == INVALID_FILE_ATTRIBUTES) {
+        *out_is_file = 0;
+        return BASL_STATUS_OK;
+    }
+    *out_is_file = (attr & FILE_ATTRIBUTE_DIRECTORY) ? 0 : 1;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_symlink(
+    const char *target,
+    const char *linkpath,
+    basl_error_t *error
+) {
+    DWORD flags = 0;
+    DWORD attr = GetFileAttributesA(target);
+    if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+        flags = SYMBOLIC_LINK_FLAG_DIRECTORY;
+    if (!CreateSymbolicLinkA(linkpath, target, flags)) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "CreateSymbolicLink failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_hardlink(
+    const char *target,
+    const char *linkpath,
+    basl_error_t *error
+) {
+    if (!CreateHardLinkA(linkpath, target, NULL)) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "CreateHardLink failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_readlink(
+    const char *path,
+    char **out_target,
+    basl_error_t *error
+) {
+    /* Windows symlink reading is complex; simplified version */
+    (void)path;
+    basl_error_set_literal(error, BASL_STATUS_UNSUPPORTED, "readlink not fully supported on Windows");
+    *out_target = NULL;
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+BASL_API basl_status_t basl_platform_home_dir(char **out_path, basl_error_t *error) {
+    char *userprofile = getenv("USERPROFILE");
+    if (userprofile) {
+        *out_path = _strdup(userprofile);
+        if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+        return BASL_STATUS_OK;
+    }
+    basl_error_set_literal(error, BASL_STATUS_INTERNAL, "USERPROFILE not set");
+    return BASL_STATUS_INTERNAL;
+}
+
+BASL_API basl_status_t basl_platform_config_dir(char **out_path, basl_error_t *error) {
+    char *appdata = getenv("APPDATA");
+    if (appdata) {
+        *out_path = _strdup(appdata);
+        if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+        return BASL_STATUS_OK;
+    }
+    basl_error_set_literal(error, BASL_STATUS_INTERNAL, "APPDATA not set");
+    return BASL_STATUS_INTERNAL;
+}
+
+BASL_API basl_status_t basl_platform_cache_dir(char **out_path, basl_error_t *error) {
+    char *localappdata = getenv("LOCALAPPDATA");
+    if (localappdata) {
+        *out_path = _strdup(localappdata);
+        if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+        return BASL_STATUS_OK;
+    }
+    basl_error_set_literal(error, BASL_STATUS_INTERNAL, "LOCALAPPDATA not set");
+    return BASL_STATUS_INTERNAL;
+}
+
+BASL_API basl_status_t basl_platform_data_dir(char **out_path, basl_error_t *error) {
+    return basl_platform_config_dir(out_path, error);
+}
+
+BASL_API basl_status_t basl_platform_temp_file(
+    const char *prefix,
+    char **out_path,
+    basl_error_t *error
+) {
+    char tmpdir[MAX_PATH];
+    if (!GetTempPathA(MAX_PATH, tmpdir)) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "GetTempPath failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    char path[MAX_PATH];
+    if (!GetTempFileNameA(tmpdir, prefix ? prefix : "tmp", 0, path)) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "GetTempFileName failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_path = _strdup(path);
+    if (!*out_path) return BASL_STATUS_OUT_OF_MEMORY;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_append_file(
+    const char *path,
+    const void *data,
+    size_t length,
+    basl_error_t *error
+) {
+    FILE *f = fopen(path, "ab");
+    if (!f) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "cannot open file for append");
+        return BASL_STATUS_INTERNAL;
+    }
+    if (fwrite(data, 1, length, f) != length) {
+        fclose(f);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "append write failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    fclose(f);
+    return BASL_STATUS_OK;
+}
