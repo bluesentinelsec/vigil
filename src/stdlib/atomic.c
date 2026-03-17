@@ -18,7 +18,7 @@
 #define MAX_ATOMICS 1024
 
 static volatile int64_t g_atomics[MAX_ATOMICS];
-static size_t g_atomic_count = 0;
+static volatile int64_t g_atomic_count = 0;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 
@@ -47,13 +47,13 @@ static basl_status_t atomic_new(basl_vm_t *vm, size_t arg_count, basl_error_t *e
     int64_t initial = arg_count > 0 ? get_i64_arg(vm, base, 0) : 0;
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (g_atomic_count >= MAX_ATOMICS) {
+    int64_t handle = basl_atomic_add(&g_atomic_count, 1);
+    if (handle >= MAX_ATOMICS) {
+        basl_atomic_sub(&g_atomic_count, 1);
         return push_i64(vm, -1, error);
     }
     
-    int64_t handle = (int64_t)g_atomic_count;
-    basl_atomic_store(&g_atomics[g_atomic_count], initial);
-    g_atomic_count++;
+    basl_atomic_store(&g_atomics[handle], initial);
     return push_i64(vm, handle, error);
 }
 
@@ -62,7 +62,8 @@ static basl_status_t atomic_load_fn(basl_vm_t *vm, size_t arg_count, basl_error_
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_i64(vm, 0, error);
     }
     return push_i64(vm, basl_atomic_load(&g_atomics[handle]), error);
@@ -74,7 +75,8 @@ static basl_status_t atomic_store_fn(basl_vm_t *vm, size_t arg_count, basl_error
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_bool(vm, 0, error);
     }
     basl_atomic_store(&g_atomics[handle], val);
@@ -87,7 +89,8 @@ static basl_status_t atomic_add_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_i64(vm, 0, error);
     }
     return push_i64(vm, basl_atomic_add(&g_atomics[handle], val), error);
@@ -99,7 +102,8 @@ static basl_status_t atomic_sub_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_i64(vm, 0, error);
     }
     return push_i64(vm, basl_atomic_sub(&g_atomics[handle], val), error);
@@ -112,7 +116,8 @@ static basl_status_t atomic_cas_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
     int64_t desired = arg_count > 2 ? get_i64_arg(vm, base, 2) : 0;
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_bool(vm, 0, error);
     }
     return push_bool(vm, basl_atomic_cas(&g_atomics[handle], expected, desired), error);
@@ -123,7 +128,8 @@ static basl_status_t atomic_inc_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_i64(vm, 0, error);
     }
     return push_i64(vm, basl_atomic_add(&g_atomics[handle], 1), error);
@@ -134,7 +140,8 @@ static basl_status_t atomic_dec_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_atomic_count) {
+    int64_t count = basl_atomic_load(&g_atomic_count);
+    if (handle < 0 || handle >= count) {
         return push_i64(vm, 0, error);
     }
     return push_i64(vm, basl_atomic_sub(&g_atomics[handle], 1), error);

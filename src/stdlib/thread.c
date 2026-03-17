@@ -22,9 +22,9 @@
 static basl_platform_mutex_t *g_mutexes[MAX_HANDLES];
 static basl_platform_cond_t *g_conds[MAX_HANDLES];
 static basl_platform_rwlock_t *g_rwlocks[MAX_HANDLES];
-static size_t g_mutex_count = 0;
-static size_t g_cond_count = 0;
-static size_t g_rwlock_count = 0;
+static volatile int64_t g_mutex_count = 0;
+static volatile int64_t g_cond_count = 0;
+static volatile int64_t g_rwlock_count = 0;
 
 /* ── Helpers ─────────────────────────────────────────────────── */
 
@@ -72,7 +72,10 @@ static basl_status_t thread_sleep(basl_vm_t *vm, size_t arg_count, basl_error_t 
 static basl_status_t thread_mutex(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (g_mutex_count >= MAX_HANDLES) {
+    /* Atomically allocate a slot */
+    int64_t handle = basl_atomic_add(&g_mutex_count, 1);
+    if (handle >= MAX_HANDLES) {
+        basl_atomic_sub(&g_mutex_count, 1);
         return push_i64(vm, -1, error);
     }
     
@@ -82,8 +85,7 @@ static basl_status_t thread_mutex(basl_vm_t *vm, size_t arg_count, basl_error_t 
         return push_i64(vm, -1, error);
     }
     
-    int64_t handle = (int64_t)g_mutex_count;
-    g_mutexes[g_mutex_count++] = m;
+    g_mutexes[handle] = m;
     return push_i64(vm, handle, error);
 }
 
@@ -92,7 +94,8 @@ static basl_status_t mutex_lock(basl_vm_t *vm, size_t arg_count, basl_error_t *e
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_mutex_count || !g_mutexes[handle]) {
+    int64_t count = basl_atomic_load(&g_mutex_count);
+    if (handle < 0 || handle >= count || !g_mutexes[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -105,7 +108,8 @@ static basl_status_t mutex_unlock(basl_vm_t *vm, size_t arg_count, basl_error_t 
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_mutex_count || !g_mutexes[handle]) {
+    int64_t count = basl_atomic_load(&g_mutex_count);
+    if (handle < 0 || handle >= count || !g_mutexes[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -118,7 +122,8 @@ static basl_status_t mutex_try_lock(basl_vm_t *vm, size_t arg_count, basl_error_
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_mutex_count || !g_mutexes[handle]) {
+    int64_t count = basl_atomic_load(&g_mutex_count);
+    if (handle < 0 || handle >= count || !g_mutexes[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -131,7 +136,9 @@ static basl_status_t mutex_try_lock(basl_vm_t *vm, size_t arg_count, basl_error_
 static basl_status_t thread_cond(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (g_cond_count >= MAX_HANDLES) {
+    int64_t handle = basl_atomic_add(&g_cond_count, 1);
+    if (handle >= MAX_HANDLES) {
+        basl_atomic_sub(&g_cond_count, 1);
         return push_i64(vm, -1, error);
     }
     
@@ -141,8 +148,7 @@ static basl_status_t thread_cond(basl_vm_t *vm, size_t arg_count, basl_error_t *
         return push_i64(vm, -1, error);
     }
     
-    int64_t handle = (int64_t)g_cond_count;
-    g_conds[g_cond_count++] = c;
+    g_conds[handle] = c;
     return push_i64(vm, handle, error);
 }
 
@@ -152,8 +158,10 @@ static basl_status_t cond_wait(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     int64_t mutex_h = arg_count > 1 ? get_i64_arg(vm, base, 1) : -1;
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (cond_h < 0 || (size_t)cond_h >= g_cond_count || !g_conds[cond_h] ||
-        mutex_h < 0 || (size_t)mutex_h >= g_mutex_count || !g_mutexes[mutex_h]) {
+    int64_t cond_count = basl_atomic_load(&g_cond_count);
+    int64_t mutex_count = basl_atomic_load(&g_mutex_count);
+    if (cond_h < 0 || cond_h >= cond_count || !g_conds[cond_h] ||
+        mutex_h < 0 || mutex_h >= mutex_count || !g_mutexes[mutex_h]) {
         return push_bool(vm, 0, error);
     }
     
@@ -166,7 +174,8 @@ static basl_status_t cond_signal(basl_vm_t *vm, size_t arg_count, basl_error_t *
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_cond_count || !g_conds[handle]) {
+    int64_t count = basl_atomic_load(&g_cond_count);
+    if (handle < 0 || handle >= count || !g_conds[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -179,7 +188,8 @@ static basl_status_t cond_broadcast(basl_vm_t *vm, size_t arg_count, basl_error_
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_cond_count || !g_conds[handle]) {
+    int64_t count = basl_atomic_load(&g_cond_count);
+    if (handle < 0 || handle >= count || !g_conds[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -192,7 +202,9 @@ static basl_status_t cond_broadcast(basl_vm_t *vm, size_t arg_count, basl_error_
 static basl_status_t thread_rwlock(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (g_rwlock_count >= MAX_HANDLES) {
+    int64_t handle = basl_atomic_add(&g_rwlock_count, 1);
+    if (handle >= MAX_HANDLES) {
+        basl_atomic_sub(&g_rwlock_count, 1);
         return push_i64(vm, -1, error);
     }
     
@@ -202,8 +214,7 @@ static basl_status_t thread_rwlock(basl_vm_t *vm, size_t arg_count, basl_error_t
         return push_i64(vm, -1, error);
     }
     
-    int64_t handle = (int64_t)g_rwlock_count;
-    g_rwlocks[g_rwlock_count++] = rw;
+    g_rwlocks[handle] = rw;
     return push_i64(vm, handle, error);
 }
 
@@ -212,7 +223,8 @@ static basl_status_t rwlock_read_lock(basl_vm_t *vm, size_t arg_count, basl_erro
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_rwlock_count || !g_rwlocks[handle]) {
+    int64_t count = basl_atomic_load(&g_rwlock_count);
+    if (handle < 0 || handle >= count || !g_rwlocks[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -225,7 +237,8 @@ static basl_status_t rwlock_write_lock(basl_vm_t *vm, size_t arg_count, basl_err
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_rwlock_count || !g_rwlocks[handle]) {
+    int64_t count = basl_atomic_load(&g_rwlock_count);
+    if (handle < 0 || handle >= count || !g_rwlocks[handle]) {
         return push_bool(vm, 0, error);
     }
     
@@ -238,7 +251,8 @@ static basl_status_t rwlock_unlock(basl_vm_t *vm, size_t arg_count, basl_error_t
     int64_t handle = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     
-    if (handle < 0 || (size_t)handle >= g_rwlock_count || !g_rwlocks[handle]) {
+    int64_t count = basl_atomic_load(&g_rwlock_count);
+    if (handle < 0 || handle >= count || !g_rwlocks[handle]) {
         return push_bool(vm, 0, error);
     }
     
