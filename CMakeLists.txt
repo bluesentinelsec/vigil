@@ -95,7 +95,9 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/test.c
     src/stdlib/unsafe.c
     src/stdlib/url.c
+    src/stdlib/yaml.c
     src/url.c
+    src/yaml.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
@@ -200,6 +202,7 @@ if(BASL_BUILD_TESTS)
         tests/log_test.c
         tests/toml_test.c
         tests/url_test.c
+        tests/yaml_test.c
         tests/map_test.c
         tests/platform_test.c
         tests/runtime_test.c
