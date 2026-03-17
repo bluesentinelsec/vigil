@@ -9,12 +9,35 @@
 extern "C" {
 #endif
 
+/* ── Custom log handler for embedders ────────────────────────────── */
+
+/**
+ * Custom log handler callback type.
+ * @param level     Log level: 0=debug, 1=info, 2=warn, 3=error
+ * @param msg       The log message
+ * @param attrs     JSON-encoded key-value attributes (e.g., {"key":"value"})
+ * @param user_data User-provided context from basl_log_set_handler
+ */
+typedef void (*basl_log_handler_t)(
+    int level,
+    const char *msg,
+    const char *attrs,
+    void *user_data
+);
+
+/**
+ * Set a custom log handler to intercept all BASL log calls.
+ * Pass NULL to restore the default handler.
+ */
+BASL_API void basl_log_set_handler(basl_log_handler_t handler, void *user_data);
+
 /* Each stdlib module exports a const descriptor. */
 extern BASL_API const basl_native_module_t basl_stdlib_args;
 extern BASL_API const basl_native_module_t basl_stdlib_atomic;
 extern BASL_API const basl_native_module_t basl_stdlib_ffi;
 extern BASL_API const basl_native_module_t basl_stdlib_fmt;
 extern BASL_API const basl_native_module_t basl_stdlib_fs;
+extern BASL_API const basl_native_module_t basl_stdlib_log;
 extern BASL_API const basl_native_module_t basl_stdlib_math;
 extern BASL_API const basl_native_module_t basl_stdlib_random;
 extern BASL_API const basl_native_module_t basl_stdlib_readline;
@@ -40,6 +63,8 @@ static inline basl_status_t basl_stdlib_register_all(
     status = basl_native_registry_add(registry, &basl_stdlib_fmt, error);
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_fs, error);
+    if (status != BASL_STATUS_OK) return status;
+    status = basl_native_registry_add(registry, &basl_stdlib_log, error);
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_math, error);
     if (status != BASL_STATUS_OK) return status;
@@ -70,6 +95,7 @@ static inline int basl_stdlib_is_native_module(
            (name_length == 3U && memcmp(name, "ffi", 3U) == 0) ||
            (name_length == 3U && memcmp(name, "fmt", 3U) == 0) ||
            (name_length == 2U && memcmp(name, "fs", 2U) == 0) ||
+           (name_length == 3U && memcmp(name, "log", 3U) == 0) ||
            (name_length == 4U && memcmp(name, "math", 4U) == 0) ||
            (name_length == 6U && memcmp(name, "random", 6U) == 0) ||
            (name_length == 8U && memcmp(name, "readline", 8U) == 0) ||
