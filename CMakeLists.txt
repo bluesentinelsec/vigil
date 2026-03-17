@@ -89,6 +89,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/fs.c
+    src/stdlib/log.c
     src/stdlib/math.c
     src/stdlib/random.c
     src/stdlib/readline.c

@@ -693,6 +693,35 @@ static const basl_doc_entry_t fs_docs[] = {
 
 #define FS_COUNT (sizeof(fs_docs) / sizeof(fs_docs[0]))
 
+/* ── log module ───────────────────────────────────────────── */
+
+static const basl_doc_entry_t log_docs[] = {
+    {
+        "log",
+        NULL,
+        "Structured logging with levels and formats.",
+        "The log module provides structured logging similar to Go's slog package.\n"
+        "Supports debug/info/warn/error levels, text/JSON output formats,\n"
+        "and custom log handlers for embedders.",
+        NULL
+    },
+    {"log.debug", "log.debug(msg: string) -> void", "Log at DEBUG level.", "Logs message to configured output.", "log.debug(\"starting parser\")"},
+    {"log.info", "log.info(msg: string) -> void", "Log at INFO level.", "Logs message to configured output.", "log.info(\"request received\")"},
+    {"log.warn", "log.warn(msg: string) -> void", "Log at WARN level.", "Logs message to configured output.", "log.warn(\"slow query detected\")"},
+    {"log.error", "log.error(msg: string) -> void", "Log at ERROR level.", "Logs message to configured output.", "log.error(\"connection failed\")"},
+    {"log.debug_l", "log.debug_l(logger: i64, msg: string) -> void", "Log at DEBUG with logger.", "Uses preset attributes from logger handle.", "log.debug_l(logger, \"msg\")"},
+    {"log.info_l", "log.info_l(logger: i64, msg: string) -> void", "Log at INFO with logger.", "Uses preset attributes from logger handle.", "log.info_l(logger, \"msg\")"},
+    {"log.warn_l", "log.warn_l(logger: i64, msg: string) -> void", "Log at WARN with logger.", "Uses preset attributes from logger handle.", "log.warn_l(logger, \"msg\")"},
+    {"log.error_l", "log.error_l(logger: i64, msg: string) -> void", "Log at ERROR with logger.", "Uses preset attributes from logger handle.", "log.error_l(logger, \"msg\")"},
+    {"log.set_level", "log.set_level(level: string) -> void", "Set minimum log level.", "Levels: \"debug\", \"info\", \"warn\", \"error\". Default is \"info\".", "log.set_level(\"debug\")"},
+    {"log.set_format", "log.set_format(format: string) -> void", "Set output format.", "Formats: \"text\" (default), \"json\".", "log.set_format(\"json\")"},
+    {"log.set_output", "log.set_output(dest: string) -> void", "Set output destination.", "Values: \"stdout\", \"stderr\" (default), or file path.", "log.set_output(\"/var/log/app.log\")"},
+    {"log.set_time_format", "log.set_time_format(format: string) -> void", "Set timestamp format.", "Formats: \"rfc3339\" (default), \"unix\", \"none\".", "log.set_time_format(\"unix\")"},
+    {"log.with", "log.with(key: string, value: string) -> i64", "Create logger with preset attribute.", "Returns logger handle for use with _l functions.", "i64 logger = log.with(\"service\", \"api\")"},
+};
+
+#define LOG_COUNT (sizeof(log_docs) / sizeof(log_docs[0]))
+
 /* ── thread module ────────────────────────────────────────── */
 
 static const basl_doc_entry_t thread_docs[] = {
@@ -752,6 +781,7 @@ static const char *module_names[] = {
     "builtins",
     "fmt",
     "fs",
+    "log",
     "math",
     "args",
     "test",
@@ -851,6 +881,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check log */
+    for (i = 0; i < LOG_COUNT; i++) {
+        if (strcmp(log_docs[i].name, name) == 0) {
+            return &log_docs[i];
+        }
+    }
+
     /* Check thread */
     for (i = 0; i < THREAD_COUNT; i++) {
         if (strcmp(thread_docs[i].name, name) == 0) {
@@ -925,6 +962,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "fs") == 0) {
         if (count) *count = FS_COUNT;
         return fs_docs;
+    }
+    if (strcmp(module_name, "log") == 0) {
+        if (count) *count = LOG_COUNT;
+        return log_docs;
     }
     if (strcmp(module_name, "thread") == 0) {
         if (count) *count = THREAD_COUNT;
