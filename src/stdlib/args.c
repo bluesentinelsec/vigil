@@ -69,14 +69,14 @@ static const basl_native_module_function_t basl_args_functions[] = {
         basl_args_count,
         0, NULL,
         BASL_TYPE_I32,
-        1, NULL
+        1, NULL, 0
     },
     {
         "at", 2,
         basl_args_at,
         1, basl_args_at_params,
         BASL_TYPE_STRING,
-        1, NULL
+        1, NULL, 0
     }
 };
 

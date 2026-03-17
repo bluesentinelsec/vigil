@@ -207,8 +207,8 @@ TEST(LspTest, CompletionEmpty) {
 
     const basl_json_value_t *result = basl_json_object_get(resp, "result");
     ASSERT_NE(result, NULL);
-    /* Empty completion list when no documents */
-    EXPECT_EQ(basl_json_array_count(result), 0u);
+    /* Completion list includes string method completions even with no documents */
+    EXPECT_EQ(basl_json_array_count(result), 26u);  /* 26 string methods */
 
     basl_json_free(&resp);
     basl_lsp_server_destroy(&server);

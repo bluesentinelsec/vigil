@@ -211,49 +211,49 @@ static const basl_native_module_function_t basl_readline_functions[] = {
         basl_readline_input,
         1, basl_readline_string_param,
         BASL_TYPE_STRING,
-        1, NULL
+        1, NULL, 0
     },
     {
         "history_add", 11,
         basl_readline_history_add,
         1, basl_readline_string_param,
         BASL_TYPE_VOID,
-        0, NULL
+        0, NULL, 0
     },
     {
         "history_get", 11,
         basl_readline_history_get,
         1, basl_readline_i32_param,
         BASL_TYPE_STRING,
-        1, NULL
+        1, NULL, 0
     },
     {
         "history_length", 14,
         basl_readline_history_length,
         0, NULL,
         BASL_TYPE_I32,
-        1, NULL
+        1, NULL, 0
     },
     {
         "history_clear", 13,
         basl_readline_history_clear,
         0, NULL,
         BASL_TYPE_VOID,
-        0, NULL
+        0, NULL, 0
     },
     {
         "history_load", 12,
         basl_readline_history_load,
         1, basl_readline_string_param,
         BASL_TYPE_VOID,
-        0, NULL
+        0, NULL, 0
     },
     {
         "history_save", 12,
         basl_readline_history_save,
         1, basl_readline_string_param,
         BASL_TYPE_VOID,
-        0, NULL
+        0, NULL, 0
     }
 };
 

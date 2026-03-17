@@ -456,8 +456,8 @@ static const int p_call[] = { BASL_TYPE_I64, BASL_TYPE_I64, BASL_TYPE_I64,
 static const int p_call_f[] = { BASL_TYPE_I64, BASL_TYPE_F64, BASL_TYPE_F64 };
 static const int p_call_s[] = { BASL_TYPE_I64, BASL_TYPE_I64, BASL_TYPE_I64 };
 
-#define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL }
-#define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, BASL_TYPE_VOID, 0, NULL }
+#define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL, 0 }
+#define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, BASL_TYPE_VOID, 0, NULL, 0 }
 
 static const basl_native_module_function_t basl_ffi_functions[] = {
     F("open",   4U, basl_ffi_open,   1U, p_str,          BASL_TYPE_I64),
