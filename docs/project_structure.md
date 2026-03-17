@@ -1,12 +1,13 @@
 # Project Structure
 
-BASL enforces a standard directory layout for all projects. This makes tooling predictable — `basl test`, `basl fmt`, `basl package`, and a future package manager all work without configuration.
+BASL enforces a standard directory layout for all projects. This makes tooling predictable — `basl test`, `basl fmt`, `basl package`, and `basl get` all work without configuration.
 
 ## Layout
 
 ```
 myproject/
 ├── basl.toml              # project manifest
+├── basl.lock              # locked dependency versions (auto-generated)
 ├── main.basl              # entry point (applications only)
 ├── lib/                   # project library modules
 │   ├── utils.basl
@@ -18,6 +19,9 @@ myproject/
 │   └── http/
 │       └── router_test.basl
 ├── deps/                  # downloaded dependencies (gitignored)
+│   └── github.com/
+│       └── user/
+│           └── repo/
 └── assets/                # embedded files (optional)
 ```
 
@@ -30,10 +34,33 @@ name = "myproject"
 version = "0.1.0"
 
 [deps]
-json_schema = "1.2.0"
+"github.com/user/json" = "v1.2.0"
+"github.com/user/http" = "main"
 ```
 
 No build flags, no source paths, no output config. The directory structure is the config.
+
+## `basl get`
+
+Manage dependencies using git for distribution:
+
+```sh
+basl get                              # sync all deps from basl.toml
+basl get github.com/user/repo         # install latest
+basl get github.com/user/repo@v1.0.0  # install specific version/tag
+basl get github.com/user/repo@main    # install branch
+```
+
+Dependencies are cloned to `deps/` and can be imported by their full path:
+
+```basl
+import "github.com/user/json";
+
+fn main() -> i32 {
+    json.parse("{}");
+    return 0;
+}
+```
 
 ## `basl new`
 

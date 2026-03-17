@@ -38,6 +38,7 @@ add_library(basl_core OBJECT
     src/embed.c
     src/ffi_callback.c
     src/fmt.c
+    src/pkg.c
     src/package.c
     src/debug_info.c
     src/semantic.c
@@ -301,6 +302,14 @@ if(BASL_BUILD_TESTS)
         )
         set_tests_properties(
             BaslTestTest
+            PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
+        )
+        add_test(
+            NAME BaslPkgTest
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_pkg.py
+        )
+        set_tests_properties(
+            BaslPkgTest
             PROPERTIES ENVIRONMENT "BASL_BIN=$<TARGET_FILE:basl_cli>"
         )
     endif()

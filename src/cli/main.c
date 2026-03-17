@@ -18,6 +18,7 @@
 #include "basl/embed.h"
 #include "basl/fmt.h"
 #include "basl/package.h"
+#include "basl/pkg.h"
 #include "basl/stdlib.h"
 #include "basl/toml.h"
 #include "platform/platform.h"
@@ -273,6 +274,7 @@ static int register_source_tree(
                 if (*p == '/' || *p == '\\') base = p + 1;
             blen = strlen(base);
 
+            /* Try lib/ first */
             {
                 char lib_dir[4096];
                 if (basl_platform_path_join(project_root, "lib",
@@ -281,6 +283,20 @@ static int register_source_tree(
                         lib_candidate, sizeof(lib_candidate), &lib_err) == BASL_STATUS_OK) {
                     basl_error_clear(error);
                     if (basl_platform_read_file(NULL, lib_candidate, &file_text,
+                            &file_length, error) == BASL_STATUS_OK) {
+                        found_in_lib = 1;
+                    }
+                }
+            }
+
+            /* Try deps/ for package imports (e.g. github.com/user/repo) */
+            if (!found_in_lib) {
+                char deps_candidate[4096];
+                basl_error_clear(&lib_err);
+                if (basl_pkg_resolve_import(project_root, path, deps_candidate,
+                        sizeof(deps_candidate), &lib_err) == BASL_STATUS_OK) {
+                    basl_error_clear(error);
+                    if (basl_platform_read_file(NULL, deps_candidate, &file_text,
                             &file_length, error) == BASL_STATUS_OK) {
                         found_in_lib = 1;
                     }
@@ -2740,6 +2756,87 @@ done:
     return exit_code;
 }
 
+/* ── get command ─────────────────────────────────────────────────── */
+
+static int cmd_get(int argc, char **argv) {
+    basl_error_t error = {0};
+    char project_root[4096];
+    char *cwd = NULL;
+    int remove_mode = 0;
+    int i;
+    int found_pkg = 0;
+
+    /* Parse flags */
+    for (i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "-remove") == 0 || strcmp(argv[i], "--remove") == 0) {
+            remove_mode = 1;
+        }
+    }
+
+    /* Get current directory */
+    if (basl_platform_getcwd(&cwd, &error) != BASL_STATUS_OK) {
+        fprintf(stderr, "error: failed to get current directory\n");
+        return 1;
+    }
+
+    /* Find project root */
+    {
+        char toml_path[4096];
+        int exists = 0;
+        if (basl_platform_path_join(cwd, "basl.toml", toml_path,
+                sizeof(toml_path), &error) == BASL_STATUS_OK &&
+            basl_platform_file_exists(toml_path, &exists) == BASL_STATUS_OK && exists) {
+            snprintf(project_root, sizeof(project_root), "%s", cwd);
+        } else {
+            fprintf(stderr, "error: not in a BASL project (no basl.toml found)\n");
+            free(cwd);
+            return 1;
+        }
+    }
+    free(cwd);
+
+    /* No package specified - sync all deps */
+    found_pkg = 0;
+    for (i = 2; i < argc; i++) {
+        if (argv[i][0] != '-') {
+            found_pkg = 1;
+            break;
+        }
+    }
+
+    if (!found_pkg) {
+        printf("syncing dependencies...\n");
+        if (basl_pkg_sync(project_root, &error) != BASL_STATUS_OK) {
+            fprintf(stderr, "error: %s\n", basl_error_message(&error));
+            return 1;
+        }
+        printf("done\n");
+        return 0;
+    }
+
+    /* Process each package argument */
+    for (i = 2; i < argc; i++) {
+        if (argv[i][0] == '-') continue;
+
+        if (remove_mode) {
+            printf("removing %s...\n", argv[i]);
+            if (basl_pkg_remove(project_root, argv[i], &error) != BASL_STATUS_OK) {
+                fprintf(stderr, "error: %s\n", basl_error_message(&error));
+                return 1;
+            }
+        } else {
+            printf("getting %s...\n", argv[i]);
+            if (basl_pkg_get(project_root, argv[i], &error) != BASL_STATUS_OK) {
+                fprintf(stderr, "error: %s\n", basl_error_message(&error));
+                return 1;
+            }
+            printf("  installed %s\n", argv[i]);
+        }
+    }
+
+    return 0;
+}
+
 /* ── package command ─────────────────────────────────────────────── */
 
 static int cmd_package(const char *entry_path, const char *output_path,
@@ -2939,6 +3036,23 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    /* Handle "basl get [package...]" before CLI parser. */
+    if (argc >= 2 && strcmp(argv[1], "get") == 0) {
+        if ((argc >= 3) && (strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0)) {
+            printf("Usage: basl get [package[@version]...]\n\n");
+            printf("Manage dependencies using git for distribution.\n\n");
+            printf("Examples:\n");
+            printf("  basl get                              Sync all deps from basl.toml\n");
+            printf("  basl get github.com/user/repo         Install latest\n");
+            printf("  basl get github.com/user/repo@v1.0.0  Install specific version\n");
+            printf("  basl get github.com/user/repo@main    Install branch\n");
+            printf("\nOptions:\n");
+            printf("  -remove    Remove a package\n");
+            return 0;
+        }
+        return cmd_get(argc, argv);
+    }
+
     basl_cli_init(&cli, "basl", "Blazingly Awesome Scripting Language");
 
     cmd = basl_cli_add_command(&cli, "run", "Run a BASL script");
@@ -2974,6 +3088,8 @@ int main(int argc, char **argv) {
     (void)basl_cli_add_command(&cli, "embed", "Embed files as BASL source code");
 
     (void)basl_cli_add_command(&cli, "test", "Run tests");
+
+    (void)basl_cli_add_command(&cli, "get", "Manage dependencies");
 
     cmd = basl_cli_add_command(&cli, "package", "Package a BASL program as a standalone binary");
     basl_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
