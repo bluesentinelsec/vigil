@@ -823,6 +823,32 @@ static const basl_doc_entry_t csv_docs[] = {
 
 #define CSV_COUNT (sizeof(csv_docs) / sizeof(csv_docs[0]))
 
+/* ── net Module Docs ──────────────────────────────────────── */
+
+static const basl_doc_entry_t net_docs[] = {
+    {
+        "net",
+        NULL,
+        "TCP and UDP socket networking.",
+        "The net module provides TCP and UDP socket support for network\n"
+        "programming. Handles both client and server connections.",
+        NULL
+    },
+    {"net.tcp_listen", "net.tcp_listen(host: string, port: i32) -> i64", "Create TCP server socket.", "Binds and listens on the given address. Returns socket handle or -1.", "i64 server = net.tcp_listen(\"0.0.0.0\", 8080)"},
+    {"net.tcp_accept", "net.tcp_accept(listener: i64) -> i64", "Accept TCP connection.", "Blocks until a client connects. Returns client socket handle.", "i64 client = net.tcp_accept(server)"},
+    {"net.tcp_connect", "net.tcp_connect(host: string, port: i32) -> i64", "Connect to TCP server.", "Returns socket handle or -1 on failure.", "i64 sock = net.tcp_connect(\"example.com\", 80)"},
+    {"net.read", "net.read(sock: i64, max_bytes: i32) -> string", "Read from socket.", "Returns data read, or empty string on error/EOF.", "string data = net.read(sock, 4096)"},
+    {"net.write", "net.write(sock: i64, data: string) -> i32", "Write to socket.", "Returns bytes written or -1 on error.", "net.write(sock, \"Hello\")"},
+    {"net.close", "net.close(sock: i64)", "Close socket.", "Closes and releases the socket.", "net.close(sock)"},
+    {"net.udp_bind", "net.udp_bind(host: string, port: i32) -> i64", "Create bound UDP socket.", "Binds UDP socket to address for receiving.", "i64 sock = net.udp_bind(\"0.0.0.0\", 5000)"},
+    {"net.udp_new", "net.udp_new() -> i64", "Create unbound UDP socket.", "Creates UDP socket for sending.", "i64 sock = net.udp_new()"},
+    {"net.udp_send", "net.udp_send(sock: i64, host: string, port: i32, data: string) -> i32", "Send UDP datagram.", "Returns bytes sent or -1 on error.", "net.udp_send(sock, \"127.0.0.1\", 5000, \"hello\")"},
+    {"net.udp_recv", "net.udp_recv(sock: i64, max_bytes: i32) -> string", "Receive UDP datagram.", "Returns data received or empty string.", "string data = net.udp_recv(sock, 1024)"},
+    {"net.set_timeout", "net.set_timeout(sock: i64, ms: i32) -> bool", "Set socket timeout.", "Sets read/write timeout in milliseconds.", "net.set_timeout(sock, 5000)"},
+};
+
+#define NET_COUNT (sizeof(net_docs) / sizeof(net_docs[0]))
+
 /* ── time Module Docs ─────────────────────────────────────── */
 
 static const basl_doc_entry_t time_docs[] = {
@@ -872,6 +898,7 @@ static const char *module_names[] = {
     "fs",
     "log",
     "math",
+    "net",
     "args",
     "test",
     "strings",
@@ -1006,6 +1033,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check net */
+    for (i = 0; i < NET_COUNT; i++) {
+        if (strcmp(net_docs[i].name, name) == 0) {
+            return &net_docs[i];
+        }
+    }
+
     /* Check time */
     for (i = 0; i < TIME_COUNT; i++) {
         if (strcmp(time_docs[i].name, name) == 0) {
@@ -1093,6 +1127,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "csv") == 0) {
         if (count) *count = CSV_COUNT;
         return csv_docs;
+    }
+    if (strcmp(module_name, "net") == 0) {
+        if (count) *count = NET_COUNT;
+        return net_docs;
     }
     if (strcmp(module_name, "time") == 0) {
         if (count) *count = TIME_COUNT;
