@@ -491,6 +491,56 @@ static const basl_doc_entry_t regex_docs[] = {
 
 #define REGEX_COUNT (sizeof(regex_docs) / sizeof(regex_docs[0]))
 
+/* ── random Module Docs ───────────────────────────────────── */
+
+static const basl_doc_entry_t random_docs[] = {
+    {
+        "random",
+        NULL,
+        "Random number generation.",
+        "The random module provides pseudo-random number generation\n"
+        "using xorshift128+ algorithm.",
+        NULL
+    },
+    {
+        "random.seed",
+        "random.seed(n: i32)",
+        "Seed the random number generator.",
+        "Sets the seed for reproducible sequences.",
+        "random.seed(42)"
+    },
+    {
+        "random.i64",
+        "random.i64() -> i64",
+        "Generate a random 64-bit integer.",
+        "Returns a random i64 value.",
+        "i64 n = random.i64()"
+    },
+    {
+        "random.i32",
+        "random.i32() -> i32",
+        "Generate a random 32-bit integer.",
+        "Returns a random i32 value.",
+        "i32 n = random.i32()"
+    },
+    {
+        "random.f64",
+        "random.f64() -> f64",
+        "Generate a random float in [0, 1).",
+        "Returns a random f64 value between 0 (inclusive) and 1 (exclusive).",
+        "f64 x = random.f64()  // e.g. 0.7234..."
+    },
+    {
+        "random.range",
+        "random.range(min: i32, max: i32) -> i32",
+        "Generate a random integer in [min, max).",
+        "Returns a random i32 value between min (inclusive) and max (exclusive).",
+        "i32 dice = random.range(1, 7)  // 1-6"
+    },
+};
+
+#define RANDOM_COUNT (sizeof(random_docs) / sizeof(random_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -501,6 +551,7 @@ static const char *module_names[] = {
     "test",
     "strings",
     "regex",
+    "random",
 };
 
 #define MODULE_COUNT (sizeof(module_names) / sizeof(module_names[0]))
@@ -562,6 +613,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check random */
+    for (i = 0; i < RANDOM_COUNT; i++) {
+        if (strcmp(random_docs[i].name, name) == 0) {
+            return &random_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -606,6 +664,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "regex") == 0) {
         if (count) *count = REGEX_COUNT;
         return regex_docs;
+    }
+    if (strcmp(module_name, "random") == 0) {
+        if (count) *count = RANDOM_COUNT;
+        return random_docs;
     }
 
     return NULL;
