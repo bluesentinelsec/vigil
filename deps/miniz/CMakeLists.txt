@@ -10,6 +10,9 @@ add_library(miniz STATIC
 
 target_include_directories(miniz PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Position independent code for shared library builds
+set_target_properties(miniz PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # Disable warnings for third-party code
 if(MSVC)
     target_compile_options(miniz PRIVATE /W0)
