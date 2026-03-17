@@ -7691,14 +7691,17 @@ static basl_status_t basl_parser_parse_native_call(
             if (status != BASL_STATUS_OK) {
                 return status;
             }
-            status = basl_parser_require_scalar_expression(
-                state, member_token->span, &arg_result,
-                "call arguments must be single values"
-            );
-            if (status != BASL_STATUS_OK) {
-                return status;
-            }
             if (arg_count < fn->param_count) {
+                status = basl_parser_require_scalar_expression(
+                    state, member_token->span, &arg_result,
+                    "call arguments must be single values"
+                );
+                if (status != BASL_STATUS_OK) {
+                    return status;
+                }
+            }
+            if (arg_count < fn->param_count &&
+                fn->param_types[arg_count] != BASL_TYPE_OBJECT) {
                 status = basl_parser_require_type(
                     state, member_token->span, arg_result.type,
                     basl_binding_type_primitive(
