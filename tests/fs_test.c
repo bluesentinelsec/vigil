@@ -2,8 +2,17 @@
 #include "basl_test.h"
 #include "platform/platform.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Helper to build temp file path */
+static void make_temp_path(char *buf, size_t bufsize, const char *name) {
+    char *tmp = NULL;
+    basl_platform_temp_dir(&tmp, NULL);
+    snprintf(buf, bufsize, "%s/%s", tmp ? tmp : ".", name);
+    free(tmp);
+}
 
 /* ── Path operations (tested via platform layer) ─────────────────── */
 
@@ -24,7 +33,8 @@ TEST(BaslFsTest, PathJoinTrailingSlash) {
 /* ── File operations ─────────────────────────────────────────────── */
 
 TEST(BaslFsTest, WriteAndRead) {
-    const char *path = "/tmp/basl_fs_test.txt";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_test.txt");
     const char *data = "hello world";
     
     basl_status_t s = basl_platform_write_file(path, data, strlen(data), NULL);
@@ -41,7 +51,8 @@ TEST(BaslFsTest, WriteAndRead) {
 }
 
 TEST(BaslFsTest, FileExists) {
-    const char *path = "/tmp/basl_fs_exists_test.txt";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_exists_test.txt");
     basl_platform_write_file(path, "x", 1, NULL);
     
     int exists = 0;
@@ -54,11 +65,15 @@ TEST(BaslFsTest, FileExists) {
 }
 
 TEST(BaslFsTest, IsDirectory) {
+    char *tmp = NULL;
+    basl_platform_temp_dir(&tmp, NULL);
     int is_dir = 0;
-    basl_platform_is_directory("/tmp", &is_dir);
+    basl_platform_is_directory(tmp, &is_dir);
     EXPECT_EQ(is_dir, 1);
+    free(tmp);
     
-    const char *path = "/tmp/basl_fs_isdir_test.txt";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_isdir_test.txt");
     basl_platform_write_file(path, "x", 1, NULL);
     basl_platform_is_directory(path, &is_dir);
     EXPECT_EQ(is_dir, 0);
@@ -66,11 +81,15 @@ TEST(BaslFsTest, IsDirectory) {
 }
 
 TEST(BaslFsTest, IsFile) {
+    char *tmp = NULL;
+    basl_platform_temp_dir(&tmp, NULL);
     int is_file = 0;
-    basl_platform_is_file("/tmp", &is_file);
+    basl_platform_is_file(tmp, &is_file);
     EXPECT_EQ(is_file, 0);
+    free(tmp);
     
-    const char *path = "/tmp/basl_fs_isfile_test.txt";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_isfile_test.txt");
     basl_platform_write_file(path, "x", 1, NULL);
     basl_platform_is_file(path, &is_file);
     EXPECT_EQ(is_file, 1);
@@ -78,8 +97,9 @@ TEST(BaslFsTest, IsFile) {
 }
 
 TEST(BaslFsTest, CopyFile) {
-    const char *src = "/tmp/basl_fs_copy_src.txt";
-    const char *dst = "/tmp/basl_fs_copy_dst.txt";
+    char src[512], dst[512];
+    make_temp_path(src, sizeof(src), "basl_fs_copy_src.txt");
+    make_temp_path(dst, sizeof(dst), "basl_fs_copy_dst.txt");
     
     basl_platform_write_file(src, "copy me", 7, NULL);
     basl_status_t s = basl_platform_copy_file(src, dst, NULL);
@@ -96,8 +116,9 @@ TEST(BaslFsTest, CopyFile) {
 }
 
 TEST(BaslFsTest, RenameFile) {
-    const char *src = "/tmp/basl_fs_rename_src.txt";
-    const char *dst = "/tmp/basl_fs_rename_dst.txt";
+    char src[512], dst[512];
+    make_temp_path(src, sizeof(src), "basl_fs_rename_src.txt");
+    make_temp_path(dst, sizeof(dst), "basl_fs_rename_dst.txt");
     
     basl_platform_write_file(src, "move me", 7, NULL);
     basl_status_t s = basl_platform_rename(src, dst, NULL);
@@ -115,7 +136,8 @@ TEST(BaslFsTest, RenameFile) {
 /* ── Directory operations ────────────────────────────────────────── */
 
 TEST(BaslFsTest, MkdirAndRemove) {
-    const char *path = "/tmp/basl_fs_mkdir_test";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_mkdir_test");
     
     basl_status_t s = basl_platform_mkdir(path, NULL);
     ASSERT_EQ(s, BASL_STATUS_OK);
@@ -130,7 +152,9 @@ TEST(BaslFsTest, MkdirAndRemove) {
 }
 
 TEST(BaslFsTest, MkdirP) {
-    const char *path = "/tmp/basl_fs_mkdirp_test/a/b/c";
+    char path[512], base[512];
+    make_temp_path(base, sizeof(base), "basl_fs_mkdirp_test");
+    snprintf(path, sizeof(path), "%s/a/b/c", base);
     
     basl_status_t s = basl_platform_mkdir_p(path, NULL);
     ASSERT_EQ(s, BASL_STATUS_OK);
@@ -140,16 +164,21 @@ TEST(BaslFsTest, MkdirP) {
     EXPECT_EQ(is_dir, 1);
     
     /* Cleanup */
-    basl_platform_remove("/tmp/basl_fs_mkdirp_test/a/b/c", NULL);
-    basl_platform_remove("/tmp/basl_fs_mkdirp_test/a/b", NULL);
-    basl_platform_remove("/tmp/basl_fs_mkdirp_test/a", NULL);
-    basl_platform_remove("/tmp/basl_fs_mkdirp_test", NULL);
+    char cleanup[512];
+    snprintf(cleanup, sizeof(cleanup), "%s/a/b/c", base);
+    basl_platform_remove(cleanup, NULL);
+    snprintf(cleanup, sizeof(cleanup), "%s/a/b", base);
+    basl_platform_remove(cleanup, NULL);
+    snprintf(cleanup, sizeof(cleanup), "%s/a", base);
+    basl_platform_remove(cleanup, NULL);
+    basl_platform_remove(base, NULL);
 }
 
 /* ── Metadata ────────────────────────────────────────────────────── */
 
 TEST(BaslFsTest, FileSize) {
-    const char *path = "/tmp/basl_fs_size_test.txt";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_size_test.txt");
     basl_platform_write_file(path, "12345", 5, NULL);
     
     int64_t size = basl_platform_file_size(path);
@@ -159,7 +188,8 @@ TEST(BaslFsTest, FileSize) {
 }
 
 TEST(BaslFsTest, FileMtime) {
-    const char *path = "/tmp/basl_fs_mtime_test.txt";
+    char path[512];
+    make_temp_path(path, sizeof(path), "basl_fs_mtime_test.txt");
     basl_platform_write_file(path, "x", 1, NULL);
     
     int64_t mtime = basl_platform_file_mtime(path);
