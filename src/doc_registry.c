@@ -804,6 +804,45 @@ static const basl_doc_entry_t compress_docs[] = {
 
 #define COMPRESS_COUNT (sizeof(compress_docs) / sizeof(compress_docs[0]))
 
+/* ── time Module Docs ─────────────────────────────────────── */
+
+static const basl_doc_entry_t time_docs[] = {
+    {
+        "time",
+        NULL,
+        "Date and time operations.",
+        "The time module provides functions for working with dates and times.\n"
+        "Timestamps are Unix timestamps (seconds since 1970-01-01 UTC).\n"
+        "Format strings use strftime syntax: %Y=year, %m=month, %d=day,\n"
+        "%H=hour, %M=minute, %S=second, %A=weekday name, etc.",
+        NULL
+    },
+    {"time.now", "time.now() -> i64", "Get current Unix timestamp.", "Returns seconds since 1970-01-01 UTC.", "i64 ts = time.now()"},
+    {"time.now_ms", "time.now_ms() -> i64", "Get current time in milliseconds.", "Returns milliseconds since Unix epoch.", "i64 ms = time.now_ms()"},
+    {"time.now_ns", "time.now_ns() -> i64", "Get current time in nanoseconds.", "Returns nanoseconds since Unix epoch. Note: values may overflow\nBASL's 48-bit integer limit for dates after ~1970.", "i64 ns = time.now_ns()"},
+    {"time.sleep", "time.sleep(ms: i64)", "Sleep for milliseconds.", "Pauses execution for the specified duration.", "time.sleep(i64(1000))  // sleep 1 second"},
+    {"time.year", "time.year(ts: i64) -> i32", "Get year from timestamp.", "Returns the year (e.g. 2024).", "time.year(time.now())"},
+    {"time.month", "time.month(ts: i64) -> i32", "Get month from timestamp.", "Returns month 1-12.", "time.month(time.now())"},
+    {"time.day", "time.day(ts: i64) -> i32", "Get day from timestamp.", "Returns day of month 1-31.", "time.day(time.now())"},
+    {"time.hour", "time.hour(ts: i64) -> i32", "Get hour from timestamp.", "Returns hour 0-23.", "time.hour(time.now())"},
+    {"time.minute", "time.minute(ts: i64) -> i32", "Get minute from timestamp.", "Returns minute 0-59.", "time.minute(time.now())"},
+    {"time.second", "time.second(ts: i64) -> i32", "Get second from timestamp.", "Returns second 0-59.", "time.second(time.now())"},
+    {"time.weekday", "time.weekday(ts: i64) -> i32", "Get day of week.", "Returns 0=Sunday through 6=Saturday.", "time.weekday(time.now())"},
+    {"time.yearday", "time.yearday(ts: i64) -> i32", "Get day of year.", "Returns 1-366.", "time.yearday(time.now())"},
+    {"time.is_dst", "time.is_dst(ts: i64) -> bool", "Check if DST is active.", "Returns true if daylight saving time is in effect.", "time.is_dst(time.now())"},
+    {"time.utc_offset", "time.utc_offset() -> i32", "Get local UTC offset.", "Returns offset from UTC in seconds.", "time.utc_offset()  // e.g. -18000 for EST"},
+    {"time.date", "time.date(y: i32, m: i32, d: i32, h: i32, min: i32, s: i32) -> i64", "Create timestamp from components.", "Returns Unix timestamp for the given local time.", "time.date(2024, 12, 25, 0, 0, 0)"},
+    {"time.format", "time.format(ts: i64, fmt: string) -> string", "Format timestamp as string.", "Uses strftime format codes.", "time.format(time.now(), \"%Y-%m-%d %H:%M:%S\")"},
+    {"time.parse", "time.parse(s: string, fmt: string) -> i64", "Parse string to timestamp.", "Returns -1 on parse failure. Uses strptime format.", "time.parse(\"2024-12-25\", \"%Y-%m-%d\")"},
+    {"time.add_days", "time.add_days(ts: i64, n: i32) -> i64", "Add days to timestamp.", "Returns new timestamp.", "time.add_days(time.now(), 7)"},
+    {"time.add_hours", "time.add_hours(ts: i64, n: i32) -> i64", "Add hours to timestamp.", "Returns new timestamp.", "time.add_hours(time.now(), 24)"},
+    {"time.add_minutes", "time.add_minutes(ts: i64, n: i32) -> i64", "Add minutes to timestamp.", "Returns new timestamp.", "time.add_minutes(time.now(), 30)"},
+    {"time.add_seconds", "time.add_seconds(ts: i64, n: i64) -> i64", "Add seconds to timestamp.", "Returns new timestamp.", "time.add_seconds(time.now(), i64(3600))"},
+    {"time.diff_days", "time.diff_days(a: i64, b: i64) -> i64", "Get difference in days.", "Returns (a - b) / 86400.", "time.diff_days(future, past)"},
+};
+
+#define TIME_COUNT (sizeof(time_docs) / sizeof(time_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -818,6 +857,7 @@ static const char *module_names[] = {
     "strings",
     "regex",
     "random",
+    "time",
     "url",
     "yaml",
     "thread",
@@ -939,6 +979,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check time */
+    for (i = 0; i < TIME_COUNT; i++) {
+        if (strcmp(time_docs[i].name, name) == 0) {
+            return &time_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -1015,6 +1062,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "compress") == 0) {
         if (count) *count = COMPRESS_COUNT;
         return compress_docs;
+    }
+    if (strcmp(module_name, "time") == 0) {
+        if (count) *count = TIME_COUNT;
+        return time_docs;
     }
 
     return NULL;
