@@ -624,6 +624,14 @@ static const basl_doc_entry_t url_docs[] = {
 
 static const basl_doc_entry_t yaml_docs[] = {
     {
+        "yaml",
+        NULL,
+        "YAML parsing.",
+        "The yaml module parses a subset of YAML 1.2 covering most real-world usage:\n"
+        "scalars, block mappings, block sequences, comments, and quoted strings.",
+        NULL
+    },
+    {
         "yaml.parse",
         "yaml.parse(yaml: string) -> string",
         "Parse YAML string to JSON.",
