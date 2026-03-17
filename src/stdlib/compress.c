@@ -921,21 +921,30 @@ static const int bytes_param[] = { BASL_TYPE_STRING };
 static const int two_bytes_param[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
 static const int two_arrays_param[] = { BASL_TYPE_OBJECT, BASL_TYPE_OBJECT };
 
+/* Extended type info for functions that take array<string> parameters */
+static const basl_native_type_t create_params_ext[] = {
+    BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING),
+    BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING)
+};
+
+/* Extended type info for functions that return array<string> */
+static const basl_native_type_t array_string_return = BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING);
+
 static const basl_native_module_function_t compress_functions[] = {
-    {"deflate_compress", 16U, deflate_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"deflate_decompress", 18U, deflate_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"zlib_compress", 13U, zlib_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"zlib_decompress", 15U, zlib_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"gzip_compress", 13U, gzip_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"gzip_decompress", 15U, gzip_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"lz4_compress", 12U, lz4_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"lz4_decompress", 14U, lz4_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"zip_list", 8U, zip_list_fn, 1U, bytes_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING},
-    {"zip_read", 8U, zip_read_fn, 2U, two_bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"zip_create", 10U, zip_create_fn, 2U, two_arrays_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"tar_list", 8U, tar_list_fn, 1U, bytes_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING},
-    {"tar_read", 8U, tar_read_fn, 2U, two_bytes_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"tar_create", 10U, tar_create_fn, 2U, two_arrays_param, BASL_TYPE_STRING, 1U, NULL, 0},
+    {"deflate_compress", 16U, deflate_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"deflate_decompress", 18U, deflate_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zlib_compress", 13U, zlib_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zlib_decompress", 15U, zlib_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"gzip_compress", 13U, gzip_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"gzip_decompress", 15U, gzip_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"lz4_compress", 12U, lz4_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"lz4_decompress", 14U, lz4_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zip_list", 8U, zip_list_fn, 1U, bytes_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING, NULL, &array_string_return},
+    {"zip_read", 8U, zip_read_fn, 2U, two_bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zip_create", 10U, zip_create_fn, 2U, two_arrays_param, BASL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
+    {"tar_list", 8U, tar_list_fn, 1U, bytes_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING, NULL, &array_string_return},
+    {"tar_read", 8U, tar_read_fn, 2U, two_bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"tar_create", 10U, tar_create_fn, 2U, two_arrays_param, BASL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
 };
 
 #define COMPRESS_FUNCTION_COUNT (sizeof(compress_functions) / sizeof(compress_functions[0]))

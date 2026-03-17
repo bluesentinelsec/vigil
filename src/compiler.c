@@ -7640,6 +7640,50 @@ static basl_status_t basl_parser_parse_constructor_resolved(
     return BASL_STATUS_OK;
 }
 
+/* Convert a basl_native_type_t to basl_binding_type_t, interning array/map types as needed. */
+static basl_status_t basl_native_type_to_binding_type(
+    basl_parser_state_t *state,
+    const basl_native_type_t *native_type,
+    basl_binding_type_t *out_type
+) {
+    basl_status_t status;
+    basl_binding_type_t elem_type, key_type, value_type;
+
+    if (native_type->object_kind == 0) {
+        /* Primitive type */
+        *out_type = basl_binding_type_primitive((basl_type_kind_t)native_type->kind);
+        return BASL_STATUS_OK;
+    }
+
+    if (native_type->object_kind == 4) {
+        /* Array type */
+        elem_type = basl_binding_type_primitive((basl_type_kind_t)native_type->element_type);
+        status = basl_program_intern_array_type(
+            (basl_program_state_t *)state->program,
+            elem_type,
+            out_type
+        );
+        return status;
+    }
+
+    if (native_type->object_kind == 5) {
+        /* Map type */
+        key_type = basl_binding_type_primitive((basl_type_kind_t)native_type->key_type);
+        value_type = basl_binding_type_primitive((basl_type_kind_t)native_type->value_type);
+        status = basl_program_intern_map_type(
+            (basl_program_state_t *)state->program,
+            key_type,
+            value_type,
+            out_type
+        );
+        return status;
+    }
+
+    /* Unknown object kind, fall back to generic object */
+    *out_type = basl_binding_type_primitive(BASL_TYPE_OBJECT);
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_parser_parse_native_call(
     basl_parser_state_t *state,
     const basl_token_t *member_token,
@@ -7700,16 +7744,36 @@ static basl_status_t basl_parser_parse_native_call(
                     return status;
                 }
             }
-            if (arg_count < fn->param_count &&
-                fn->param_types[arg_count] != BASL_TYPE_OBJECT) {
-                status = basl_parser_require_type(
-                    state, member_token->span, arg_result.type,
-                    basl_binding_type_primitive(
-                        (basl_type_kind_t)fn->param_types[arg_count]),
-                    "call argument type does not match parameter type"
-                );
-                if (status != BASL_STATUS_OK) {
-                    return status;
+            if (arg_count < fn->param_count) {
+                /* Check if we should do type checking for this parameter */
+                int should_check = 1;
+                basl_binding_type_t expected_type = basl_binding_type_invalid();
+                
+                if (fn->param_types_ext != NULL) {
+                    /* Use extended type info - always check */
+                    status = basl_native_type_to_binding_type(
+                        state, &fn->param_types_ext[arg_count], &expected_type);
+                    if (status != BASL_STATUS_OK) {
+                        return status;
+                    }
+                } else if (fn->param_types[arg_count] != BASL_TYPE_OBJECT) {
+                    /* Legacy: check primitive types, skip generic OBJECT */
+                    expected_type = basl_binding_type_primitive(
+                        (basl_type_kind_t)fn->param_types[arg_count]);
+                } else {
+                    /* Legacy OBJECT type - skip checking */
+                    should_check = 0;
+                }
+                
+                if (should_check) {
+                    status = basl_parser_require_type(
+                        state, member_token->span, arg_result.type,
+                        expected_type,
+                        "call argument type does not match parameter type"
+                    );
+                    if (status != BASL_STATUS_OK) {
+                        return status;
+                    }
                 }
             }
             arg_count += 1U;
@@ -7773,7 +7837,15 @@ static basl_status_t basl_parser_parse_native_call(
 
     /* Set return type. */
     if (fn->return_count <= 1U) {
-        if (fn->return_type == BASL_TYPE_OBJECT && fn->return_element_type != 0) {
+        if (fn->return_type_ext != NULL) {
+            /* Use extended return type info */
+            basl_binding_type_t ret_type;
+            status = basl_native_type_to_binding_type(state, fn->return_type_ext, &ret_type);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(out_result, ret_type);
+        } else if (fn->return_type == BASL_TYPE_OBJECT && fn->return_element_type != 0) {
             /* Array return - look up the pre-registered array type */
             basl_parser_type_t elem_type = basl_binding_type_primitive(
                 (basl_type_kind_t)fn->return_element_type);

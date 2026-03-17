@@ -122,11 +122,11 @@ static const int seed_params[] = {BASL_TYPE_I32};
 static const int range_params[] = {BASL_TYPE_I32, BASL_TYPE_I32};
 
 static const basl_native_module_function_t basl_random_functions[] = {
-    {"seed", 4U, basl_random_seed, 1U, seed_params, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"i64", 3U, basl_random_i64, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0},
-    {"i32", 3U, basl_random_i32, 0U, NULL, BASL_TYPE_I32, 1U, NULL, 0},
-    {"f64", 3U, basl_random_f64, 0U, NULL, BASL_TYPE_F64, 1U, NULL, 0},
-    {"range", 5U, basl_random_range, 2U, range_params, BASL_TYPE_I32, 1U, NULL, 0},
+    {"seed", 4U, basl_random_seed, 1U, seed_params, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"i64", 3U, basl_random_i64, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"i32", 3U, basl_random_i32, 0U, NULL, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"f64", 3U, basl_random_f64, 0U, NULL, BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
+    {"range", 5U, basl_random_range, 2U, range_params, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
 };
 
 #define RANDOM_FUNCTION_COUNT \

@@ -197,8 +197,8 @@ static const int str_param[] = {BASL_TYPE_STRING};
 static const int str_str_params[] = {BASL_TYPE_STRING, BASL_TYPE_STRING};
 
 static const basl_native_module_function_t basl_yaml_functions[] = {
-    {"parse", 5U, basl_yaml_parse_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"get", 3U, basl_yaml_get_fn, 2U, str_str_params, BASL_TYPE_STRING, 1U, NULL, 0},
+    {"parse", 5U, basl_yaml_parse_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"get", 3U, basl_yaml_get_fn, 2U, str_str_params, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
 };
 
 #define YAML_FUNCTION_COUNT \

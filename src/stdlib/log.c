@@ -515,19 +515,19 @@ static const int str_str_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
 static const int i64_str_params[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
 
 static const basl_native_module_function_t log_functions[] = {
-    {"debug", 5U, log_debug, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"info", 4U, log_info, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"warn", 4U, log_warn, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"error", 5U, log_error_fn, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"debug_l", 7U, log_debug_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"info_l", 6U, log_info_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"warn_l", 6U, log_warn_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"error_l", 7U, log_error_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"set_level", 9U, log_set_level, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"set_format", 10U, log_set_format, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"set_output", 10U, log_set_output, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"set_time_format", 15U, log_set_time_format, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0},
-    {"with", 4U, log_with, 2U, str_str_params, BASL_TYPE_I64, 1U, NULL, 0},
+    {"debug", 5U, log_debug, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"info", 4U, log_info, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"warn", 4U, log_warn, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"error", 5U, log_error_fn, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"debug_l", 7U, log_debug_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"info_l", 6U, log_info_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"warn_l", 6U, log_warn_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"error_l", 7U, log_error_l, 2U, i64_str_params, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"set_level", 9U, log_set_level, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"set_format", 10U, log_set_format, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"set_output", 10U, log_set_output, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"set_time_format", 15U, log_set_time_format, 1U, str_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"with", 4U, log_with, 2U, str_str_params, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
 };
 
 #define LOG_FUNCTION_COUNT (sizeof(log_functions) / sizeof(log_functions[0]))

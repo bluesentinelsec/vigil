@@ -300,15 +300,15 @@ static basl_status_t basl_url_decode_fn(
 static const int str_param[] = {BASL_TYPE_STRING};
 
 static const basl_native_module_function_t basl_url_functions[] = {
-    {"parse", 5U, basl_url_parse_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"scheme", 6U, basl_url_scheme_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"host", 4U, basl_url_host_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"port", 4U, basl_url_port_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"path", 4U, basl_url_path_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"query", 5U, basl_url_query_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"fragment", 8U, basl_url_fragment_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"encode", 6U, basl_url_encode_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
-    {"decode", 6U, basl_url_decode_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0},
+    {"parse", 5U, basl_url_parse_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"scheme", 6U, basl_url_scheme_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"host", 4U, basl_url_host_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"port", 4U, basl_url_port_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"path", 4U, basl_url_path_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"query", 5U, basl_url_query_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"fragment", 8U, basl_url_fragment_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"encode", 6U, basl_url_encode_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"decode", 6U, basl_url_decode_fn, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
 };
 
 #define URL_FUNCTION_COUNT \
