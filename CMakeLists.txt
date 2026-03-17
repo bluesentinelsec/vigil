@@ -87,6 +87,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/args.c
     src/stdlib/atomic.c
     src/stdlib/compress.c
+    src/stdlib/csv.c
     src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/fs.c
