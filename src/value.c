@@ -8,11 +8,12 @@
 #include "basl/map.h"
 #include "basl/string.h"
 #include "basl/value.h"
+#include "platform/platform.h"  /* For atomic operations */
 
 struct basl_object {
     basl_runtime_t *runtime;
     basl_object_type_t type;
-    size_t ref_count;
+    volatile int64_t ref_count;  /* Atomic for thread safety */
 };
 
 typedef struct basl_string_object {
@@ -555,7 +556,7 @@ size_t basl_object_ref_count(const basl_object_t *object) {
         return 0U;
     }
 
-    return object->ref_count;
+    return (size_t)basl_atomic_load(&object->ref_count);
 }
 
 void basl_object_retain(basl_object_t *object) {
@@ -563,11 +564,10 @@ void basl_object_retain(basl_object_t *object) {
         return;
     }
 
-    if (object->ref_count == SIZE_MAX) {
+    int64_t old = basl_atomic_add(&object->ref_count, 1);
+    if (old == INT64_MAX) {
         abort();
     }
-
-    object->ref_count += 1U;
 }
 
 void basl_object_release(basl_object_t **object) {
@@ -580,8 +580,8 @@ void basl_object_release(basl_object_t **object) {
     resolved_object = *object;
     *object = NULL;
 
-    if (resolved_object->ref_count > 1U) {
-        resolved_object->ref_count -= 1U;
+    int64_t old = basl_atomic_sub(&resolved_object->ref_count, 1);
+    if (old > 1) {
         return;
     }
 
