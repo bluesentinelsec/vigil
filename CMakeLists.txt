@@ -98,6 +98,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/regex_engine.c
     src/stdlib/test.c
     src/stdlib/thread.c
+    src/stdlib/time.c
     src/stdlib/unsafe.c
     src/stdlib/url.c
     src/stdlib/yaml.c
