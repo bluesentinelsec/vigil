@@ -804,6 +804,25 @@ static const basl_doc_entry_t compress_docs[] = {
 
 #define COMPRESS_COUNT (sizeof(compress_docs) / sizeof(compress_docs[0]))
 
+/* ── csv Module Docs ──────────────────────────────────────── */
+
+static const basl_doc_entry_t csv_docs[] = {
+    {
+        "csv",
+        NULL,
+        "CSV parsing and generation.",
+        "The csv module provides RFC 4180 compliant CSV parsing and generation.\n"
+        "Handles quoted fields, escaped quotes, and CRLF line endings.",
+        NULL
+    },
+    {"csv.parse", "csv.parse(data: string) -> array<array<string>>", "Parse CSV to 2D array.", "Parses CSV data into array of rows, each row an array of fields.", "array<array<string>> rows = csv.parse(data)"},
+    {"csv.parse_row", "csv.parse_row(line: string) -> array<string>", "Parse single CSV row.", "Parses one line of CSV into array of fields.", "array<string> fields = csv.parse_row(line)"},
+    {"csv.stringify", "csv.stringify(rows: array<array<string>>) -> string", "Convert 2D array to CSV.", "Generates RFC 4180 CSV with CRLF line endings.", "string csv = csv.stringify(rows)"},
+    {"csv.stringify_row", "csv.stringify_row(row: array<string>) -> string", "Convert row to CSV line.", "Generates single CSV line without trailing newline.", "string line = csv.stringify_row(row)"},
+};
+
+#define CSV_COUNT (sizeof(csv_docs) / sizeof(csv_docs[0]))
+
 /* ── time Module Docs ─────────────────────────────────────── */
 
 static const basl_doc_entry_t time_docs[] = {
@@ -848,6 +867,7 @@ static const basl_doc_entry_t time_docs[] = {
 static const char *module_names[] = {
     "builtins",
     "compress",
+    "csv",
     "fmt",
     "fs",
     "log",
@@ -979,6 +999,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check csv */
+    for (i = 0; i < CSV_COUNT; i++) {
+        if (strcmp(csv_docs[i].name, name) == 0) {
+            return &csv_docs[i];
+        }
+    }
+
     /* Check time */
     for (i = 0; i < TIME_COUNT; i++) {
         if (strcmp(time_docs[i].name, name) == 0) {
@@ -1062,6 +1089,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "compress") == 0) {
         if (count) *count = COMPRESS_COUNT;
         return compress_docs;
+    }
+    if (strcmp(module_name, "csv") == 0) {
+        if (count) *count = CSV_COUNT;
+        return csv_docs;
     }
     if (strcmp(module_name, "time") == 0) {
         if (count) *count = TIME_COUNT;
