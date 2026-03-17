@@ -388,37 +388,43 @@ static const basl_native_module_function_t basl_regex_functions[] = {
         "match", 5U,
         basl_regex_match_fn,
         2U, match_params,
-        BASL_TYPE_BOOL, 1U, NULL, 0
+        BASL_TYPE_BOOL, 1U, NULL, 0,
+        NULL, NULL
     },
     {
         "find", 4U,
         basl_regex_find_fn,
         2U, find_params,
-        BASL_TYPE_STRING, 2U, find_ret, 0
+        BASL_TYPE_STRING, 2U, find_ret, 0,
+        NULL, NULL
     },
     {
         "find_all", 8U,
         basl_regex_find_all_fn,
         2U, find_all_params,
-        BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING
+        BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING,
+        NULL, NULL
     },
     {
         "replace", 7U,
         basl_regex_replace_fn,
         3U, replace_params,
-        BASL_TYPE_STRING, 1U, NULL, 0
+        BASL_TYPE_STRING, 1U, NULL, 0,
+        NULL, NULL
     },
     {
         "replace_all", 11U,
         basl_regex_replace_all_fn,
         3U, replace_params,
-        BASL_TYPE_STRING, 1U, NULL, 0
+        BASL_TYPE_STRING, 1U, NULL, 0,
+        NULL, NULL
     },
     {
         "split", 5U,
         basl_regex_split_fn,
         2U, split_params,
-        BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING
+        BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING,
+        NULL, NULL
     },
 };
 

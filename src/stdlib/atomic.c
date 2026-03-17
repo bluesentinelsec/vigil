@@ -154,14 +154,14 @@ static const int i64_i64_param[] = { BASL_TYPE_I64, BASL_TYPE_I64 };
 static const int i64_i64_i64_param[] = { BASL_TYPE_I64, BASL_TYPE_I64, BASL_TYPE_I64 };
 
 static const basl_native_module_function_t atomic_funcs[] = {
-    {"new", 3U, atomic_new, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0},
-    {"load", 4U, atomic_load_fn, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0},
-    {"store", 5U, atomic_store_fn, 2U, i64_i64_param, BASL_TYPE_BOOL, 1U, NULL, 0},
-    {"add", 3U, atomic_add_fn, 2U, i64_i64_param, BASL_TYPE_I64, 1U, NULL, 0},
-    {"sub", 3U, atomic_sub_fn, 2U, i64_i64_param, BASL_TYPE_I64, 1U, NULL, 0},
-    {"cas", 3U, atomic_cas_fn, 3U, i64_i64_i64_param, BASL_TYPE_BOOL, 1U, NULL, 0},
-    {"inc", 3U, atomic_inc_fn, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0},
-    {"dec", 3U, atomic_dec_fn, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0},
+    {"new", 3U, atomic_new, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"load", 4U, atomic_load_fn, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"store", 5U, atomic_store_fn, 2U, i64_i64_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"add", 3U, atomic_add_fn, 2U, i64_i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"sub", 3U, atomic_sub_fn, 2U, i64_i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"cas", 3U, atomic_cas_fn, 3U, i64_i64_i64_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"inc", 3U, atomic_inc_fn, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"dec", 3U, atomic_dec_fn, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
 };
 
 BASL_API const basl_native_module_t basl_stdlib_atomic = {

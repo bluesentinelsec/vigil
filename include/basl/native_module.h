@@ -16,6 +16,23 @@ extern "C" {
 #endif
 
 /**
+ * Describes a type for native module parameters and returns.
+ * Supports primitives, arrays, and maps with full type parameters.
+ */
+typedef struct basl_native_type {
+    int kind;                   /* basl_type_kind_t */
+    int object_kind;            /* 0=primitive, 4=array, 5=map (matches basl_binding_object_kind_t) */
+    int element_type;           /* For arrays: element basl_type_kind_t */
+    int key_type;               /* For maps: key basl_type_kind_t */
+    int value_type;             /* For maps: value basl_type_kind_t */
+} basl_native_type_t;
+
+/* Helper macros for defining native types */
+#define BASL_NATIVE_TYPE_PRIMITIVE(k) { (k), 0, 0, 0, 0 }
+#define BASL_NATIVE_TYPE_ARRAY(elem) { BASL_TYPE_OBJECT, 4, (elem), 0, 0 }
+#define BASL_NATIVE_TYPE_MAP(k, v) { BASL_TYPE_OBJECT, 5, 0, (k), (v) }
+
+/**
  * Describes one function exported by a native module.
  * The compiler uses name, param_types, param_count, and return_type
  * for type checking.  The VM uses native_fn at runtime.
@@ -25,11 +42,14 @@ typedef struct basl_native_module_function {
     size_t name_length;
     basl_native_fn_t native_fn;
     size_t param_count;
-    const int *param_types;     /* basl_type_kind_t values */
+    const int *param_types;     /* basl_type_kind_t values (legacy, for simple types) */
     int return_type;            /* basl_type_kind_t */
     size_t return_count;        /* number of return values (1 or 2 for err) */
     const int *return_types;    /* array of basl_type_kind_t, length = return_count */
     int return_element_type;    /* For array returns: element type (basl_type_kind_t) */
+    /* Extended type info (optional, NULL = use legacy param_types) */
+    const basl_native_type_t *param_types_ext;
+    const basl_native_type_t *return_type_ext;
 } basl_native_module_function_t;
 
 /**
