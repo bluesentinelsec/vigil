@@ -775,10 +775,32 @@ static const basl_doc_entry_t atomic_docs[] = {
 
 #define ATOMIC_COUNT (sizeof(atomic_docs) / sizeof(atomic_docs[0]))
 
+/* ── compress module ──────────────────────────────────────── */
+
+static const basl_doc_entry_t compress_docs[] = {
+    {
+        "compress",
+        NULL,
+        "Data compression and decompression.",
+        "The compress module provides deflate, zlib, and gzip compression.\n"
+        "Uses the miniz library (MIT license).",
+        NULL
+    },
+    {"compress.deflate_compress", "compress.deflate_compress(data: string) -> string", "Compress with raw deflate.", "Returns deflate-compressed data.", "compress.deflate_compress(data)"},
+    {"compress.deflate_decompress", "compress.deflate_decompress(data: string) -> string", "Decompress raw deflate.", "Returns decompressed data.", "compress.deflate_decompress(compressed)"},
+    {"compress.zlib_compress", "compress.zlib_compress(data: string) -> string", "Compress with zlib format.", "Returns zlib-compressed data (deflate + header/checksum).", "compress.zlib_compress(data)"},
+    {"compress.zlib_decompress", "compress.zlib_decompress(data: string) -> string", "Decompress zlib format.", "Returns decompressed data.", "compress.zlib_decompress(compressed)"},
+    {"compress.gzip_compress", "compress.gzip_compress(data: string) -> string", "Compress with gzip format.", "Returns gzip-compressed data.", "compress.gzip_compress(data)"},
+    {"compress.gzip_decompress", "compress.gzip_decompress(data: string) -> string", "Decompress gzip format.", "Returns decompressed data.", "compress.gzip_decompress(compressed)"},
+};
+
+#define COMPRESS_COUNT (sizeof(compress_docs) / sizeof(compress_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
     "builtins",
+    "compress",
     "fmt",
     "fs",
     "log",
@@ -902,6 +924,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check compress */
+    for (i = 0; i < COMPRESS_COUNT; i++) {
+        if (strcmp(compress_docs[i].name, name) == 0) {
+            return &compress_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -974,6 +1003,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "atomic") == 0) {
         if (count) *count = ATOMIC_COUNT;
         return atomic_docs;
+    }
+    if (strcmp(module_name, "compress") == 0) {
+        if (count) *count = COMPRESS_COUNT;
+        return compress_docs;
     }
 
     return NULL;

@@ -86,6 +86,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     $<TARGET_OBJECTS:basl_core>
     src/stdlib/args.c
     src/stdlib/atomic.c
+    src/stdlib/compress.c
     src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/fs.c
@@ -154,6 +155,10 @@ if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN
     target_compile_definitions(basl PRIVATE BASL_HAS_LIBFFI)
     target_compile_definitions(basl_core PRIVATE BASL_HAS_LIBFFI)
 endif()
+
+# Vendored miniz for compression support.
+add_subdirectory(deps/miniz)
+target_link_libraries(basl PRIVATE miniz)
 
 # On MSVC multi-config generators, an OBJECT-library-backed shared
 # library may place its import library (.lib) in a different directory
