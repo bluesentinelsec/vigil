@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#define strtok_r strtok_s
+#endif
+
 #include "basl/native_module.h"
 #include "basl/type.h"
 #include "basl/value.h"
@@ -77,7 +81,9 @@ static basl_status_t fs_join(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
         size_t space = sizeof(result) - strlen(result) - 1;
         size_t plen = strlen(part);
         if (plen > space) plen = space;
-        strncat(result, part, plen);
+        size_t rlen = strlen(result);
+        memcpy(result + rlen, part, plen);
+        result[rlen + plen] = '\0';
     }
     
     basl_vm_stack_pop_n(vm, arg_count);
