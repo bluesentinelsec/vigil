@@ -152,7 +152,7 @@ TEST(BaslFsTest, MkdirAndRemove) {
 }
 
 TEST(BaslFsTest, MkdirP) {
-    char path[512], base[512];
+    char path[1024], base[512];
     make_temp_path(base, sizeof(base), "basl_fs_mkdirp_test");
     snprintf(path, sizeof(path), "%s/a/b/c", base);
     
@@ -164,13 +164,11 @@ TEST(BaslFsTest, MkdirP) {
     EXPECT_EQ(is_dir, 1);
     
     /* Cleanup */
-    char cleanup[512];
-    snprintf(cleanup, sizeof(cleanup), "%s/a/b/c", base);
-    basl_platform_remove(cleanup, NULL);
-    snprintf(cleanup, sizeof(cleanup), "%s/a/b", base);
-    basl_platform_remove(cleanup, NULL);
-    snprintf(cleanup, sizeof(cleanup), "%s/a", base);
-    basl_platform_remove(cleanup, NULL);
+    basl_platform_remove(path, NULL);
+    snprintf(path, sizeof(path), "%s/a/b", base);
+    basl_platform_remove(path, NULL);
+    snprintf(path, sizeof(path), "%s/a", base);
+    basl_platform_remove(path, NULL);
     basl_platform_remove(base, NULL);
 }
 

@@ -79,9 +79,11 @@ class FsFileTest(unittest.TestCase):
     def test_write_read(self):
         code = '''import "fs";
 fn main() -> i32 {
-    fs.write("/tmp/basl_test_wr.txt", "hello");
-    if (fs.read("/tmp/basl_test_wr.txt") == "hello") {
-        fs.remove("/tmp/basl_test_wr.txt");
+    string tmp = fs.temp_dir();
+    string path = fs.join(tmp, "basl_test_wr.txt");
+    fs.write(path, "hello");
+    if (fs.read(path) == "hello") {
+        fs.remove(path);
         return 0;
     }
     return 1;
@@ -92,10 +94,12 @@ fn main() -> i32 {
     def test_exists(self):
         code = '''import "fs";
 fn main() -> i32 {
-    fs.write("/tmp/basl_test_ex.txt", "x");
-    if (fs.exists("/tmp/basl_test_ex.txt")) {
-        fs.remove("/tmp/basl_test_ex.txt");
-        if (!fs.exists("/tmp/basl_test_ex.txt")) { return 0; }
+    string tmp = fs.temp_dir();
+    string path = fs.join(tmp, "basl_test_ex.txt");
+    fs.write(path, "x");
+    if (fs.exists(path)) {
+        fs.remove(path);
+        if (!fs.exists(path)) { return 0; }
     }
     return 1;
 }'''
@@ -105,11 +109,14 @@ fn main() -> i32 {
     def test_copy(self):
         code = '''import "fs";
 fn main() -> i32 {
-    fs.write("/tmp/basl_test_cp1.txt", "copy");
-    fs.copy("/tmp/basl_test_cp1.txt", "/tmp/basl_test_cp2.txt");
-    if (fs.read("/tmp/basl_test_cp2.txt") == "copy") {
-        fs.remove("/tmp/basl_test_cp1.txt");
-        fs.remove("/tmp/basl_test_cp2.txt");
+    string tmp = fs.temp_dir();
+    string src = fs.join(tmp, "basl_test_cp1.txt");
+    string dst = fs.join(tmp, "basl_test_cp2.txt");
+    fs.write(src, "copy");
+    fs.copy(src, dst);
+    if (fs.read(dst) == "copy") {
+        fs.remove(src);
+        fs.remove(dst);
         return 0;
     }
     return 1;
@@ -124,9 +131,11 @@ class FsDirTest(unittest.TestCase):
     def test_mkdir(self):
         code = '''import "fs";
 fn main() -> i32 {
-    fs.mkdir("/tmp/basl_test_mkdir");
-    if (fs.is_dir("/tmp/basl_test_mkdir")) {
-        fs.remove("/tmp/basl_test_mkdir");
+    string tmp = fs.temp_dir();
+    string path = fs.join(tmp, "basl_test_mkdir");
+    fs.mkdir(path);
+    if (fs.is_dir(path)) {
+        fs.remove(path);
         return 0;
     }
     return 1;
@@ -137,11 +146,14 @@ fn main() -> i32 {
     def test_mkdir_all(self):
         code = '''import "fs";
 fn main() -> i32 {
-    fs.mkdir_all("/tmp/basl_test_mkdirall/a/b");
-    if (fs.is_dir("/tmp/basl_test_mkdirall/a/b")) {
-        fs.remove("/tmp/basl_test_mkdirall/a/b");
-        fs.remove("/tmp/basl_test_mkdirall/a");
-        fs.remove("/tmp/basl_test_mkdirall");
+    string tmp = fs.temp_dir();
+    string base = fs.join(tmp, "basl_test_mkdirall");
+    string path = fs.join(base, "a/b");
+    fs.mkdir_all(path);
+    if (fs.is_dir(path)) {
+        fs.remove(path);
+        fs.remove(fs.join(base, "a"));
+        fs.remove(base);
         return 0;
     }
     return 1;
