@@ -620,6 +620,28 @@ static const basl_doc_entry_t url_docs[] = {
 
 #define URL_COUNT (sizeof(url_docs) / sizeof(url_docs[0]))
 
+/* ── yaml module ──────────────────────────────────────────── */
+
+static const basl_doc_entry_t yaml_docs[] = {
+    {
+        "yaml.parse",
+        "yaml.parse(yaml: string) -> string",
+        "Parse YAML string to JSON.",
+        "Parses a YAML document and returns it as a JSON string.",
+        "yaml.parse(\"name: test\\ncount: 42\")  // {\"name\":\"test\",\"count\":42}"
+    },
+    {
+        "yaml.get",
+        "yaml.get(yaml: string, path: string) -> string",
+        "Get value at path from YAML.",
+        "Parses YAML and returns the value at the given path. "
+        "Use dot notation for objects and [n] for arrays.",
+        "yaml.get(\"items:\\n  - a\\n  - b\", \"items[1]\")  // \"b\""
+    },
+};
+
+#define YAML_COUNT (sizeof(yaml_docs) / sizeof(yaml_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -632,6 +654,7 @@ static const char *module_names[] = {
     "regex",
     "random",
     "url",
+    "yaml",
 };
 
 #define MODULE_COUNT (sizeof(module_names) / sizeof(module_names[0]))
@@ -707,6 +730,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check yaml */
+    for (i = 0; i < YAML_COUNT; i++) {
+        if (strcmp(yaml_docs[i].name, name) == 0) {
+            return &yaml_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -759,6 +789,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "url") == 0) {
         if (count) *count = URL_COUNT;
         return url_docs;
+    }
+    if (strcmp(module_name, "yaml") == 0) {
+        if (count) *count = YAML_COUNT;
+        return yaml_docs;
     }
 
     return NULL;
