@@ -5,25 +5,23 @@ import os
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
 
 
 def run_basl(code: str) -> tuple[int, str, str]:
     """Run BASL code and return (exit_code, stdout, stderr)."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".basl", delete=False) as f:
-        f.write(code)
-        f.flush()
-        try:
-            result = subprocess.run(
-                [BASL_BIN, "run", f.name],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            return result.returncode, result.stdout, result.stderr
-        finally:
-            os.unlink(f.name)
+    with tempfile.TemporaryDirectory(prefix="basl_regex_") as tmpdir:
+        path = Path(tmpdir) / "test.basl"
+        path.write_text(code)
+        result = subprocess.run(
+            [BASL_BIN, "run", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.returncode, result.stdout, result.stderr
 
 
 class RegexMatchTest(unittest.TestCase):
