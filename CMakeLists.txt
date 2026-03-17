@@ -89,6 +89,8 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/fmt.c
     src/stdlib/math.c
     src/stdlib/readline.c
+    src/stdlib/regex.c
+    src/stdlib/regex_engine.c
     src/stdlib/test.c
     src/stdlib/unsafe.c
 )

@@ -886,8 +886,8 @@ static const int p_str_i32[] = { BASL_TYPE_STRING, BASL_TYPE_I32 };
 static const int p_copy[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64,
                                BASL_TYPE_I32, BASL_TYPE_I32 };
 
-#define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL }
-#define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, BASL_TYPE_VOID, 0, NULL }
+#define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL, 0 }
+#define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, BASL_TYPE_VOID, 0, NULL, 0 }
 
 static const basl_native_module_function_t basl_unsafe_functions[] = {
     /* Buffer management */

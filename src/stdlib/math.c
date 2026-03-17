@@ -276,23 +276,23 @@ static const int basl_math_f64f64f64_params[] = {
 
 #define MATH_FN0(id, n, nl)                                         \
     { n, nl, basl_math_##id, 0U, NULL,                             \
-      BASL_TYPE_F64, 1U, NULL }
+      BASL_TYPE_F64, 1U, NULL, 0 }
 
 #define MATH_FN1(id, n, nl)                                         \
     { n, nl, basl_math_##id, 1U, basl_math_f64_params,             \
-      BASL_TYPE_F64, 1U, NULL }
+      BASL_TYPE_F64, 1U, NULL, 0 }
 
 #define MATH_FN2(id, n, nl)                                         \
     { n, nl, basl_math_##id, 2U, basl_math_f64f64_params,          \
-      BASL_TYPE_F64, 1U, NULL }
+      BASL_TYPE_F64, 1U, NULL, 0 }
 
 #define MATH_FN3(id, n, nl)                                         \
     { n, nl, basl_math_##id, 3U, basl_math_f64f64f64_params,       \
-      BASL_TYPE_F64, 1U, NULL }
+      BASL_TYPE_F64, 1U, NULL, 0 }
 
 #define MATH_FN5(id, n, nl)                                         \
     { n, nl, basl_math_##id, 5U, basl_math_f64x5_params,           \
-      BASL_TYPE_F64, 1U, NULL }
+      BASL_TYPE_F64, 1U, NULL, 0 }
 
 static const basl_native_module_function_t basl_math_functions[] = {
     MATH_FN0(pi,        "pi",       2U),

@@ -111,19 +111,19 @@ static const basl_native_module_function_t basl_fmt_functions[] = {
         "println", 7U,
         basl_fmt_println,
         1U, basl_fmt_println_params,
-        BASL_TYPE_VOID, 0U, NULL
+        BASL_TYPE_VOID, 0U, NULL, 0
     },
     {
         "print", 5U,
         basl_fmt_print,
         1U, basl_fmt_print_params,
-        BASL_TYPE_VOID, 0U, NULL
+        BASL_TYPE_VOID, 0U, NULL, 0
     },
     {
         "eprintln", 8U,
         basl_fmt_eprintln,
         1U, basl_fmt_eprintln_params,
-        BASL_TYPE_VOID, 0U, NULL
+        BASL_TYPE_VOID, 0U, NULL, 0
     },
 };
 

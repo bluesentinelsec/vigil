@@ -2436,6 +2436,29 @@ static basl_status_t basl_program_parse_import_target(
     return basl_program_resolve_import_path(program, text + 1U, length - 2U, out_path);
 }
 
+static basl_status_t basl_program_register_native_function_types(
+    basl_program_state_t *program,
+    const basl_native_module_t *mod
+) {
+    basl_status_t status;
+    size_t fi;
+
+    for (fi = 0U; fi < mod->function_count; fi++) {
+        const basl_native_module_function_t *fn = &mod->functions[fi];
+        if (fn->return_type == BASL_TYPE_OBJECT && fn->return_element_type != 0) {
+            /* Pre-register array type for this function's return type */
+            basl_parser_type_t arr_type;
+            basl_parser_type_t elem_type = basl_binding_type_primitive(
+                (basl_type_kind_t)fn->return_element_type);
+            status = basl_program_intern_array_type(program, elem_type, &arr_type);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+        }
+    }
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_program_register_native_classes(
     basl_program_state_t *program,
     const basl_native_module_t *mod,
@@ -2683,12 +2706,23 @@ static basl_status_t basl_program_parse_import(
 
     if (!native_found) {
         status = basl_program_parse_source(program, imported_source_id);
-    } else if (program->natives->modules[native_idx]->class_count > 0U) {
-        status = basl_program_register_native_classes(
+    } else {
+        /* Register array types for native function returns */
+        status = basl_program_register_native_function_types(
             program,
-            program->natives->modules[native_idx],
-            imported_source_id
+            program->natives->modules[native_idx]
         );
+        if (status != BASL_STATUS_OK) {
+            basl_string_free(&import_path);
+            return status;
+        }
+        if (program->natives->modules[native_idx]->class_count > 0U) {
+            status = basl_program_register_native_classes(
+                program,
+                program->natives->modules[native_idx],
+                imported_source_id
+            );
+        }
     }
     basl_string_free(&import_path);
     return status;
@@ -7736,10 +7770,26 @@ static basl_status_t basl_parser_parse_native_call(
 
     /* Set return type. */
     if (fn->return_count <= 1U) {
-        basl_expression_result_set_type(
-            out_result,
-            basl_binding_type_primitive((basl_type_kind_t)fn->return_type)
-        );
+        if (fn->return_type == BASL_TYPE_OBJECT && fn->return_element_type != 0) {
+            /* Array return - look up the pre-registered array type */
+            basl_parser_type_t elem_type = basl_binding_type_primitive(
+                (basl_type_kind_t)fn->return_element_type);
+            size_t arr_idx;
+            if (basl_program_find_array_type(state->program, elem_type, &arr_idx)) {
+                basl_expression_result_set_type(out_result, basl_binding_type_array(arr_idx));
+            } else {
+                /* Fallback to generic object if not found */
+                basl_expression_result_set_type(
+                    out_result,
+                    basl_binding_type_primitive(BASL_TYPE_OBJECT)
+                );
+            }
+        } else {
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive((basl_type_kind_t)fn->return_type)
+            );
+        }
     } else {
         /* Multi-return: build return_types array on the stack. */
         basl_parser_type_t ret_types[2];

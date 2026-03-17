@@ -29,6 +29,7 @@ typedef struct basl_native_module_function {
     int return_type;            /* basl_type_kind_t */
     size_t return_count;        /* number of return values (1 or 2 for err) */
     const int *return_types;    /* array of basl_type_kind_t, length = return_count */
+    int return_element_type;    /* For array returns: element type (basl_type_kind_t) */
 } basl_native_module_function_t;
 
 /**

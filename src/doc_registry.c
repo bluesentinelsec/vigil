@@ -433,6 +433,64 @@ static const basl_doc_entry_t strings_docs[] = {
 
 #define STRINGS_COUNT (sizeof(strings_docs) / sizeof(strings_docs[0]))
 
+/* ── regex Module Docs ────────────────────────────────────── */
+
+static const basl_doc_entry_t regex_docs[] = {
+    {
+        "regex",
+        NULL,
+        "Regular expression matching (RE2-style).",
+        "The regex module provides pattern matching with linear time guarantees.\n"
+        "Uses Thompson NFA algorithm - no backtracking, no pathological cases.",
+        NULL
+    },
+    {
+        "regex.match",
+        "regex.match(pattern: string, input: string) -> bool",
+        "Check if input matches the pattern (anchored).",
+        "Returns true if the entire input matches the pattern.",
+        "regex.match(\"[a-z]+\", \"hello\")  // true\n"
+        "regex.match(\"[a-z]+\", \"hello123\")  // false"
+    },
+    {
+        "regex.find",
+        "regex.find(pattern: string, input: string) -> (string, bool)",
+        "Find first match of pattern in input.",
+        "Returns the matched substring and whether a match was found.",
+        "string m, bool ok = regex.find(\"[0-9]+\", \"abc123\")  // \"123\", true"
+    },
+    {
+        "regex.find_all",
+        "regex.find_all(pattern: string, input: string) -> array<string>",
+        "Find all non-overlapping matches.",
+        "Returns an array of all matched substrings.",
+        "regex.find_all(\"[0-9]+\", \"a1b22c333\")  // [\"1\", \"22\", \"333\"]"
+    },
+    {
+        "regex.replace",
+        "regex.replace(pattern: string, input: string, replacement: string) -> string",
+        "Replace first match with replacement.",
+        "Returns the input with the first match replaced.",
+        "regex.replace(\"[0-9]+\", \"a1b2\", \"X\")  // \"aXb2\""
+    },
+    {
+        "regex.replace_all",
+        "regex.replace_all(pattern: string, input: string, replacement: string) -> string",
+        "Replace all matches with replacement.",
+        "Returns the input with all matches replaced.",
+        "regex.replace_all(\"[0-9]+\", \"a1b2\", \"X\")  // \"aXbX\""
+    },
+    {
+        "regex.split",
+        "regex.split(pattern: string, input: string) -> array<string>",
+        "Split input by pattern.",
+        "Returns an array of substrings split by the pattern.",
+        "regex.split(\",\", \"a,b,c\")  // [\"a\", \"b\", \"c\"]"
+    },
+};
+
+#define REGEX_COUNT (sizeof(regex_docs) / sizeof(regex_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -442,6 +500,7 @@ static const char *module_names[] = {
     "args",
     "test",
     "strings",
+    "regex",
 };
 
 #define MODULE_COUNT (sizeof(module_names) / sizeof(module_names[0]))
@@ -496,6 +555,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check regex */
+    for (i = 0; i < REGEX_COUNT; i++) {
+        if (strcmp(regex_docs[i].name, name) == 0) {
+            return &regex_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -536,6 +602,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "strings") == 0) {
         if (count) *count = STRINGS_COUNT;
         return strings_docs;
+    }
+    if (strcmp(module_name, "regex") == 0) {
+        if (count) *count = REGEX_COUNT;
+        return regex_docs;
     }
 
     return NULL;
