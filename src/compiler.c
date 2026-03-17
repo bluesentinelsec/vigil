@@ -172,6 +172,7 @@ void basl_expression_result_set_type(
     result->type_count = basl_binding_type_is_valid(type) ? 1U : 0U;
     result->owned_types[0] = basl_binding_type_invalid();
     result->owned_types[1] = basl_binding_type_invalid();
+    result->owned_types[2] = basl_binding_type_invalid();
 }
 
 static void basl_expression_result_set_return_types(
@@ -203,8 +204,27 @@ void basl_expression_result_set_pair(
     result->type = first_type;
     result->owned_types[0] = first_type;
     result->owned_types[1] = second_type;
+    result->owned_types[2] = basl_binding_type_invalid();
     result->types = result->owned_types;
     result->type_count = 2U;
+}
+
+void basl_expression_result_set_triple(
+    basl_expression_result_t *result,
+    basl_parser_type_t first_type,
+    basl_parser_type_t second_type,
+    basl_parser_type_t third_type
+) {
+    if (result == NULL) {
+        return;
+    }
+
+    result->type = first_type;
+    result->owned_types[0] = first_type;
+    result->owned_types[1] = second_type;
+    result->owned_types[2] = third_type;
+    result->types = result->owned_types;
+    result->type_count = 3U;
 }
 
 static void basl_expression_result_copy(
@@ -226,6 +246,13 @@ static void basl_expression_result_copy(
             result,
             source->owned_types[0],
             source->owned_types[1]
+        );
+    } else if (source->types == source->owned_types && source->type_count == 3U) {
+        basl_expression_result_set_triple(
+            result,
+            source->owned_types[0],
+            source->owned_types[1],
+            source->owned_types[2]
         );
     }
 }

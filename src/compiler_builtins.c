@@ -81,7 +81,8 @@ basl_status_t basl_parser_parse_string_method_call(
         basl_program_names_equal(method_name, method_length, "trim_right", 10U) ||
         basl_program_names_equal(method_name, method_length, "reverse", 7U) ||
         basl_program_names_equal(method_name, method_length, "is_empty", 8U) ||
-        basl_program_names_equal(method_name, method_length, "to_c", 4U)) {
+        basl_program_names_equal(method_name, method_length, "to_c", 4U) ||
+        basl_program_names_equal(method_name, method_length, "fields", 6U)) {
         status = basl_parser_expect(
             state,
             BASL_TOKEN_RPAREN,
@@ -179,6 +180,22 @@ basl_status_t basl_parser_parse_string_method_call(
             );
             return BASL_STATUS_OK;
         }
+        if (basl_program_names_equal(method_name, method_length, "fields", 6U)) {
+            status = basl_program_intern_array_type(
+                (basl_program_state_t *)state->program,
+                basl_binding_type_primitive(BASL_TYPE_STRING),
+                &array_type
+            );
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_FIELDS, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(out_result, array_type);
+            return BASL_STATUS_OK;
+        }
         status = basl_program_intern_array_type(
             (basl_program_state_t *)state->program,
             basl_binding_type_primitive(BASL_TYPE_U8),
@@ -217,7 +234,9 @@ basl_status_t basl_parser_parse_string_method_call(
         basl_program_names_equal(method_name, method_length, "count", 5U) ||
         basl_program_names_equal(method_name, method_length, "last_index_of", 13U) ||
         basl_program_names_equal(method_name, method_length, "trim_prefix", 11U) ||
-        basl_program_names_equal(method_name, method_length, "trim_suffix", 11U)) {
+        basl_program_names_equal(method_name, method_length, "trim_suffix", 11U) ||
+        basl_program_names_equal(method_name, method_length, "equal_fold", 10U) ||
+        basl_program_names_equal(method_name, method_length, "cut", 3U)) {
         status = basl_parser_require_type(
             state,
             method_token->span,
@@ -328,6 +347,30 @@ basl_status_t basl_parser_parse_string_method_call(
             basl_expression_result_set_type(
                 out_result,
                 basl_binding_type_primitive(BASL_TYPE_STRING)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "equal_fold", 10U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_EQUAL_FOLD, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_BOOL)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "cut", 3U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_CUT, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_triple(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_STRING),
+                basl_binding_type_primitive(BASL_TYPE_STRING),
+                basl_binding_type_primitive(BASL_TYPE_BOOL)
             );
             return BASL_STATUS_OK;
         }
@@ -503,6 +546,47 @@ basl_status_t basl_parser_parse_string_method_call(
             return status;
         }
         status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_REPEAT, method_token->span);
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        basl_expression_result_set_type(
+            out_result,
+            basl_binding_type_primitive(BASL_TYPE_STRING)
+        );
+        return BASL_STATUS_OK;
+    }
+
+    if (basl_program_names_equal(method_name, method_length, "join", 4U)) {
+        basl_parser_type_t expected_array;
+
+        status = basl_program_intern_array_type(
+            (basl_program_state_t *)state->program,
+            basl_binding_type_primitive(BASL_TYPE_STRING),
+            &expected_array
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_require_type(
+            state,
+            method_token->span,
+            arg_result.type,
+            expected_array,
+            "string join() argument must be array<string>"
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_expect(
+            state,
+            BASL_TOKEN_RPAREN,
+            "expected ')' after string method arguments",
+            NULL
+        );
+        if (status != BASL_STATUS_OK) {
+            return status;
+        }
+        status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_JOIN, method_token->span);
         if (status != BASL_STATUS_OK) {
             return status;
         }

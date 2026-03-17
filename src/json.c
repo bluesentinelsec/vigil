@@ -549,8 +549,7 @@ static basl_status_t parse_string_content(json_parser_t *p, char **out, size_t *
     }
 #undef PUSH_CHAR
 
-    buf[len] = '\0'; /* Safe: we always have room because cap starts at 32. */
-    /* Actually, we might not if len == cap. Ensure NUL termination. */
+    /* Ensure room for NUL terminator. */
     if (len >= cap) {
         char *nb = (char *)json_realloc(&a, buf, len + 1);
         if (nb == NULL) {
