@@ -314,6 +314,34 @@ basl_status_t basl_toml_table_set(
     return BASL_STATUS_OK;
 }
 
+basl_status_t basl_toml_table_remove(
+    basl_toml_value_t *t, const char *key, basl_error_t *error
+) {
+    size_t i, key_len;
+    if (!t || t->type != BASL_TOML_TABLE || !key) {
+        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "toml: invalid argument");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    key_len = strlen(key);
+    for (i = 0; i < t->as.table.count; i++) {
+        toml_member_t *m = &t->as.table.members[i];
+        if (m->key_length == key_len && memcmp(m->key, key, key_len) == 0) {
+            /* Free the key and value */
+            toml_dealloc(&t->allocator, m->key);
+            basl_toml_free(&m->value);
+            /* Shift remaining entries */
+            if (i + 1 < t->as.table.count) {
+                memmove(&t->as.table.members[i], &t->as.table.members[i + 1],
+                    (t->as.table.count - i - 1) * sizeof(toml_member_t));
+            }
+            t->as.table.count--;
+            return BASL_STATUS_OK;
+        }
+    }
+    basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "toml: key not found");
+    return BASL_STATUS_INVALID_ARGUMENT;
+}
+
 basl_status_t basl_toml_table_entry(
     const basl_toml_value_t *t, size_t index,
     const char **out_key, size_t *out_key_length,

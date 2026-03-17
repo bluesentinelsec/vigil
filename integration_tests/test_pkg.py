@@ -83,6 +83,29 @@ class TestPkgGet(unittest.TestCase):
             content = f.read()
         self.assertIn("github.com/bluesentinelsec/basl", content)
 
+    def test_get_remove(self):
+        """basl get -remove should remove a package."""
+        # First install
+        result = run_basl("get", "github.com/bluesentinelsec/basl@main", cwd=self.project_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        
+        # Verify installed
+        deps_dir = os.path.join(self.project_dir, "deps", "github.com", "bluesentinelsec", "basl")
+        self.assertTrue(os.path.isdir(deps_dir))
+        
+        # Remove
+        result = run_basl("get", "-remove", "github.com/bluesentinelsec/basl", cwd=self.project_dir)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        
+        # Verify removed from toml
+        toml_path = os.path.join(self.project_dir, "basl.toml")
+        with open(toml_path) as f:
+            content = f.read()
+        self.assertNotIn("bluesentinelsec/basl", content)
+        
+        # Verify removed from deps/
+        self.assertFalse(os.path.isdir(deps_dir))
+
 
 if __name__ == "__main__":
     unittest.main()

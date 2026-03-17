@@ -542,6 +542,150 @@ static basl_status_t ensure_deps_table(
     return BASL_STATUS_OK;
 }
 
+/* Forward declaration for transitive deps */
+static basl_status_t install_transitive_deps(
+    const char *project_root,
+    const char *pkg_path,
+    basl_pkg_lock_t *lock,
+    basl_error_t *error
+);
+
+/* Install a single package (used by both get and sync) */
+static basl_status_t install_package(
+    const char *project_root,
+    const char *pkg_url,
+    const char *version,
+    basl_pkg_lock_t *lock,
+    char *out_commit,
+    size_t commit_size,
+    basl_error_t *error
+) {
+    char deps_path[4096];
+    char pkg_path[4096];
+    int pkg_exists = 0;
+    basl_status_t status;
+
+    /* Build paths */
+    if (basl_platform_path_join(project_root, "deps", deps_path,
+            sizeof(deps_path), error) != BASL_STATUS_OK) {
+        return error->type;
+    }
+    if (basl_platform_path_join(deps_path, pkg_url, pkg_path,
+            sizeof(pkg_path), error) != BASL_STATUS_OK) {
+        return error->type;
+    }
+
+    /* Ensure deps/ directory exists */
+    basl_platform_mkdir_p(deps_path, error);
+
+    /* Check if package already exists */
+    basl_platform_file_exists(pkg_path, &pkg_exists);
+
+    if (pkg_exists) {
+        /* Fetch updates */
+        status = basl_pkg_git_fetch(pkg_path, error);
+        if (status != BASL_STATUS_OK) return status;
+    } else {
+        /* Create parent directories */
+        char parent[4096];
+        size_t len = strlen(pkg_path);
+        memcpy(parent, pkg_path, len + 1);
+        while (len > 0 && parent[len - 1] != '/' && parent[len - 1] != '\\') len--;
+        if (len > 0) parent[len - 1] = '\0';
+        basl_platform_mkdir_p(parent, error);
+
+        status = basl_pkg_git_clone(pkg_url, pkg_path, error);
+        if (status != BASL_STATUS_OK) return status;
+    }
+
+    /* Checkout specific version if requested */
+    if (version != NULL && strlen(version) > 0) {
+        status = basl_pkg_git_checkout(pkg_path, version, error);
+        if (status != BASL_STATUS_OK) return status;
+    }
+
+    /* Get current commit */
+    status = basl_pkg_git_head(pkg_path, out_commit, commit_size, error);
+    if (status != BASL_STATUS_OK) return status;
+
+    /* Update lock */
+    basl_pkg_lock_add(lock, pkg_url, version, out_commit, error);
+
+    /* Install transitive dependencies */
+    install_transitive_deps(project_root, pkg_path, lock, error);
+
+    return BASL_STATUS_OK;
+}
+
+/* Install transitive dependencies from a package's basl.toml */
+static basl_status_t install_transitive_deps(
+    const char *project_root,
+    const char *pkg_path,
+    basl_pkg_lock_t *lock,
+    basl_error_t *error
+) {
+    char toml_path[4096];
+    char *data = NULL;
+    size_t length;
+    basl_toml_value_t *root = NULL;
+    const basl_toml_value_t *deps;
+    size_t i, count;
+    int exists = 0;
+
+    /* Check if package has basl.toml */
+    if (basl_platform_path_join(pkg_path, "basl.toml", toml_path,
+            sizeof(toml_path), error) != BASL_STATUS_OK) {
+        return BASL_STATUS_OK; /* Not fatal */
+    }
+
+    basl_platform_file_exists(toml_path, &exists);
+    if (!exists) return BASL_STATUS_OK;
+
+    if (basl_platform_read_file(NULL, toml_path, &data, &length, error) != BASL_STATUS_OK) {
+        return BASL_STATUS_OK; /* Not fatal */
+    }
+
+    if (basl_toml_parse(NULL, data, length, &root, error) != BASL_STATUS_OK) {
+        free(data);
+        return BASL_STATUS_OK; /* Not fatal */
+    }
+    free(data);
+
+    deps = basl_toml_table_get(root, "deps");
+    if (deps == NULL || basl_toml_type(deps) != BASL_TOML_TABLE) {
+        basl_toml_free(&root);
+        return BASL_STATUS_OK;
+    }
+
+    count = basl_toml_table_count(deps);
+    for (i = 0; i < count; i++) {
+        const char *dep_url = NULL;
+        size_t dep_url_len;
+        const basl_toml_value_t *version_val;
+        const char *version = NULL;
+        char commit[64];
+        char url_copy[1024];
+
+        if (basl_toml_table_entry(deps, i, &dep_url, &dep_url_len, &version_val) != BASL_STATUS_OK)
+            continue;
+
+        /* Skip if already in lock (already installed) */
+        snprintf(url_copy, sizeof(url_copy), "%.*s", (int)dep_url_len, dep_url);
+        if (basl_pkg_lock_find(lock, url_copy) != NULL)
+            continue;
+
+        if (version_val != NULL && basl_toml_type(version_val) == BASL_TOML_STRING) {
+            version = basl_toml_string_value(version_val);
+        }
+
+        /* Install this transitive dependency */
+        install_package(project_root, url_copy, version, lock, commit, sizeof(commit), error);
+    }
+
+    basl_toml_free(&root);
+    return BASL_STATUS_OK;
+}
+
 /* ── High-level: basl_pkg_get ────────────────────────────────────── */
 
 basl_status_t basl_pkg_get(
@@ -554,11 +698,8 @@ basl_status_t basl_pkg_get(
     basl_toml_value_t *root = NULL;
     basl_toml_value_t *deps = NULL;
     basl_toml_value_t *version_val = NULL;
-    char deps_path[4096];
-    char pkg_path[4096];
     char lock_path[4096];
     char commit[64];
-    int pkg_exists = 0;
     basl_status_t status;
     const char *version_str;
 
@@ -575,68 +716,22 @@ basl_status_t basl_pkg_get(
     status = basl_pkg_parse_spec(specifier, &spec, error);
     if (status != BASL_STATUS_OK) return status;
 
-    /* Build paths */
-    if (basl_platform_path_join(project_root, "deps", deps_path,
-            sizeof(deps_path), error) != BASL_STATUS_OK) {
-        goto cleanup;
-    }
-    if (basl_platform_path_join(deps_path, spec.url, pkg_path,
-            sizeof(pkg_path), error) != BASL_STATUS_OK) {
-        goto cleanup;
-    }
+    /* Build lock path */
     if (basl_platform_path_join(project_root, "basl.lock", lock_path,
             sizeof(lock_path), error) != BASL_STATUS_OK) {
         goto cleanup;
     }
 
-    /* Ensure deps/ directory exists */
-    basl_platform_mkdir_p(deps_path, error);
-
-    /* Check if package already exists */
-    basl_platform_file_exists(pkg_path, &pkg_exists);
-
-    if (pkg_exists) {
-        /* Fetch updates */
-        status = basl_pkg_git_fetch(pkg_path, error);
-        if (status != BASL_STATUS_OK) goto cleanup;
-    } else {
-        /* Clone the repository */
-        basl_platform_mkdir_p(pkg_path, error);
-        /* Remove the empty dir we just created - git clone needs it not to exist */
-        basl_platform_remove(pkg_path, error);
-
-        /* Create parent directories */
-        {
-            char parent[4096];
-            size_t len = strlen(pkg_path);
-            memcpy(parent, pkg_path, len + 1);
-            while (len > 0 && parent[len - 1] != '/' && parent[len - 1] != '\\') len--;
-            if (len > 0) parent[len - 1] = '\0';
-            basl_platform_mkdir_p(parent, error);
-        }
-
-        status = basl_pkg_git_clone(spec.url, pkg_path, error);
-        if (status != BASL_STATUS_OK) goto cleanup;
-    }
-
-    /* Checkout specific version if requested */
-    if (spec.version != NULL) {
-        status = basl_pkg_git_checkout(pkg_path, spec.version, error);
-        if (status != BASL_STATUS_OK) goto cleanup;
-    }
-
-    /* Get current commit */
-    status = basl_pkg_git_head(pkg_path, commit, sizeof(commit), error);
-    if (status != BASL_STATUS_OK) goto cleanup;
-
     /* Read existing lock file (ignore errors - may not exist) */
     basl_pkg_lock_init(&lock);
     basl_pkg_lock_read(lock_path, &lock, NULL);
 
-    /* Update lock file */
-    status = basl_pkg_lock_add(&lock, spec.url, spec.version, commit, error);
+    /* Install package and transitive deps */
+    status = install_package(project_root, spec.url, spec.version, &lock,
+        commit, sizeof(commit), error);
     if (status != BASL_STATUS_OK) goto cleanup;
 
+    /* Write lock file */
     status = basl_pkg_lock_write(lock_path, &lock, error);
     if (status != BASL_STATUS_OK) goto cleanup;
 
@@ -652,14 +747,12 @@ basl_status_t basl_pkg_get(
     status = basl_toml_string_new(NULL, version_str, strlen(version_str), &version_val, error);
     if (status != BASL_STATUS_OK) goto cleanup;
 
-    /* Remove existing entry if present (ignore error) */
-    /* Note: TOML API doesn't have remove, so we just set which will error if exists */
-    if (basl_toml_table_get(deps, spec.url) == NULL) {
-        status = basl_toml_table_set(deps, spec.url, strlen(spec.url), version_val, error);
-        if (status != BASL_STATUS_OK) {
-            basl_toml_free(&version_val);
-            goto cleanup;
-        }
+    /* Remove existing entry first, then add new one */
+    basl_toml_table_remove(deps, spec.url, NULL);
+    status = basl_toml_table_set(deps, spec.url, strlen(spec.url), version_val, error);
+    if (status != BASL_STATUS_OK) {
+        basl_toml_free(&version_val);
+        goto cleanup;
     }
 
     status = write_project_toml(project_root, root, error);
@@ -680,7 +773,6 @@ basl_status_t basl_pkg_sync(
     basl_toml_value_t *root = NULL;
     const basl_toml_value_t *deps;
     basl_pkg_lock_t lock = {0};
-    char deps_path[4096];
     char lock_path[4096];
     size_t i, count;
     basl_status_t status;
@@ -702,18 +794,12 @@ basl_status_t basl_pkg_sync(
         return BASL_STATUS_OK; /* No deps to sync */
     }
 
-    if (basl_platform_path_join(project_root, "deps", deps_path,
-            sizeof(deps_path), error) != BASL_STATUS_OK) {
-        basl_toml_free(&root);
-        return error->type;
-    }
     if (basl_platform_path_join(project_root, "basl.lock", lock_path,
             sizeof(lock_path), error) != BASL_STATUS_OK) {
         basl_toml_free(&root);
         return error->type;
     }
 
-    basl_platform_mkdir_p(deps_path, error);
     basl_pkg_lock_init(&lock);
     basl_pkg_lock_read(lock_path, &lock, NULL);
 
@@ -723,10 +809,8 @@ basl_status_t basl_pkg_sync(
         size_t pkg_url_len;
         const basl_toml_value_t *version_val;
         const char *version = NULL;
-        const basl_pkg_lock_entry_t *lock_entry;
-        char pkg_path[4096];
+        char url_copy[1024];
         char commit[64];
-        int pkg_exists = 0;
 
         if (basl_toml_table_entry(deps, i, &pkg_url, &pkg_url_len, &version_val) != BASL_STATUS_OK)
             continue;
@@ -735,57 +819,15 @@ basl_status_t basl_pkg_sync(
             version = basl_toml_string_value(version_val);
         }
 
-        /* Build package path */
-        if (basl_platform_path_join(deps_path, pkg_url, pkg_path,
-                sizeof(pkg_path), error) != BASL_STATUS_OK) {
-            continue;
-        }
+        snprintf(url_copy, sizeof(url_copy), "%.*s", (int)pkg_url_len, pkg_url);
 
-        basl_platform_file_exists(pkg_path, &pkg_exists);
-
-        /* Check if we have a lock entry with matching version */
-        lock_entry = basl_pkg_lock_find(&lock, pkg_url);
-        if (pkg_exists && lock_entry != NULL) {
-            /* Already installed - verify commit matches */
-            if (basl_pkg_git_head(pkg_path, commit, sizeof(commit), NULL) == BASL_STATUS_OK) {
-                if (strcmp(commit, lock_entry->commit) == 0) {
-                    continue; /* Already at correct version */
-                }
-            }
-        }
-
-        if (!pkg_exists) {
-            /* Create parent directories */
-            char parent[4096];
-            size_t len = strlen(pkg_path);
-            memcpy(parent, pkg_path, len + 1);
-            while (len > 0 && parent[len - 1] != '/' && parent[len - 1] != '\\') len--;
-            if (len > 0) parent[len - 1] = '\0';
-            basl_platform_mkdir_p(parent, error);
-
-            /* Clone */
-            char url_copy[1024];
-            snprintf(url_copy, sizeof(url_copy), "%.*s", (int)pkg_url_len, pkg_url);
-            status = basl_pkg_git_clone(url_copy, pkg_path, error);
-            if (status != BASL_STATUS_OK) {
-                basl_toml_free(&root);
-                basl_pkg_lock_free(&lock);
-                return status;
-            }
-        } else {
-            basl_pkg_git_fetch(pkg_path, error);
-        }
-
-        /* Checkout version if specified */
-        if (version != NULL && strlen(version) > 0) {
-            basl_pkg_git_checkout(pkg_path, version, error);
-        }
-
-        /* Update lock */
-        if (basl_pkg_git_head(pkg_path, commit, sizeof(commit), NULL) == BASL_STATUS_OK) {
-            char url_copy[1024];
-            snprintf(url_copy, sizeof(url_copy), "%.*s", (int)pkg_url_len, pkg_url);
-            basl_pkg_lock_add(&lock, url_copy, version, commit, error);
+        /* Install package (handles transitive deps too) */
+        status = install_package(project_root, url_copy, version, &lock,
+            commit, sizeof(commit), error);
+        if (status != BASL_STATUS_OK) {
+            basl_toml_free(&root);
+            basl_pkg_lock_free(&lock);
+            return status;
         }
     }
 
@@ -797,20 +839,105 @@ basl_status_t basl_pkg_sync(
 
 /* ── High-level: basl_pkg_remove ─────────────────────────────────── */
 
+static basl_status_t remove_directory_recursive(const char *path, basl_error_t *error);
+
+static basl_status_t remove_dir_callback(const char *name, int is_dir, void *user_data) {
+    char *parent = (char *)user_data;
+    char child[4096];
+    basl_error_t err = {0};
+
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) return BASL_STATUS_OK;
+
+    snprintf(child, sizeof(child), "%s/%s", parent, name);
+
+    if (is_dir) {
+        remove_directory_recursive(child, &err);
+    } else {
+        basl_platform_remove(child, &err);
+    }
+    return BASL_STATUS_OK;
+}
+
+static basl_status_t remove_directory_recursive(const char *path, basl_error_t *error) {
+    basl_platform_list_dir(path, remove_dir_callback, (void *)path, error);
+    return basl_platform_remove(path, error);
+}
+
 basl_status_t basl_pkg_remove(
     const char *project_root,
     const char *package_url,
     basl_error_t *error
 ) {
-    /* For now, just print a message - full implementation would:
-       1. Remove from basl.toml
-       2. Remove from basl.lock
-       3. Remove from deps/
-       The TOML API doesn't have a remove function, so this needs enhancement */
-    (void)project_root;
-    (void)package_url;
-    set_error(error, BASL_STATUS_UNSUPPORTED, "basl get -remove not yet implemented");
-    return BASL_STATUS_UNSUPPORTED;
+    basl_toml_value_t *root = NULL;
+    basl_toml_value_t *deps = NULL;
+    basl_pkg_lock_t lock = {0};
+    char deps_path[4096];
+    char pkg_path[4096];
+    char lock_path[4096];
+    basl_status_t status;
+    int pkg_exists = 0;
+    size_t i;
+
+    if (project_root == NULL || package_url == NULL) {
+        set_error(error, BASL_STATUS_INVALID_ARGUMENT, "invalid arguments");
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+
+    /* Build paths */
+    if (basl_platform_path_join(project_root, "deps", deps_path,
+            sizeof(deps_path), error) != BASL_STATUS_OK) {
+        return error->type;
+    }
+    if (basl_platform_path_join(deps_path, package_url, pkg_path,
+            sizeof(pkg_path), error) != BASL_STATUS_OK) {
+        return error->type;
+    }
+    if (basl_platform_path_join(project_root, "basl.lock", lock_path,
+            sizeof(lock_path), error) != BASL_STATUS_OK) {
+        return error->type;
+    }
+
+    /* Remove from basl.toml */
+    status = read_project_toml(project_root, &root, error);
+    if (status != BASL_STATUS_OK) return status;
+
+    deps = (basl_toml_value_t *)basl_toml_table_get(root, "deps");
+    if (deps != NULL && basl_toml_type(deps) == BASL_TOML_TABLE) {
+        basl_toml_table_remove(deps, package_url, error);
+    }
+
+    status = write_project_toml(project_root, root, error);
+    basl_toml_free(&root);
+    if (status != BASL_STATUS_OK) return status;
+
+    /* Remove from basl.lock */
+    basl_pkg_lock_init(&lock);
+    if (basl_pkg_lock_read(lock_path, &lock, NULL) == BASL_STATUS_OK) {
+        /* Find and remove entry */
+        for (i = 0; i < lock.count; i++) {
+            if (strcmp(lock.entries[i].name, package_url) == 0) {
+                free(lock.entries[i].name);
+                free(lock.entries[i].version);
+                free(lock.entries[i].commit);
+                if (i + 1 < lock.count) {
+                    memmove(&lock.entries[i], &lock.entries[i + 1],
+                        (lock.count - i - 1) * sizeof(basl_pkg_lock_entry_t));
+                }
+                lock.count--;
+                break;
+            }
+        }
+        basl_pkg_lock_write(lock_path, &lock, error);
+    }
+    basl_pkg_lock_free(&lock);
+
+    /* Remove from deps/ */
+    basl_platform_file_exists(pkg_path, &pkg_exists);
+    if (pkg_exists) {
+        remove_directory_recursive(pkg_path, error);
+    }
+
+    return BASL_STATUS_OK;
 }
 
 /* ── Import resolution ───────────────────────────────────────────── */
