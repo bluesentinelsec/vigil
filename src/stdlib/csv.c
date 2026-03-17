@@ -33,12 +33,14 @@ static bool get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
 
 static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
                                   basl_error_t *error) {
-    basl_object_t *obj;
-    basl_value_t v;
+    basl_object_t *obj = NULL;
     basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
     if (s != BASL_STATUS_OK) return s;
-    v = basl_nanbox_encode_object(obj);
-    return basl_vm_stack_push(vm, &v, error);
+    basl_value_t v;
+    basl_value_init_object(&v, &obj);
+    s = basl_vm_stack_push(vm, &v, error);
+    basl_value_release(&v);
+    return s;
 }
 
 /* ── CSV Parser ──────────────────────────────────────────────────── */
@@ -193,8 +195,10 @@ static basl_status_t csv_parse_row(basl_vm_t *vm, size_t arg_count, basl_error_t
         basl_vm_stack_pop_n(vm, arg_count);
         s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &row_arr, error);
         if (s != BASL_STATUS_OK) return s;
-        row_val = basl_nanbox_encode_object(row_arr);
-        return basl_vm_stack_push(vm, &row_val, error);
+        basl_value_init_object(&row_val, &row_arr);
+        s = basl_vm_stack_push(vm, &row_val, error);
+        basl_value_release(&row_val);
+        return s;
     }
     basl_vm_stack_pop_n(vm, arg_count);
 
@@ -221,13 +225,17 @@ static basl_status_t csv_parse_row(basl_vm_t *vm, size_t arg_count, basl_error_t
         free(field);
         if (s != BASL_STATUS_OK) return s;
 
-        basl_value_t str_val = basl_nanbox_encode_object(str_obj);
+        basl_value_t str_val;
+        basl_value_init_object(&str_val, &str_obj);
         s = basl_array_object_append(row_arr, &str_val, error);
+        basl_value_release(&str_val);
         if (s != BASL_STATUS_OK) return s;
     }
 
-    row_val = basl_nanbox_encode_object(row_arr);
-    return basl_vm_stack_push(vm, &row_val, error);
+    basl_value_init_object(&row_val, &row_arr);
+    s = basl_vm_stack_push(vm, &row_val, error);
+    basl_value_release(&row_val);
+    return s;
 }
 
 /* ── CSV Writer ──────────────────────────────────────────────────── */
