@@ -2923,6 +2923,10 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_STRING_TRIM_SUFFIX] = &&op_STRING_TRIM_SUFFIX,
             [BASL_OPCODE_CHAR_FROM_INT] = &&op_CHAR_FROM_INT,
             [BASL_OPCODE_STRING_TO_C] = &&op_STRING_TO_C,
+            [BASL_OPCODE_STRING_JOIN] = &&op_STRING_JOIN,
+            [BASL_OPCODE_STRING_CUT] = &&op_STRING_CUT,
+            [BASL_OPCODE_STRING_FIELDS] = &&op_STRING_FIELDS,
+            [BASL_OPCODE_STRING_EQUAL_FOLD] = &&op_STRING_EQUAL_FOLD,
             [BASL_OPCODE_SUBTRACT] = &&op_SUBTRACT,
             [BASL_OPCODE_TO_F64] = &&op_TO_F64,
             [BASL_OPCODE_TO_I32] = &&op_TO_I32,
@@ -5575,6 +5579,216 @@ basl_status_t basl_vm_execute_function(
                 BASL_VM_VALUE_RELEASE(&left);
                 status = basl_vm_new_string_value(vm, out_buf, j, &value, error);
                 basl_runtime_free(vm->runtime, (void **)&out_buf);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_FIELDS) {
+                const char *text;
+                size_t text_length;
+                basl_value_t *items = NULL;
+                size_t item_count = 0U;
+                size_t item_capacity = 0U;
+                basl_object_t *array_object = NULL;
+
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &text_length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "fields() requires a string", error);
+                    goto cleanup;
+                }
+
+                status = BASL_STATUS_OK;
+                size_t i = 0;
+                while (i < text_length && status == BASL_STATUS_OK) {
+                    while (i < text_length && isspace((unsigned char)text[i])) i++;
+                    if (i >= text_length) break;
+                    size_t start = i;
+                    while (i < text_length && !isspace((unsigned char)text[i])) i++;
+                    status = basl_vm_grow_value_array(vm->runtime, &items,
+                        &item_capacity, item_count + 1U, error);
+                    if (status == BASL_STATUS_OK) {
+                        BASL_VM_VALUE_INIT_NIL(&items[item_count]);
+                        status = basl_vm_new_string_value(vm, text + start,
+                            i - start, &items[item_count], error);
+                        if (status == BASL_STATUS_OK) item_count++;
+                    }
+                }
+
+                if (status == BASL_STATUS_OK) {
+                    status = basl_array_object_new(vm->runtime, items,
+                        item_count, &array_object, error);
+                }
+                if (status != BASL_STATUS_OK) {
+                    for (size_t idx = 0; idx < item_count; idx++)
+                        basl_value_release(&items[idx]);
+                    basl_runtime_free(vm->runtime, (void **)&items);
+                    BASL_VM_VALUE_RELEASE(&left);
+                    goto cleanup;
+                }
+                for (size_t idx = 0; idx < item_count; idx++)
+                    basl_value_release(&items[idx]);
+                basl_runtime_free(vm->runtime, (void **)&items);
+                BASL_VM_VALUE_RELEASE(&left);
+                basl_value_init_object(&value, &array_object);
+                basl_object_release(&array_object);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_EQUAL_FOLD) {
+                const char *text1, *text2;
+                size_t len1, len2;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text1, &len1) ||
+                    !basl_vm_get_string_parts(&right, &text2, &len2)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "equal_fold() requires string arguments", error);
+                    goto cleanup;
+                }
+
+                int equal = 0;
+                if (len1 == len2) {
+                    equal = 1;
+                    for (size_t i = 0; i < len1; i++) {
+                        if (tolower((unsigned char)text1[i]) !=
+                            tolower((unsigned char)text2[i])) {
+                            equal = 0;
+                            break;
+                        }
+                    }
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                BASL_VM_VALUE_RELEASE(&right);
+                do { (value) = basl_nanbox_from_bool(equal); } while(0);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_CUT) {
+                const char *text, *sep;
+                size_t text_len, sep_len;
+                size_t match_idx;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &text_len) ||
+                    !basl_vm_get_string_parts(&right, &sep, &sep_len)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "cut() requires string arguments", error);
+                    goto cleanup;
+                }
+
+                basl_value_t before, after, found_val;
+                BASL_VM_VALUE_INIT_NIL(&before);
+                BASL_VM_VALUE_INIT_NIL(&after);
+
+                int found = basl_vm_find_substring(text, text_len, sep, sep_len, &match_idx);
+                if (found) {
+                    status = basl_vm_new_string_value(vm, text, match_idx, &before, error);
+                    if (status == BASL_STATUS_OK) {
+                        status = basl_vm_new_string_value(vm, text + match_idx + sep_len,
+                            text_len - match_idx - sep_len, &after, error);
+                    }
+                } else {
+                    status = basl_vm_new_string_value(vm, text, text_len, &before, error);
+                    if (status == BASL_STATUS_OK) {
+                        status = basl_vm_new_string_value(vm, "", 0, &after, error);
+                    }
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                BASL_VM_VALUE_RELEASE(&right);
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&before);
+                    BASL_VM_VALUE_RELEASE(&after);
+                    goto cleanup;
+                }
+                do { (found_val) = basl_nanbox_from_bool(found); } while(0);
+                status = basl_vm_push(vm, &before, error);
+                BASL_VM_VALUE_RELEASE(&before);
+                if (status == BASL_STATUS_OK) status = basl_vm_push(vm, &after, error);
+                BASL_VM_VALUE_RELEASE(&after);
+                if (status == BASL_STATUS_OK) status = basl_vm_push(vm, &found_val, error);
+                BASL_VM_VALUE_RELEASE(&found_val);
+                if (status != BASL_STATUS_OK) goto cleanup;
+                VM_BREAK();
+            }
+
+            VM_CASE(STRING_JOIN) {
+                const char *sep;
+                size_t sep_len;
+                basl_object_t *arr;
+
+                frame->ip += 1U;
+                right = basl_vm_pop_or_nil(vm);
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &sep, &sep_len)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "join() requires a string separator", error);
+                    goto cleanup;
+                }
+                if (!basl_nanbox_is_object(right) ||
+                    (arr = (basl_object_t *)basl_nanbox_decode_ptr(right)) == NULL ||
+                    basl_object_type(arr) != BASL_OBJECT_ARRAY) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    BASL_VM_VALUE_RELEASE(&right);
+                    status = basl_vm_fail_at_ip(vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "join() requires an array<string> argument", error);
+                    goto cleanup;
+                }
+
+                size_t arr_len = basl_array_object_length(arr);
+                basl_string_t built;
+                basl_string_init(&built, vm->runtime);
+
+                for (size_t i = 0; i < arr_len && status == BASL_STATUS_OK; i++) {
+                    basl_value_t elem;
+                    const char *elem_text;
+                    size_t elem_len;
+                    if (!basl_array_object_get(arr, i, &elem) ||
+                        !basl_vm_get_string_parts(&elem, &elem_text, &elem_len)) {
+                        basl_value_release(&elem);
+                        status = BASL_STATUS_INVALID_ARGUMENT;
+                        break;
+                    }
+                    if (i > 0) status = basl_string_append(&built, sep, sep_len, error);
+                    if (status == BASL_STATUS_OK)
+                        status = basl_string_append(&built, elem_text, elem_len, error);
+                    basl_value_release(&elem);
+                }
+
+                BASL_VM_VALUE_RELEASE(&left);
+                BASL_VM_VALUE_RELEASE(&right);
+                if (status != BASL_STATUS_OK) {
+                    basl_string_free(&built);
+                    goto cleanup;
+                }
+                status = basl_vm_new_string_value(vm, basl_string_c_str(&built),
+                    basl_string_length(&built), &value, error);
+                basl_string_free(&built);
                 if (status != BASL_STATUS_OK) goto cleanup;
                 status = basl_vm_push(vm, &value, error);
                 BASL_VM_VALUE_RELEASE(&value);

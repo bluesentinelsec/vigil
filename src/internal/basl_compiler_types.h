@@ -242,7 +242,7 @@ typedef struct basl_expression_result {
     basl_parser_type_t type;
     const basl_parser_type_t *types;
     size_t type_count;
-    basl_parser_type_t owned_types[2];
+    basl_parser_type_t owned_types[3];
 } basl_expression_result_t;
 
 typedef struct basl_constant_result {
@@ -512,6 +512,10 @@ int basl_program_names_equal(
 void basl_expression_result_set_pair(
     basl_expression_result_t *result,
     basl_parser_type_t first_type, basl_parser_type_t second_type);
+void basl_expression_result_set_triple(
+    basl_expression_result_t *result,
+    basl_parser_type_t first_type, basl_parser_type_t second_type,
+    basl_parser_type_t third_type);
 basl_status_t basl_parser_parse_expression(
     basl_parser_state_t *state,
     basl_expression_result_t *out_result);

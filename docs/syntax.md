@@ -676,6 +676,10 @@ These are heavily used and part of everyday BASL style.
 | `s.last_index_of(sub)` | `(i32, bool)` |
 | `s.trim_prefix(prefix)` | `string` |
 | `s.trim_suffix(suffix)` | `string` |
+| `s.fields()` | `array<string>` |
+| `sep.join(arr)` | `string` |
+| `s.cut(sep)` | `(string, string, bool)` |
+| `s.equal_fold(t)` | `bool` |
 
 ### Array
 
