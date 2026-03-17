@@ -74,7 +74,10 @@ static basl_status_t fs_join(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
                 }
             }
         }
-        strncat(result, part, sizeof(result) - strlen(result) - 1);
+        size_t space = sizeof(result) - strlen(result) - 1;
+        size_t plen = strlen(part);
+        if (plen > space) plen = space;
+        strncat(result, part, plen);
     }
     
     basl_vm_stack_pop_n(vm, arg_count);
@@ -105,8 +108,9 @@ static basl_status_t fs_clean(basl_vm_t *vm, size_t arg_count, basl_error_t *err
     memcpy(copy, path, path_len);
     copy[path_len] = '\0';
     
-    char *tok = strtok(copy, "/");
-    while (tok) {
+    char *tok = copy;
+    char *next = NULL;
+    while ((tok = strtok_r(tok, "/", &next)) != NULL) {
         if (strcmp(tok, ".") == 0) {
             /* skip */
         } else if (strcmp(tok, "..") == 0) {
@@ -118,17 +122,32 @@ static basl_status_t fs_clean(basl_vm_t *vm, size_t arg_count, basl_error_t *err
         } else if (tok[0] != '\0') {
             parts[part_count++] = tok;
         }
-        tok = strtok(NULL, "/");
+        tok = NULL;
     }
     
     /* Rebuild */
     result[0] = '\0';
-    if (is_abs) strcpy(result, "/");
-    for (size_t i = 0; i < part_count; i++) {
-        if (i > 0 || is_abs) strcat(result, "/");
-        strcat(result, parts[i]);
+    size_t pos = 0;
+    if (is_abs) {
+        result[0] = '/';
+        result[1] = '\0';
+        pos = 1;
     }
-    if (result[0] == '\0') strcpy(result, ".");
+    for (size_t i = 0; i < part_count; i++) {
+        size_t plen = strlen(parts[i]);
+        if (i > 0 || is_abs) {
+            if (pos < sizeof(result) - 1) result[pos++] = '/';
+        }
+        if (pos + plen < sizeof(result)) {
+            memcpy(result + pos, parts[i], plen);
+            pos += plen;
+        }
+        result[pos] = '\0';
+    }
+    if (result[0] == '\0') {
+        result[0] = '.';
+        result[1] = '\0';
+    }
     /* Fix double slash at start */
     if (is_abs && result[1] == '/') memmove(result + 1, result + 2, strlen(result + 1));
     
@@ -518,7 +537,14 @@ static basl_status_t walk_callback(const char *name, int is_dir, void *user_data
     walk_ctx_t *ctx = (walk_ctx_t *)user_data;
     
     char full_path[4096];
-    snprintf(full_path, sizeof(full_path), "%s/%s", ctx->base_path, name);
+    size_t base_len = strlen(ctx->base_path);
+    size_t name_len = strlen(name);
+    if (base_len + 1 + name_len >= sizeof(full_path)) {
+        return BASL_STATUS_OK; /* Skip paths that are too long */
+    }
+    memcpy(full_path, ctx->base_path, base_len);
+    full_path[base_len] = '/';
+    memcpy(full_path + base_len + 1, name, name_len + 1);
     
     basl_object_t *str = NULL;
     basl_status_t s = basl_string_object_new(basl_vm_runtime(ctx->vm), full_path, strlen(full_path), &str, ctx->error);
@@ -532,10 +558,13 @@ static basl_status_t walk_callback(const char *name, int is_dir, void *user_data
     
     if (is_dir) {
         char saved[4096];
-        strncpy(saved, ctx->base_path, sizeof(saved));
-        snprintf(ctx->base_path, sizeof(ctx->base_path), "%s", full_path);
+        size_t full_len = strlen(full_path);
+        memcpy(saved, ctx->base_path, base_len + 1);
+        if (full_len < sizeof(ctx->base_path)) {
+            memcpy(ctx->base_path, full_path, full_len + 1);
+        }
         walk_dir(ctx, full_path);
-        strncpy(ctx->base_path, saved, sizeof(ctx->base_path));
+        memcpy(ctx->base_path, saved, base_len + 1);
     }
     
     return BASL_STATUS_OK;
@@ -572,7 +601,9 @@ static basl_status_t fs_walk(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
     }
     
     walk_ctx_t ctx = { vm, arr, error, "" };
-    strncpy(ctx.base_path, pathbuf, sizeof(ctx.base_path));
+    size_t copy_len = path_len < sizeof(ctx.base_path) - 1 ? path_len : sizeof(ctx.base_path) - 1;
+    memcpy(ctx.base_path, pathbuf, copy_len);
+    ctx.base_path[copy_len] = '\0';
     walk_dir(&ctx, pathbuf);
     
     basl_vm_stack_pop_n(vm, arg_count);
