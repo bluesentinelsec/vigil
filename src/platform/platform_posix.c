@@ -11,6 +11,9 @@
 #include <dirent.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <time.h>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -853,4 +856,264 @@ BASL_API basl_status_t basl_platform_append_file(
     }
     fclose(f);
     return BASL_STATUS_OK;
+}
+
+/* ── Threading primitives ────────────────────────────────────────── */
+
+struct basl_platform_thread {
+    pthread_t handle;
+    basl_thread_func_t func;
+    void *arg;
+};
+
+static void *thread_wrapper(void *arg) {
+    basl_platform_thread_t *t = (basl_platform_thread_t *)arg;
+    t->func(t->arg);
+    return NULL;
+}
+
+BASL_API basl_status_t basl_platform_thread_create(
+    basl_platform_thread_t **out_thread,
+    basl_thread_func_t func,
+    void *arg,
+    basl_error_t *error
+) {
+    basl_platform_thread_t *t = malloc(sizeof(*t));
+    if (!t) return BASL_STATUS_OUT_OF_MEMORY;
+    t->func = func;
+    t->arg = arg;
+    if (pthread_create(&t->handle, NULL, thread_wrapper, t) != 0) {
+        free(t);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_create failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_thread = t;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_thread_join(
+    basl_platform_thread_t *thread,
+    basl_error_t *error
+) {
+    if (pthread_join(thread->handle, NULL) != 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_join failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    free(thread);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_thread_detach(
+    basl_platform_thread_t *thread,
+    basl_error_t *error
+) {
+    if (pthread_detach(thread->handle) != 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_detach failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    free(thread);
+    return BASL_STATUS_OK;
+}
+
+BASL_API uint64_t basl_platform_thread_current_id(void) {
+#ifdef __APPLE__
+    uint64_t tid;
+    pthread_threadid_np(NULL, &tid);
+    return tid;
+#else
+    return (uint64_t)pthread_self();
+#endif
+}
+
+BASL_API void basl_platform_thread_yield(void) {
+    sched_yield();
+}
+
+BASL_API void basl_platform_thread_sleep(uint64_t milliseconds) {
+    struct timespec ts;
+    ts.tv_sec = (time_t)(milliseconds / 1000);
+    ts.tv_nsec = (long)((milliseconds % 1000) * 1000000);
+    nanosleep(&ts, NULL);
+}
+
+/* ── Mutex ───────────────────────────────────────────────────────── */
+
+struct basl_platform_mutex {
+    pthread_mutex_t handle;
+};
+
+BASL_API basl_status_t basl_platform_mutex_create(
+    basl_platform_mutex_t **out_mutex,
+    basl_error_t *error
+) {
+    basl_platform_mutex_t *m = malloc(sizeof(*m));
+    if (!m) return BASL_STATUS_OUT_OF_MEMORY;
+    if (pthread_mutex_init(&m->handle, NULL) != 0) {
+        free(m);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_mutex_init failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_mutex = m;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_mutex_destroy(basl_platform_mutex_t *mutex) {
+    if (mutex) {
+        pthread_mutex_destroy(&mutex->handle);
+        free(mutex);
+    }
+}
+
+BASL_API void basl_platform_mutex_lock(basl_platform_mutex_t *mutex) {
+    pthread_mutex_lock(&mutex->handle);
+}
+
+BASL_API void basl_platform_mutex_unlock(basl_platform_mutex_t *mutex) {
+    pthread_mutex_unlock(&mutex->handle);
+}
+
+BASL_API int basl_platform_mutex_trylock(basl_platform_mutex_t *mutex) {
+    return pthread_mutex_trylock(&mutex->handle) == 0 ? 1 : 0;
+}
+
+/* ── Condition variable ──────────────────────────────────────────── */
+
+struct basl_platform_cond {
+    pthread_cond_t handle;
+};
+
+BASL_API basl_status_t basl_platform_cond_create(
+    basl_platform_cond_t **out_cond,
+    basl_error_t *error
+) {
+    basl_platform_cond_t *c = malloc(sizeof(*c));
+    if (!c) return BASL_STATUS_OUT_OF_MEMORY;
+    if (pthread_cond_init(&c->handle, NULL) != 0) {
+        free(c);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_cond_init failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_cond = c;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_cond_destroy(basl_platform_cond_t *cond) {
+    if (cond) {
+        pthread_cond_destroy(&cond->handle);
+        free(cond);
+    }
+}
+
+BASL_API void basl_platform_cond_wait(
+    basl_platform_cond_t *cond,
+    basl_platform_mutex_t *mutex
+) {
+    pthread_cond_wait(&cond->handle, &mutex->handle);
+}
+
+BASL_API void basl_platform_cond_signal(basl_platform_cond_t *cond) {
+    pthread_cond_signal(&cond->handle);
+}
+
+BASL_API void basl_platform_cond_broadcast(basl_platform_cond_t *cond) {
+    pthread_cond_broadcast(&cond->handle);
+}
+
+/* ── Read-write lock ─────────────────────────────────────────────── */
+
+struct basl_platform_rwlock {
+    pthread_rwlock_t handle;
+};
+
+BASL_API basl_status_t basl_platform_rwlock_create(
+    basl_platform_rwlock_t **out_rwlock,
+    basl_error_t *error
+) {
+    basl_platform_rwlock_t *rw = malloc(sizeof(*rw));
+    if (!rw) return BASL_STATUS_OUT_OF_MEMORY;
+    if (pthread_rwlock_init(&rw->handle, NULL) != 0) {
+        free(rw);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_rwlock_init failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_rwlock = rw;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_rwlock_destroy(basl_platform_rwlock_t *rwlock) {
+    if (rwlock) {
+        pthread_rwlock_destroy(&rwlock->handle);
+        free(rwlock);
+    }
+}
+
+BASL_API void basl_platform_rwlock_rdlock(basl_platform_rwlock_t *rwlock) {
+    pthread_rwlock_rdlock(&rwlock->handle);
+}
+
+BASL_API void basl_platform_rwlock_wrlock(basl_platform_rwlock_t *rwlock) {
+    pthread_rwlock_wrlock(&rwlock->handle);
+}
+
+BASL_API void basl_platform_rwlock_unlock(basl_platform_rwlock_t *rwlock) {
+    pthread_rwlock_unlock(&rwlock->handle);
+}
+
+/* ── Thread-local storage ────────────────────────────────────────── */
+
+struct basl_platform_tls_key {
+    pthread_key_t key;
+};
+
+BASL_API basl_status_t basl_platform_tls_create(
+    basl_platform_tls_key_t **out_key,
+    void (*destructor)(void *),
+    basl_error_t *error
+) {
+    basl_platform_tls_key_t *k = malloc(sizeof(*k));
+    if (!k) return BASL_STATUS_OUT_OF_MEMORY;
+    if (pthread_key_create(&k->key, destructor) != 0) {
+        free(k);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_key_create failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_key = k;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_tls_destroy(basl_platform_tls_key_t *key) {
+    if (key) {
+        pthread_key_delete(key->key);
+        free(key);
+    }
+}
+
+BASL_API void basl_platform_tls_set(basl_platform_tls_key_t *key, void *value) {
+    pthread_setspecific(key->key, value);
+}
+
+BASL_API void *basl_platform_tls_get(basl_platform_tls_key_t *key) {
+    return pthread_getspecific(key->key);
+}
+
+/* ── Atomic operations ───────────────────────────────────────────── */
+
+BASL_API int64_t basl_atomic_load(const volatile int64_t *ptr) {
+    return atomic_load((const _Atomic int64_t *)ptr);
+}
+
+BASL_API void basl_atomic_store(volatile int64_t *ptr, int64_t value) {
+    atomic_store((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_add(volatile int64_t *ptr, int64_t value) {
+    return atomic_fetch_add((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_sub(volatile int64_t *ptr, int64_t value) {
+    return atomic_fetch_sub((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired) {
+    return atomic_compare_exchange_strong((_Atomic int64_t *)ptr, &expected, desired) ? 1 : 0;
 }

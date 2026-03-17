@@ -693,6 +693,59 @@ static const basl_doc_entry_t fs_docs[] = {
 
 #define FS_COUNT (sizeof(fs_docs) / sizeof(fs_docs[0]))
 
+/* ── thread module ────────────────────────────────────────── */
+
+static const basl_doc_entry_t thread_docs[] = {
+    {
+        "thread",
+        NULL,
+        "Threading primitives.",
+        "The thread module provides cross-platform threading:\n"
+        "mutexes, condition variables, read-write locks, and utilities.",
+        NULL
+    },
+    {"thread.current_id", "thread.current_id() -> i64", "Get current thread ID.", "Returns unique identifier for current thread.", "thread.current_id()"},
+    {"thread.yield", "thread.yield() -> bool", "Yield to other threads.", "Hints scheduler to run other threads.", "thread.yield()"},
+    {"thread.sleep", "thread.sleep(ms: i64) -> bool", "Sleep for milliseconds.", "Pauses current thread for specified duration.", "thread.sleep(100)"},
+    {"thread.mutex", "thread.mutex() -> Mutex", "Create a mutex.", "Creates a mutual exclusion lock.", "thread.Mutex m = thread.mutex()"},
+    {"thread.lock", "thread.lock(m: Mutex) -> bool", "Lock a mutex.", "Acquires mutex, blocking if held.", "thread.lock(m)"},
+    {"thread.unlock", "thread.unlock(m: Mutex) -> bool", "Unlock a mutex.", "Releases a held mutex.", "thread.unlock(m)"},
+    {"thread.try_lock", "thread.try_lock(m: Mutex) -> bool", "Try to lock mutex.", "Attempts to acquire without blocking.", "if (thread.try_lock(m)) { ... }"},
+    {"thread.cond", "thread.cond() -> Cond", "Create condition variable.", "Creates a condition variable for signaling.", "thread.Cond c = thread.cond()"},
+    {"thread.wait", "thread.wait(c: Cond, m: Mutex) -> bool", "Wait on condition.", "Releases mutex and waits for signal.", "thread.wait(c, m)"},
+    {"thread.signal", "thread.signal(c: Cond) -> bool", "Signal one waiter.", "Wakes one thread waiting on condition.", "thread.signal(c)"},
+    {"thread.broadcast", "thread.broadcast(c: Cond) -> bool", "Signal all waiters.", "Wakes all threads waiting on condition.", "thread.broadcast(c)"},
+    {"thread.rwlock", "thread.rwlock() -> RWLock", "Create read-write lock.", "Creates lock allowing multiple readers or one writer.", "thread.RWLock rw = thread.rwlock()"},
+    {"thread.read_lock", "thread.read_lock(rw: RWLock) -> bool", "Acquire read lock.", "Acquires shared read access.", "thread.read_lock(rw)"},
+    {"thread.write_lock", "thread.write_lock(rw: RWLock) -> bool", "Acquire write lock.", "Acquires exclusive write access.", "thread.write_lock(rw)"},
+    {"thread.rw_unlock", "thread.rw_unlock(rw: RWLock) -> bool", "Release read-write lock.", "Releases read or write lock.", "thread.rw_unlock(rw)"},
+};
+
+#define THREAD_COUNT (sizeof(thread_docs) / sizeof(thread_docs[0]))
+
+/* ── atomic module ────────────────────────────────────────── */
+
+static const basl_doc_entry_t atomic_docs[] = {
+    {
+        "atomic",
+        NULL,
+        "Atomic operations.",
+        "The atomic module provides lock-free atomic integer operations\n"
+        "for thread-safe programming without mutexes.",
+        NULL
+    },
+    {"atomic.new", "atomic.new(initial: i64) -> Int", "Create atomic integer.", "Creates an atomic integer with initial value.", "atomic.Int a = atomic.new(0)"},
+    {"atomic.load", "atomic.load(a: Int) -> i64", "Atomically load value.", "Returns current value atomically.", "atomic.load(a)"},
+    {"atomic.store", "atomic.store(a: Int, val: i64) -> bool", "Atomically store value.", "Sets value atomically.", "atomic.store(a, 42)"},
+    {"atomic.add", "atomic.add(a: Int, val: i64) -> i64", "Atomically add.", "Adds to value, returns previous.", "atomic.add(a, 1)"},
+    {"atomic.sub", "atomic.sub(a: Int, val: i64) -> i64", "Atomically subtract.", "Subtracts from value, returns previous.", "atomic.sub(a, 1)"},
+    {"atomic.inc", "atomic.inc(a: Int) -> i64", "Atomically increment.", "Increments by 1, returns previous.", "atomic.inc(a)"},
+    {"atomic.dec", "atomic.dec(a: Int) -> i64", "Atomically decrement.", "Decrements by 1, returns previous.", "atomic.dec(a)"},
+    {"atomic.cas", "atomic.cas(a: Int, expected: i64, desired: i64) -> bool", "Compare and swap.", "Sets to desired if current equals expected.", "atomic.cas(a, 0, 1)"},
+};
+
+#define ATOMIC_COUNT (sizeof(atomic_docs) / sizeof(atomic_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -707,6 +760,8 @@ static const char *module_names[] = {
     "random",
     "url",
     "yaml",
+    "thread",
+    "atomic",
 };
 
 #define MODULE_COUNT (sizeof(module_names) / sizeof(module_names[0]))
@@ -796,6 +851,20 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check thread */
+    for (i = 0; i < THREAD_COUNT; i++) {
+        if (strcmp(thread_docs[i].name, name) == 0) {
+            return &thread_docs[i];
+        }
+    }
+
+    /* Check atomic */
+    for (i = 0; i < ATOMIC_COUNT; i++) {
+        if (strcmp(atomic_docs[i].name, name) == 0) {
+            return &atomic_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -856,6 +925,14 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "fs") == 0) {
         if (count) *count = FS_COUNT;
         return fs_docs;
+    }
+    if (strcmp(module_name, "thread") == 0) {
+        if (count) *count = THREAD_COUNT;
+        return thread_docs;
+    }
+    if (strcmp(module_name, "atomic") == 0) {
+        if (count) *count = ATOMIC_COUNT;
+        return atomic_docs;
     }
 
     return NULL;

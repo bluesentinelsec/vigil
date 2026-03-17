@@ -16,7 +16,7 @@
 struct basl_object_internal {
     basl_runtime_t *runtime;
     basl_object_type_t type;
-    size_t ref_count;
+    volatile int64_t ref_count;  /* Atomic for thread safety */
 };
 
 struct basl_function_object_internal {

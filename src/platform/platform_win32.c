@@ -769,3 +769,250 @@ BASL_API basl_status_t basl_platform_append_file(
     fclose(f);
     return BASL_STATUS_OK;
 }
+
+/* ── Threading primitives ────────────────────────────────────────── */
+
+struct basl_platform_thread {
+    HANDLE handle;
+    basl_thread_func_t func;
+    void *arg;
+};
+
+static DWORD WINAPI thread_wrapper(LPVOID arg) {
+    basl_platform_thread_t *t = (basl_platform_thread_t *)arg;
+    t->func(t->arg);
+    return 0;
+}
+
+BASL_API basl_status_t basl_platform_thread_create(
+    basl_platform_thread_t **out_thread,
+    basl_thread_func_t func,
+    void *arg,
+    basl_error_t *error
+) {
+    basl_platform_thread_t *t = malloc(sizeof(*t));
+    if (!t) return BASL_STATUS_OUT_OF_MEMORY;
+    t->func = func;
+    t->arg = arg;
+    t->handle = CreateThread(NULL, 0, thread_wrapper, t, 0, NULL);
+    if (!t->handle) {
+        free(t);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "CreateThread failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_thread = t;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_thread_join(
+    basl_platform_thread_t *thread,
+    basl_error_t *error
+) {
+    if (WaitForSingleObject(thread->handle, INFINITE) == WAIT_FAILED) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "WaitForSingleObject failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    CloseHandle(thread->handle);
+    free(thread);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_thread_detach(
+    basl_platform_thread_t *thread,
+    basl_error_t *error
+) {
+    (void)error;
+    CloseHandle(thread->handle);
+    free(thread);
+    return BASL_STATUS_OK;
+}
+
+BASL_API uint64_t basl_platform_thread_current_id(void) {
+    return (uint64_t)GetCurrentThreadId();
+}
+
+BASL_API void basl_platform_thread_yield(void) {
+    SwitchToThread();
+}
+
+BASL_API void basl_platform_thread_sleep(uint64_t milliseconds) {
+    Sleep((DWORD)milliseconds);
+}
+
+/* ── Mutex (using CRITICAL_SECTION for efficiency) ───────────────── */
+
+struct basl_platform_mutex {
+    CRITICAL_SECTION cs;
+};
+
+BASL_API basl_status_t basl_platform_mutex_create(
+    basl_platform_mutex_t **out_mutex,
+    basl_error_t *error
+) {
+    (void)error;
+    basl_platform_mutex_t *m = malloc(sizeof(*m));
+    if (!m) return BASL_STATUS_OUT_OF_MEMORY;
+    InitializeCriticalSection(&m->cs);
+    *out_mutex = m;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_mutex_destroy(basl_platform_mutex_t *mutex) {
+    if (mutex) {
+        DeleteCriticalSection(&mutex->cs);
+        free(mutex);
+    }
+}
+
+BASL_API void basl_platform_mutex_lock(basl_platform_mutex_t *mutex) {
+    EnterCriticalSection(&mutex->cs);
+}
+
+BASL_API void basl_platform_mutex_unlock(basl_platform_mutex_t *mutex) {
+    LeaveCriticalSection(&mutex->cs);
+}
+
+BASL_API int basl_platform_mutex_trylock(basl_platform_mutex_t *mutex) {
+    return TryEnterCriticalSection(&mutex->cs) ? 1 : 0;
+}
+
+/* ── Condition variable ──────────────────────────────────────────── */
+
+struct basl_platform_cond {
+    CONDITION_VARIABLE cv;
+};
+
+BASL_API basl_status_t basl_platform_cond_create(
+    basl_platform_cond_t **out_cond,
+    basl_error_t *error
+) {
+    (void)error;
+    basl_platform_cond_t *c = malloc(sizeof(*c));
+    if (!c) return BASL_STATUS_OUT_OF_MEMORY;
+    InitializeConditionVariable(&c->cv);
+    *out_cond = c;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_cond_destroy(basl_platform_cond_t *cond) {
+    /* Windows condition variables don't need explicit destruction */
+    free(cond);
+}
+
+BASL_API void basl_platform_cond_wait(
+    basl_platform_cond_t *cond,
+    basl_platform_mutex_t *mutex
+) {
+    SleepConditionVariableCS(&cond->cv, &mutex->cs, INFINITE);
+}
+
+BASL_API void basl_platform_cond_signal(basl_platform_cond_t *cond) {
+    WakeConditionVariable(&cond->cv);
+}
+
+BASL_API void basl_platform_cond_broadcast(basl_platform_cond_t *cond) {
+    WakeAllConditionVariable(&cond->cv);
+}
+
+/* ── Read-write lock (using SRWLOCK) ─────────────────────────────── */
+
+struct basl_platform_rwlock {
+    SRWLOCK lock;
+};
+
+BASL_API basl_status_t basl_platform_rwlock_create(
+    basl_platform_rwlock_t **out_rwlock,
+    basl_error_t *error
+) {
+    (void)error;
+    basl_platform_rwlock_t *rw = malloc(sizeof(*rw));
+    if (!rw) return BASL_STATUS_OUT_OF_MEMORY;
+    InitializeSRWLock(&rw->lock);
+    *out_rwlock = rw;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_rwlock_destroy(basl_platform_rwlock_t *rwlock) {
+    /* Windows SRWLOCKs don't need explicit destruction */
+    free(rwlock);
+}
+
+BASL_API void basl_platform_rwlock_rdlock(basl_platform_rwlock_t *rwlock) {
+    AcquireSRWLockShared(&rwlock->lock);
+}
+
+BASL_API void basl_platform_rwlock_wrlock(basl_platform_rwlock_t *rwlock) {
+    AcquireSRWLockExclusive(&rwlock->lock);
+}
+
+BASL_API void basl_platform_rwlock_unlock(basl_platform_rwlock_t *rwlock) {
+    /* SRWLOCK requires knowing if it was shared or exclusive.
+       We use TryAcquire to detect - if exclusive succeeds, it was shared. */
+    if (TryAcquireSRWLockExclusive(&rwlock->lock)) {
+        ReleaseSRWLockExclusive(&rwlock->lock);
+        ReleaseSRWLockShared(&rwlock->lock);
+    } else {
+        ReleaseSRWLockExclusive(&rwlock->lock);
+    }
+}
+
+/* ── Thread-local storage ────────────────────────────────────────── */
+
+struct basl_platform_tls_key {
+    DWORD key;
+};
+
+BASL_API basl_status_t basl_platform_tls_create(
+    basl_platform_tls_key_t **out_key,
+    void (*destructor)(void *),
+    basl_error_t *error
+) {
+    (void)destructor; /* Windows TLS doesn't support destructors directly */
+    basl_platform_tls_key_t *k = malloc(sizeof(*k));
+    if (!k) return BASL_STATUS_OUT_OF_MEMORY;
+    k->key = TlsAlloc();
+    if (k->key == TLS_OUT_OF_INDEXES) {
+        free(k);
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "TlsAlloc failed");
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_key = k;
+    return BASL_STATUS_OK;
+}
+
+BASL_API void basl_platform_tls_destroy(basl_platform_tls_key_t *key) {
+    if (key) {
+        TlsFree(key->key);
+        free(key);
+    }
+}
+
+BASL_API void basl_platform_tls_set(basl_platform_tls_key_t *key, void *value) {
+    TlsSetValue(key->key, value);
+}
+
+BASL_API void *basl_platform_tls_get(basl_platform_tls_key_t *key) {
+    return TlsGetValue(key->key);
+}
+
+/* ── Atomic operations ───────────────────────────────────────────── */
+
+BASL_API int64_t basl_atomic_load(const volatile int64_t *ptr) {
+    return InterlockedCompareExchange64((volatile LONG64 *)ptr, 0, 0);
+}
+
+BASL_API void basl_atomic_store(volatile int64_t *ptr, int64_t value) {
+    InterlockedExchange64((volatile LONG64 *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_add(volatile int64_t *ptr, int64_t value) {
+    return InterlockedExchangeAdd64((volatile LONG64 *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_sub(volatile int64_t *ptr, int64_t value) {
+    return InterlockedExchangeAdd64((volatile LONG64 *)ptr, -value);
+}
+
+BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired) {
+    return InterlockedCompareExchange64((volatile LONG64 *)ptr, desired, expected) == expected ? 1 : 0;
+}
