@@ -34,6 +34,7 @@ BASL_API void basl_log_set_handler(basl_log_handler_t handler, void *user_data);
 /* Each stdlib module exports a const descriptor. */
 extern BASL_API const basl_native_module_t basl_stdlib_args;
 extern BASL_API const basl_native_module_t basl_stdlib_atomic;
+extern BASL_API const basl_native_module_t basl_stdlib_compress;
 extern BASL_API const basl_native_module_t basl_stdlib_ffi;
 extern BASL_API const basl_native_module_t basl_stdlib_fmt;
 extern BASL_API const basl_native_module_t basl_stdlib_fs;
@@ -57,6 +58,8 @@ static inline basl_status_t basl_stdlib_register_all(
     status = basl_native_registry_add(registry, &basl_stdlib_args, error);
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_atomic, error);
+    if (status != BASL_STATUS_OK) return status;
+    status = basl_native_registry_add(registry, &basl_stdlib_compress, error);
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_ffi, error);
     if (status != BASL_STATUS_OK) return status;
@@ -92,6 +95,7 @@ static inline int basl_stdlib_is_native_module(
 ) {
     return (name_length == 4U && memcmp(name, "args", 4U) == 0) ||
            (name_length == 6U && memcmp(name, "atomic", 6U) == 0) ||
+           (name_length == 8U && memcmp(name, "compress", 8U) == 0) ||
            (name_length == 3U && memcmp(name, "ffi", 3U) == 0) ||
            (name_length == 3U && memcmp(name, "fmt", 3U) == 0) ||
            (name_length == 2U && memcmp(name, "fs", 2U) == 0) ||
