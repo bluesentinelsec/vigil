@@ -150,6 +150,13 @@ BASL_API basl_status_t basl_toml_table_set(
     basl_error_t *error
 );
 
+/** Remove a key from a table.  Returns OK if removed, INVALID_ARGUMENT if not found. */
+BASL_API basl_status_t basl_toml_table_remove(
+    basl_toml_value_t *table,
+    const char *key,
+    basl_error_t *error
+);
+
 /** Iteration: returns key/value at position index (insertion order). */
 BASL_API basl_status_t basl_toml_table_entry(
     const basl_toml_value_t *table,
