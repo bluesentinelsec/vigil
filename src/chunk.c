@@ -679,6 +679,23 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
         case BASL_OPCODE_TAIL_CALL: return "TAIL_CALL";
         case BASL_OPCODE_FORLOOP_I32: return "FORLOOP_I32";
         case BASL_OPCODE_CALL_NATIVE: return "CALL_NATIVE";
+        case BASL_OPCODE_STRING_TRIM_LEFT: return "STRING_TRIM_LEFT";
+        case BASL_OPCODE_STRING_TRIM_RIGHT: return "STRING_TRIM_RIGHT";
+        case BASL_OPCODE_STRING_REPEAT: return "STRING_REPEAT";
+        case BASL_OPCODE_STRING_REVERSE: return "STRING_REVERSE";
+        case BASL_OPCODE_STRING_IS_EMPTY: return "STRING_IS_EMPTY";
+        case BASL_OPCODE_STRING_COUNT: return "STRING_COUNT";
+        case BASL_OPCODE_STRING_LAST_INDEX_OF: return "STRING_LAST_INDEX_OF";
+        case BASL_OPCODE_STRING_TRIM_PREFIX: return "STRING_TRIM_PREFIX";
+        case BASL_OPCODE_STRING_TRIM_SUFFIX: return "STRING_TRIM_SUFFIX";
+        case BASL_OPCODE_CHAR_FROM_INT: return "CHAR_FROM_INT";
+        case BASL_OPCODE_STRING_TO_C: return "STRING_TO_C";
+        case BASL_OPCODE_STRING_JOIN: return "STRING_JOIN";
+        case BASL_OPCODE_STRING_CUT: return "STRING_CUT";
+        case BASL_OPCODE_STRING_FIELDS: return "STRING_FIELDS";
+        case BASL_OPCODE_STRING_EQUAL_FOLD: return "STRING_EQUAL_FOLD";
+        case BASL_OPCODE_STRING_CHAR_COUNT: return "STRING_CHAR_COUNT";
+        case BASL_OPCODE_FORMAT_SPEC: return "FORMAT_SPEC";
         default:
             return "UNKNOWN";
     }
@@ -1035,7 +1052,8 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_NEW_INSTANCE ||
             opcode == BASL_OPCODE_NEW_ARRAY ||
             opcode == BASL_OPCODE_NEW_MAP ||
-            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE
+            opcode == BASL_OPCODE_DEFER_NEW_INSTANCE ||
+            opcode == BASL_OPCODE_FORMAT_SPEC
         ) {
             uint32_t first_operand;
             uint32_t second_operand;
@@ -1201,7 +1219,8 @@ basl_status_t basl_chunk_disassemble(
             opcode == BASL_OPCODE_MAP_REMOVE_SAFE ||
             opcode == BASL_OPCODE_MAP_HAS ||
             opcode == BASL_OPCODE_MAP_KEYS ||
-            opcode == BASL_OPCODE_MAP_VALUES
+            opcode == BASL_OPCODE_MAP_VALUES ||
+            opcode == BASL_OPCODE_STRING_CHAR_COUNT
         ) {
             offset += 1U;
         } else {

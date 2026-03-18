@@ -1934,6 +1934,225 @@ static basl_status_t basl_vm_stringify_value(
     return BASL_STATUS_OK;
 }
 
+/* ── FORMAT_SPEC helpers ─────────────────────────────────────────── */
+
+/* Encoding for word1:
+   bits  0-7:  fill character (ASCII, 0 = space default)
+   bits  8-9:  alignment  0=default 1=left 2=right 3=center
+   bits 10-13: format type 0=str 1=dec 2=hex 3=HEX 4=bin 5=oct 6=float_f
+   bit  14:    grouping (thousands separator)
+*/
+#define FSPEC_FILL(w)    ((char)((w) & 0xFFU))
+#define FSPEC_ALIGN(w)   (((w) >> 8U) & 0x3U)
+#define FSPEC_TYPE(w)    (((w) >> 10U) & 0xFU)
+#define FSPEC_GROUP(w)   (((w) >> 14U) & 0x1U)
+#define FSPEC_WIDTH(w)   ((w) & 0xFFFFU)
+#define FSPEC_PREC(w)    (((w) >> 16U) & 0xFFFFU)
+
+static basl_status_t basl_vm_format_spec_value(
+    basl_vm_t *vm,
+    const basl_value_t *val,
+    uint32_t word1,
+    uint32_t word2,
+    basl_value_t *out_value,
+    basl_error_t *error
+) {
+    char fill;
+    unsigned int align;
+    unsigned int fmt_type;
+    unsigned int grouping;
+    unsigned int width;
+    unsigned int precision;
+    char buf[256];
+    int len;
+    basl_status_t status;
+    basl_object_t *object;
+    void *memory;
+
+    fill = FSPEC_FILL(word1);
+    if (fill == 0) fill = ' ';
+    align = FSPEC_ALIGN(word1);
+    fmt_type = FSPEC_TYPE(word1);
+    grouping = FSPEC_GROUP(word1);
+    width = FSPEC_WIDTH(word2);
+    precision = FSPEC_PREC(word2);
+
+    /* Step 1: format the value into buf[] based on fmt_type. */
+    if (fmt_type == 6U) {
+        /* float_f */
+        if (!basl_nanbox_is_double(*val)) {
+            basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                "float format specifier requires f64 value");
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+        char fmt[32];
+        snprintf(fmt, sizeof(fmt), "%%.%uf", precision);
+        len = snprintf(buf, sizeof(buf), fmt, basl_nanbox_decode_double(*val));
+    } else if (fmt_type >= 1U && fmt_type <= 5U) {
+        /* integer formats */
+        int64_t ival;
+        if (basl_nanbox_is_int(*val)) {
+            ival = basl_nanbox_decode_int(*val);
+        } else {
+            basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                "integer format specifier requires an integer value");
+            return BASL_STATUS_INVALID_ARGUMENT;
+        }
+        if (fmt_type == 1U) {
+            /* decimal */
+            len = snprintf(buf, sizeof(buf), "%lld", (long long)ival);
+        } else if (fmt_type == 2U) {
+            /* hex lower */
+            if (ival < 0) {
+                len = snprintf(buf, sizeof(buf), "-%llx", (unsigned long long)(-ival));
+            } else {
+                len = snprintf(buf, sizeof(buf), "%llx", (unsigned long long)ival);
+            }
+        } else if (fmt_type == 3U) {
+            /* hex upper */
+            if (ival < 0) {
+                len = snprintf(buf, sizeof(buf), "-%llX", (unsigned long long)(-ival));
+            } else {
+                len = snprintf(buf, sizeof(buf), "%llX", (unsigned long long)ival);
+            }
+        } else if (fmt_type == 4U) {
+            /* binary */
+            uint64_t uval = (uint64_t)ival;
+            int pos = 0;
+            if (ival < 0) { buf[pos++] = '-'; uval = (uint64_t)(-ival); }
+            if (uval == 0U) { buf[pos++] = '0'; }
+            else {
+                char tmp[65];
+                int ti = 0;
+                while (uval > 0U) { tmp[ti++] = '0' + (char)(uval & 1U); uval >>= 1U; }
+                while (ti > 0) { buf[pos++] = tmp[--ti]; }
+            }
+            len = pos;
+            buf[len] = '\0';
+        } else {
+            /* octal */
+            if (ival < 0) {
+                len = snprintf(buf, sizeof(buf), "-%llo", (unsigned long long)(-ival));
+            } else {
+                len = snprintf(buf, sizeof(buf), "%llo", (unsigned long long)ival);
+            }
+        }
+        /* Apply thousands grouping to decimal format. */
+        if (grouping && fmt_type == 1U && len > 0 && len < 200) {
+            char tmp[256];
+            int src = 0;
+            int dst = 0;
+            int start;
+            if (buf[0] == '-') { tmp[dst++] = '-'; src = 1; }
+            start = src;
+            while (src < len) {
+                int remaining = len - src;
+                if (remaining > 0 && remaining % 3 == 0 && src > start) {
+                    tmp[dst++] = ',';
+                }
+                tmp[dst++] = buf[src++];
+            }
+            memcpy(buf, tmp, (size_t)dst);
+            len = dst;
+            buf[len] = '\0';
+        }
+    } else {
+        /* string (type 0) — stringify the value */
+        const char *text = NULL;
+        size_t text_len = 0U;
+        if (basl_nanbox_is_object(*val)) {
+            const basl_object_t *obj =
+                (const basl_object_t *)basl_nanbox_decode_ptr(*val);
+            if (obj != NULL && basl_object_type(obj) == BASL_OBJECT_STRING) {
+                text = basl_string_object_c_str(obj);
+                text_len = basl_string_object_length(obj);
+            }
+        }
+        if (text == NULL) {
+            if (basl_nanbox_is_int(*val)) {
+                len = snprintf(buf, sizeof(buf), "%lld",
+                    (long long)basl_nanbox_decode_int(*val));
+                text = buf;
+                text_len = (size_t)len;
+            } else if (basl_nanbox_is_double(*val)) {
+                len = snprintf(buf, sizeof(buf), "%g",
+                    basl_nanbox_decode_double(*val));
+                text = buf;
+                text_len = (size_t)len;
+            } else if (basl_nanbox_is_bool(*val)) {
+                text = basl_nanbox_decode_bool(*val) ? "true" : "false";
+                text_len = basl_nanbox_decode_bool(*val) ? 4U : 5U;
+            } else {
+                text = "";
+                text_len = 0U;
+            }
+        }
+        /* Apply width/alignment directly to the string. */
+        if (width > 0U && text_len < width) {
+            size_t pad = width - text_len;
+            size_t total = width;
+            status = basl_runtime_alloc(vm->runtime, total + 1U, &memory, error);
+            if (status != BASL_STATUS_OK) return status;
+            char *out = (char *)memory;
+            size_t lpad = 0U;
+            size_t rpad = 0U;
+            if (align == 1U) { rpad = pad; }
+            else if (align == 3U) { lpad = pad / 2U; rpad = pad - lpad; }
+            else { lpad = pad; } /* default/right */
+            memset(out, fill, lpad);
+            memcpy(out + lpad, text, text_len);
+            memset(out + lpad + text_len, fill, rpad);
+            object = NULL;
+            status = basl_string_object_new(vm->runtime, out, total, &object, error);
+            basl_runtime_free(vm->runtime, &memory);
+            if (status != BASL_STATUS_OK) return status;
+            basl_value_init_object(out_value, &object); basl_object_release(&object);
+            return BASL_STATUS_OK;
+        }
+        /* No padding needed — just create string object. */
+        object = NULL;
+        status = basl_string_object_new(vm->runtime, text, text_len, &object, error);
+        if (status != BASL_STATUS_OK) return status;
+        basl_value_init_object(out_value, &object); basl_object_release(&object);
+        return BASL_STATUS_OK;
+    }
+
+    if (len < 0) {
+        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+            "format specifier produced invalid output");
+        return BASL_STATUS_INTERNAL;
+    }
+
+    /* Step 2: apply width/alignment padding. */
+    if (width > 0U && (size_t)len < width) {
+        size_t pad = width - (size_t)len;
+        size_t total = width;
+        status = basl_runtime_alloc(vm->runtime, total + 1U, &memory, error);
+        if (status != BASL_STATUS_OK) return status;
+        char *out = (char *)memory;
+        size_t lpad = 0U;
+        size_t rpad = 0U;
+        if (align == 1U) { rpad = pad; }
+        else if (align == 3U) { lpad = pad / 2U; rpad = pad - lpad; }
+        else { lpad = pad; } /* default/right */
+        memset(out, fill, lpad);
+        memcpy(out + lpad, buf, (size_t)len);
+        memset(out + lpad + (size_t)len, fill, rpad);
+        object = NULL;
+        status = basl_string_object_new(vm->runtime, out, total, &object, error);
+        basl_runtime_free(vm->runtime, &memory);
+        if (status != BASL_STATUS_OK) return status;
+        basl_value_init_object(out_value, &object); basl_object_release(&object);
+        return BASL_STATUS_OK;
+    }
+
+    object = NULL;
+    status = basl_string_object_new(vm->runtime, buf, (size_t)len, &object, error);
+    if (status != BASL_STATUS_OK) return status;
+    basl_value_init_object(out_value, &object); basl_object_release(&object);
+    return BASL_STATUS_OK;
+}
+
 static basl_status_t basl_vm_format_f64_value(
     basl_vm_t *vm,
     const basl_value_t *value,
@@ -2947,6 +3166,8 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_STRING_CUT] = &&op_STRING_CUT,
             [BASL_OPCODE_STRING_FIELDS] = &&op_STRING_FIELDS,
             [BASL_OPCODE_STRING_EQUAL_FOLD] = &&op_STRING_EQUAL_FOLD,
+            [BASL_OPCODE_STRING_CHAR_COUNT] = &&op_STRING_CHAR_COUNT,
+            [BASL_OPCODE_FORMAT_SPEC] = &&op_FORMAT_SPEC,
             [BASL_OPCODE_SUBTRACT] = &&op_SUBTRACT,
             [BASL_OPCODE_TO_F64] = &&op_TO_F64,
             [BASL_OPCODE_TO_I32] = &&op_TO_I32,
@@ -5303,6 +5524,44 @@ basl_status_t basl_vm_execute_function(
                 VM_BREAK();
             }
 
+            VM_CASE(STRING_CHAR_COUNT) {
+                const char *text;
+                size_t text_length;
+                size_t ci;
+                int32_t ccount;
+
+                frame->ip += 1U;
+                left = basl_vm_pop_or_nil(vm);
+
+                if (!basl_vm_get_string_parts(&left, &text, &text_length)) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "char_count() requires a string receiver", error
+                    );
+                    goto cleanup;
+                }
+
+                ccount = 0;
+                for (ci = 0U; ci < text_length; ) {
+                    unsigned char uc = (unsigned char)text[ci];
+                    if (uc < 0x80U) { ci += 1U; }
+                    else if ((uc & 0xE0U) == 0xC0U) { ci += 2U; }
+                    else if ((uc & 0xF0U) == 0xE0U) { ci += 3U; }
+                    else { ci += 4U; }
+                    ccount += 1;
+                }
+
+                BASL_VM_VALUE_RELEASE(&left);
+                basl_value_init_int(&value, (int64_t)ccount);
+                status = basl_vm_push(vm, &value, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+
             VM_CASE(STRING_REPEAT) {
                 const char *text;
                 size_t length;
@@ -7292,6 +7551,34 @@ basl_status_t basl_vm_execute_function(
                 }
                 BASL_VM_VALUE_RELEASE(&left);
                 VM_BREAK();
+            VM_CASE(FORMAT_SPEC) {
+                uint32_t w1;
+                uint32_t w2;
+                if ((status = basl_vm_read_u32(vm, &w1, error)) != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                if ((status = basl_vm_read_raw_u32(vm, &w2, error)) != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                value = basl_vm_pop_or_nil(vm);
+                BASL_VM_VALUE_INIT_NIL(&left);
+                status = basl_vm_format_spec_value(vm, &value, w1, w2, &left, error);
+                BASL_VM_VALUE_RELEASE(&value);
+                if (status != BASL_STATUS_OK) {
+                    status = basl_vm_fail_at_ip(
+                        vm, BASL_STATUS_INVALID_ARGUMENT,
+                        "format specifier error", error
+                    );
+                    goto cleanup;
+                }
+                status = basl_vm_push(vm, &left, error);
+                if (status != BASL_STATUS_OK) {
+                    BASL_VM_VALUE_RELEASE(&left);
+                    goto cleanup;
+                }
+                BASL_VM_VALUE_RELEASE(&left);
+                VM_BREAK();
+            }
             VM_CASE(NEW_ERROR)
                 right = basl_vm_pop_or_nil(vm);
                 left = basl_vm_pop_or_nil(vm);

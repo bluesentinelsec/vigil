@@ -197,7 +197,21 @@ typedef enum basl_opcode {
     BASL_OPCODE_STRING_JOIN = 145,
     BASL_OPCODE_STRING_CUT = 146,
     BASL_OPCODE_STRING_FIELDS = 147,
-    BASL_OPCODE_STRING_EQUAL_FOLD = 148
+    BASL_OPCODE_STRING_EQUAL_FOLD = 148,
+
+    /* string.char_count() — returns the number of Unicode code points
+       (not bytes) in a string. */
+    BASL_OPCODE_STRING_CHAR_COUNT = 149,
+
+    /* FORMAT_SPEC — general-purpose value formatting.
+       Two u32 operands:
+         word1: [fill_char:8][align:2][format_type:4][grouping:1][unused:17]
+         word2: [width:16][precision:16]
+       align: 0=default, 1=left(<), 2=right(>), 3=center(^)
+       format_type: 0=string, 1=decimal, 2=hex_lower, 3=hex_upper,
+                    4=binary, 5=octal, 6=float_f
+       grouping: 1 = insert thousands separators */
+    BASL_OPCODE_FORMAT_SPEC = 150
 } basl_opcode_t;
 
 typedef struct basl_chunk {

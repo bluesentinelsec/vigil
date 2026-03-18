@@ -143,6 +143,8 @@ string normal = "hello\nworld";
 string raw = `no escapes here`;
 string name = "Alice";
 string msg = f"hello {name}";
+string esc = "\x1b[31mred\x1b[0m";  // \xNN hex escape
+```
 ```
 
 ### Character Literals
@@ -170,6 +172,37 @@ fmt.println(f"Name: {name}, Age: {age}");
 fmt.println(f"Next year: {age + 1}");
 fmt.println(f"pi={pi:.2f}");
 fmt.println(f"literal braces: {{ok}}");
+```
+
+Format specifiers follow the pattern `{expr:[[fill]align][width][,][.precision][type]}`:
+
+```c
+// Width and alignment: < (left), > (right), ^ (center)
+fmt.println(f"{name:<20}");       // left-align in 20 chars
+fmt.println(f"{name:>20}");       // right-align
+fmt.println(f"{name:^20}");       // center
+fmt.println(f"{age:0>8d}");       // zero-padded, right-aligned
+
+// Integer formats: d (decimal), x/X (hex), b (binary), o (octal)
+fmt.println(f"{age:x}");          // hex lowercase
+fmt.println(f"{age:X}");          // hex uppercase
+fmt.println(f"{age:b}");          // binary
+fmt.println(f"{age:o}");          // octal
+
+// Thousands separator
+i32 big = 1234567;
+fmt.println(f"{big:,}");          // "1,234,567"
+
+// Float precision
+fmt.println(f"{pi:.4f}");         // "3.1416"
+fmt.println(f"{pi:>10.2f}");      // "      3.14"
+```
+
+String literals may appear inside f-string interpolations:
+
+```c
+fmt.println(f"{"hello".to_upper()}");
+fmt.println(f"{"a,b,c".split(",")}");
 ```
 
 ### Array and Map Literals
@@ -680,6 +713,7 @@ These are heavily used and part of everyday BASL style.
 | `sep.join(arr)` | `string` |
 | `s.cut(sep)` | `(string, string, bool)` |
 | `s.equal_fold(t)` | `bool` |
+| `s.char_count()` | `i32` |
 
 ### Array
 

@@ -1963,6 +1963,33 @@ static basl_status_t basl_program_decode_string_literal(
             case '0':
                 decoded = '\0';
                 break;
+            case 'x': {
+                unsigned int hi;
+                unsigned int lo;
+                if (index + 2U >= end) {
+                    return basl_compile_report(program, token->span,
+                        "\\x escape requires two hex digits");
+                }
+                hi = (unsigned int)text[index + 1U];
+                lo = (unsigned int)text[index + 2U];
+                if (hi >= '0' && hi <= '9') { hi = hi - '0'; }
+                else if (hi >= 'a' && hi <= 'f') { hi = hi - 'a' + 10U; }
+                else if (hi >= 'A' && hi <= 'F') { hi = hi - 'A' + 10U; }
+                else {
+                    return basl_compile_report(program, token->span,
+                        "\\x escape requires two hex digits");
+                }
+                if (lo >= '0' && lo <= '9') { lo = lo - '0'; }
+                else if (lo >= 'a' && lo <= 'f') { lo = lo - 'a' + 10U; }
+                else if (lo >= 'A' && lo <= 'F') { lo = lo - 'A' + 10U; }
+                else {
+                    return basl_compile_report(program, token->span,
+                        "\\x escape requires two hex digits");
+                }
+                decoded = (char)((hi << 4U) | lo);
+                index += 2U;
+                break;
+            }
             default:
                 return basl_compile_report(program, token->span, "invalid escape sequence");
         }

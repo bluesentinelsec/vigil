@@ -81,6 +81,7 @@ basl_status_t basl_parser_parse_string_method_call(
         basl_program_names_equal(method_name, method_length, "trim_right", 10U) ||
         basl_program_names_equal(method_name, method_length, "reverse", 7U) ||
         basl_program_names_equal(method_name, method_length, "is_empty", 8U) ||
+        basl_program_names_equal(method_name, method_length, "char_count", 10U) ||
         basl_program_names_equal(method_name, method_length, "to_c", 4U) ||
         basl_program_names_equal(method_name, method_length, "fields", 6U)) {
         status = basl_parser_expect(
@@ -166,6 +167,17 @@ basl_status_t basl_parser_parse_string_method_call(
             basl_expression_result_set_type(
                 out_result,
                 basl_binding_type_primitive(BASL_TYPE_BOOL)
+            );
+            return BASL_STATUS_OK;
+        }
+        if (basl_program_names_equal(method_name, method_length, "char_count", 10U)) {
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_STRING_CHAR_COUNT, method_token->span);
+            if (status != BASL_STATUS_OK) {
+                return status;
+            }
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive(BASL_TYPE_I32)
             );
             return BASL_STATUS_OK;
         }

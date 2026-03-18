@@ -388,6 +388,13 @@ static const basl_doc_entry_t strings_docs[] = {
         "\"\".is_empty()  // true"
     },
     {
+        "strings.char_count",
+        "s.char_count() -> i32",
+        "Return the number of Unicode code points in s (not bytes).",
+        NULL,
+        "\"café\".char_count()  // 4"
+    },
+    {
         "strings.repeat",
         "s.repeat(n: i32) -> string",
         "Return s repeated n times.",

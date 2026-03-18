@@ -872,6 +872,7 @@ static const struct {
     {"bytes", "() -> array<u8>", "Get raw bytes"},
     {"reverse", "() -> string", "Reverse the string"},
     {"is_empty", "() -> bool", "Check if empty"},
+    {"char_count", "() -> i32", "Count Unicode code points"},
     {"repeat", "(n: i32) -> string", "Repeat n times"},
     {"count", "(sub: string) -> i32", "Count occurrences"},
     {"fields", "() -> array<string>", "Split on whitespace"},

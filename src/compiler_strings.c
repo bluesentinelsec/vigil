@@ -72,6 +72,33 @@ basl_status_t basl_program_append_decoded_string_range(
             case '0':
                 decoded = '\0';
                 break;
+            case 'x': {
+                unsigned int hi;
+                unsigned int lo;
+                if (index + 2U >= end) {
+                    return basl_compile_report(program, span,
+                        "\\x escape requires two hex digits");
+                }
+                hi = (unsigned int)text[index + 1U];
+                lo = (unsigned int)text[index + 2U];
+                if (hi >= '0' && hi <= '9') { hi = hi - '0'; }
+                else if (hi >= 'a' && hi <= 'f') { hi = hi - 'a' + 10U; }
+                else if (hi >= 'A' && hi <= 'F') { hi = hi - 'A' + 10U; }
+                else {
+                    return basl_compile_report(program, span,
+                        "\\x escape requires two hex digits");
+                }
+                if (lo >= '0' && lo <= '9') { lo = lo - '0'; }
+                else if (lo >= 'a' && lo <= 'f') { lo = lo - 'a' + 10U; }
+                else if (lo >= 'A' && lo <= 'F') { lo = lo - 'A' + 10U; }
+                else {
+                    return basl_compile_report(program, span,
+                        "\\x escape requires two hex digits");
+                }
+                decoded = (char)((hi << 4U) | lo);
+                index += 2U;
+                break;
+            }
             default:
                 return basl_compile_report(program, span, "invalid escape sequence");
         }
@@ -283,8 +310,6 @@ basl_status_t basl_parser_parse_fstring_literal(
         size_t brace_depth;
         size_t cursor;
         basl_expression_result_t expression_result;
-        unsigned long precision_value;
-        char *end_ptr;
 
         if (text[index] == '\\') {
             index += 2U;
@@ -438,30 +463,152 @@ basl_status_t basl_parser_parse_fstring_literal(
                 }
             }
         } else {
+            /* ── General format specifier parser ──────────────────────
+               Syntax: [[fill]align][width][grouping][.precision][type]
+               fill:      any single ASCII char (only if followed by align)
+               align:     < (left) > (right) ^ (center)
+               width:     integer
+               grouping:  , (thousands separator)
+               precision: .N
+               type:      d x X b o f
+            */
+            size_t fs;
+            size_t fe;
+            char fill_char;
+            unsigned int align_val;
+            unsigned int width_val;
+            unsigned int prec_val;
+            unsigned int fmt_type;
+            unsigned int grouping_val;
+            uint32_t word1;
+            uint32_t word2;
+
             basl_program_trim_text_range(text, format_start, cursor, &trim_start, &trim_end);
-            if (!basl_parser_type_is_f64(expression_result.type)) {
+            if (trim_start >= trim_end) {
                 basl_string_free(&segment);
-                return basl_parser_report(state, token->span, "f-string format specifiers currently require f64 values");
+                return basl_parser_report(state, token->span, "empty format specifier");
             }
-            if (trim_start >= cursor || trim_end > cursor) {
+
+            fs = trim_start;
+            fe = trim_end;
+            fill_char = 0;
+            align_val = 0U;
+            width_val = 0U;
+            prec_val = 0U;
+            fmt_type = 0U;
+            grouping_val = 0U;
+
+            /* Check for [fill]align — fill is any char before <, >, ^ */
+            if (fe - fs >= 2U && (text[fs + 1U] == '<' || text[fs + 1U] == '>' || text[fs + 1U] == '^')) {
+                fill_char = text[fs];
+                if (text[fs + 1U] == '<') align_val = 1U;
+                else if (text[fs + 1U] == '>') align_val = 2U;
+                else align_val = 3U;
+                fs += 2U;
+            } else if (fe - fs >= 1U && (text[fs] == '<' || text[fs] == '>' || text[fs] == '^')) {
+                if (text[fs] == '<') align_val = 1U;
+                else if (text[fs] == '>') align_val = 2U;
+                else align_val = 3U;
+                fs += 1U;
+            }
+
+            /* Parse width (digits) */
+            while (fs < fe && text[fs] >= '0' && text[fs] <= '9') {
+                width_val = width_val * 10U + (unsigned int)(text[fs] - '0');
+                fs += 1U;
+            }
+
+            /* Check for grouping ',' */
+            if (fs < fe && text[fs] == ',') {
+                grouping_val = 1U;
+                fs += 1U;
+            }
+
+            /* Check for precision '.N' */
+            if (fs < fe && text[fs] == '.') {
+                fs += 1U;
+                while (fs < fe && text[fs] >= '0' && text[fs] <= '9') {
+                    prec_val = prec_val * 10U + (unsigned int)(text[fs] - '0');
+                    fs += 1U;
+                }
+            }
+
+            /* Check for type character */
+            if (fs < fe) {
+                char tc = text[fs];
+                if (tc == 'd') { fmt_type = 1U; fs += 1U; }
+                else if (tc == 'x') { fmt_type = 2U; fs += 1U; }
+                else if (tc == 'X') { fmt_type = 3U; fs += 1U; }
+                else if (tc == 'b') { fmt_type = 4U; fs += 1U; }
+                else if (tc == 'o') { fmt_type = 5U; fs += 1U; }
+                else if (tc == 'f') { fmt_type = 6U; fs += 1U; }
+                else {
+                    basl_string_free(&segment);
+                    return basl_parser_report(state, token->span,
+                        "invalid format type character (expected d, x, X, b, o, or f)");
+                }
+            }
+
+            if (fs != fe) {
                 basl_string_free(&segment);
                 return basl_parser_report(state, token->span, "invalid f-string format specifier");
             }
-            if (trim_end - trim_start < 3U || text[trim_start] != '.' || text[trim_end - 1U] != 'f') {
-                basl_string_free(&segment);
-                return basl_parser_report(state, token->span, "invalid f-string format specifier");
+
+            /* Type-check: float formats require f64, integer formats require integer */
+            if (fmt_type == 6U) {
+                if (!basl_parser_type_is_f64(expression_result.type)) {
+                    basl_string_free(&segment);
+                    return basl_parser_report(state, token->span,
+                        "float format specifier 'f' requires an f64 value");
+                }
+            } else if (fmt_type >= 1U && fmt_type <= 5U) {
+                if (!basl_parser_type_is_integer(expression_result.type)) {
+                    basl_string_free(&segment);
+                    return basl_parser_report(state, token->span,
+                        "integer format specifier requires an integer value");
+                }
+            } else if (grouping_val) {
+                /* Bare ',' with no type — infer decimal for integers */
+                if (basl_parser_type_is_integer(expression_result.type)) {
+                    fmt_type = 1U;
+                } else {
+                    basl_string_free(&segment);
+                    return basl_parser_report(state, token->span,
+                        "grouping ',' requires an integer value");
+                }
             }
-            precision_value = strtoul(text + trim_start + 1U, &end_ptr, 10);
-            if (end_ptr != text + trim_end - 1U || precision_value > UINT32_MAX) {
-                basl_string_free(&segment);
-                return basl_parser_report(state, token->span, "invalid f-string format specifier");
+
+            /* If only width/align specified with no type, use type 0 (string).
+               The value will be stringified first. */
+            if (fmt_type == 0U && !grouping_val) {
+                /* Convert to string first, then FORMAT_SPEC will pad. */
+                if (!basl_parser_type_is_string(expression_result.type)) {
+                    status = basl_parser_emit_opcode(state, BASL_OPCODE_TO_STRING, token->span);
+                    if (status != BASL_STATUS_OK) {
+                        basl_string_free(&segment);
+                        return status;
+                    }
+                }
             }
-            status = basl_parser_emit_opcode(state, BASL_OPCODE_FORMAT_F64, token->span);
+
+            /* Encode and emit FORMAT_SPEC with two u32 operands. */
+            word1 = ((uint32_t)(unsigned char)fill_char)
+                  | (align_val << 8U)
+                  | (fmt_type << 10U)
+                  | (grouping_val << 14U);
+            word2 = (width_val & 0xFFFFU) | ((prec_val & 0xFFFFU) << 16U);
+
+            status = basl_parser_emit_opcode(state, BASL_OPCODE_FORMAT_SPEC, token->span);
             if (status != BASL_STATUS_OK) {
                 basl_string_free(&segment);
                 return status;
             }
-            status = basl_parser_emit_u32(state, (uint32_t)precision_value, token->span);
+            status = basl_parser_emit_u32(state, word1, token->span);
+            if (status != BASL_STATUS_OK) {
+                basl_string_free(&segment);
+                return status;
+            }
+            status = basl_parser_emit_u32(state, word2, token->span);
             if (status != BASL_STATUS_OK) {
                 basl_string_free(&segment);
                 return status;
