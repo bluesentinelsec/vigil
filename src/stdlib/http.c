@@ -243,6 +243,9 @@ typedef struct {
     int in_use;
     http_route_t routes[HTTP_MAX_ROUTES];
     int route_count;
+    int read_timeout_ms;
+    int write_timeout_ms;
+    int idle_timeout_ms;
 } http_server_t;
 
 typedef struct {
@@ -596,6 +599,36 @@ static basl_status_t http_server_close(basl_vm_t *vm, size_t arg_count, basl_err
     return basl_vm_stack_push(vm, &nil, error);
 }
 
+static basl_status_t http_set_read_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t h = get_i64_arg(vm, base, 0);
+    int64_t ms = get_i64_arg(vm, base, 1);
+    basl_vm_stack_pop_n(vm, arg_count);
+    if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use)
+        g_servers[h].read_timeout_ms = (int)ms;
+    return push_i64(vm, 0, error);
+}
+
+static basl_status_t http_set_write_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t h = get_i64_arg(vm, base, 0);
+    int64_t ms = get_i64_arg(vm, base, 1);
+    basl_vm_stack_pop_n(vm, arg_count);
+    if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use)
+        g_servers[h].write_timeout_ms = (int)ms;
+    return push_i64(vm, 0, error);
+}
+
+static basl_status_t http_set_idle_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t h = get_i64_arg(vm, base, 0);
+    int64_t ms = get_i64_arg(vm, base, 1);
+    basl_vm_stack_pop_n(vm, arg_count);
+    if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use)
+        g_servers[h].idle_timeout_ms = (int)ms;
+    return push_i64(vm, 0, error);
+}
+
 /* ── Routing and serve loop ──────────────────────────────────────── */
 
 /* Per-thread current connection — use platform thread-local if available,
@@ -606,6 +639,8 @@ typedef struct {
     basl_runtime_t *runtime;
     basl_object_t *handler;
     int64_t conn_handle;
+    int read_timeout_ms;
+    int write_timeout_ms;
 } serve_thread_ctx_t;
 
 static void serve_thread_entry(void *arg) {
@@ -614,6 +649,15 @@ static void serve_thread_entry(void *arg) {
     basl_error_t error = {0};
 
     g_current_conn = ctx->conn_handle;
+
+    /* Apply timeouts to the connection socket */
+    http_conn_t *c = get_client(ctx->conn_handle);
+    if (c && c->sock != BASL_INVALID_SOCKET) {
+        int timeout = ctx->read_timeout_ms > ctx->write_timeout_ms
+                      ? ctx->read_timeout_ms : ctx->write_timeout_ms;
+        if (timeout > 0)
+            basl_platform_tcp_set_timeout(c->sock, timeout, NULL);
+    }
 
     if (basl_vm_open(&vm, ctx->runtime, NULL, &error) == BASL_STATUS_OK) {
         basl_value_t out = {0};
@@ -715,6 +759,8 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
             ctx->runtime = runtime;
             ctx->handler = handler;
             ctx->conn_handle = ch;
+            ctx->read_timeout_ms = srv->read_timeout_ms;
+            ctx->write_timeout_ms = srv->write_timeout_ms;
             basl_object_retain(handler);
 
             basl_platform_thread_t *t = NULL;
@@ -843,6 +889,7 @@ static const int http_i64[] = { BASL_TYPE_I64 };
 static const int http_respond_p[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING, BASL_TYPE_STRING };
 
 static const int http_i64_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
+static const int http_i64_i64[] = { BASL_TYPE_I64, BASL_TYPE_I64 };
 static const int http_handle_p[] = { BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_OBJECT };
 
 static const basl_native_module_function_t http_functions[] = {
@@ -862,6 +909,9 @@ static const basl_native_module_function_t http_functions[] = {
     { "req_query", 9, http_req_query, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "respond", 7, http_respond, 4, http_respond_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "close", 5, http_server_close, 1, http_i64, BASL_TYPE_VOID, 0, NULL, 0, NULL, NULL },
+    { "set_read_timeout", 16, http_set_read_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "set_write_timeout", 17, http_set_write_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "set_idle_timeout", 16, http_set_idle_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
 };
 
 BASL_API const basl_native_module_t basl_stdlib_http = {

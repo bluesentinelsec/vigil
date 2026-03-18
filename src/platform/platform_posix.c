@@ -1254,6 +1254,18 @@ BASL_API basl_status_t basl_platform_tcp_close(
     return BASL_STATUS_OK;
 }
 
+BASL_API basl_status_t basl_platform_tcp_set_timeout(
+    basl_socket_t sock, int timeout_ms, basl_error_t *error
+) {
+    (void)error;
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    setsockopt((int)sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt((int)sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return BASL_STATUS_OK;
+}
+
 /* ── HTTP client via libcurl (runtime-loaded) ────────────────────── */
 
 typedef void CURL;

@@ -1224,6 +1224,17 @@ BASL_API basl_status_t basl_platform_tcp_close(
     return BASL_STATUS_OK;
 }
 
+BASL_API basl_status_t basl_platform_tcp_set_timeout(
+    basl_socket_t sock, int timeout_ms, basl_error_t *error
+) {
+    (void)error;
+    if (!ws2_load() || !p_setsockopt) return BASL_STATUS_UNSUPPORTED;
+    DWORD tv = (DWORD)timeout_ms;
+    p_setsockopt((SOCKET)sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
+    p_setsockopt((SOCKET)sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof(tv));
+    return BASL_STATUS_OK;
+}
+
 /* ── HTTP client via WinHTTP (runtime-loaded) ────────────────────── */
 
 #include <winhttp.h>

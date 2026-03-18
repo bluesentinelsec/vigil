@@ -941,6 +941,9 @@ static const basl_doc_entry_t http_docs[] = {
     {"http.serve", "http.serve(server: i64) -> i32", "Start serving HTTP requests.", "Blocking loop that accepts connections and dispatches to registered handlers. Unmatched routes get 404. Returns when the listener is closed.", "http.serve(srv)"},
     {"http.current_conn", "http.current_conn() -> i64", "Get current connection handle.", "Returns the connection handle for the request being served. Only valid inside a handler registered with http.handle.", "i64 conn = http.current_conn()"},
     {"http.close", "http.close(server: i64) -> void", "Close HTTP server.", "Closes the listener socket.", "http.close(srv)"},
+    {"http.set_read_timeout", "http.set_read_timeout(server: i64, ms: i64) -> i32", "Set read timeout.", "Sets the read timeout in milliseconds for accepted connections.", "http.set_read_timeout(srv, 30000)"},
+    {"http.set_write_timeout", "http.set_write_timeout(server: i64, ms: i64) -> i32", "Set write timeout.", "Sets the write timeout in milliseconds for accepted connections.", "http.set_write_timeout(srv, 30000)"},
+    {"http.set_idle_timeout", "http.set_idle_timeout(server: i64, ms: i64) -> i32", "Set idle timeout.", "Sets the idle timeout in milliseconds. Connections idle longer are closed.", "http.set_idle_timeout(srv, 120000)"},
 };
 
 #define HTTP_COUNT (sizeof(http_docs) / sizeof(http_docs[0]))

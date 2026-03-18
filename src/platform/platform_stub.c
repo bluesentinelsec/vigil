@@ -329,6 +329,11 @@ basl_status_t basl_platform_tcp_close(basl_socket_t sock, basl_error_t *error) {
     return BASL_STATUS_OK;
 }
 
+basl_status_t basl_platform_tcp_set_timeout(basl_socket_t sock, int timeout_ms, basl_error_t *error) {
+    (void)sock; (void)timeout_ms; (void)error;
+    return BASL_STATUS_UNSUPPORTED;
+}
+
 /* ── HTTP client (stub) ──────────────────────────────────────────── */
 
 basl_status_t basl_platform_http_request(

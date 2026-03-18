@@ -524,6 +524,10 @@ BASL_API basl_status_t basl_platform_tcp_recv(
 BASL_API basl_status_t basl_platform_tcp_close(
     basl_socket_t sock, basl_error_t *error);
 
+/** Set read/write timeout on a TCP socket (milliseconds, 0 = no timeout). */
+BASL_API basl_status_t basl_platform_tcp_set_timeout(
+    basl_socket_t sock, int timeout_ms, basl_error_t *error);
+
 /* ── HTTP client (native library, runtime-loaded) ────────────────── */
 
 /** Result of an HTTP request. Caller must free body and headers with free(). */
