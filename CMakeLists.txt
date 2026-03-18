@@ -92,6 +92,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/ffi.c
     src/stdlib/fmt.c
     src/stdlib/fs.c
+    src/stdlib/http.c
     src/stdlib/log.c
     src/stdlib/math.c
     src/stdlib/net.c
@@ -202,6 +203,9 @@ if(BASL_BUILD_TESTS)
     include(CTest)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
+    # Expose http.c internals for unit testing.
+    target_compile_definitions(basl PRIVATE BASL_HTTP_TESTING)
+
     add_executable(basl_tests
         tests/test_main.c
         tests/array_test.c
@@ -218,6 +222,7 @@ if(BASL_BUILD_TESTS)
         tests/diagnostic_test.c
         tests/ffi_test.c
         tests/fs_test.c
+        tests/http_test.c
         tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c

@@ -15,6 +15,7 @@ extern void register_diagnostic_tests(void);
 extern void register_doc_tests(void);
 extern void register_ffi_tests(void);
 extern void register_fs_tests(void);
+extern void register_http_tests(void);
 extern void register_unsafe_tests(void);
 extern void register_json_tests(void);
 extern void register_lexer_tests(void);
@@ -53,6 +54,7 @@ int main(void) {
     register_doc_tests();
     register_ffi_tests();
     register_fs_tests();
+    register_http_tests();
     register_unsafe_tests();
     register_json_tests();
     register_lexer_tests();

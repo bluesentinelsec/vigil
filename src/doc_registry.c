@@ -919,6 +919,16 @@ static const basl_doc_entry_t crypto_docs[] = {
 
 #define CRYPTO_COUNT (sizeof(crypto_docs) / sizeof(crypto_docs[0]))
 
+/* ── http module ─────────────────────────────────────────────────── */
+
+static const basl_doc_entry_t http_docs[] = {
+    {"http.get", "http.get(url: string) -> (i32, string)", "HTTP GET request.", "Returns (status_code, body). Uses WinHTTP/libcurl for HTTPS.", "i32 status, string body = http.get(\"https://example.com\")"},
+    {"http.post", "http.post(url: string, body: string, content_type?: string) -> (i32, string)", "HTTP POST request.", "Returns (status_code, response_body).", "i32 status, string resp = http.post(url, data, \"application/json\")"},
+    {"http.request", "http.request(method: string, url: string, headers?: string, body?: string) -> (i32, string)", "Generic HTTP request.", "Supports any HTTP method. Headers as CRLF-separated string.", "i32 status, string body = http.request(\"PUT\", url, \"X-Custom: value\\r\\n\", data)"},
+};
+
+#define HTTP_COUNT (sizeof(http_docs) / sizeof(http_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -928,6 +938,7 @@ static const char *module_names[] = {
     "csv",
     "fmt",
     "fs",
+    "http",
     "log",
     "math",
     "net",
@@ -1065,6 +1076,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check http */
+    for (i = 0; i < HTTP_COUNT; i++) {
+        if (strcmp(http_docs[i].name, name) == 0) {
+            return &http_docs[i];
+        }
+    }
+
     /* Check csv */
     for (i = 0; i < CSV_COUNT; i++) {
         if (strcmp(csv_docs[i].name, name) == 0) {
@@ -1166,6 +1184,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "crypto") == 0) {
         if (count) *count = CRYPTO_COUNT;
         return crypto_docs;
+    }
+    if (strcmp(module_name, "http") == 0) {
+        if (count) *count = HTTP_COUNT;
+        return http_docs;
     }
     if (strcmp(module_name, "csv") == 0) {
         if (count) *count = CSV_COUNT;
