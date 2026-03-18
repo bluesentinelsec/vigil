@@ -14,6 +14,7 @@
 #include "platform/platform.h"
 
 #include "internal/basl_nanbox.h"
+#include "internal/basl_internal.h"
 
 /* ── Handle registry (simple approach without opaque objects) ─── */
 
@@ -76,25 +77,26 @@ static void thread_spawn_entry(void *arg) {
 static basl_status_t thread_spawn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     basl_value_t val = basl_vm_stack_get(vm, base);
-    basl_vm_stack_pop_n(vm, arg_count);
 
     basl_object_t *fn = basl_value_as_object(&val);
     if (fn == NULL ||
         (basl_object_type(fn) != BASL_OBJECT_FUNCTION &&
          basl_object_type(fn) != BASL_OBJECT_CLOSURE)) {
-        return push_i64(vm, -1, error);
-    }
-    if (basl_function_object_arity(fn) != 0U) {
+        basl_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
 
     int64_t idx = basl_atomic_add(&g_thread_count, 1);
     if (idx >= MAX_THREADS) {
         basl_atomic_sub(&g_thread_count, 1);
+        basl_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
 
+    /* Retain before popping so the closure isn't freed */
     basl_object_retain(fn);
+    basl_vm_stack_pop_n(vm, arg_count);
+
     g_threads[idx].runtime = basl_vm_runtime(vm);
     g_threads[idx].function = fn;
     g_threads[idx].in_use = 1;

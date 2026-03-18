@@ -584,7 +584,7 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonFunctionObject) {
     );
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
-    EXPECT_EQ(strcmp(error.value, "function must be a function object"), 0);
+    EXPECT_EQ(strcmp(error.value, "function must be a function or closure object"), 0);
 
     basl_object_release(&object);
     basl_vm_close(&vm);
@@ -620,7 +620,7 @@ TEST(BaslVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint) {
     EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(
-        strcmp(error.value, "top-level execute_function requires a zero-arity function"),
+        strcmp(error.value, "not enough arguments on stack for function arity"),
         0
     );
 

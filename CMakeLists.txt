@@ -223,6 +223,7 @@ if(BASL_BUILD_TESTS)
         tests/ffi_test.c
         tests/fs_test.c
         tests/http_test.c
+        tests/thread_test.c
         tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c
