@@ -1276,7 +1276,7 @@ static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz,
         memcpy(scheme, p, slen); scheme[slen] = '\0';
         p = se + 3;
     } else {
-        strncpy(scheme, "http", scheme_sz); scheme[scheme_sz - 1] = '\0';
+        memcpy(scheme, "http", 5);
     }
     const char *ps = strchr(p, '/');
     const char *pp = strchr(p, ':');
@@ -1290,8 +1290,8 @@ static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz,
     } else {
         *port = (strcmp(scheme, "https") == 0) ? 443 : 80;
     }
-    if (ps) { strncpy(path, ps, path_sz); path[path_sz - 1] = '\0'; }
-    else { strncpy(path, "/", path_sz); }
+    if (ps) { size_t plen = strlen(ps); if (plen >= path_sz) plen = path_sz - 1; memcpy(path, ps, plen); path[plen] = '\0'; }
+    else { memcpy(path, "/", 2); }
     return 1;
 }
 

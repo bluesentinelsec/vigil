@@ -76,7 +76,7 @@ typedef struct {
 
 HTTP_STATIC int parse_url(const char *url, parsed_url_t *out) {
     memset(out, 0, sizeof(*out));
-    strcpy(out->path, "/");
+    memcpy(out->path, "/", 2);
 
     const char *p = url;
     const char *scheme_end = strstr(p, "://");
@@ -86,7 +86,7 @@ HTTP_STATIC int parse_url(const char *url, parsed_url_t *out) {
         memcpy(out->scheme, p, slen);
         p = scheme_end + 3;
     } else {
-        strcpy(out->scheme, "http");
+        memcpy(out->scheme, "http", 5);
     }
 
     const char *path_start = strchr(p, '/');
