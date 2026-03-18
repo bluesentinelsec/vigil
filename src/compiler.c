@@ -7,6 +7,7 @@
 #include "basl/chunk.h"
 #include "basl/lexer.h"
 #include "basl/native_module.h"
+#include "basl/stdlib.h"
 #include "basl/string.h"
 #include "basl/token.h"
 #include "basl/type.h"
@@ -2717,6 +2718,15 @@ static basl_status_t basl_program_parse_import(
                 &alias_length
             );
         }
+    }
+    if (alias_token != NULL &&
+        basl_stdlib_is_native_module(alias_text, alias_length)) {
+        basl_string_free(&import_path);
+        return basl_compile_report(
+            program,
+            alias_token->span,
+            "import alias shadows a standard library module"
+        );
     }
     status = basl_program_add_module_import(
         program,
