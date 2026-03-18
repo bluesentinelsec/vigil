@@ -74,12 +74,14 @@ static basl_status_t push_bool(basl_vm_t *vm, int val, basl_error_t *error) {
 
 static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
                                   basl_error_t *error) {
-    basl_object_t *obj;
-    basl_value_t v;
+    basl_object_t *obj = NULL;
     basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
     if (s != BASL_STATUS_OK) return s;
-    v = basl_nanbox_encode_object(obj);
-    return basl_vm_stack_push(vm, &v, error);
+    basl_value_t v;
+    basl_value_init_object(&v, &obj);
+    s = basl_vm_stack_push(vm, &v, error);
+    basl_value_release(&v);
+    return s;
 }
 
 /* ── time.now() -> i64 ───────────────────────────────────────────── */

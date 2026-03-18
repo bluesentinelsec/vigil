@@ -50,13 +50,17 @@ static basl_status_t basl_args_at(
         status = basl_string_object_new(basl_vm_runtime(vm), "", 0, &str, error);
         if (status != BASL_STATUS_OK) return status;
         basl_value_init_object(&val, &str);
-        return basl_vm_stack_push(vm, &val, error);
+        status = basl_vm_stack_push(vm, &val, error);
+        basl_value_release(&val);
+        return status;
     }
 
     status = basl_string_object_new_cstr(basl_vm_runtime(vm), argv[index], &str, error);
     if (status != BASL_STATUS_OK) return status;
     basl_value_init_object(&val, &str);
-    return basl_vm_stack_push(vm, &val, error);
+    status = basl_vm_stack_push(vm, &val, error);
+    basl_value_release(&val);
+    return status;
 }
 
 /* ── module descriptor ───────────────────────────────────────────── */
