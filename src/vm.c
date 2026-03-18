@@ -2728,34 +2728,54 @@ basl_status_t basl_vm_execute_function(
     }
 
     if (function != NULL) {
-        if (basl_object_type(function) != BASL_OBJECT_FUNCTION) {
+        if (basl_object_type(function) != BASL_OBJECT_FUNCTION &&
+            basl_object_type(function) != BASL_OBJECT_CLOSURE) {
             basl_error_set_literal(
                 error,
                 BASL_STATUS_INVALID_ARGUMENT,
-                "function must be a function object"
+                "function must be a function or closure object"
             );
             return BASL_STATUS_INVALID_ARGUMENT;
         }
 
-        if (basl_function_object_arity(function) != 0U) {
-            basl_error_set_literal(
-                error,
-                BASL_STATUS_INVALID_ARGUMENT,
-                "top-level execute_function requires a zero-arity function"
-            );
-            return BASL_STATUS_INVALID_ARGUMENT;
-        }
+        const basl_object_t *inner_fn =
+            basl_callable_object_function(function);
+        size_t arity = basl_function_object_arity(inner_fn);
 
-        basl_vm_release_stack(vm);
-        basl_vm_clear_frames(vm);
-        status = basl_vm_push_frame(
-            vm,
-            function,
-            function,
-            basl_function_object_chunk(function),
-            0U,
-            error
-        );
+        if (vm->stack_count < arity) {
+            /* Zero-arity: clear stack and frames as before. */
+            if (arity == 0U) {
+                basl_vm_release_stack(vm);
+                basl_vm_clear_frames(vm);
+                status = basl_vm_push_frame(
+                    vm,
+                    function,
+                    inner_fn,
+                    basl_callable_object_chunk(function),
+                    0U,
+                    error
+                );
+            } else {
+                basl_error_set_literal(
+                    error,
+                    BASL_STATUS_INVALID_ARGUMENT,
+                    "not enough arguments on stack for function arity"
+                );
+                return BASL_STATUS_INVALID_ARGUMENT;
+            }
+        } else {
+            /* Arguments already on the stack. */
+            size_t base = vm->stack_count - arity;
+            basl_vm_clear_frames(vm);
+            status = basl_vm_push_frame(
+                vm,
+                function,
+                inner_fn,
+                basl_callable_object_chunk(function),
+                base,
+                error
+            );
+        }
         if (status != BASL_STATUS_OK) {
             return status;
         }

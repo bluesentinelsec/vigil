@@ -1117,3 +1117,293 @@ BASL_API int64_t basl_atomic_sub(volatile int64_t *ptr, int64_t value) {
 BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired) {
     return atomic_compare_exchange_strong((_Atomic int64_t *)ptr, &expected, desired) ? 1 : 0;
 }
+
+/* ── TCP sockets ─────────────────────────────────────────────────── */
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <dlfcn.h>
+
+BASL_API basl_status_t basl_platform_net_init(basl_error_t *error) {
+    (void)error;
+    return BASL_STATUS_OK; /* no-op on POSIX */
+}
+
+BASL_API basl_status_t basl_platform_tcp_listen(
+    const char *host, int port, basl_socket_t *out_sock, basl_error_t *error
+) {
+    if (!host || !out_sock) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = BASL_INVALID_SOCKET;
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "socket() failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (strcmp(host, "0.0.0.0") == 0) {
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    } else {
+        inet_pton(AF_INET, host, &addr.sin_addr);
+    }
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "bind() failed"; error->length = 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    if (listen(fd, 128) < 0) {
+        close(fd);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "listen() failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    *out_sock = (basl_socket_t)fd;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_accept(
+    basl_socket_t listener, basl_socket_t *out_client, basl_error_t *error
+) {
+    if (!out_client) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_client = BASL_INVALID_SOCKET;
+    int client = accept((int)listener, NULL, NULL);
+    if (client < 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "accept() failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_client = (basl_socket_t)client;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_connect(
+    const char *host, int port, basl_socket_t *out_sock, basl_error_t *error
+) {
+    if (!host || !out_sock) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = BASL_INVALID_SOCKET;
+
+    struct addrinfo hints = {0}, *res = NULL;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    if (getaddrinfo(host, port_str, &hints, &res) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "getaddrinfo() failed"; error->length = 20; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd < 0) { freeaddrinfo(res); return BASL_STATUS_INTERNAL; }
+
+    if (connect(fd, res->ai_addr, (int)res->ai_addrlen) < 0) {
+        close(fd);
+        freeaddrinfo(res);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "connect() failed"; error->length = 16; }
+        return BASL_STATUS_INTERNAL;
+    }
+    freeaddrinfo(res);
+    *out_sock = (basl_socket_t)fd;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_send(
+    basl_socket_t sock, const void *data, size_t len,
+    size_t *out_sent, basl_error_t *error
+) {
+    (void)error;
+    ssize_t n = send((int)sock, data, len, 0);
+    if (n < 0) { if (out_sent) *out_sent = 0; return BASL_STATUS_INTERNAL; }
+    if (out_sent) *out_sent = (size_t)n;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_recv(
+    basl_socket_t sock, void *buf, size_t cap,
+    size_t *out_received, basl_error_t *error
+) {
+    (void)error;
+    ssize_t n = recv((int)sock, buf, cap, 0);
+    if (n < 0) { if (out_received) *out_received = 0; return BASL_STATUS_INTERNAL; }
+    if (out_received) *out_received = (size_t)n;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_close(
+    basl_socket_t sock, basl_error_t *error
+) {
+    (void)error;
+    close((int)sock);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_set_timeout(
+    basl_socket_t sock, int timeout_ms, basl_error_t *error
+) {
+    (void)error;
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    setsockopt((int)sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt((int)sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return BASL_STATUS_OK;
+}
+
+/* ── HTTP client via libcurl (runtime-loaded) ────────────────────── */
+
+typedef void CURL;
+typedef int CURLcode;
+#define CURLE_OK 0
+#define CURLOPT_URL 10002
+#define CURLOPT_WRITEFUNCTION 20011
+#define CURLOPT_WRITEDATA 10001
+#define CURLOPT_HTTPHEADER 10023
+#define CURLOPT_POSTFIELDS 10015
+#define CURLOPT_POSTFIELDSIZE 60
+#define CURLOPT_CUSTOMREQUEST 10036
+#define CURLOPT_HEADERFUNCTION 20079
+#define CURLOPT_HEADERDATA 10029
+#define CURLINFO_RESPONSE_CODE 0x200002
+
+typedef CURL *(*curl_easy_init_t)(void);
+typedef void (*curl_easy_cleanup_t)(CURL *);
+typedef CURLcode (*curl_easy_setopt_t)(CURL *, int, ...);
+typedef CURLcode (*curl_easy_perform_t)(CURL *);
+typedef CURLcode (*curl_easy_getinfo_t)(CURL *, int, ...);
+typedef struct curl_slist *(*curl_slist_append_t)(struct curl_slist *, const char *);
+typedef void (*curl_slist_free_all_t)(struct curl_slist *);
+
+static void *g_curl_lib = NULL;
+static curl_easy_init_t     p_curl_easy_init = NULL;
+static curl_easy_cleanup_t  p_curl_easy_cleanup = NULL;
+static curl_easy_setopt_t   p_curl_easy_setopt = NULL;
+static curl_easy_perform_t  p_curl_easy_perform = NULL;
+static curl_easy_getinfo_t  p_curl_easy_getinfo = NULL;
+static curl_slist_append_t  p_curl_slist_append = NULL;
+static curl_slist_free_all_t p_curl_slist_free_all = NULL;
+
+static int curl_load(void) {
+    if (g_curl_lib) return 1;
+    const char *libs[] = {"libcurl.so.4", "libcurl.so", "libcurl.dylib", NULL};
+    for (int i = 0; libs[i]; i++) {
+        if (basl_platform_dlopen(libs[i], &g_curl_lib, NULL) == BASL_STATUS_OK)
+            break;
+    }
+    if (!g_curl_lib) return 0;
+
+    basl_platform_dlsym(g_curl_lib, "curl_easy_init", (void **)&p_curl_easy_init, NULL);
+    basl_platform_dlsym(g_curl_lib, "curl_easy_cleanup", (void **)&p_curl_easy_cleanup, NULL);
+    basl_platform_dlsym(g_curl_lib, "curl_easy_setopt", (void **)&p_curl_easy_setopt, NULL);
+    basl_platform_dlsym(g_curl_lib, "curl_easy_perform", (void **)&p_curl_easy_perform, NULL);
+    basl_platform_dlsym(g_curl_lib, "curl_easy_getinfo", (void **)&p_curl_easy_getinfo, NULL);
+    basl_platform_dlsym(g_curl_lib, "curl_slist_append", (void **)&p_curl_slist_append, NULL);
+    basl_platform_dlsym(g_curl_lib, "curl_slist_free_all", (void **)&p_curl_slist_free_all, NULL);
+
+    return p_curl_easy_init && p_curl_easy_cleanup && p_curl_easy_setopt &&
+           p_curl_easy_perform && p_curl_easy_getinfo;
+}
+
+typedef struct { char *data; size_t len; size_t cap; } curl_buf_t;
+
+static size_t curl_write_cb(char *ptr, size_t size, size_t nmemb, void *ud) {
+    curl_buf_t *b = (curl_buf_t *)ud;
+    size_t total = size * nmemb;
+    if (b->len + total >= b->cap) {
+        b->cap = (b->len + total) * 2;
+        b->data = (char *)realloc(b->data, b->cap);
+    }
+    memcpy(b->data + b->len, ptr, total);
+    b->len += total;
+    return total;
+}
+
+BASL_API basl_status_t basl_platform_http_request(
+    const char *method, const char *url, const char *headers,
+    const char *body, size_t body_len,
+    basl_http_response_t *out, basl_error_t *error
+) {
+    if (!method || !url || !out) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    memset(out, 0, sizeof(*out));
+
+    if (!curl_load()) {
+        if (error) {
+            error->type = BASL_STATUS_UNSUPPORTED;
+            error->value = "libcurl not found; install libcurl or use plain HTTP fallback";
+            error->length = 61;
+        }
+        return BASL_STATUS_UNSUPPORTED;
+    }
+
+    CURL *curl = p_curl_easy_init();
+    if (!curl) return BASL_STATUS_INTERNAL;
+
+    curl_buf_t buf = {(char *)malloc(4096), 0, 4096};
+    curl_buf_t hdr_buf = {(char *)malloc(2048), 0, 2048};
+    p_curl_easy_setopt(curl, CURLOPT_URL, url);
+    p_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    p_curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    p_curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_write_cb);
+    p_curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hdr_buf);
+    p_curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+
+    struct curl_slist *hdr_list = NULL;
+    if (headers && *headers) {
+        char *hcopy = strdup(headers);
+        char *line = strtok(hcopy, "\r\n");
+        while (line) {
+            if (*line) hdr_list = p_curl_slist_append(hdr_list, line);
+            line = strtok(NULL, "\r\n");
+        }
+        free(hcopy);
+        if (hdr_list) p_curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdr_list);
+    }
+
+    if (body && body_len > 0) {
+        p_curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+        p_curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_len);
+    }
+
+    CURLcode res = p_curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        long code = 0;
+        p_curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        out->status_code = (int)code;
+        buf.data[buf.len] = '\0';
+        out->body = buf.data;
+        out->body_len = buf.len;
+        hdr_buf.data[hdr_buf.len] = '\0';
+        out->headers = hdr_buf.data;
+        out->headers_len = hdr_buf.len;
+    } else {
+        free(buf.data);
+        free(hdr_buf.data);
+        if (hdr_list) p_curl_slist_free_all(hdr_list);
+        p_curl_easy_cleanup(curl);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "curl request failed"; error->length = 19; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    if (hdr_list) p_curl_slist_free_all(hdr_list);
+    p_curl_easy_cleanup(curl);
+    return BASL_STATUS_OK;
+}

@@ -730,10 +730,12 @@ static const basl_doc_entry_t thread_docs[] = {
         NULL,
         "Threading primitives.",
         "The thread module provides cross-platform threading:\n"
-        "mutexes, condition variables, read-write locks, and utilities.",
+        "spawn threads, mutexes, condition variables, and read-write locks.",
         NULL
     },
     {"thread.current_id", "thread.current_id() -> i64", "Get current thread ID.", "Returns unique identifier for current thread.", "thread.current_id()"},
+    {"thread.spawn", "thread.spawn(fn: function) -> i64", "Spawn a new thread.", "Runs a zero-argument function on a new OS thread. Returns a thread handle for join, or -1 on error.", "i64 t = thread.spawn(fn() -> void { fmt.println(\"hello\") })"},
+    {"thread.join", "thread.join(t: i64) -> bool", "Wait for thread to finish.", "Blocks until the spawned thread completes.", "thread.join(t)"},
     {"thread.yield", "thread.yield() -> bool", "Yield to other threads.", "Hints scheduler to run other threads.", "thread.yield()"},
     {"thread.sleep", "thread.sleep(ms: i64) -> bool", "Sleep for milliseconds.", "Pauses current thread for specified duration.", "thread.sleep(100)"},
     {"thread.mutex", "thread.mutex() -> Mutex", "Create a mutex.", "Creates a mutual exclusion lock.", "thread.Mutex m = thread.mutex()"},
@@ -919,6 +921,39 @@ static const basl_doc_entry_t crypto_docs[] = {
 
 #define CRYPTO_COUNT (sizeof(crypto_docs) / sizeof(crypto_docs[0]))
 
+/* ── http module ─────────────────────────────────────────────────── */
+
+static const basl_doc_entry_t http_docs[] = {
+    {"http", NULL, "HTTP client and server.", "Client functions use native HTTPS (WinHTTP/libcurl) with plain HTTP fallback. Server functions provide a simple HTTP/1.1 listener.", NULL},
+    {"http.get", "http.get(url: string) -> (i32, string, string)", "HTTP GET request.", "Returns (status_code, body, headers). Uses WinHTTP/libcurl for HTTPS.", "i32 status, string body, string hdrs = http.get(\"https://example.com\")"},
+    {"http.post", "http.post(url: string, body: string, content_type?: string) -> (i32, string, string)", "HTTP POST request.", "Returns (status_code, response_body, headers).", "i32 status, string resp, string hdrs = http.post(url, data, \"application/json\")"},
+    {"http.request", "http.request(method: string, url: string, headers?: string, body?: string) -> (i32, string, string)", "Generic HTTP request.", "Supports any HTTP method. Returns (status_code, body, headers).", "i32 status, string body, string hdrs = http.request(\"PUT\", url, \"X-Custom: value\\r\\n\", data)"},
+    {"http.listen", "http.listen(host: string, port: i32) -> i64", "Start an HTTP server.", "Binds a TCP listener. Returns server handle or -1 on error.", "i64 srv = http.listen(\"127.0.0.1\", 8080)"},
+    {"http.accept", "http.accept(server: i64) -> i64", "Accept an HTTP request.", "Blocks until a client connects and parses the request. Returns connection handle.", "i64 conn = http.accept(srv)"},
+    {"http.req_method", "http.req_method(conn: i64) -> string", "Get request method.", "Returns the HTTP method (GET, POST, etc.) from an accepted connection.", "string method = http.req_method(conn)"},
+    {"http.req_path", "http.req_path(conn: i64) -> string", "Get request path.", "Returns the request path from an accepted connection.", "string path = http.req_path(conn)"},
+    {"http.req_body", "http.req_body(conn: i64) -> string", "Get request body.", "Returns the request body from an accepted connection.", "string body = http.req_body(conn)"},
+    {"http.req_headers", "http.req_headers(conn: i64) -> string", "Get all request headers.", "Returns raw headers as a CRLF-separated string.", "string hdrs = http.req_headers(conn)"},
+    {"http.req_header", "http.req_header(conn: i64, name: string) -> string", "Get a request header by name.", "Case-insensitive lookup. Returns empty string if not found.", "string ct = http.req_header(conn, \"Content-Type\")"},
+    {"http.req_query", "http.req_query(conn: i64) -> string", "Get query string.", "Returns the query string from the request path (without leading '?'). Empty if none.", "string q = http.req_query(conn)"},
+    {"http.respond", "http.respond(conn: i64, status: i32, headers: string, body: string) -> i32", "Send HTTP response.", "Sends response and closes the connection. Returns 0 on success.", "http.respond(conn, 200, \"Content-Type: text/plain\\r\\n\", \"hello\")"},
+    {"http.redirect", "http.redirect(conn: i64, url: string, status?: i32) -> i32", "Send redirect response.", "Sends a redirect with Location header. Default status is 302.", "http.redirect(conn, \"/new-path\", 301)"},
+    {"http.set_cookie", "http.set_cookie(conn: i64, name: string, value: string, options?: string) -> i32", "Set a response cookie.", "Buffers a Set-Cookie header for the next http.respond call. Options string can include Path, Domain, Max-Age, etc.", "http.set_cookie(conn, \"session\", \"abc123\", \"Path=/; HttpOnly\")"},
+    {"http.req_cookies", "http.req_cookies(conn: i64) -> string", "Get request cookies.", "Returns the Cookie header value from the request.", "string cookies = http.req_cookies(conn)"},
+    {"http.handle", "http.handle(server: i64, pattern: string, handler: function) -> i32", "Register a route handler.", "Associates a URL path pattern with a zero-argument handler function. The handler uses http.current_conn() to access the request.", "http.handle(srv, \"/api/\", fn() -> void { http.respond(http.current_conn(), 200, \"\", \"ok\") })"},
+    {"http.serve", "http.serve(server: i64) -> i32", "Start serving HTTP requests.", "Blocking loop that accepts connections and dispatches to registered handlers. Unmatched routes get 404. Returns when the listener is closed.", "http.serve(srv)"},
+    {"http.current_conn", "http.current_conn() -> i64", "Get current connection handle.", "Returns the connection handle for the request being served. Only valid inside a handler registered with http.handle.", "i64 conn = http.current_conn()"},
+    {"http.write_header", "http.write_header(conn: i64, status: i32, headers?: string) -> i32", "Begin streaming response.", "Sends HTTP status and headers with chunked transfer encoding. Follow with http.write() calls and end with http.flush().", "http.write_header(conn, 200, \"Content-Type: text/plain\\r\\n\")"},
+    {"http.write", "http.write(conn: i64, data: string) -> i32", "Write a chunk to streaming response.", "Sends data as a chunked transfer chunk. Must call http.write_header first.", "http.write(conn, \"hello \")"},
+    {"http.flush", "http.flush(conn: i64) -> i32", "End streaming response.", "Sends the final zero-length chunk and closes the connection.", "http.flush(conn)"},
+    {"http.close", "http.close(server: i64) -> void", "Close HTTP server.", "Closes the listener socket.", "http.close(srv)"},
+    {"http.set_read_timeout", "http.set_read_timeout(server: i64, ms: i64) -> i32", "Set read timeout.", "Sets the read timeout in milliseconds for accepted connections.", "http.set_read_timeout(srv, 30000)"},
+    {"http.set_write_timeout", "http.set_write_timeout(server: i64, ms: i64) -> i32", "Set write timeout.", "Sets the write timeout in milliseconds for accepted connections.", "http.set_write_timeout(srv, 30000)"},
+    {"http.set_idle_timeout", "http.set_idle_timeout(server: i64, ms: i64) -> i32", "Set idle timeout.", "Sets the idle timeout in milliseconds. Connections idle longer are closed.", "http.set_idle_timeout(srv, 120000)"},
+};
+
+#define HTTP_COUNT (sizeof(http_docs) / sizeof(http_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -928,6 +963,7 @@ static const char *module_names[] = {
     "csv",
     "fmt",
     "fs",
+    "http",
     "log",
     "math",
     "net",
@@ -1065,6 +1101,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check http */
+    for (i = 0; i < HTTP_COUNT; i++) {
+        if (strcmp(http_docs[i].name, name) == 0) {
+            return &http_docs[i];
+        }
+    }
+
     /* Check csv */
     for (i = 0; i < CSV_COUNT; i++) {
         if (strcmp(csv_docs[i].name, name) == 0) {
@@ -1166,6 +1209,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "crypto") == 0) {
         if (count) *count = CRYPTO_COUNT;
         return crypto_docs;
+    }
+    if (strcmp(module_name, "http") == 0) {
+        if (count) *count = HTTP_COUNT;
+        return http_docs;
     }
     if (strcmp(module_name, "csv") == 0) {
         if (count) *count = CSV_COUNT;

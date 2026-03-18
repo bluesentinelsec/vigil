@@ -1016,3 +1016,394 @@ BASL_API int64_t basl_atomic_sub(volatile int64_t *ptr, int64_t value) {
 BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired) {
     return InterlockedCompareExchange64((volatile LONG64 *)ptr, desired, expected) == expected ? 1 : 0;
 }
+
+/* ── TCP sockets (Winsock, runtime-loaded) ───────────────────────── */
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+typedef int (WSAAPI *pWSAStartup_t)(WORD, LPWSADATA);
+typedef SOCKET (WSAAPI *pSocket_t)(int, int, int);
+typedef int (WSAAPI *pBind_t)(SOCKET, const struct sockaddr *, int);
+typedef int (WSAAPI *pListen_t)(SOCKET, int);
+typedef SOCKET (WSAAPI *pAccept_t)(SOCKET, struct sockaddr *, int *);
+typedef int (WSAAPI *pConnect_t)(SOCKET, const struct sockaddr *, int);
+typedef int (WSAAPI *pSend_t)(SOCKET, const char *, int, int);
+typedef int (WSAAPI *pRecv_t)(SOCKET, char *, int, int);
+typedef int (WSAAPI *pClosesocket_t)(SOCKET);
+typedef int (WSAAPI *pSetsockopt_t)(SOCKET, int, int, const char *, int);
+typedef INT (WSAAPI *pGetaddrinfo_t)(PCSTR, PCSTR, const ADDRINFOA *, PADDRINFOA *);
+typedef void (WSAAPI *pFreeaddrinfo_t)(PADDRINFOA);
+typedef INT (WSAAPI *pInetPton_t)(INT, PCSTR, PVOID);
+typedef u_short (WSAAPI *pHtons_t)(u_short);
+typedef u_long (WSAAPI *pHtonl_t)(u_long);
+
+static void *g_ws2_lib = NULL;
+static pWSAStartup_t    p_WSAStartup = NULL;
+static pSocket_t        p_socket = NULL;
+static pBind_t          p_bind = NULL;
+static pListen_t        p_listen = NULL;
+static pAccept_t        p_accept = NULL;
+static pConnect_t       p_connect = NULL;
+static pSend_t          p_send = NULL;
+static pRecv_t          p_recv = NULL;
+static pClosesocket_t   p_closesocket = NULL;
+static pSetsockopt_t    p_setsockopt = NULL;
+static pGetaddrinfo_t   p_getaddrinfo = NULL;
+static pFreeaddrinfo_t  p_freeaddrinfo = NULL;
+static pInetPton_t      p_inet_pton = NULL;
+static pHtons_t         p_htons = NULL;
+static pHtonl_t         p_htonl = NULL;
+
+static int ws2_loaded = 0;
+
+static int ws2_load(void) {
+    if (ws2_loaded) return 1;
+    if (basl_platform_dlopen("ws2_32.dll", &g_ws2_lib, NULL) != BASL_STATUS_OK)
+        return 0;
+
+    basl_platform_dlsym(g_ws2_lib, "WSAStartup", (void **)&p_WSAStartup, NULL);
+    basl_platform_dlsym(g_ws2_lib, "socket", (void **)&p_socket, NULL);
+    basl_platform_dlsym(g_ws2_lib, "bind", (void **)&p_bind, NULL);
+    basl_platform_dlsym(g_ws2_lib, "listen", (void **)&p_listen, NULL);
+    basl_platform_dlsym(g_ws2_lib, "accept", (void **)&p_accept, NULL);
+    basl_platform_dlsym(g_ws2_lib, "connect", (void **)&p_connect, NULL);
+    basl_platform_dlsym(g_ws2_lib, "send", (void **)&p_send, NULL);
+    basl_platform_dlsym(g_ws2_lib, "recv", (void **)&p_recv, NULL);
+    basl_platform_dlsym(g_ws2_lib, "closesocket", (void **)&p_closesocket, NULL);
+    basl_platform_dlsym(g_ws2_lib, "setsockopt", (void **)&p_setsockopt, NULL);
+    basl_platform_dlsym(g_ws2_lib, "getaddrinfo", (void **)&p_getaddrinfo, NULL);
+    basl_platform_dlsym(g_ws2_lib, "freeaddrinfo", (void **)&p_freeaddrinfo, NULL);
+    basl_platform_dlsym(g_ws2_lib, "inet_pton", (void **)&p_inet_pton, NULL);
+    basl_platform_dlsym(g_ws2_lib, "htons", (void **)&p_htons, NULL);
+    basl_platform_dlsym(g_ws2_lib, "htonl", (void **)&p_htonl, NULL);
+
+    if (!p_socket || !p_bind || !p_listen || !p_accept || !p_connect ||
+        !p_send || !p_recv || !p_closesocket || !p_WSAStartup) return 0;
+
+    WSADATA wsa;
+    p_WSAStartup(MAKEWORD(2, 2), &wsa);
+    ws2_loaded = 1;
+    return 1;
+}
+
+BASL_API basl_status_t basl_platform_net_init(basl_error_t *error) {
+    if (ws2_load()) return BASL_STATUS_OK;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "ws2_32.dll not found"; error->length = 20; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+BASL_API basl_status_t basl_platform_tcp_listen(
+    const char *host, int port, basl_socket_t *out_sock, basl_error_t *error
+) {
+    if (!host || !out_sock) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = BASL_INVALID_SOCKET;
+    if (!ws2_load()) {
+        if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "ws2_32.dll not found"; error->length = 20; }
+        return BASL_STATUS_UNSUPPORTED;
+    }
+
+    SOCKET fd = p_socket(AF_INET, SOCK_STREAM, 0);
+    if (fd == INVALID_SOCKET) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "socket() failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    int opt = 1;
+    p_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = p_htons ? p_htons((u_short)port) : htons((u_short)port);
+    if (strcmp(host, "0.0.0.0") == 0) {
+        addr.sin_addr.s_addr = p_htonl ? p_htonl(INADDR_ANY) : htonl(INADDR_ANY);
+    } else if (p_inet_pton) {
+        p_inet_pton(AF_INET, host, &addr.sin_addr);
+    }
+
+    if (p_bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        p_closesocket(fd);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "bind() failed"; error->length = 13; }
+        return BASL_STATUS_INTERNAL;
+    }
+    if (p_listen(fd, 128) != 0) {
+        p_closesocket(fd);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "listen() failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    *out_sock = (basl_socket_t)fd;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_accept(
+    basl_socket_t listener, basl_socket_t *out_client, basl_error_t *error
+) {
+    if (!out_client) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_client = BASL_INVALID_SOCKET;
+    if (!ws2_load()) return BASL_STATUS_UNSUPPORTED;
+    SOCKET client = p_accept((SOCKET)listener, NULL, NULL);
+    if (client == INVALID_SOCKET) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "accept() failed"; error->length = 15; }
+        return BASL_STATUS_INTERNAL;
+    }
+    *out_client = (basl_socket_t)client;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_connect(
+    const char *host, int port, basl_socket_t *out_sock, basl_error_t *error
+) {
+    if (!host || !out_sock) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = BASL_INVALID_SOCKET;
+    if (!ws2_load()) return BASL_STATUS_UNSUPPORTED;
+
+    struct addrinfo hints = {0}, *res = NULL;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    if (p_getaddrinfo(host, port_str, &hints, &res) != 0) {
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "getaddrinfo() failed"; error->length = 20; }
+        return BASL_STATUS_INTERNAL;
+    }
+
+    SOCKET fd = p_socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd == INVALID_SOCKET) { p_freeaddrinfo(res); return BASL_STATUS_INTERNAL; }
+
+    if (p_connect(fd, res->ai_addr, (int)res->ai_addrlen) != 0) {
+        p_closesocket(fd);
+        p_freeaddrinfo(res);
+        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "connect() failed"; error->length = 16; }
+        return BASL_STATUS_INTERNAL;
+    }
+    p_freeaddrinfo(res);
+    *out_sock = (basl_socket_t)fd;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_send(
+    basl_socket_t sock, const void *data, size_t len,
+    size_t *out_sent, basl_error_t *error
+) {
+    (void)error;
+    if (!ws2_load()) return BASL_STATUS_UNSUPPORTED;
+    int n = p_send((SOCKET)sock, (const char *)data, (int)len, 0);
+    if (n < 0) { if (out_sent) *out_sent = 0; return BASL_STATUS_INTERNAL; }
+    if (out_sent) *out_sent = (size_t)n;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_recv(
+    basl_socket_t sock, void *buf, size_t cap,
+    size_t *out_received, basl_error_t *error
+) {
+    (void)error;
+    if (!ws2_load()) return BASL_STATUS_UNSUPPORTED;
+    int n = p_recv((SOCKET)sock, (char *)buf, (int)cap, 0);
+    if (n < 0) { if (out_received) *out_received = 0; return BASL_STATUS_INTERNAL; }
+    if (out_received) *out_received = (size_t)n;
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_close(
+    basl_socket_t sock, basl_error_t *error
+) {
+    (void)error;
+    if (ws2_loaded && p_closesocket) p_closesocket((SOCKET)sock);
+    return BASL_STATUS_OK;
+}
+
+BASL_API basl_status_t basl_platform_tcp_set_timeout(
+    basl_socket_t sock, int timeout_ms, basl_error_t *error
+) {
+    (void)error;
+    if (!ws2_load() || !p_setsockopt) return BASL_STATUS_UNSUPPORTED;
+    DWORD tv = (DWORD)timeout_ms;
+    p_setsockopt((SOCKET)sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
+    p_setsockopt((SOCKET)sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof(tv));
+    return BASL_STATUS_OK;
+}
+
+/* ── HTTP client via WinHTTP (runtime-loaded) ────────────────────── */
+
+#include <winhttp.h>
+
+typedef HINTERNET (WINAPI *pWinHttpOpen_t)(LPCWSTR, DWORD, LPCWSTR, LPCWSTR, DWORD);
+typedef HINTERNET (WINAPI *pWinHttpConnect_t)(HINTERNET, LPCWSTR, INTERNET_PORT, DWORD);
+typedef HINTERNET (WINAPI *pWinHttpOpenRequest_t)(HINTERNET, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR, LPCWSTR*, DWORD);
+typedef BOOL (WINAPI *pWinHttpSendRequest_t)(HINTERNET, LPCWSTR, DWORD, LPVOID, DWORD, DWORD, DWORD_PTR);
+typedef BOOL (WINAPI *pWinHttpReceiveResponse_t)(HINTERNET, LPVOID);
+typedef BOOL (WINAPI *pWinHttpQueryHeaders_t)(HINTERNET, DWORD, LPCWSTR, LPVOID, LPDWORD, LPDWORD);
+typedef BOOL (WINAPI *pWinHttpReadData_t)(HINTERNET, LPVOID, DWORD, LPDWORD);
+typedef BOOL (WINAPI *pWinHttpCloseHandle_t)(HINTERNET);
+
+static void *g_winhttp_lib = NULL;
+static pWinHttpOpen_t           pw_Open = NULL;
+static pWinHttpConnect_t        pw_Connect = NULL;
+static pWinHttpOpenRequest_t    pw_OpenRequest = NULL;
+static pWinHttpSendRequest_t    pw_SendRequest = NULL;
+static pWinHttpReceiveResponse_t pw_ReceiveResponse = NULL;
+static pWinHttpQueryHeaders_t   pw_QueryHeaders = NULL;
+static pWinHttpReadData_t       pw_ReadData = NULL;
+static pWinHttpCloseHandle_t    pw_CloseHandle = NULL;
+
+static int winhttp_load(void) {
+    if (g_winhttp_lib) return 1;
+    if (basl_platform_dlopen("winhttp.dll", &g_winhttp_lib, NULL) != BASL_STATUS_OK)
+        return 0;
+
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpOpen", (void **)&pw_Open, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpConnect", (void **)&pw_Connect, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpOpenRequest", (void **)&pw_OpenRequest, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpSendRequest", (void **)&pw_SendRequest, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpReceiveResponse", (void **)&pw_ReceiveResponse, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpQueryHeaders", (void **)&pw_QueryHeaders, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpReadData", (void **)&pw_ReadData, NULL);
+    basl_platform_dlsym(g_winhttp_lib, "WinHttpCloseHandle", (void **)&pw_CloseHandle, NULL);
+
+    return pw_Open && pw_Connect && pw_OpenRequest && pw_SendRequest &&
+           pw_ReceiveResponse && pw_QueryHeaders && pw_ReadData && pw_CloseHandle;
+}
+
+/* Minimal URL parser for WinHTTP (scheme, host, port, path). */
+static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz,
+                             char *host, size_t host_sz, int *port, char *path, size_t path_sz) {
+    const char *p = url;
+    const char *se = strstr(p, "://");
+    if (se) {
+        size_t slen = (size_t)(se - p);
+        if (slen >= scheme_sz) return 0;
+        memcpy(scheme, p, slen); scheme[slen] = '\0';
+        p = se + 3;
+    } else {
+        memcpy(scheme, "http", 5);
+    }
+    const char *ps = strchr(p, '/');
+    const char *pp = strchr(p, ':');
+    const char *he = ps ? ps : p + strlen(p);
+    if (pp && pp < he) he = pp;
+    size_t hlen = (size_t)(he - p);
+    if (hlen >= host_sz) return 0;
+    memcpy(host, p, hlen); host[hlen] = '\0';
+    if (pp && pp < (ps ? ps : p + strlen(p))) {
+        *port = atoi(pp + 1);
+    } else {
+        *port = (strcmp(scheme, "https") == 0) ? 443 : 80;
+    }
+    if (ps) { size_t plen = strlen(ps); if (plen >= path_sz) plen = path_sz - 1; memcpy(path, ps, plen); path[plen] = '\0'; }
+    else { memcpy(path, "/", 2); }
+    return 1;
+}
+
+BASL_API basl_status_t basl_platform_http_request(
+    const char *method, const char *url, const char *headers,
+    const char *body, size_t body_len,
+    basl_http_response_t *out, basl_error_t *error
+) {
+    if (!method || !url || !out) {
+        if (error) { error->type = BASL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return BASL_STATUS_INVALID_ARGUMENT;
+    }
+    memset(out, 0, sizeof(*out));
+
+    if (!winhttp_load()) {
+        if (error) {
+            error->type = BASL_STATUS_UNSUPPORTED;
+            error->value = "winhttp.dll not found; install Windows HTTP services or use plain HTTP fallback";
+            error->length = 79;
+        }
+        return BASL_STATUS_UNSUPPORTED;
+    }
+
+    char scheme[16], host[256], path[2048];
+    int port;
+    if (!winhttp_parse_url(url, scheme, sizeof(scheme), host, sizeof(host), &port, path, sizeof(path)))
+        return BASL_STATUS_INVALID_ARGUMENT;
+
+    wchar_t whost[256], wpath[2048], wmethod[16];
+    MultiByteToWideChar(CP_UTF8, 0, host, -1, whost, 256);
+    MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, 2048);
+    MultiByteToWideChar(CP_UTF8, 0, method, -1, wmethod, 16);
+
+    HINTERNET session = pw_Open(L"BASL/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                 WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session) return BASL_STATUS_INTERNAL;
+
+    HINTERNET conn = pw_Connect(session, whost, (INTERNET_PORT)port, 0);
+    if (!conn) { pw_CloseHandle(session); return BASL_STATUS_INTERNAL; }
+
+    DWORD flags = (strcmp(scheme, "https") == 0) ? WINHTTP_FLAG_SECURE : 0;
+    HINTERNET req = pw_OpenRequest(conn, wmethod, wpath, NULL,
+                                    WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+    if (!req) { pw_CloseHandle(conn); pw_CloseHandle(session); return BASL_STATUS_INTERNAL; }
+
+    wchar_t wheaders[4096] = L"";
+    if (headers && *headers)
+        MultiByteToWideChar(CP_UTF8, 0, headers, -1, wheaders, 4096);
+
+    BOOL ok = pw_SendRequest(req, wheaders[0] ? wheaders : WINHTTP_NO_ADDITIONAL_HEADERS,
+                              (DWORD)-1, (LPVOID)body, (DWORD)body_len, (DWORD)body_len, 0);
+    if (!ok) goto fail;
+
+    ok = pw_ReceiveResponse(req, NULL);
+    if (!ok) goto fail;
+
+    {
+        DWORD status = 0, sz = sizeof(status);
+        pw_QueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &sz, WINHTTP_NO_HEADER_INDEX);
+        out->status_code = (int)status;
+    }
+
+    /* Capture response headers */
+    {
+        DWORD hdr_sz = 0;
+        pw_QueryHeaders(req, WINHTTP_QUERY_RAW_HEADERS_CRLF,
+                        WINHTTP_HEADER_NAME_BY_INDEX, NULL, &hdr_sz, WINHTTP_NO_HEADER_INDEX);
+        if (hdr_sz > 0) {
+            wchar_t *whdr = (wchar_t *)malloc(hdr_sz);
+            if (whdr && pw_QueryHeaders(req, WINHTTP_QUERY_RAW_HEADERS_CRLF,
+                                         WINHTTP_HEADER_NAME_BY_INDEX, whdr, &hdr_sz, WINHTTP_NO_HEADER_INDEX)) {
+                int utf8_len = WideCharToMultiByte(CP_UTF8, 0, whdr, -1, NULL, 0, NULL, NULL);
+                if (utf8_len > 0) {
+                    out->headers = (char *)malloc((size_t)utf8_len);
+                    WideCharToMultiByte(CP_UTF8, 0, whdr, -1, out->headers, utf8_len, NULL, NULL);
+                    out->headers_len = (size_t)(utf8_len - 1);
+                }
+            }
+            free(whdr);
+        }
+    }
+
+    {
+        size_t cap = 8192, len = 0;
+        char *buf = (char *)malloc(cap);
+        DWORD downloaded;
+        while (pw_ReadData(req, buf + len, (DWORD)(cap - len - 1), &downloaded) && downloaded > 0) {
+            len += downloaded;
+            if (len + 1 >= cap) { cap *= 2; buf = (char *)realloc(buf, cap); }
+        }
+        buf[len] = '\0';
+        out->body = buf;
+        out->body_len = len;
+    }
+
+    pw_CloseHandle(req); pw_CloseHandle(conn); pw_CloseHandle(session);
+    return BASL_STATUS_OK;
+
+fail:
+    pw_CloseHandle(req); pw_CloseHandle(conn); pw_CloseHandle(session);
+    if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "WinHTTP request failed"; error->length = 22; }
+    return BASL_STATUS_INTERNAL;
+}
