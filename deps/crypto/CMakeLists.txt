@@ -1,0 +1,6 @@
+add_library(basl_crypto STATIC basl_crypto.c)
+target_include_directories(basl_crypto PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+set_target_properties(basl_crypto PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(WIN32)
+    target_link_libraries(basl_crypto PRIVATE bcrypt)
+endif()

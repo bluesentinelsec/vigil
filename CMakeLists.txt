@@ -87,6 +87,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/args.c
     src/stdlib/atomic.c
     src/stdlib/compress.c
+    src/stdlib/crypto.c
     src/stdlib/csv.c
     src/stdlib/ffi.c
     src/stdlib/fmt.c
@@ -166,6 +167,10 @@ target_link_libraries(basl PRIVATE miniz)
 # Vendored lz4 for fast compression.
 add_subdirectory(deps/lz4)
 target_link_libraries(basl PRIVATE lz4)
+
+# Vendored crypto for cryptographic operations.
+add_subdirectory(deps/crypto)
+target_link_libraries(basl PRIVATE basl_crypto)
 
 # On MSVC multi-config generators, an OBJECT-library-backed shared
 # library may place its import library (.lib) in a different directory

@@ -888,11 +888,43 @@ static const basl_doc_entry_t time_docs[] = {
 
 #define TIME_COUNT (sizeof(time_docs) / sizeof(time_docs[0]))
 
+/* ── crypto Module Docs ───────────────────────────────────── */
+
+static const basl_doc_entry_t crypto_docs[] = {
+    {
+        "crypto",
+        NULL,
+        "Cryptographic operations.",
+        "The crypto module provides secure hashing, encryption, and key derivation.\n"
+        "Uses AES-256-GCM for authenticated encryption and SHA-2 for hashing.\n"
+        "All functions return hex-encoded strings for hash outputs.",
+        NULL
+    },
+    {"crypto.sha256", "crypto.sha256(data: string) -> string", "SHA-256 hash.", "Returns 64-character hex string.", "crypto.sha256(\"hello\")"},
+    {"crypto.sha384", "crypto.sha384(data: string) -> string", "SHA-384 hash.", "Returns 96-character hex string.", "crypto.sha384(\"hello\")"},
+    {"crypto.sha512", "crypto.sha512(data: string) -> string", "SHA-512 hash.", "Returns 128-character hex string.", "crypto.sha512(\"hello\")"},
+    {"crypto.hmac_sha256", "crypto.hmac_sha256(key: string, data: string) -> string", "HMAC-SHA256.", "Returns 64-character hex string.", "crypto.hmac_sha256(\"key\", \"message\")"},
+    {"crypto.pbkdf2", "crypto.pbkdf2(password: string, salt: string, iterations: i32, key_len: i32) -> string", "PBKDF2 key derivation.", "Returns hex-encoded derived key. Use 100000+ iterations.", "crypto.pbkdf2(\"password\", \"salt\", 100000, 32)"},
+    {"crypto.random_bytes", "crypto.random_bytes(len: i32) -> string", "Cryptographically secure random bytes.", "Returns raw bytes (not hex). Max 65536 bytes.", "crypto.random_bytes(32)"},
+    {"crypto.constant_time_eq", "crypto.constant_time_eq(a: string, b: string) -> bool", "Constant-time comparison.", "Prevents timing attacks when comparing secrets.", "crypto.constant_time_eq(hash1, hash2)"},
+    {"crypto.encrypt", "crypto.encrypt(key: string, nonce: string, plaintext: string) -> string", "AES-256-GCM encryption.", "Key must be 32 bytes. Returns nonce||ciphertext||tag.", "crypto.encrypt(key, nonce, \"secret\")"},
+    {"crypto.decrypt", "crypto.decrypt(key: string, ciphertext: string) -> string", "AES-256-GCM decryption.", "Returns empty string on authentication failure.", "crypto.decrypt(key, encrypted)"},
+    {"crypto.password_encrypt", "crypto.password_encrypt(password: string, plaintext: string) -> string", "Password-based encryption.", "Uses PBKDF2 + AES-256-GCM. Password can be any length.", "crypto.password_encrypt(\"my password\", \"secret\")"},
+    {"crypto.password_decrypt", "crypto.password_decrypt(password: string, ciphertext: string) -> string", "Password-based decryption.", "Returns empty string on wrong password or auth failure.", "crypto.password_decrypt(\"my password\", encrypted)"},
+    {"crypto.hex_encode", "crypto.hex_encode(data: string) -> string", "Encode bytes as hex.", "Returns lowercase hex string.", "crypto.hex_encode(\"\\x00\\xff\")"},
+    {"crypto.hex_decode", "crypto.hex_decode(hex: string) -> string", "Decode hex to bytes.", "Returns empty string on invalid input.", "crypto.hex_decode(\"00ff\")"},
+    {"crypto.base64_encode", "crypto.base64_encode(data: string) -> string", "Encode bytes as base64.", "Standard base64 with padding.", "crypto.base64_encode(\"hello\")"},
+    {"crypto.base64_decode", "crypto.base64_decode(data: string) -> string", "Decode base64 to bytes.", "Returns empty string on invalid input.", "crypto.base64_decode(\"aGVsbG8=\")"},
+};
+
+#define CRYPTO_COUNT (sizeof(crypto_docs) / sizeof(crypto_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
     "builtins",
     "compress",
+    "crypto",
     "csv",
     "fmt",
     "fs",
@@ -1026,6 +1058,13 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
         }
     }
 
+    /* Check crypto */
+    for (i = 0; i < CRYPTO_COUNT; i++) {
+        if (strcmp(crypto_docs[i].name, name) == 0) {
+            return &crypto_docs[i];
+        }
+    }
+
     /* Check csv */
     for (i = 0; i < CSV_COUNT; i++) {
         if (strcmp(csv_docs[i].name, name) == 0) {
@@ -1123,6 +1162,10 @@ const basl_doc_entry_t *basl_doc_list_module(
     if (strcmp(module_name, "compress") == 0) {
         if (count) *count = COMPRESS_COUNT;
         return compress_docs;
+    }
+    if (strcmp(module_name, "crypto") == 0) {
+        if (count) *count = CRYPTO_COUNT;
+        return crypto_docs;
     }
     if (strcmp(module_name, "csv") == 0) {
         if (count) *count = CSV_COUNT;
