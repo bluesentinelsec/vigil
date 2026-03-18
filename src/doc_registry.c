@@ -730,10 +730,12 @@ static const basl_doc_entry_t thread_docs[] = {
         NULL,
         "Threading primitives.",
         "The thread module provides cross-platform threading:\n"
-        "mutexes, condition variables, read-write locks, and utilities.",
+        "spawn threads, mutexes, condition variables, and read-write locks.",
         NULL
     },
     {"thread.current_id", "thread.current_id() -> i64", "Get current thread ID.", "Returns unique identifier for current thread.", "thread.current_id()"},
+    {"thread.spawn", "thread.spawn(fn: function) -> i64", "Spawn a new thread.", "Runs a zero-argument function on a new OS thread. Returns a thread handle for join, or -1 on error.", "i64 t = thread.spawn(fn() -> void { fmt.println(\"hello\") })"},
+    {"thread.join", "thread.join(t: i64) -> bool", "Wait for thread to finish.", "Blocks until the spawned thread completes.", "thread.join(t)"},
     {"thread.yield", "thread.yield() -> bool", "Yield to other threads.", "Hints scheduler to run other threads.", "thread.yield()"},
     {"thread.sleep", "thread.sleep(ms: i64) -> bool", "Sleep for milliseconds.", "Pauses current thread for specified duration.", "thread.sleep(100)"},
     {"thread.mutex", "thread.mutex() -> Mutex", "Create a mutex.", "Creates a mutual exclusion lock.", "thread.Mutex m = thread.mutex()"},

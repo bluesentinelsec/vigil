@@ -46,6 +46,84 @@ static int64_t get_i64_arg(basl_vm_t *vm, size_t base, size_t idx) {
     return 0;
 }
 
+/* ── Spawn support ───────────────────────────────────────────── */
+
+#define MAX_THREADS 1024
+
+typedef struct {
+    basl_runtime_t *runtime;
+    basl_object_t *function;
+    basl_platform_thread_t *thread;
+    int in_use;
+} thread_slot_t;
+
+static thread_slot_t g_threads[MAX_THREADS];
+static volatile int64_t g_thread_count = 0;
+
+static void thread_spawn_entry(void *arg) {
+    thread_slot_t *slot = (thread_slot_t *)arg;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+    basl_value_t out = {0};
+
+    if (basl_vm_open(&vm, slot->runtime, NULL, &error) == BASL_STATUS_OK) {
+        basl_vm_execute_function(vm, slot->function, &out, &error);
+        basl_vm_close(&vm);
+    }
+    basl_object_release(&slot->function);
+}
+
+static basl_status_t thread_spawn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    basl_value_t val = basl_vm_stack_get(vm, base);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    basl_object_t *fn = basl_value_as_object(&val);
+    if (fn == NULL ||
+        (basl_object_type(fn) != BASL_OBJECT_FUNCTION &&
+         basl_object_type(fn) != BASL_OBJECT_CLOSURE)) {
+        return push_i64(vm, -1, error);
+    }
+    if (basl_function_object_arity(fn) != 0U) {
+        return push_i64(vm, -1, error);
+    }
+
+    int64_t idx = basl_atomic_add(&g_thread_count, 1);
+    if (idx >= MAX_THREADS) {
+        basl_atomic_sub(&g_thread_count, 1);
+        return push_i64(vm, -1, error);
+    }
+
+    basl_object_retain(fn);
+    g_threads[idx].runtime = basl_vm_runtime(vm);
+    g_threads[idx].function = fn;
+    g_threads[idx].in_use = 1;
+
+    basl_status_t st = basl_platform_thread_create(
+        &g_threads[idx].thread, thread_spawn_entry, &g_threads[idx], error);
+    if (st != BASL_STATUS_OK) {
+        basl_object_release(&g_threads[idx].function);
+        g_threads[idx].in_use = 0;
+        basl_atomic_sub(&g_thread_count, 1);
+        return push_i64(vm, -1, error);
+    }
+    return push_i64(vm, idx, error);
+}
+
+static basl_status_t thread_join(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t handle = get_i64_arg(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    int64_t count = basl_atomic_load(&g_thread_count);
+    if (handle < 0 || handle >= count || !g_threads[handle].in_use) {
+        return push_bool(vm, 0, error);
+    }
+    basl_platform_thread_join(g_threads[handle].thread, error);
+    g_threads[handle].in_use = 0;
+    return push_bool(vm, 1, error);
+}
+
 /* ── Thread functions ────────────────────────────────────────── */
 
 static basl_status_t thread_current_id(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
@@ -264,9 +342,12 @@ static basl_status_t rwlock_unlock(basl_vm_t *vm, size_t arg_count, basl_error_t
 
 static const int i64_param[] = { BASL_TYPE_I64 };
 static const int i64_i64_param[] = { BASL_TYPE_I64, BASL_TYPE_I64 };
+static const int object_param[] = { BASL_TYPE_OBJECT };
 
 static const basl_native_module_function_t thread_funcs[] = {
     /* Thread management */
+    {"spawn", 5U, thread_spawn, 1U, object_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"join", 4U, thread_join, 1U, i64_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"current_id", 10U, thread_current_id, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
     {"yield", 5U, thread_yield, 0U, NULL, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"sleep", 5U, thread_sleep, 1U, i64_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
