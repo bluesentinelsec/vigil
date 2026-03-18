@@ -598,7 +598,40 @@ static basl_status_t http_server_close(basl_vm_t *vm, size_t arg_count, basl_err
 
 /* ── Routing and serve loop ──────────────────────────────────────── */
 
+/* Per-thread current connection — use platform thread-local if available,
+   otherwise a simple global (safe for single-threaded serve). */
 static volatile int64_t g_current_conn = -1;
+
+typedef struct {
+    basl_runtime_t *runtime;
+    basl_object_t *handler;
+    int64_t conn_handle;
+} serve_thread_ctx_t;
+
+static void serve_thread_entry(void *arg) {
+    serve_thread_ctx_t *ctx = (serve_thread_ctx_t *)arg;
+    basl_vm_t *vm = NULL;
+    basl_error_t error = {0};
+
+    g_current_conn = ctx->conn_handle;
+
+    if (basl_vm_open(&vm, ctx->runtime, NULL, &error) == BASL_STATUS_OK) {
+        basl_value_t out = {0};
+        basl_vm_execute_function(vm, ctx->handler, &out, &error);
+        basl_vm_close(&vm);
+    }
+
+    /* Clean up if handler didn't call respond */
+    http_conn_t *conn = get_client(ctx->conn_handle);
+    if (conn && conn->sock != BASL_INVALID_SOCKET) {
+        basl_platform_tcp_close(conn->sock, NULL);
+        conn->sock = BASL_INVALID_SOCKET;
+    }
+    if (conn) { client_free_fields(conn); conn->in_use = 0; }
+
+    basl_object_release(&ctx->handler);
+    free(ctx);
+}
 
 static basl_status_t http_handle(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
@@ -650,6 +683,7 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
         return push_i64(vm, -1, error);
 
     http_server_t *srv = &g_servers[srv_h];
+    basl_runtime_t *runtime = basl_vm_runtime(vm);
 
     for (;;) {
         basl_socket_t client = BASL_INVALID_SOCKET;
@@ -676,11 +710,24 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
             }
         }
 
-        g_current_conn = ch;
-
         if (handler) {
-            basl_value_t out = {0};
-            basl_vm_execute_function(vm, handler, &out, error);
+            serve_thread_ctx_t *ctx = (serve_thread_ctx_t *)malloc(sizeof(*ctx));
+            ctx->runtime = runtime;
+            ctx->handler = handler;
+            ctx->conn_handle = ch;
+            basl_object_retain(handler);
+
+            basl_platform_thread_t *t = NULL;
+            if (basl_platform_thread_create(&t, serve_thread_entry, ctx, NULL) == BASL_STATUS_OK) {
+                /* Detach — thread cleans up after itself */
+                (void)t;
+            } else {
+                basl_object_release(&ctx->handler);
+                free(ctx);
+                basl_platform_tcp_close(conn->sock, NULL);
+                conn->sock = BASL_INVALID_SOCKET;
+                client_free_fields(conn); conn->in_use = 0;
+            }
         } else {
             /* 404 for unmatched routes */
             const char *body_404 = "404 Not Found";
@@ -690,16 +737,10 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
                 strlen(body_404));
             basl_platform_tcp_send(conn->sock, hdr, (size_t)hlen, NULL, NULL);
             basl_platform_tcp_send(conn->sock, body_404, strlen(body_404), NULL, NULL);
-        }
-
-        /* Clean up if handler didn't call respond */
-        conn = get_client(ch);
-        if (conn && conn->sock != BASL_INVALID_SOCKET) {
             basl_platform_tcp_close(conn->sock, NULL);
             conn->sock = BASL_INVALID_SOCKET;
+            client_free_fields(conn); conn->in_use = 0;
         }
-        if (conn) { client_free_fields(conn); conn->in_use = 0; }
-        g_current_conn = -1;
     }
 
     return push_i64(vm, 0, error);
