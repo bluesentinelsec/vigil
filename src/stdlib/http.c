@@ -231,10 +231,18 @@ HTTP_STATIC int do_request(const char *method, const char *url_str,
 
 #define HTTP_MAX_SERVERS 64
 #define HTTP_MAX_CLIENTS 256
+#define HTTP_MAX_ROUTES 128
+
+typedef struct {
+    char *pattern;
+    basl_object_t *handler; /* zero-arity function */
+} http_route_t;
 
 typedef struct {
     basl_socket_t listener;
     int in_use;
+    http_route_t routes[HTTP_MAX_ROUTES];
+    int route_count;
 } http_server_t;
 
 typedef struct {
@@ -567,16 +575,139 @@ static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t 
     return push_i64(vm, rc, error);
 }
 
+static void server_free_routes(http_server_t *srv) {
+    for (int i = 0; i < srv->route_count; i++) {
+        free(srv->routes[i].pattern);
+        if (srv->routes[i].handler) basl_object_release(&srv->routes[i].handler);
+    }
+    srv->route_count = 0;
+}
+
 static basl_status_t http_server_close(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t h = get_i64_arg(vm, base, 0);
     basl_vm_stack_pop_n(vm, arg_count);
     if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use) {
         basl_platform_tcp_close(g_servers[h].listener, NULL);
+        server_free_routes(&g_servers[h]);
         g_servers[h].listener = BASL_INVALID_SOCKET; g_servers[h].in_use = 0;
     }
     basl_value_t nil = basl_nanbox_encode_int(0);
     return basl_vm_stack_push(vm, &nil, error);
+}
+
+/* ── Routing and serve loop ──────────────────────────────────────── */
+
+static volatile int64_t g_current_conn = -1;
+
+static basl_status_t http_handle(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t srv_h = get_i64_arg(vm, base, 0);
+    const char *pattern; size_t plen;
+    get_string_arg(vm, base, 1, &pattern, &plen);
+    basl_value_t fn_val = basl_vm_stack_get(vm, base + 2);
+    basl_object_t *fn = basl_value_as_object(&fn_val);
+
+    char *pcopy = NULL;
+    if (plen > 0) { pcopy = (char *)malloc(plen + 1); memcpy(pcopy, pattern, plen); pcopy[plen] = '\0'; }
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    if (srv_h < 0 || srv_h >= HTTP_MAX_SERVERS || !g_servers[srv_h].in_use ||
+        !fn || g_servers[srv_h].route_count >= HTTP_MAX_ROUTES) {
+        free(pcopy);
+        return push_i64(vm, -1, error);
+    }
+
+    basl_object_retain(fn);
+    http_route_t *r = &g_servers[srv_h].routes[g_servers[srv_h].route_count++];
+    r->pattern = pcopy;
+    r->handler = fn;
+    return push_i64(vm, 0, error);
+}
+
+static int route_matches(const char *pattern, const char *path) {
+    if (!pattern || !path) return 0;
+    size_t plen = strlen(pattern);
+    /* Exact match */
+    if (strcmp(pattern, path) == 0) return 1;
+    /* Prefix match: pattern ends with '/' and path starts with pattern */
+    if (plen > 0 && pattern[plen - 1] == '/' && strncmp(path, pattern, plen) == 0) return 1;
+    /* Path without query matches pattern */
+    const char *q = strchr(path, '?');
+    if (q) {
+        size_t path_len = (size_t)(q - path);
+        if (path_len == plen && strncmp(path, pattern, plen) == 0) return 1;
+    }
+    return 0;
+}
+
+static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t srv_h = get_i64_arg(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    if (srv_h < 0 || srv_h >= HTTP_MAX_SERVERS || !g_servers[srv_h].in_use)
+        return push_i64(vm, -1, error);
+
+    http_server_t *srv = &g_servers[srv_h];
+
+    for (;;) {
+        basl_socket_t client = BASL_INVALID_SOCKET;
+        if (basl_platform_tcp_accept(srv->listener, &client, NULL) != BASL_STATUS_OK)
+            break;
+
+        int64_t ch = alloc_client(client);
+        if (ch < 0) { basl_platform_tcp_close(client, NULL); continue; }
+
+        http_conn_t *conn = get_client(ch);
+        if (parse_incoming_request(conn) != 0) {
+            client_free_fields(conn);
+            basl_platform_tcp_close(conn->sock, NULL);
+            conn->sock = BASL_INVALID_SOCKET; conn->in_use = 0;
+            continue;
+        }
+
+        /* Find matching route */
+        basl_object_t *handler = NULL;
+        for (int i = 0; i < srv->route_count; i++) {
+            if (route_matches(srv->routes[i].pattern, conn->path)) {
+                handler = srv->routes[i].handler;
+                break;
+            }
+        }
+
+        g_current_conn = ch;
+
+        if (handler) {
+            basl_value_t out = {0};
+            basl_vm_execute_function(vm, handler, &out, error);
+        } else {
+            /* 404 for unmatched routes */
+            const char *body_404 = "404 Not Found";
+            char hdr[256];
+            int hlen = snprintf(hdr, sizeof(hdr),
+                "HTTP/1.1 404 Not Found\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
+                strlen(body_404));
+            basl_platform_tcp_send(conn->sock, hdr, (size_t)hlen, NULL, NULL);
+            basl_platform_tcp_send(conn->sock, body_404, strlen(body_404), NULL, NULL);
+        }
+
+        /* Clean up if handler didn't call respond */
+        conn = get_client(ch);
+        if (conn && conn->sock != BASL_INVALID_SOCKET) {
+            basl_platform_tcp_close(conn->sock, NULL);
+            conn->sock = BASL_INVALID_SOCKET;
+        }
+        if (conn) { client_free_fields(conn); conn->in_use = 0; }
+        g_current_conn = -1;
+    }
+
+    return push_i64(vm, 0, error);
+}
+
+static basl_status_t http_current_conn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    basl_vm_stack_pop_n(vm, arg_count);
+    return push_i64(vm, g_current_conn, error);
 }
 
 /* ── Client BASL functions ───────────────────────────────────────── */
@@ -671,6 +802,7 @@ static const int http_i64[] = { BASL_TYPE_I64 };
 static const int http_respond_p[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING, BASL_TYPE_STRING };
 
 static const int http_i64_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
+static const int http_handle_p[] = { BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_OBJECT };
 
 static const basl_native_module_function_t http_functions[] = {
     { "get", 3, http_get, 1, http_1str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
@@ -678,6 +810,9 @@ static const basl_native_module_function_t http_functions[] = {
     { "request", 7, http_request, 2, http_2str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
     { "listen", 6, http_listen, 2, http_str_i32, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
     { "accept", 6, http_accept, 1, http_i64, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
+    { "handle", 6, http_handle, 3, http_handle_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "serve", 5, http_serve, 1, http_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "current_conn", 12, http_current_conn, 0, NULL, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
     { "req_method", 10, http_req_method, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_path", 8, http_req_path, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_body", 8, http_req_body, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
