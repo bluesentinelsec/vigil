@@ -933,6 +933,9 @@ static const basl_doc_entry_t http_docs[] = {
     {"http.req_method", "http.req_method(conn: i64) -> string", "Get request method.", "Returns the HTTP method (GET, POST, etc.) from an accepted connection.", "string method = http.req_method(conn)"},
     {"http.req_path", "http.req_path(conn: i64) -> string", "Get request path.", "Returns the request path from an accepted connection.", "string path = http.req_path(conn)"},
     {"http.req_body", "http.req_body(conn: i64) -> string", "Get request body.", "Returns the request body from an accepted connection.", "string body = http.req_body(conn)"},
+    {"http.req_headers", "http.req_headers(conn: i64) -> string", "Get all request headers.", "Returns raw headers as a CRLF-separated string.", "string hdrs = http.req_headers(conn)"},
+    {"http.req_header", "http.req_header(conn: i64, name: string) -> string", "Get a request header by name.", "Case-insensitive lookup. Returns empty string if not found.", "string ct = http.req_header(conn, \"Content-Type\")"},
+    {"http.req_query", "http.req_query(conn: i64) -> string", "Get query string.", "Returns the query string from the request path (without leading '?'). Empty if none.", "string q = http.req_query(conn)"},
     {"http.respond", "http.respond(conn: i64, status: i32, headers: string, body: string) -> i32", "Send HTTP response.", "Sends response and closes the connection. Returns 0 on success.", "http.respond(conn, 200, \"Content-Type: text/plain\\r\\n\", \"hello\")"},
     {"http.close", "http.close(server: i64) -> void", "Close HTTP server.", "Closes the listener socket.", "http.close(srv)"},
 };

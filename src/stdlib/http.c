@@ -450,6 +450,68 @@ static basl_status_t http_req_body(basl_vm_t *vm, size_t arg_count, basl_error_t
     return push_string(vm, b, c ? c->body_len : 0, error);
 }
 
+static basl_status_t http_req_headers(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+    http_conn_t *c = get_client(ch);
+    const char *h = (c && c->headers) ? c->headers : "";
+    return push_string(vm, h, strlen(h), error);
+}
+
+static basl_status_t http_req_header(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    const char *name; size_t name_len;
+    get_string_arg(vm, base, 1, &name, &name_len);
+    char nbuf[256];
+    if (name_len >= sizeof(nbuf)) name_len = sizeof(nbuf) - 1;
+    memcpy(nbuf, name, name_len); nbuf[name_len] = '\0';
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    http_conn_t *c = get_client(ch);
+    if (!c || !c->headers) return push_string(vm, "", 0, error);
+
+    /* Case-insensitive search for "Name:" in headers */
+    const char *p = c->headers;
+    while (*p) {
+        const char *eol = strstr(p, "\r\n");
+        if (!eol) eol = p + strlen(p);
+        const char *colon = strchr(p, ':');
+        if (colon && colon < eol) {
+            size_t klen = (size_t)(colon - p);
+            if (klen == name_len) {
+                int match = 1;
+                for (size_t i = 0; i < klen; i++) {
+                    char a = p[i], b = nbuf[i];
+                    if (a >= 'A' && a <= 'Z') a += 32;
+                    if (b >= 'A' && b <= 'Z') b += 32;
+                    if (a != b) { match = 0; break; }
+                }
+                if (match) {
+                    const char *val = colon + 1;
+                    while (val < eol && *val == ' ') val++;
+                    return push_string(vm, val, (size_t)(eol - val), error);
+                }
+            }
+        }
+        if (*eol == '\0') break;
+        p = eol + 2;
+    }
+    return push_string(vm, "", 0, error);
+}
+
+static basl_status_t http_req_query(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+    http_conn_t *c = get_client(ch);
+    if (!c || !c->path) return push_string(vm, "", 0, error);
+    const char *q = strchr(c->path, '?');
+    if (q) return push_string(vm, q + 1, strlen(q + 1), error);
+    return push_string(vm, "", 0, error);
+}
+
 static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
@@ -467,10 +529,29 @@ static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t 
     http_conn_t *c = get_client(ch);
     if (!c || c->sock == BASL_INVALID_SOCKET) { free(hc); free(bc); return push_i64(vm, -1, error); }
 
+    const char *reason = "OK";
+    switch ((int)status_code) {
+        case 200: reason = "OK"; break;
+        case 201: reason = "Created"; break;
+        case 204: reason = "No Content"; break;
+        case 301: reason = "Moved Permanently"; break;
+        case 302: reason = "Found"; break;
+        case 304: reason = "Not Modified"; break;
+        case 400: reason = "Bad Request"; break;
+        case 401: reason = "Unauthorized"; break;
+        case 403: reason = "Forbidden"; break;
+        case 404: reason = "Not Found"; break;
+        case 405: reason = "Method Not Allowed"; break;
+        case 500: reason = "Internal Server Error"; break;
+        case 502: reason = "Bad Gateway"; break;
+        case 503: reason = "Service Unavailable"; break;
+        default: break;
+    }
+
     char resp_hdr[4096];
     int hlen = snprintf(resp_hdr, sizeof(resp_hdr),
-        "HTTP/1.1 %d OK\r\n%sContent-Length: %zu\r\nConnection: close\r\n\r\n",
-        (int)status_code, hc ? hc : "", body_len);
+        "HTTP/1.1 %d %s\r\n%sContent-Length: %zu\r\nConnection: close\r\n\r\n",
+        (int)status_code, reason, hc ? hc : "", body_len);
 
     int rc = 0;
     if (basl_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
@@ -582,6 +663,8 @@ static const int http_str_i32[] = { BASL_TYPE_STRING, BASL_TYPE_I32 };
 static const int http_i64[] = { BASL_TYPE_I64 };
 static const int http_respond_p[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING, BASL_TYPE_STRING };
 
+static const int http_i64_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
+
 static const basl_native_module_function_t http_functions[] = {
     { "get", 3, http_get, 1, http_1str, BASL_TYPE_I32, 2, NULL, 0, NULL, NULL },
     { "post", 4, http_post, 2, http_2str, BASL_TYPE_I32, 2, NULL, 0, NULL, NULL },
@@ -591,6 +674,9 @@ static const basl_native_module_function_t http_functions[] = {
     { "req_method", 10, http_req_method, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_path", 8, http_req_path, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_body", 8, http_req_body, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_headers", 11, http_req_headers, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_header", 10, http_req_header, 2, http_i64_str, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_query", 9, http_req_query, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "respond", 7, http_respond, 4, http_respond_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "close", 5, http_server_close, 1, http_i64, BASL_TYPE_VOID, 0, NULL, 0, NULL, NULL },
 };
