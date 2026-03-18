@@ -590,6 +590,15 @@ fn test_defer() -> void {
     }
     test_eager();
     check(defer_log[0] == "0", "defer evaluates args eagerly");
+
+    // 13c. Module-qualified defer (defer fmt.sprint, etc.)
+    defer_log = [];
+    fn test_native_defer() -> void {
+        defer defer_push("native_ok");
+        defer fmt.println("  (deferred native call ran)");
+    }
+    test_native_defer();
+    check(defer_log[0] == "native_ok", "defer with module call works");
 }
 
 // ── 14. Guard ──────────────────────────────────────────────────────────────
