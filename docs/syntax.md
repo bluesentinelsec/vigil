@@ -49,19 +49,19 @@ pub fn area(f64 radius) -> f64 {
 
 ```
 import "fmt";                    // stdlib module
-import "file" as fs;             // stdlib with alias
-import "./lib/processor";        // relative to current file
-import "../shared/utils";        // relative to current file
-import "helpers";                // project lib/ lookup
+import "fmt" as f;               // stdlib with alias
+import "utils";                  // resolved relative to this file, or from lib/
+import "sub/deep";               // subdirectory relative to this file
 ```
 
 - `as` sets the local alias. Without it, the alias is the last path component.
 - Only `pub` declarations are visible to importers.
+- The `.basl` extension is added automatically.
 
-Resolution order:
-1. Built-in stdlib modules (always available by name).
-2. Relative path from the importing file (`.basl` extension added automatically).
-3. In a project (with `basl.toml`): `lib/` directory, then `deps/` for packages.
+Resolution order for non-stdlib imports:
+1. Relative to the importing file's directory.
+2. In a project (directory with `basl.toml`): the `lib/` directory.
+3. For package-style paths (e.g. `"github.com/user/repo"`): the `deps/` directory.
 
 ## Top-Level Declarations
 
