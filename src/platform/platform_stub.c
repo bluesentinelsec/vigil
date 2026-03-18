@@ -281,3 +281,63 @@ int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired) {
     if (*ptr == expected) { *ptr = desired; return 1; }
     return 0;
 }
+
+/* ── TCP sockets (stub) ──────────────────────────────────────────── */
+
+basl_status_t basl_platform_net_init(basl_error_t *error) {
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_tcp_listen(const char *host, int port, basl_socket_t *out_sock, basl_error_t *error) {
+    (void)host; (void)port;
+    if (out_sock) *out_sock = BASL_INVALID_SOCKET;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_tcp_accept(basl_socket_t listener, basl_socket_t *out_client, basl_error_t *error) {
+    (void)listener;
+    if (out_client) *out_client = BASL_INVALID_SOCKET;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_tcp_connect(const char *host, int port, basl_socket_t *out_sock, basl_error_t *error) {
+    (void)host; (void)port;
+    if (out_sock) *out_sock = BASL_INVALID_SOCKET;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_tcp_send(basl_socket_t sock, const void *data, size_t len, size_t *out_sent, basl_error_t *error) {
+    (void)sock; (void)data; (void)len;
+    if (out_sent) *out_sent = 0;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_tcp_recv(basl_socket_t sock, void *buf, size_t cap, size_t *out_received, basl_error_t *error) {
+    (void)sock; (void)buf; (void)cap;
+    if (out_received) *out_received = 0;
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return BASL_STATUS_UNSUPPORTED;
+}
+
+basl_status_t basl_platform_tcp_close(basl_socket_t sock, basl_error_t *error) {
+    (void)sock; (void)error;
+    return BASL_STATUS_OK;
+}
+
+/* ── HTTP client (stub) ──────────────────────────────────────────── */
+
+basl_status_t basl_platform_http_request(
+    const char *method, const char *url, const char *headers,
+    const char *body, size_t body_len,
+    basl_http_response_t *out, basl_error_t *error
+) {
+    (void)method; (void)url; (void)headers; (void)body; (void)body_len;
+    if (out) memset(out, 0, sizeof(*out));
+    if (error) { error->type = BASL_STATUS_UNSUPPORTED; error->value = "HTTP not supported on this platform"; error->length = 34; }
+    return BASL_STATUS_UNSUPPORTED;
+}

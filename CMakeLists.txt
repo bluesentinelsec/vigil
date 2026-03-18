@@ -253,11 +253,6 @@ if(BASL_BUILD_TESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
 
-    # Socket libraries for http_test loopback server.
-    if(WIN32)
-        target_link_libraries(basl_tests PRIVATE ws2_32)
-    endif()
-
     # Vendored libffi for tests.
     if(BASL_USE_LIBFFI AND NOT EMSCRIPTEN
        AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"

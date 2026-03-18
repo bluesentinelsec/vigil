@@ -7,26 +7,6 @@
 
 #include "platform/platform.h"
 
-/* ── Platform socket headers (mirrors http.c) ────────────────────── */
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-#include <ws2tcpip.h>
-typedef SOCKET socket_t;
-#define INVALID_SOCK INVALID_SOCKET
-#define close_socket closesocket
-#else
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <unistd.h>
-typedef int socket_t;
-#define INVALID_SOCK (-1)
-#define close_socket close
-#endif
-
 /* ── Declarations for http.c internals (BASL_HTTP_TESTING) ───────── */
 
 typedef struct {
@@ -106,7 +86,7 @@ TEST(BaslHttpTest, ParseUrlLoopback) {
 #define TEST_PORT 18787
 
 typedef struct {
-    socket_t listener;
+    basl_socket_t listener;
     volatile int ready;
     const char *response;  /* full HTTP response to send */
 } test_server_t;
@@ -114,66 +94,47 @@ typedef struct {
 static void test_server_func(void *arg) {
     test_server_t *srv = (test_server_t *)arg;
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = htons(TEST_PORT);
-
-    srv->listener = socket(AF_INET, SOCK_STREAM, 0);
-    if (srv->listener == INVALID_SOCK) return;
-
-    int opt = 1;
-    setsockopt(srv->listener, SOL_SOCKET, SO_REUSEADDR,
-               (const char *)&opt, sizeof(opt));
-
-    if (bind(srv->listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close_socket(srv->listener);
-        srv->listener = INVALID_SOCK;
-        return;
-    }
-    if (listen(srv->listener, 1) < 0) {
-        close_socket(srv->listener);
-        srv->listener = INVALID_SOCK;
+    if (basl_platform_tcp_listen("127.0.0.1", TEST_PORT, &srv->listener, NULL) != BASL_STATUS_OK) {
+        srv->listener = BASL_INVALID_SOCKET;
         return;
     }
 
     srv->ready = 1;
 
-    /* Accept one connection, send canned response, close. */
-    socket_t client = accept(srv->listener, NULL, NULL);
-    if (client == INVALID_SOCK) return;
+    basl_socket_t client = BASL_INVALID_SOCKET;
+    if (basl_platform_tcp_accept(srv->listener, &client, NULL) != BASL_STATUS_OK) return;
 
     /* Drain the request */
     char buf[4096];
-    recv(client, buf, sizeof(buf), 0);
+    size_t n = 0;
+    basl_platform_tcp_recv(client, buf, sizeof(buf), &n, NULL);
 
     /* Send response */
     const char *resp = srv->response;
-    send(client, resp, (int)strlen(resp), 0);
-    close_socket(client);
+    basl_platform_tcp_send(client, resp, strlen(resp), NULL, NULL);
+    basl_platform_tcp_close(client, NULL);
 }
 
 static int start_test_server(test_server_t *srv, const char *response,
                              basl_platform_thread_t **thread) {
     memset(srv, 0, sizeof(*srv));
-    srv->listener = INVALID_SOCK;
+    srv->listener = BASL_INVALID_SOCKET;
     srv->response = response;
 
+    basl_platform_net_init(NULL);
     basl_status_t st = basl_platform_thread_create(thread, test_server_func,
                                                     srv, NULL);
     if (st != BASL_STATUS_OK) return 0;
 
-    /* Wait for server to be ready */
-    for (int i = 0; i < 200 && !srv->ready; i++) {
+    for (int i = 0; i < 200 && !srv->ready; i++)
         basl_platform_thread_sleep(10);
-    }
     return srv->ready;
 }
 
 static void stop_test_server(test_server_t *srv,
                              basl_platform_thread_t *thread) {
-    if (srv->listener != INVALID_SOCK) close_socket(srv->listener);
+    if (srv->listener != BASL_INVALID_SOCKET)
+        basl_platform_tcp_close(srv->listener, NULL);
     basl_platform_thread_join(thread, NULL);
 }
 
@@ -314,22 +275,6 @@ TEST(BaslHttpTest, ResponseFreeNull) {
 
 /* ── Server round-trip tests ──────────────────────────────────────── */
 
-static void socket_init_for_test(void) {
-#ifdef _WIN32
-    static int inited = 0;
-    if (!inited) {
-        WSADATA wsa;
-        WSAStartup(MAKEWORD(2, 2), &wsa);
-        inited = 1;
-    }
-#endif
-}
-
-/*
- * Test the socket-based server path by creating a listener, connecting
- * a client in a thread, and verifying the round-trip.
- */
-
 #define SERVER_TEST_PORT 18788
 
 typedef struct {
@@ -342,39 +287,26 @@ typedef struct {
 
 static void server_thread_func(void *arg) {
     server_test_ctx_t *ctx = (server_test_ctx_t *)arg;
-    socket_init_for_test();
 
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = htons((uint16_t)ctx->port);
-
-    socket_t listener = socket(AF_INET, SOCK_STREAM, 0);
-    if (listener == INVALID_SOCK) return;
-
-    int opt = 1;
-    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
-
-    if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        close_socket(listener); return;
-    }
-    if (listen(listener, 1) < 0) {
-        close_socket(listener); return;
-    }
+    basl_socket_t listener = BASL_INVALID_SOCKET;
+    if (basl_platform_tcp_listen("127.0.0.1", ctx->port, &listener, NULL) != BASL_STATUS_OK)
+        return;
 
     ctx->ready = 1;
 
-    socket_t client = accept(listener, NULL, NULL);
-    if (client == INVALID_SOCK) { close_socket(listener); return; }
+    basl_socket_t client = BASL_INVALID_SOCKET;
+    if (basl_platform_tcp_accept(listener, &client, NULL) != BASL_STATUS_OK) {
+        basl_platform_tcp_close(listener, NULL);
+        return;
+    }
 
     /* Read request */
     char buf[4096];
     size_t len = 0;
     for (;;) {
-        int n = recv(client, buf + len, (int)(sizeof(buf) - len - 1), 0);
-        if (n <= 0) break;
-        len += (size_t)n;
+        size_t n = 0;
+        if (basl_platform_tcp_recv(client, buf + len, sizeof(buf) - len - 1, &n, NULL) != BASL_STATUS_OK || n == 0) break;
+        len += n;
         buf[len] = '\0';
         if (strstr(buf, "\r\n\r\n")) break;
     }
@@ -415,10 +347,10 @@ static void server_thread_func(void *arg) {
         "Connection: close\r\n"
         "\r\n"
         "hello world";
-    send(client, response, (int)strlen(response), 0);
+    basl_platform_tcp_send(client, response, strlen(response), NULL, NULL);
 
-    close_socket(client);
-    close_socket(listener);
+    basl_platform_tcp_close(client, NULL);
+    basl_platform_tcp_close(listener, NULL);
 }
 
 TEST(BaslHttpTest, ServerRoundTrip) {

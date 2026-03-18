@@ -489,6 +489,66 @@ BASL_API void basl_platform_tls_set(basl_platform_tls_key_t *key, void *value);
 /** Get TLS value for current thread. */
 BASL_API void *basl_platform_tls_get(basl_platform_tls_key_t *key);
 
+/* ── TCP sockets ─────────────────────────────────────────────────── */
+
+/** Opaque socket handle (int64_t, -1 = invalid). */
+typedef int64_t basl_socket_t;
+#define BASL_INVALID_SOCKET ((basl_socket_t)-1)
+
+/** Initialise platform networking (e.g. WSAStartup). Safe to call repeatedly. */
+BASL_API basl_status_t basl_platform_net_init(basl_error_t *error);
+
+/** Create a TCP listener bound to host:port. Returns socket handle. */
+BASL_API basl_status_t basl_platform_tcp_listen(
+    const char *host, int port, basl_socket_t *out_sock, basl_error_t *error);
+
+/** Accept a connection on a listening socket. Blocks. */
+BASL_API basl_status_t basl_platform_tcp_accept(
+    basl_socket_t listener, basl_socket_t *out_client, basl_error_t *error);
+
+/** Connect to host:port. Returns socket handle. */
+BASL_API basl_status_t basl_platform_tcp_connect(
+    const char *host, int port, basl_socket_t *out_sock, basl_error_t *error);
+
+/** Send data on a connected socket. Returns bytes sent. */
+BASL_API basl_status_t basl_platform_tcp_send(
+    basl_socket_t sock, const void *data, size_t len,
+    size_t *out_sent, basl_error_t *error);
+
+/** Receive data from a connected socket. Returns bytes received (0 = EOF). */
+BASL_API basl_status_t basl_platform_tcp_recv(
+    basl_socket_t sock, void *buf, size_t cap,
+    size_t *out_received, basl_error_t *error);
+
+/** Close a socket (listener or connection). */
+BASL_API basl_status_t basl_platform_tcp_close(
+    basl_socket_t sock, basl_error_t *error);
+
+/* ── HTTP client (native library, runtime-loaded) ────────────────── */
+
+/** Result of an HTTP request. Caller must free body with free(). */
+typedef struct {
+    int status_code;
+    char *body;
+    size_t body_len;
+} basl_http_response_t;
+
+/**
+ * Perform an HTTP/S request using the best available native library
+ * (libcurl on POSIX, WinHTTP on Windows), loaded at runtime.
+ *
+ * Returns BASL_STATUS_UNSUPPORTED if no native HTTP library is available.
+ * The caller should fall back to a plain-socket HTTP/1.1 path (no TLS).
+ */
+BASL_API basl_status_t basl_platform_http_request(
+    const char *method,
+    const char *url,
+    const char *headers,     /* CRLF-separated, may be NULL */
+    const char *body,        /* may be NULL */
+    size_t body_len,
+    basl_http_response_t *out_response,
+    basl_error_t *error);
+
 /* ── Atomic operations ───────────────────────────────────────────── */
 
 /** Atomically load a 64-bit value. */
