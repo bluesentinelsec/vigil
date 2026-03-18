@@ -2,7 +2,7 @@
 
 ## Project Intent
 
-- VIGIL is the "Blazingly Awesome Scripting Language", implemented as a bytecode interpreter and scripting language runtime.
+- VIGIL is the "VIGIL Scripting Language", implemented as a bytecode interpreter and scripting language runtime.
 - Optimize for explicitness, predictability, portability, batteries-included tooling, and easy distribution of CLI apps, graphical programs, and libraries.
 - VIGIL should stay easy to build on modern systems with a C compiler. Avoid casual dependency growth.
 

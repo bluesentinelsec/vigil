@@ -1,6 +1,6 @@
 # VIGIL
 
-**Blazingly Awesome Scripting Language**
+**The VIGIL Scripting Language**
 
 VIGIL is a statically typed, bytecode-compiled scripting language designed for building CLI tools, graphical programs, and libraries. It favors explicit behavior, batteries-included tooling, and easy distribution.
 

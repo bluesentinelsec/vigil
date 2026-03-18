@@ -24,7 +24,7 @@ extern "C" {
  *
  * Usage:
  *   vigil_cli_t cli;
- *   vigil_cli_init(&cli, "vigil", "Blazingly Awesome Scripting Language");
+ *   vigil_cli_init(&cli, "vigil", "The VIGIL Scripting Language");
  *
  *   vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run a script");
  *   const char *file = NULL;

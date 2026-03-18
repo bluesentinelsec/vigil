@@ -3053,7 +3053,7 @@ int main(int argc, char **argv) {
         return cmd_get(argc, argv);
     }
 
-    vigil_cli_init(&cli, "vigil", "Blazingly Awesome Scripting Language");
+    vigil_cli_init(&cli, "vigil", "The VIGIL Scripting Language");
 
     cmd = vigil_cli_add_command(&cli, "run", "Run a VIGIL script");
     vigil_cli_add_positional(cmd, "file", "Script file to run", NULL);
