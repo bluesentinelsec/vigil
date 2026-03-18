@@ -579,6 +579,21 @@ BASL_API int64_t basl_atomic_sub(volatile int64_t *ptr, int64_t value);
 /** Atomically compare and swap. Returns 1 if swapped, 0 if not. */
 BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired);
 
+/** Atomically exchange, return previous value. */
+BASL_API int64_t basl_atomic_exchange(volatile int64_t *ptr, int64_t value);
+
+/** Atomically OR, return previous value. */
+BASL_API int64_t basl_atomic_fetch_or(volatile int64_t *ptr, int64_t value);
+
+/** Atomically AND, return previous value. */
+BASL_API int64_t basl_atomic_fetch_and(volatile int64_t *ptr, int64_t value);
+
+/** Atomically XOR, return previous value. */
+BASL_API int64_t basl_atomic_fetch_xor(volatile int64_t *ptr, int64_t value);
+
+/** Issue a sequentially-consistent memory fence. */
+BASL_API void basl_atomic_fence(void);
+
 #ifdef __cplusplus
 }
 #endif

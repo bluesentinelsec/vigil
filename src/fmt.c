@@ -429,8 +429,17 @@ basl_status_t basl_fmt(
 
     /* ── Pass 2: emit sorted imports ─────────────────────────────── */
 
-    /* Emit any comments before the first non-import token. */
+    /* Emit any comments that appear before the first import (module header). */
     size_t initial_comment_end = 0;
+    if (import_count > 0) {
+        const basl_token_t *first_imp_tok =
+            basl_token_list_get(tokens, imports[0].start_idx);
+        if (emit_comments_between(&f, 0, first_imp_tok->span.start_offset)) {
+            emit_newline(&f);
+        }
+    }
+
+    /* Emit any comments between the last import and the first non-import. */
     if (first_non_import < f.count) {
         const basl_token_t *first_ni = basl_token_list_get(tokens, first_non_import);
         size_t scan_start = 0;

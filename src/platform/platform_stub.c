@@ -282,6 +282,11 @@ int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t desired) {
     if (*ptr == expected) { *ptr = desired; return 1; }
     return 0;
 }
+int64_t basl_atomic_exchange(volatile int64_t *ptr, int64_t value) { int64_t old = *ptr; *ptr = value; return old; }
+int64_t basl_atomic_fetch_or(volatile int64_t *ptr, int64_t value) { int64_t old = *ptr; *ptr |= value; return old; }
+int64_t basl_atomic_fetch_and(volatile int64_t *ptr, int64_t value) { int64_t old = *ptr; *ptr &= value; return old; }
+int64_t basl_atomic_fetch_xor(volatile int64_t *ptr, int64_t value) { int64_t old = *ptr; *ptr ^= value; return old; }
+void basl_atomic_fence(void) { }
 
 /* ── TCP sockets (stub) ──────────────────────────────────────────── */
 

@@ -1030,6 +1030,26 @@ BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t de
     return InterlockedCompareExchange64((volatile LONG64 *)ptr, desired, expected) == expected ? 1 : 0;
 }
 
+BASL_API int64_t basl_atomic_exchange(volatile int64_t *ptr, int64_t value) {
+    return InterlockedExchange64((volatile LONG64 *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_fetch_or(volatile int64_t *ptr, int64_t value) {
+    return InterlockedOr64((volatile LONG64 *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_fetch_and(volatile int64_t *ptr, int64_t value) {
+    return InterlockedAnd64((volatile LONG64 *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_fetch_xor(volatile int64_t *ptr, int64_t value) {
+    return InterlockedXor64((volatile LONG64 *)ptr, value);
+}
+
+BASL_API void basl_atomic_fence(void) {
+    MemoryBarrier();
+}
+
 /* ── TCP sockets (Winsock, runtime-loaded) ───────────────────────── */
 
 #include <winsock2.h>
