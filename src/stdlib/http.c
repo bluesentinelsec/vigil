@@ -868,6 +868,85 @@ static basl_status_t http_current_conn(basl_vm_t *vm, size_t arg_count, basl_err
     return push_i64(vm, g_current_conn, error);
 }
 
+/* ── Streaming response ──────────────────────────────────────────── */
+
+static basl_status_t http_write_header(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    int64_t status_code = get_i64_arg(vm, base, 1);
+    const char *hdrs = NULL; size_t hdrs_len = 0;
+    if (arg_count >= 3) get_string_arg(vm, base, 2, &hdrs, &hdrs_len);
+
+    char *hc = NULL;
+    if (hdrs_len > 0) { hc = (char *)malloc(hdrs_len + 1); memcpy(hc, hdrs, hdrs_len); hc[hdrs_len] = '\0'; }
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    http_conn_t *c = get_client(ch);
+    if (!c || c->sock == BASL_INVALID_SOCKET) { free(hc); return push_i64(vm, -1, error); }
+
+    const char *reason = "OK";
+    switch ((int)status_code) {
+        case 200: reason = "OK"; break;
+        case 201: reason = "Created"; break;
+        case 204: reason = "No Content"; break;
+        case 400: reason = "Bad Request"; break;
+        case 404: reason = "Not Found"; break;
+        case 500: reason = "Internal Server Error"; break;
+        default: break;
+    }
+
+    char resp_hdr[4096];
+    int hlen = snprintf(resp_hdr, sizeof(resp_hdr),
+        "HTTP/1.1 %d %s\r\n%s%sTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+        (int)status_code, reason, hc ? hc : "",
+        c->pending_cookies ? c->pending_cookies : "");
+    free(hc);
+
+    int rc = 0;
+    if (basl_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    return push_i64(vm, rc, error);
+}
+
+static basl_status_t http_write(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    const char *data; size_t dlen;
+    get_string_arg(vm, base, 1, &data, &dlen);
+    char *dc = NULL;
+    if (dlen > 0) { dc = (char *)malloc(dlen); memcpy(dc, data, dlen); }
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    http_conn_t *c = get_client(ch);
+    if (!c || c->sock == BASL_INVALID_SOCKET || dlen == 0) { free(dc); return push_i64(vm, dlen == 0 ? 0 : -1, error); }
+
+    /* Send as HTTP chunked encoding */
+    char chunk_hdr[32];
+    int chlen = snprintf(chunk_hdr, sizeof(chunk_hdr), "%zx\r\n", dlen);
+    int rc = 0;
+    if (basl_platform_tcp_send(c->sock, chunk_hdr, (size_t)chlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    if (rc == 0 && basl_platform_tcp_send(c->sock, dc, dlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    if (rc == 0 && basl_platform_tcp_send(c->sock, "\r\n", 2, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    free(dc);
+    return push_i64(vm, rc, error);
+}
+
+static basl_status_t http_flush(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    http_conn_t *c = get_client(ch);
+    if (!c || c->sock == BASL_INVALID_SOCKET) return push_i64(vm, -1, error);
+
+    /* Send final chunk (zero-length) to end chunked transfer */
+    int rc = 0;
+    if (basl_platform_tcp_send(c->sock, "0\r\n\r\n", 5, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    basl_platform_tcp_close(c->sock, NULL);
+    c->sock = BASL_INVALID_SOCKET;
+    client_free_fields(c); c->in_use = 0;
+    return push_i64(vm, rc, error);
+}
+
 static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
@@ -1068,6 +1147,9 @@ static const basl_native_module_function_t http_functions[] = {
     { "handle", 6, http_handle, 3, http_handle_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "serve", 5, http_serve, 1, http_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "current_conn", 12, http_current_conn, 0, NULL, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
+    { "write_header", 12, http_write_header, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "write", 5, http_write, 2, http_i64_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "flush", 5, http_flush, 1, http_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "req_method", 10, http_req_method, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_path", 8, http_req_path, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_body", 8, http_req_body, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
