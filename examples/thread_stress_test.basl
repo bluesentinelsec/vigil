@@ -251,11 +251,8 @@ fn main() -> i32 {
     fmt.println(f"[2] Parallel Monte Carlo ({NUM_WORKERS} threads, join return values)...");
     i64 t2 = time.now_ms();
 
-    // Allocate handle storage in atomics
-    i64 handles_base = atomic.new(i64(0));
-    for (i64 i = i64(1); i < NUM_WORKERS; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    // Allocate handle storage
+    array<i64> handles = [];
 
     for (i64 i = i64(0); i < NUM_WORKERS; i = i + i64(1)) {
         i64 seed = i64(1000) + i * i64(7919);
@@ -263,14 +260,13 @@ fn main() -> i32 {
         i64 t = thread.spawn(fn() -> i64 {
             return monte_carlo_worker(iters, seed);
         });
-        atomic.store(handles_base + i, t);
+        handles.push(t);
     }
 
-    // Collect results via join return values — no shared atomic needed!
+    // Collect results via join return values
     i64 par_result = i64(0);
-    for (i64 i = i64(0); i < NUM_WORKERS; i = i + i64(1)) {
-        i64 h = atomic.load(handles_base + i);
-        i64 hits = thread.join(h);
+    for (i32 i = 0; i < handles.len(); i++) {
+        i64 hits = thread.join(handles[i]);
         par_result = par_result + hits;
     }
 
@@ -304,10 +300,8 @@ fn main() -> i32 {
 
     i64 t4 = time.now_ms();
 
-    i64 prod_handles = atomic.new(i64(0));
-    for (i64 i = i64(1); i < NUM_PRODUCERS; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    // Spawn producers
+    array<i64> prod_handles = [];
     for (i64 i = i64(0); i < NUM_PRODUCERS; i = i + i64(1)) {
         i64 pid = i;
         i64 tasks = TASKS_PER_PRODUCER;
@@ -316,31 +310,29 @@ fn main() -> i32 {
             producer_work(pid, tasks, q_mtx, q_not_full, q_not_empty,
                           q_head, q_tail, q_count, q_base, pt);
         });
-        atomic.store(prod_handles + i, t);
+        prod_handles.push(t);
     }
 
-    i64 cons_handles = atomic.new(i64(0));
-    for (i64 i = i64(1); i < NUM_CONSUMERS; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    // Spawn consumers
+    array<i64> cons_handles = [];
     for (i64 i = i64(0); i < NUM_CONSUMERS; i = i + i64(1)) {
         i64 t = thread.spawn(fn() -> void {
             consumer_work(q_mtx, q_not_full, q_not_empty,
                           q_head, q_tail, q_count, q_base,
                           done_flag, consumed_sum, consumed_count);
         });
-        atomic.store(cons_handles + i, t);
+        cons_handles.push(t);
     }
 
-    for (i64 i = i64(0); i < NUM_PRODUCERS; i = i + i64(1)) {
-        thread.join(atomic.load(prod_handles + i));
+    for (i32 i = 0; i < prod_handles.len(); i++) {
+        thread.join(prod_handles[i]);
     }
 
     // Signal done — consumers will notice via wait_timeout, no broadcast needed
     atomic.store(done_flag, i64(1));
 
-    for (i64 i = i64(0); i < NUM_CONSUMERS; i = i + i64(1)) {
-        thread.join(atomic.load(cons_handles + i));
+    for (i32 i = 0; i < cons_handles.len(); i++) {
+        thread.join(cons_handles[i]);
     }
 
     i64 t5 = time.now_ms();
@@ -380,29 +372,25 @@ fn main() -> i32 {
 
     i64 t6 = time.now_ms();
 
-    i64 rw_handles = atomic.new(i64(0));
-    i64 rw_total = RW_READERS + RW_WRITERS;
-    for (i64 i = i64(1); i < rw_total; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    array<i64> rw_handles = [];
 
     for (i64 i = i64(0); i < RW_READERS; i = i + i64(1)) {
         i64 ops = RW_OPS_PER_THREAD;
         i64 t = thread.spawn(fn() -> void {
             reader_work(rw, shared_val, read_sum, ops);
         });
-        atomic.store(rw_handles + i, t);
+        rw_handles.push(t);
     }
     for (i64 i = i64(0); i < RW_WRITERS; i = i + i64(1)) {
         i64 ops = RW_OPS_PER_THREAD;
         i64 t = thread.spawn(fn() -> void {
             writer_work(rw, shared_val, ops);
         });
-        atomic.store(rw_handles + RW_READERS + i, t);
+        rw_handles.push(t);
     }
 
-    for (i64 i = i64(0); i < rw_total; i = i + i64(1)) {
-        thread.join(atomic.load(rw_handles + i));
+    for (i32 i = 0; i < rw_handles.len(); i++) {
+        thread.join(rw_handles[i]);
     }
 
     i64 t7 = time.now_ms();
@@ -425,19 +413,16 @@ fn main() -> i32 {
 
     i64 t8 = time.now_ms();
 
-    i64 tl_handles = atomic.new(i64(0));
-    for (i64 i = i64(1); i < TRYLOCK_THREADS; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    array<i64> tl_handles = [];
     for (i64 i = i64(0); i < TRYLOCK_THREADS; i = i + i64(1)) {
         i64 iters = TRYLOCK_ITERS;
         i64 t = thread.spawn(fn() -> void {
             trylock_worker(tl_mtx, tl_counter, iters);
         });
-        atomic.store(tl_handles + i, t);
+        tl_handles.push(t);
     }
-    for (i64 i = i64(0); i < TRYLOCK_THREADS; i = i + i64(1)) {
-        thread.join(atomic.load(tl_handles + i));
+    for (i32 i = 0; i < tl_handles.len(); i++) {
+        thread.join(tl_handles[i]);
     }
 
     i64 t9 = time.now_ms();
@@ -458,19 +443,16 @@ fn main() -> i32 {
 
     i64 t10 = time.now_ms();
 
-    i64 cas_handles = atomic.new(i64(0));
-    for (i64 i = i64(1); i < CAS_THREADS; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    array<i64> cas_handles = [];
     for (i64 i = i64(0); i < CAS_THREADS; i = i + i64(1)) {
         i64 iters = CAS_ITERS;
         i64 t = thread.spawn(fn() -> void {
             cas_worker(cas_counter, iters);
         });
-        atomic.store(cas_handles + i, t);
+        cas_handles.push(t);
     }
-    for (i64 i = i64(0); i < CAS_THREADS; i = i + i64(1)) {
-        thread.join(atomic.load(cas_handles + i));
+    for (i32 i = 0; i < cas_handles.len(); i++) {
+        thread.join(cas_handles[i]);
     }
 
     i64 t11 = time.now_ms();
@@ -493,18 +475,15 @@ fn main() -> i32 {
 
     i64 t12 = time.now_ms();
 
-    i64 bar_handles = atomic.new(i64(0));
-    for (i64 i = i64(1); i < BROADCAST_THREADS; i = i + i64(1)) {
-        atomic.new(i64(0));
-    }
+    array<i64> bar_handles = [];
     for (i64 i = i64(0); i < BROADCAST_THREADS; i = i + i64(1)) {
         i64 t = thread.spawn(fn() -> void {
             barrier_worker(bar_mtx, bar_cond, bar_arrived, BROADCAST_THREADS, bar_result);
         });
-        atomic.store(bar_handles + i, t);
+        bar_handles.push(t);
     }
-    for (i64 i = i64(0); i < BROADCAST_THREADS; i = i + i64(1)) {
-        thread.join(atomic.load(bar_handles + i));
+    for (i32 i = 0; i < bar_handles.len(); i++) {
+        thread.join(bar_handles[i]);
     }
 
     i64 t13 = time.now_ms();
