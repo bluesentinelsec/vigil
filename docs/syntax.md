@@ -232,6 +232,8 @@ array<string> names = ["alice", "bob"];
 map<string, i32> counts = {"a": 1, "b": 2};
 ```
 
+Trailing commas are not permitted in array or map literals.
+
 Empty collections require a type annotation:
 
 ```
@@ -409,7 +411,7 @@ fn main() -> i32 {
 }
 ```
 
-Anonymous functions capture surrounding variables by reference.
+Anonymous functions capture surrounding variables by value.
 
 ### Local Functions
 
@@ -456,7 +458,7 @@ for (i32 i = 0; i < 10; i++) {
 
 ### for-in
 
-Iterates over arrays and maps:
+Iterates over arrays (single binding) and maps (key-value pair):
 
 ```
 for val in arr {
@@ -483,7 +485,7 @@ switch (x) {
 
 - Cases may list multiple values separated by commas.
 - There is no fallthrough.
-- Works with integers, strings, and enum values.
+- Works with integers, bools, and enum values.
 
 ### break and continue
 
@@ -507,7 +509,7 @@ fn process() -> i32 {
 }
 ```
 
-- The argument must be a function call.
+- The argument must be a function call (local functions, object methods, or IIFEs — not module-qualified calls like `fmt.println`).
 - Deferred calls run in LIFO order.
 - Arguments are evaluated eagerly.
 
