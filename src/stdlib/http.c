@@ -351,6 +351,15 @@ static curl_easy_getinfo_t p_curl_easy_getinfo = NULL;
 static curl_slist_append_t p_curl_slist_append = NULL;
 static curl_slist_free_all_t p_curl_slist_free_all = NULL;
 
+/*
+ * Pedantic-safe dlsym loader: ISO C forbids void* -> function-pointer casts.
+ * Use memcpy to reinterpret the pointer without triggering -Wpedantic.
+ */
+static void dlsym_fn(void **dest, void *lib, const char *name) {
+    void *sym = dlsym(lib, name);
+    memcpy(dest, &sym, sizeof(sym));
+}
+
 static int curl_load(void) {
     if (g_curl_lib) return 1;
     const char *libs[] = {"libcurl.so.4", "libcurl.so", "libcurl.dylib", NULL};
@@ -360,13 +369,13 @@ static int curl_load(void) {
     }
     if (!g_curl_lib) return 0;
 
-    p_curl_easy_init = (curl_easy_init_t)dlsym(g_curl_lib, "curl_easy_init");
-    p_curl_easy_cleanup = (curl_easy_cleanup_t)dlsym(g_curl_lib, "curl_easy_cleanup");
-    p_curl_easy_setopt = (curl_easy_setopt_t)dlsym(g_curl_lib, "curl_easy_setopt");
-    p_curl_easy_perform = (curl_easy_perform_t)dlsym(g_curl_lib, "curl_easy_perform");
-    p_curl_easy_getinfo = (curl_easy_getinfo_t)dlsym(g_curl_lib, "curl_easy_getinfo");
-    p_curl_slist_append = (curl_slist_append_t)dlsym(g_curl_lib, "curl_slist_append");
-    p_curl_slist_free_all = (curl_slist_free_all_t)dlsym(g_curl_lib, "curl_slist_free_all");
+    dlsym_fn((void **)&p_curl_easy_init, g_curl_lib, "curl_easy_init");
+    dlsym_fn((void **)&p_curl_easy_cleanup, g_curl_lib, "curl_easy_cleanup");
+    dlsym_fn((void **)&p_curl_easy_setopt, g_curl_lib, "curl_easy_setopt");
+    dlsym_fn((void **)&p_curl_easy_perform, g_curl_lib, "curl_easy_perform");
+    dlsym_fn((void **)&p_curl_easy_getinfo, g_curl_lib, "curl_easy_getinfo");
+    dlsym_fn((void **)&p_curl_slist_append, g_curl_lib, "curl_slist_append");
+    dlsym_fn((void **)&p_curl_slist_free_all, g_curl_lib, "curl_slist_free_all");
 
     return p_curl_easy_init && p_curl_easy_cleanup && p_curl_easy_setopt &&
            p_curl_easy_perform && p_curl_easy_getinfo;
@@ -450,12 +459,12 @@ HTTP_STATIC int do_request(const char *method, const char *url_str,
     parsed_url_t url;
     if (!parse_url(url_str, &url)) return -1;
 
-    int is_https = (strcmp(url.scheme, "https") == 0);
-
 #ifdef _WIN32
     /* Windows: always use WinHTTP (supports HTTPS) */
     return winhttp_request(method, &url, headers, body, body_len, resp);
 #else
+    int is_https = (strcmp(url.scheme, "https") == 0);
+
     /* POSIX: try libcurl first (supports HTTPS), fallback to sockets (HTTP only) */
     if (curl_load()) {
         return curl_request(method, url_str, headers, body, body_len, resp);
