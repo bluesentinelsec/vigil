@@ -776,11 +776,16 @@ struct basl_platform_thread {
     HANDLE handle;
     basl_thread_func_t func;
     void *arg;
+    volatile int detached;
 };
 
 static DWORD WINAPI thread_wrapper(LPVOID arg) {
     basl_platform_thread_t *t = (basl_platform_thread_t *)arg;
     t->func(t->arg);
+    if (t->detached) {
+        CloseHandle(t->handle);
+        free(t);
+    }
     return 0;
 }
 
@@ -794,6 +799,7 @@ BASL_API basl_status_t basl_platform_thread_create(
     if (!t) return BASL_STATUS_OUT_OF_MEMORY;
     t->func = func;
     t->arg = arg;
+    t->detached = 0;
     t->handle = CreateThread(NULL, 0, thread_wrapper, t, 0, NULL);
     if (!t->handle) {
         free(t);
@@ -822,8 +828,7 @@ BASL_API basl_status_t basl_platform_thread_detach(
     basl_error_t *error
 ) {
     (void)error;
-    CloseHandle(thread->handle);
-    free(thread);
+    thread->detached = 1; /* wrapper will close handle and free after func returns */
     return BASL_STATUS_OK;
 }
 
@@ -904,6 +909,14 @@ BASL_API void basl_platform_cond_wait(
     basl_platform_mutex_t *mutex
 ) {
     SleepConditionVariableCS(&cond->cv, &mutex->cs, INFINITE);
+}
+
+BASL_API int basl_platform_cond_timedwait(
+    basl_platform_cond_t *cond,
+    basl_platform_mutex_t *mutex,
+    uint64_t timeout_ms
+) {
+    return SleepConditionVariableCS(&cond->cv, &mutex->cs, (DWORD)timeout_ms) ? 1 : 0;
 }
 
 BASL_API void basl_platform_cond_signal(basl_platform_cond_t *cond) {

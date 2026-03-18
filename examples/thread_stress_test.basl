@@ -2,20 +2,22 @@
 // thread_stress_test.basl — Comprehensive thread module stress test
 //
 // Exercises every available thread primitive:
-//   thread: spawn, join, current_id, yield, sleep, mutex, lock, unlock,
-//           try_lock, cond, wait, signal, broadcast, rwlock, read_lock,
-//           write_lock, rw_unlock
+//   thread: spawn, join (with return value), detach, current_id, yield, sleep,
+//           mutex, lock, unlock, try_lock, mutex_destroy,
+//           cond, wait, wait_timeout, signal, broadcast, cond_destroy,
+//           rwlock, read_lock, write_lock, rw_unlock, rwlock_destroy
 //   atomic: new, load, store, add, sub, cas, inc, dec
 //
 // Structure:
 //   Section 1 — Sequential baseline (Monte Carlo pi estimation)
-//   Section 2 — Parallel Monte Carlo with 50+ threads
-//   Section 3 — Producer-consumer pipeline with bounded queue
-//   Section 4 — Reader-writer lock contention test
-//   Section 5 — try_lock spin loop and yield stress
+//   Section 2 — Parallel Monte Carlo with 50+ threads + join return values
+//   Section 3 — Producer-consumer pipeline with bounded queue + wait_timeout
+//   Section 4 — Reader-writer lock contention + rwlock_destroy
+//   Section 5 — try_lock spin loop and yield stress + mutex_destroy
 //   Section 6 — CAS-based lock-free counter
-//   Section 7 — Broadcast wakeup (barrier emulation)
-//   Section 8 — Result comparison and report
+//   Section 7 — Broadcast wakeup (barrier emulation) + cond_destroy
+//   Section 8 — Detached fire-and-forget threads
+//   Section 9 — Result comparison and report
 // ============================================================================
 
 import "thread";
@@ -26,8 +28,8 @@ import "math";
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
-const i64 NUM_WORKERS       = i64(50);   // total worker threads
-const i64 ITERS_PER_WORKER  = i64(200000); // Monte Carlo samples per worker
+const i64 NUM_WORKERS       = i64(50);
+const i64 ITERS_PER_WORKER  = i64(200000);
 const i64 NUM_PRODUCERS     = i64(8);
 const i64 NUM_CONSUMERS     = i64(8);
 const i64 TASKS_PER_PRODUCER = i64(50);
@@ -40,31 +42,27 @@ const i64 TRYLOCK_ITERS     = i64(1000);
 const i64 CAS_THREADS       = i64(16);
 const i64 CAS_ITERS         = i64(5000);
 const i64 BROADCAST_THREADS = i64(20);
+const i64 DETACH_THREADS    = i64(10);
 
 // ============================================================================
 // Section 1: Sequential Monte Carlo pi estimation (baseline)
 // ============================================================================
 
 fn lcg_next(i64 state) -> i64 {
-    // Linear congruential generator: state = (a * state + c) mod m
-    // Using Numerical Recipes constants (mod 2^31)
     i64 a = i64(1103515245);
     i64 c = i64(12345);
-    i64 m = i64(2147483648); // 2^31
+    i64 m = i64(2147483648);
     return (a * state + c) % m;
 }
 
 fn monte_carlo_sequential(i64 total_iters) -> i64 {
-    // Returns count of points inside unit circle (scaled by 4 for pi)
     i64 inside = i64(0);
-    i64 rng = i64(42); // seed
-    i64 m = i64(2147483648);
+    i64 rng = i64(42);
     for (i64 i = i64(0); i < total_iters; i = i + i64(1)) {
         rng = lcg_next(rng);
         i64 xi = rng % i64(10000);
         rng = lcg_next(rng);
         i64 yi = rng % i64(10000);
-        // x, y in [0, 10000); check if x^2 + y^2 < 10000^2
         if (xi * xi + yi * yi < i64(100000000)) {
             inside = inside + i64(1);
         }
@@ -73,12 +71,11 @@ fn monte_carlo_sequential(i64 total_iters) -> i64 {
 }
 
 // ============================================================================
-// Section 2: Parallel Monte Carlo with NUM_WORKERS threads
-//   Primitives: spawn, join, mutex, lock, unlock, atomic.add, atomic.load,
-//               current_id, sleep
+// Section 2: Parallel Monte Carlo — uses thread.join return values
+//   Workers return their hit count directly; main collects via join.
 // ============================================================================
 
-fn monte_carlo_worker(i64 iters, i64 seed, i64 hit_counter) -> void {
+fn monte_carlo_worker(i64 iters, i64 seed) -> i64 {
     i64 inside = i64(0);
     i64 rng = seed;
     for (i64 i = i64(0); i < iters; i = i + i64(1)) {
@@ -90,34 +87,23 @@ fn monte_carlo_worker(i64 iters, i64 seed, i64 hit_counter) -> void {
             inside = inside + i64(1);
         }
     }
-    atomic.add(hit_counter, inside);
+    return inside;
 }
 
 // ============================================================================
-// Section 3: Producer-consumer pipeline
-//   Primitives: mutex, lock, unlock, cond, wait, signal, broadcast,
-//               atomic.add, atomic.load, atomic.store, atomic.inc, atomic.dec
-//
-//   Bounded queue of size QUEUE_CAPACITY. Producers enqueue task IDs,
-//   consumers dequeue and "process" them (sum the IDs). Poison pill = -1.
+// Section 3: Producer-consumer pipeline with wait_timeout
+//   Consumers use wait_timeout instead of plain wait for graceful shutdown.
 // ============================================================================
-
-// Queue state stored in atomics:
-//   queue slots: atomic array (indices 0..QUEUE_CAPACITY-1)
-//   head, tail, count: atomics for queue bookkeeping
-//   done_flag: signals consumers to exit
 
 fn producer_work(i64 id, i64 tasks, i64 q_mtx, i64 q_not_full, i64 q_not_empty,
                  i64 q_head, i64 q_tail, i64 q_count, i64 q_base,
                  i64 produced_total) -> void {
     for (i64 t = i64(0); t < tasks; t = t + i64(1)) {
-        i64 task_val = id * i64(1000) + t; // unique task ID
+        i64 task_val = id * i64(1000) + t;
         thread.lock(q_mtx);
-        // Wait while queue is full
         for (; atomic.load(q_count) >= QUEUE_CAPACITY; ) {
             thread.wait(q_not_full, q_mtx);
         }
-        // Enqueue
         i64 tail = atomic.load(q_tail);
         i64 slot = q_base + tail;
         atomic.store(slot, task_val);
@@ -134,15 +120,14 @@ fn consumer_work(i64 q_mtx, i64 q_not_full, i64 q_not_empty,
                  i64 done_flag, i64 consumed_sum, i64 consumed_count) -> void {
     for (;;) {
         thread.lock(q_mtx);
-        // Wait while queue is empty and not done
         for (; atomic.load(q_count) == i64(0); ) {
             if (atomic.load(done_flag) == i64(1)) {
                 thread.unlock(q_mtx);
                 return;
             }
-            thread.wait(q_not_empty, q_mtx);
+            // Use wait_timeout: wake every 10ms to check done_flag
+            thread.wait_timeout(q_not_empty, q_mtx, i64(10));
         }
-        // Check again after wakeup
         if (atomic.load(q_count) == i64(0)) {
             thread.unlock(q_mtx);
             if (atomic.load(done_flag) == i64(1)) {
@@ -150,7 +135,6 @@ fn consumer_work(i64 q_mtx, i64 q_not_full, i64 q_not_empty,
             }
             continue;
         }
-        // Dequeue
         i64 head = atomic.load(q_head);
         i64 slot = q_base + head;
         i64 val = atomic.load(slot);
@@ -158,15 +142,13 @@ fn consumer_work(i64 q_mtx, i64 q_not_full, i64 q_not_empty,
         atomic.dec(q_count);
         thread.signal(q_not_full);
         thread.unlock(q_mtx);
-        // "Process" the task: accumulate its value
         atomic.add(consumed_sum, val);
         atomic.inc(consumed_count);
     }
 }
 
 // ============================================================================
-// Section 4: Reader-writer lock contention
-//   Primitives: rwlock, read_lock, write_lock, rw_unlock, atomic.add
+// Section 4: Reader-writer lock contention + rwlock_destroy
 // ============================================================================
 
 fn reader_work(i64 rw, i64 shared_val, i64 read_sum, i64 ops) -> void {
@@ -187,8 +169,7 @@ fn writer_work(i64 rw, i64 shared_val, i64 ops) -> void {
 }
 
 // ============================================================================
-// Section 5: try_lock spin loop + yield stress
-//   Primitives: try_lock, unlock, yield, atomic.inc
+// Section 5: try_lock spin loop + yield stress + mutex_destroy
 // ============================================================================
 
 fn trylock_worker(i64 mtx, i64 counter, i64 iters) -> void {
@@ -203,7 +184,6 @@ fn trylock_worker(i64 mtx, i64 counter, i64 iters) -> void {
 
 // ============================================================================
 // Section 6: CAS-based lock-free counter
-//   Primitives: atomic.load, atomic.cas
 // ============================================================================
 
 fn cas_worker(i64 counter, i64 iters) -> void {
@@ -218,32 +198,36 @@ fn cas_worker(i64 counter, i64 iters) -> void {
 }
 
 // ============================================================================
-// Section 7: Broadcast barrier emulation
-//   Primitives: cond, broadcast, wait, mutex, lock, unlock, atomic.inc,
-//               atomic.load, atomic.sub
+// Section 7: Broadcast barrier emulation + cond_destroy
 // ============================================================================
 
 fn barrier_worker(i64 bar_mtx, i64 bar_cond, i64 arrived, i64 total,
                   i64 result_counter) -> void {
-    // Phase 1: arrive at barrier
     thread.lock(bar_mtx);
     atomic.inc(arrived);
     if (atomic.load(arrived) == total) {
-        // Last thread: wake everyone
         thread.broadcast(bar_cond);
     } else {
-        // Wait for all to arrive
         for (; atomic.load(arrived) < total; ) {
             thread.wait(bar_cond, bar_mtx);
         }
     }
     thread.unlock(bar_mtx);
-    // Phase 2: all threads past barrier, do work
     atomic.inc(result_counter);
 }
 
 // ============================================================================
-// Section 8: Main — run all sections, compare, report
+// Section 8: Detached fire-and-forget threads
+//   Uses thread.detach — threads write to an atomic before exiting.
+// ============================================================================
+
+fn detach_worker(i64 counter) -> void {
+    thread.sleep(i64(5));
+    atomic.inc(counter);
+}
+
+// ============================================================================
+// Main — run all sections, compare, report
 // ============================================================================
 
 fn main() -> i32 {
@@ -262,55 +246,45 @@ fn main() -> i32 {
     fmt.println(f"    Hits: {seq_hits}");
     fmt.println(f"    Time: {seq_ms} ms");
 
-    // ── Section 2: Parallel Monte Carlo ─────────────────────────────────
+    // ── Section 2: Parallel Monte Carlo with join return values ─────────
     fmt.println("");
-    fmt.println(f"[2] Parallel Monte Carlo ({NUM_WORKERS} threads)...");
-    i64 par_hits = atomic.new(i64(0));
+    fmt.println(f"[2] Parallel Monte Carlo ({NUM_WORKERS} threads, join return values)...");
     i64 t2 = time.now_ms();
 
-    // Spawn NUM_WORKERS threads, each with a unique seed
-    // Store thread handles in atomics (workaround: no arrays of handles)
-    i64 th_base = atomic.new(i64(0)); // handle storage base
-    // We'll allocate NUM_WORKERS atomics to hold thread handles
-    // Actually, we need to spawn and join in a loop. Since we can't
-    // use arrays, we'll spawn in batches and join immediately per batch.
-    // Better approach: allocate atomic slots for handles.
-
-    // Allocate handle storage
-    i64 handles_base = atomic.new(i64(0)); // slot 0 of handles
-    // Pre-allocate remaining handle slots
+    // Allocate handle storage in atomics
+    i64 handles_base = atomic.new(i64(0));
     for (i64 i = i64(1); i < NUM_WORKERS; i = i + i64(1)) {
         atomic.new(i64(0));
     }
-    // handles_base through handles_base + NUM_WORKERS - 1 are our handle slots
 
     for (i64 i = i64(0); i < NUM_WORKERS; i = i + i64(1)) {
-        i64 seed = i64(1000) + i * i64(7919); // unique seed per thread
+        i64 seed = i64(1000) + i * i64(7919);
         i64 iters = ITERS_PER_WORKER;
-        i64 hits = par_hits;
-        i64 t = thread.spawn(fn() -> void {
-            monte_carlo_worker(iters, seed, hits);
+        i64 t = thread.spawn(fn() -> i64 {
+            return monte_carlo_worker(iters, seed);
         });
         atomic.store(handles_base + i, t);
     }
 
+    // Collect results via join return values — no shared atomic needed!
+    i64 par_result = i64(0);
     for (i64 i = i64(0); i < NUM_WORKERS; i = i + i64(1)) {
         i64 h = atomic.load(handles_base + i);
-        thread.join(h);
+        i64 hits = thread.join(h);
+        par_result = par_result + hits;
     }
 
     i64 t3 = time.now_ms();
     i64 par_ms = t3 - t2;
-    i64 par_result = atomic.load(par_hits);
     fmt.println(f"    Hits: {par_result}");
     fmt.println(f"    Time: {par_ms} ms");
     if (par_ms > i64(0)) {
         fmt.println(f"    Speedup: ~{seq_ms / par_ms}x");
     }
 
-    // ── Section 3: Producer-consumer pipeline ───────────────────────────
+    // ── Section 3: Producer-consumer pipeline (wait_timeout) ────────────
     fmt.println("");
-    fmt.println("[3] Producer-consumer pipeline...");
+    fmt.println("[3] Producer-consumer pipeline (wait_timeout)...");
     fmt.println(f"    {NUM_PRODUCERS} producers x {TASKS_PER_PRODUCER} tasks, {NUM_CONSUMERS} consumers, queue cap {QUEUE_CAPACITY}");
 
     i64 q_mtx = thread.mutex();
@@ -319,7 +293,6 @@ fn main() -> i32 {
     i64 q_head = atomic.new(i64(0));
     i64 q_tail = atomic.new(i64(0));
     i64 q_count = atomic.new(i64(0));
-    // Allocate queue buffer slots
     i64 q_base = atomic.new(i64(0));
     for (i64 i = i64(1); i < QUEUE_CAPACITY; i = i + i64(1)) {
         atomic.new(i64(0));
@@ -331,7 +304,6 @@ fn main() -> i32 {
 
     i64 t4 = time.now_ms();
 
-    // Spawn producers
     i64 prod_handles = atomic.new(i64(0));
     for (i64 i = i64(1); i < NUM_PRODUCERS; i = i + i64(1)) {
         atomic.new(i64(0));
@@ -347,7 +319,6 @@ fn main() -> i32 {
         atomic.store(prod_handles + i, t);
     }
 
-    // Spawn consumers
     i64 cons_handles = atomic.new(i64(0));
     for (i64 i = i64(1); i < NUM_CONSUMERS; i = i + i64(1)) {
         atomic.new(i64(0));
@@ -361,19 +332,13 @@ fn main() -> i32 {
         atomic.store(cons_handles + i, t);
     }
 
-    // Join producers
     for (i64 i = i64(0); i < NUM_PRODUCERS; i = i + i64(1)) {
         thread.join(atomic.load(prod_handles + i));
     }
 
-    // Signal done and wake all consumers
+    // Signal done — consumers will notice via wait_timeout, no broadcast needed
     atomic.store(done_flag, i64(1));
-    // Broadcast to wake any waiting consumers
-    thread.lock(q_mtx);
-    thread.broadcast(q_not_empty);
-    thread.unlock(q_mtx);
 
-    // Join consumers
     for (i64 i = i64(0); i < NUM_CONSUMERS; i = i + i64(1)) {
         thread.join(atomic.load(cons_handles + i));
     }
@@ -384,8 +349,6 @@ fn main() -> i32 {
     i64 total_consumed = atomic.load(consumed_count);
     i64 total_sum = atomic.load(consumed_sum);
 
-    // Compute expected sum: each producer i produces tasks with values i*1000+t
-    // for t in [0, TASKS_PER_PRODUCER). Sum = sum over all producers and tasks.
     i64 expected_sum = i64(0);
     for (i64 p = i64(0); p < NUM_PRODUCERS; p = p + i64(1)) {
         for (i64 t = i64(0); t < TASKS_PER_PRODUCER; t = t + i64(1)) {
@@ -403,7 +366,12 @@ fn main() -> i32 {
         fmt.println("    *** FAIL: sum mismatch ***");
     }
 
-    // ── Section 4: Reader-writer lock contention ────────────────────────
+    // Clean up queue synchronization primitives
+    thread.mutex_destroy(q_mtx);
+    thread.cond_destroy(q_not_full);
+    thread.cond_destroy(q_not_empty);
+
+    // ── Section 4: Reader-writer lock contention + destroy ──────────────
     fmt.println("");
     fmt.println("[4] Reader-writer lock contention...");
     i64 rw = thread.rwlock();
@@ -418,7 +386,6 @@ fn main() -> i32 {
         atomic.new(i64(0));
     }
 
-    // Spawn readers
     for (i64 i = i64(0); i < RW_READERS; i = i + i64(1)) {
         i64 ops = RW_OPS_PER_THREAD;
         i64 t = thread.spawn(fn() -> void {
@@ -426,7 +393,6 @@ fn main() -> i32 {
         });
         atomic.store(rw_handles + i, t);
     }
-    // Spawn writers
     for (i64 i = i64(0); i < RW_WRITERS; i = i + i64(1)) {
         i64 ops = RW_OPS_PER_THREAD;
         i64 t = thread.spawn(fn() -> void {
@@ -449,8 +415,9 @@ fn main() -> i32 {
     if (final_shared != expected_writes) {
         fmt.println("    *** FAIL: write count mismatch ***");
     }
+    thread.rwlock_destroy(rw);
 
-    // ── Section 5: try_lock spin + yield ────────────────────────────────
+    // ── Section 5: try_lock spin + yield + mutex_destroy ────────────────
     fmt.println("");
     fmt.println("[5] try_lock spin + yield stress...");
     i64 tl_mtx = thread.mutex();
@@ -482,6 +449,7 @@ fn main() -> i32 {
     if (tl_result != tl_expected) {
         fmt.println("    *** FAIL: try_lock counter mismatch ***");
     }
+    thread.mutex_destroy(tl_mtx);
 
     // ── Section 6: CAS-based lock-free counter ──────────────────────────
     fmt.println("");
@@ -515,13 +483,12 @@ fn main() -> i32 {
         fmt.println("    *** FAIL: CAS counter mismatch ***");
     }
 
-    // ── Section 7: Broadcast barrier emulation ──────────────────────────
+    // ── Section 7: Broadcast barrier + cond_destroy ─────────────────────
     fmt.println("");
     fmt.println(f"[7] Broadcast barrier ({BROADCAST_THREADS} threads)...");
     i64 bar_mtx = thread.mutex();
     i64 bar_cond = thread.cond();
     i64 bar_arrived = atomic.new(i64(0));
-    i64 bar_total = atomic.new(BROADCAST_THREADS);
     i64 bar_result = atomic.new(i64(0));
 
     i64 t12 = time.now_ms();
@@ -548,16 +515,38 @@ fn main() -> i32 {
     if (bar_count != BROADCAST_THREADS) {
         fmt.println("    *** FAIL: not all threads passed barrier ***");
     }
+    thread.mutex_destroy(bar_mtx);
+    thread.cond_destroy(bar_cond);
 
-    // ── Section 8: Summary ──────────────────────────────────────────────
+    // ── Section 8: Detached fire-and-forget threads ─────────────────────
+    fmt.println("");
+    fmt.println(f"[8] Detached threads ({DETACH_THREADS} fire-and-forget)...");
+    i64 detach_counter = atomic.new(i64(0));
+
+    i64 t14 = time.now_ms();
+    for (i64 i = i64(0); i < DETACH_THREADS; i = i + i64(1)) {
+        i64 t = thread.spawn(fn() -> void {
+            detach_worker(detach_counter);
+        });
+        thread.detach(t);
+    }
+    // Give detached threads time to finish (they sleep 5ms + do work)
+    thread.sleep(i64(100));
+
+    i64 t15 = time.now_ms();
+    i64 detach_ms = t15 - t14;
+    i64 detach_count = atomic.load(detach_counter);
+    fmt.println(f"    Completed: {detach_count} (expected: {DETACH_THREADS})");
+    fmt.println(f"    Time: {detach_ms} ms");
+    if (detach_count != DETACH_THREADS) {
+        fmt.println("    *** FAIL: not all detached threads completed ***");
+    }
+
+    // ── Section 9: Summary ──────────────────────────────────────────────
     fmt.println("");
     fmt.println("=== Summary ===");
     i64 failures = i64(0);
 
-    // Check pi estimates are in the right ballpark (within 5%)
-    // pi ~= 4 * hits / total_iters, so hits ~= total_iters * pi / 4
-    // Expected hits ~= total_iters * 0.785 (for our integer grid method)
-    // We just check sequential and parallel are both > 0 and reasonably close
     if (seq_hits == i64(0)) {
         fmt.println("FAIL: Sequential hits = 0");
         failures = failures + i64(1);
@@ -566,7 +555,6 @@ fn main() -> i32 {
         fmt.println("FAIL: Parallel hits = 0");
         failures = failures + i64(1);
     }
-
     if (total_consumed != total_produced) {
         fmt.println("FAIL: Producer-consumer count mismatch");
         failures = failures + i64(1);
@@ -591,6 +579,10 @@ fn main() -> i32 {
         fmt.println("FAIL: Barrier count mismatch");
         failures = failures + i64(1);
     }
+    if (detach_count != DETACH_THREADS) {
+        fmt.println("FAIL: Detached thread count mismatch");
+        failures = failures + i64(1);
+    }
 
     if (failures == i64(0)) {
         fmt.println("ALL CHECKS PASSED");
@@ -598,11 +590,9 @@ fn main() -> i32 {
         fmt.println(f"{failures} CHECK(S) FAILED");
     }
 
-    // Thread count: 50 (MC) + 8 (prod) + 8 (cons) + 14 (rw) + 8 (trylock)
-    //             + 16 (cas) + 20 (barrier) = 124 total threads spawned
     i64 total_threads = NUM_WORKERS + NUM_PRODUCERS + NUM_CONSUMERS
                       + RW_READERS + RW_WRITERS + TRYLOCK_THREADS
-                      + CAS_THREADS + BROADCAST_THREADS;
+                      + CAS_THREADS + BROADCAST_THREADS + DETACH_THREADS;
     fmt.println(f"Total threads spawned: {total_threads}");
 
     i64 total_ms = time.now_ms() - t0;
