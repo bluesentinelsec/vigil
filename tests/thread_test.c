@@ -171,9 +171,11 @@ TEST(BaslThreadTest, SpawnWithMutexCoordination) {
 /* ── Registration ────────────────────────────────────────────────── */
 
 void register_thread_tests(void) {
+#ifndef __EMSCRIPTEN__
     REGISTER_TEST(BaslThreadTest, SpawnZeroArityFunction);
     REGISTER_TEST(BaslThreadTest, SpawnWithClosureCapture);
     REGISTER_TEST(BaslThreadTest, SpawnClosureWithMultipleCaptures);
     REGISTER_TEST(BaslThreadTest, SpawnMultipleThreadsWithClosures);
     REGISTER_TEST(BaslThreadTest, SpawnWithMutexCoordination);
+#endif
 }
