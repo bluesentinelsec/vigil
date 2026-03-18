@@ -1718,6 +1718,157 @@ TEST(BaslStdlibStringTest, TrimPrefixAndTrimSuffix) {
         "    "), 0);
 }
 
+/* ── Crypto SHA-256 ──────────────────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, Sha256Empty) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string h = crypto.sha256(\"\");\n"
+        "    if (h != \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(BaslStdlibCryptoTest, Sha256Hello) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string h = crypto.sha256(\"hello\");\n"
+        "    if (h != \"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto SHA-512 ──────────────────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, Sha512Hello) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string h = crypto.sha512(\"hello\");\n"
+        "    if (!h.starts_with(\"9b71d224bd62f3785d96d46ad3ea3d73\")) { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto HMAC-SHA256 ──────────────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, HmacSha256) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string h = crypto.hmac_sha256(\"key\", \"message\");\n"
+        "    if (h != \"6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto hex encode/decode ────────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, HexEncode) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    if (crypto.hex_encode(\"ABC\") != \"414243\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(BaslStdlibCryptoTest, HexDecode) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    if (crypto.hex_decode(\"414243\") != \"ABC\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto base64 encode/decode ─────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, Base64Encode) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    if (crypto.base64_encode(\"hello\") != \"aGVsbG8=\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(BaslStdlibCryptoTest, Base64Decode) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    if (crypto.base64_decode(\"aGVsbG8=\") != \"hello\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto encrypt/decrypt roundtrip ────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, EncryptDecryptRoundtrip) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string key = crypto.random_bytes(32);\n"
+        "    string nonce = crypto.random_bytes(12);\n"
+        "    string plaintext = \"secret message\";\n"
+        "    string encrypted = crypto.encrypt(key, nonce, plaintext);\n"
+        "    string decrypted = crypto.decrypt(key, encrypted);\n"
+        "    if (decrypted != plaintext) { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto constant_time_eq ─────────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, ConstantTimeEq) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    if (!crypto.constant_time_eq(\"abc\", \"abc\")) { return 1; }\n"
+        "    if (crypto.constant_time_eq(\"abc\", \"xyz\")) { return 2; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto random_bytes ─────────────────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, RandomBytesLength) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string r = crypto.random_bytes(32);\n"
+        "    if (r.len() != 32) { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+/* ── Crypto password_encrypt/decrypt ─────────────────────────────── */
+
+TEST(BaslStdlibCryptoTest, PasswordEncryptDecrypt) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string plaintext = \"secret message\";\n"
+        "    string encrypted = crypto.password_encrypt(\"my password\", plaintext);\n"
+        "    string decrypted = crypto.password_decrypt(\"my password\", encrypted);\n"
+        "    if (decrypted != plaintext) { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(BaslStdlibCryptoTest, PasswordDecryptWrongPassword) {
+    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+        "import \"crypto\";\n"
+        "fn main() -> i32 {\n"
+        "    string encrypted = crypto.password_encrypt(\"correct\", \"secret\");\n"
+        "    string decrypted = crypto.password_decrypt(\"wrong\", encrypted);\n"
+        "    if (decrypted != \"\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
 void register_stdlib_tests(void) {
     REGISTER_TEST(BaslStdlibFmtTest, PrintlnOutputsStringWithNewline);
     REGISTER_TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline);
@@ -1812,4 +1963,17 @@ void register_stdlib_tests(void) {
     REGISTER_TEST(BaslStdlibStringTest, Count);
     REGISTER_TEST(BaslStdlibStringTest, LastIndexOf);
     REGISTER_TEST(BaslStdlibStringTest, TrimPrefixAndTrimSuffix);
+    REGISTER_TEST(BaslStdlibCryptoTest, Sha256Empty);
+    REGISTER_TEST(BaslStdlibCryptoTest, Sha256Hello);
+    REGISTER_TEST(BaslStdlibCryptoTest, Sha512Hello);
+    REGISTER_TEST(BaslStdlibCryptoTest, HmacSha256);
+    REGISTER_TEST(BaslStdlibCryptoTest, HexEncode);
+    REGISTER_TEST(BaslStdlibCryptoTest, HexDecode);
+    REGISTER_TEST(BaslStdlibCryptoTest, Base64Encode);
+    REGISTER_TEST(BaslStdlibCryptoTest, Base64Decode);
+    REGISTER_TEST(BaslStdlibCryptoTest, EncryptDecryptRoundtrip);
+    REGISTER_TEST(BaslStdlibCryptoTest, ConstantTimeEq);
+    REGISTER_TEST(BaslStdlibCryptoTest, RandomBytesLength);
+    REGISTER_TEST(BaslStdlibCryptoTest, PasswordEncryptDecrypt);
+    REGISTER_TEST(BaslStdlibCryptoTest, PasswordDecryptWrongPassword);
 }
