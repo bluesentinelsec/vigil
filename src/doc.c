@@ -903,7 +903,27 @@ basl_status_t basl_doc_extract(
                                 first_decl_offset, &out_module->summary);
     }
 
-    /* Second pass: extract public declarations at brace depth 0. */
+    /* Second pass: extract public declarations at brace depth 0.
+     * For script files (those containing a main function), also extract
+     * non-pub declarations so that `basl doc` is useful on scripts. */
+    int is_script = 0;
+    {
+        size_t scan = 0;
+        while (1) {
+            const basl_token_t *st = tok_at(tokens, scan);
+            if (st == NULL || st->kind == BASL_TOKEN_EOF) break;
+            if (st->kind == BASL_TOKEN_FN) {
+                const basl_token_t *nt = tok_at(tokens, scan + 1);
+                if (nt != NULL && nt->kind == BASL_TOKEN_IDENTIFIER &&
+                    nt->span.end_offset - nt->span.start_offset == 4 &&
+                    memcmp(source_text + nt->span.start_offset, "main", 4) == 0) {
+                    is_script = 1;
+                    break;
+                }
+            }
+            scan++;
+        }
+    }
     cursor = 0;
     while (1) {
         int is_pub = 0;
@@ -935,7 +955,7 @@ basl_status_t basl_doc_extract(
         if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
 
         if (t->kind == BASL_TOKEN_FN) {
-            if (is_pub) {
+            if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
                 if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
@@ -970,7 +990,7 @@ basl_status_t basl_doc_extract(
                 skip_brace_body(tokens, &cursor);
             }
         } else if (t->kind == BASL_TOKEN_CLASS) {
-            if (is_pub) {
+            if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
                 if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
@@ -989,7 +1009,7 @@ basl_status_t basl_doc_extract(
                 skip_brace_body(tokens, &cursor);
             }
         } else if (t->kind == BASL_TOKEN_INTERFACE) {
-            if (is_pub) {
+            if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
                 if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
@@ -1006,7 +1026,7 @@ basl_status_t basl_doc_extract(
                 skip_brace_body(tokens, &cursor);
             }
         } else if (t->kind == BASL_TOKEN_ENUM) {
-            if (is_pub) {
+            if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
                 if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
@@ -1018,7 +1038,7 @@ basl_status_t basl_doc_extract(
                 skip_brace_body(tokens, &cursor);
             }
         } else if (t->kind == BASL_TOKEN_CONST) {
-            if (is_pub) {
+            if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
                 if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
@@ -1035,7 +1055,7 @@ basl_status_t basl_doc_extract(
             }
         } else if (tok_is_type_start(t)) {
             /* Variable declaration: [pub] type name = ...; */
-            if (is_pub) {
+            if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
                 if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,

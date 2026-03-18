@@ -4225,14 +4225,15 @@ static basl_status_t basl_program_parse_constant_comparison(
         if (
             (!basl_parser_type_is_integer(left.type) ||
              !basl_parser_type_equal(left.type, right.type)) &&
-            (!basl_parser_type_is_f64(left.type) || !basl_parser_type_is_f64(right.type))
+            (!basl_parser_type_is_f64(left.type) || !basl_parser_type_is_f64(right.type)) &&
+            !(basl_parser_type_is_string(left.type) && basl_parser_type_is_string(right.type))
         ) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
             return basl_compile_report(
                 program,
                 token->span,
-                "comparison operators require matching integer or f64 operands"
+                "comparison operators require matching integer, f64, or string operands"
             );
         }
 
@@ -10669,7 +10670,7 @@ static basl_status_t basl_parser_parse_comparison(
             status = basl_parser_report(
                 state,
                 operator_span,
-                "comparison operators require matching integer or f64 operands"
+                "comparison operators require matching integer, f64, or string operands"
             );
         } else {
             status = BASL_STATUS_OK;

@@ -167,7 +167,8 @@ int basl_type_supports_binary_operator(
         case BASL_BINARY_OPERATOR_LESS_EQUAL:
             return (basl_type_kind_is_integer(left_type) &&
                     basl_type_kinds_match(left_type, right_type)) ||
-                   (left_type == BASL_TYPE_F64 && right_type == BASL_TYPE_F64);
+                   (left_type == BASL_TYPE_F64 && right_type == BASL_TYPE_F64) ||
+                   (left_type == BASL_TYPE_STRING && right_type == BASL_TYPE_STRING);
         case BASL_BINARY_OPERATOR_EQUAL:
         case BASL_BINARY_OPERATOR_NOT_EQUAL:
             return basl_type_kinds_match(left_type, right_type);

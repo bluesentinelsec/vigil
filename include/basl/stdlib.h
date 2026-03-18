@@ -44,6 +44,7 @@ extern BASL_API const basl_native_module_t basl_stdlib_http;
 extern BASL_API const basl_native_module_t basl_stdlib_log;
 extern BASL_API const basl_native_module_t basl_stdlib_math;
 extern BASL_API const basl_native_module_t basl_stdlib_net;
+extern BASL_API const basl_native_module_t basl_stdlib_parse;
 extern BASL_API const basl_native_module_t basl_stdlib_random;
 extern BASL_API const basl_native_module_t basl_stdlib_readline;
 extern BASL_API const basl_native_module_t basl_stdlib_regex;
@@ -84,6 +85,8 @@ static inline basl_status_t basl_stdlib_register_all(
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_net, error);
     if (status != BASL_STATUS_OK) return status;
+    status = basl_native_registry_add(registry, &basl_stdlib_parse, error);
+    if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_random, error);
     if (status != BASL_STATUS_OK) return status;
     status = basl_native_registry_add(registry, &basl_stdlib_readline, error);
@@ -120,6 +123,7 @@ static inline int basl_stdlib_is_native_module(
            (name_length == 3U && memcmp(name, "log", 3U) == 0) ||
            (name_length == 4U && memcmp(name, "math", 4U) == 0) ||
            (name_length == 3U && memcmp(name, "net", 3U) == 0) ||
+           (name_length == 5U && memcmp(name, "parse", 5U) == 0) ||
            (name_length == 6U && memcmp(name, "random", 6U) == 0) ||
            (name_length == 8U && memcmp(name, "readline", 8U) == 0) ||
            (name_length == 5U && memcmp(name, "regex", 5U) == 0) ||

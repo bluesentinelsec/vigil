@@ -14,6 +14,7 @@
 
 import "args";
 import "fmt";
+import "parse";
 
 // ============================================================================
 // Argparse layer — built on args.count() / args.at()
@@ -194,21 +195,8 @@ fn parse_opts(i32 start,
             }
             // Type validation for int
             if (typ == "int") {
-                bool valid = true;
-                if (val.is_empty()) {
-                    valid = false;
-                }
-                string digits = "0123456789";
-                for (i32 c = 0; c < val.len(); c++) {
-                    string ch, err ce = val.char_at(c);
-                    if (c == 0 && ch == "-") {
-                        continue;
-                    }
-                    if (!digits.contains(ch)) {
-                        valid = false;
-                    }
-                }
-                if (!valid) {
+                i32 _, err parse_err = parse.i32(val);
+                if (parse_err != ok) {
                     return f"option --{name} requires an integer, got: {val}";
                 }
             }

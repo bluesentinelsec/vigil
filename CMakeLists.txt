@@ -96,6 +96,7 @@ add_library(basl ${BASL_LIBRARY_TYPE}
     src/stdlib/log.c
     src/stdlib/math.c
     src/stdlib/net.c
+    src/stdlib/parse.c
     src/stdlib/random.c
     src/stdlib/readline.c
     src/stdlib/regex.c

@@ -6117,6 +6117,26 @@ basl_status_t basl_vm_execute_function(
                             goto cleanup;
                         }
                     } else if (
+                        ((basl_opcode_t)code[frame->ip] == BASL_OPCODE_GREATER ||
+                         (basl_opcode_t)code[frame->ip] == BASL_OPCODE_LESS) &&
+                        basl_nanbox_is_object(left) &&
+                        basl_nanbox_is_object(right) &&
+                        ((basl_object_t *)basl_nanbox_decode_ptr(left)) != NULL &&
+                        ((basl_object_t *)basl_nanbox_decode_ptr(right)) != NULL &&
+                        basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(left))) == BASL_OBJECT_STRING &&
+                        basl_object_type(((basl_object_t *)basl_nanbox_decode_ptr(right))) == BASL_OBJECT_STRING
+                    ) {
+                        basl_object_t *ls = (basl_object_t *)basl_nanbox_decode_ptr(left);
+                        basl_object_t *rs = (basl_object_t *)basl_nanbox_decode_ptr(right);
+                        const char *lp = basl_string_object_c_str(ls);
+                        const char *rp = basl_string_object_c_str(rs);
+                        int cmp = strcmp(lp, rp);
+                        if ((basl_opcode_t)code[frame->ip] == BASL_OPCODE_GREATER) {
+                            basl_value_init_bool(&value, cmp > 0);
+                        } else {
+                            basl_value_init_bool(&value, cmp < 0);
+                        }
+                    } else if (
                         basl_nanbox_is_double(left) &&
                         basl_nanbox_is_double(right)
                     ) {
