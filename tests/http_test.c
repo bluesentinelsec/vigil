@@ -312,6 +312,176 @@ TEST(BaslHttpTest, ResponseFreeNull) {
     EXPECT_EQ(resp.headers, NULL);
 }
 
+/* ── Server round-trip tests ──────────────────────────────────────── */
+
+static void socket_init_for_test(void) {
+#ifdef _WIN32
+    static int inited = 0;
+    if (!inited) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+        inited = 1;
+    }
+#endif
+}
+
+/*
+ * Test the socket-based server path by creating a listener, connecting
+ * a client in a thread, and verifying the round-trip.
+ */
+
+#define SERVER_TEST_PORT 18788
+
+typedef struct {
+    int port;
+    volatile int ready;
+    char received_method[32];
+    char received_path[256];
+    char received_body[1024];
+} server_test_ctx_t;
+
+static void server_thread_func(void *arg) {
+    server_test_ctx_t *ctx = (server_test_ctx_t *)arg;
+    socket_init_for_test();
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons((uint16_t)ctx->port);
+
+    socket_t listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == INVALID_SOCK) return;
+
+    int opt = 1;
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
+
+    if (bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close_socket(listener); return;
+    }
+    if (listen(listener, 1) < 0) {
+        close_socket(listener); return;
+    }
+
+    ctx->ready = 1;
+
+    socket_t client = accept(listener, NULL, NULL);
+    if (client == INVALID_SOCK) { close_socket(listener); return; }
+
+    /* Read request */
+    char buf[4096];
+    size_t len = 0;
+    for (;;) {
+        int n = recv(client, buf + len, (int)(sizeof(buf) - len - 1), 0);
+        if (n <= 0) break;
+        len += (size_t)n;
+        buf[len] = '\0';
+        if (strstr(buf, "\r\n\r\n")) break;
+    }
+
+    /* Parse method and path */
+    char *sp1 = strchr(buf, ' ');
+    if (sp1) {
+        size_t mlen = (size_t)(sp1 - buf);
+        if (mlen < sizeof(ctx->received_method)) {
+            memcpy(ctx->received_method, buf, mlen);
+            ctx->received_method[mlen] = '\0';
+        }
+        char *sp2 = strchr(sp1 + 1, ' ');
+        if (sp2) {
+            size_t plen = (size_t)(sp2 - sp1 - 1);
+            if (plen < sizeof(ctx->received_path)) {
+                memcpy(ctx->received_path, sp1 + 1, plen);
+                ctx->received_path[plen] = '\0';
+            }
+        }
+    }
+
+    /* Extract body after \r\n\r\n */
+    char *body_start = strstr(buf, "\r\n\r\n");
+    if (body_start) {
+        body_start += 4;
+        size_t blen = len - (size_t)(body_start - buf);
+        if (blen < sizeof(ctx->received_body)) {
+            memcpy(ctx->received_body, body_start, blen);
+            ctx->received_body[blen] = '\0';
+        }
+    }
+
+    /* Send response */
+    const char *response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 11\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "hello world";
+    send(client, response, (int)strlen(response), 0);
+
+    close_socket(client);
+    close_socket(listener);
+}
+
+TEST(BaslHttpTest, ServerRoundTrip) {
+    server_test_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.port = SERVER_TEST_PORT;
+
+    basl_platform_thread_t *thr = NULL;
+    basl_status_t st = basl_platform_thread_create(&thr, server_thread_func, &ctx, NULL);
+    if (st != BASL_STATUS_OK) return;
+
+    for (int i = 0; i < 200 && !ctx.ready; i++)
+        basl_platform_thread_sleep(10);
+    if (!ctx.ready) { basl_platform_thread_join(thr, NULL); return; }
+
+    /* Use socket_request to talk to our server */
+    parsed_url_t url;
+    parse_url("http://127.0.0.1:18788/test/path", &url);
+
+    http_response_t resp;
+    int rc = socket_request("GET", &url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 200);
+    EXPECT_STREQ(resp.body, "hello world");
+    response_free(&resp);
+
+    basl_platform_thread_join(thr, NULL);
+
+    /* Verify the server received the right request */
+    EXPECT_STREQ(ctx.received_method, "GET");
+    EXPECT_TRUE(strcmp(ctx.received_path, "/test/path") == 0);
+}
+
+TEST(BaslHttpTest, ServerPostRoundTrip) {
+    server_test_ctx_t ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.port = SERVER_TEST_PORT + 1;
+
+    basl_platform_thread_t *thr = NULL;
+    basl_status_t st = basl_platform_thread_create(&thr, server_thread_func, &ctx, NULL);
+    if (st != BASL_STATUS_OK) return;
+
+    for (int i = 0; i < 200 && !ctx.ready; i++)
+        basl_platform_thread_sleep(10);
+    if (!ctx.ready) { basl_platform_thread_join(thr, NULL); return; }
+
+    parsed_url_t url;
+    parse_url("http://127.0.0.1:18789/submit", &url);
+
+    const char *body = "test data";
+    http_response_t resp;
+    int rc = socket_request("POST", &url, "Content-Type: text/plain\r\n",
+                            body, strlen(body), &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 200);
+    response_free(&resp);
+
+    basl_platform_thread_join(thr, NULL);
+
+    EXPECT_STREQ(ctx.received_method, "POST");
+    EXPECT_TRUE(strcmp(ctx.received_path, "/submit") == 0);
+}
+
 /* ── Test Registration ───────────────────────────────────────────── */
 
 void register_http_tests(void) {
@@ -331,4 +501,7 @@ void register_http_tests(void) {
     REGISTER_TEST(BaslHttpTest, DoRequestHttpsFallbackFails);
     /* Misc */
     REGISTER_TEST(BaslHttpTest, ResponseFreeNull);
+    /* Server */
+    REGISTER_TEST(BaslHttpTest, ServerRoundTrip);
+    REGISTER_TEST(BaslHttpTest, ServerPostRoundTrip);
 }

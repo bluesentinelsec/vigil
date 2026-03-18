@@ -255,7 +255,7 @@ if(BASL_BUILD_TESTS)
 
     # Socket libraries for http_test loopback server.
     if(WIN32)
-        target_link_libraries(basl_tests PRIVATE ws2_32 winhttp)
+        target_link_libraries(basl_tests PRIVATE ws2_32)
     endif()
 
     # Vendored libffi for tests.

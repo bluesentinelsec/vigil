@@ -925,6 +925,13 @@ static const basl_doc_entry_t http_docs[] = {
     {"http.get", "http.get(url: string) -> (i32, string)", "HTTP GET request.", "Returns (status_code, body). Uses WinHTTP/libcurl for HTTPS.", "i32 status, string body = http.get(\"https://example.com\")"},
     {"http.post", "http.post(url: string, body: string, content_type?: string) -> (i32, string)", "HTTP POST request.", "Returns (status_code, response_body).", "i32 status, string resp = http.post(url, data, \"application/json\")"},
     {"http.request", "http.request(method: string, url: string, headers?: string, body?: string) -> (i32, string)", "Generic HTTP request.", "Supports any HTTP method. Headers as CRLF-separated string.", "i32 status, string body = http.request(\"PUT\", url, \"X-Custom: value\\r\\n\", data)"},
+    {"http.listen", "http.listen(host: string, port: i32) -> i64", "Start an HTTP server.", "Binds a TCP listener. Returns server handle or -1 on error.", "i64 srv = http.listen(\"127.0.0.1\", 8080)"},
+    {"http.accept", "http.accept(server: i64) -> i64", "Accept an HTTP request.", "Blocks until a client connects and parses the request. Returns connection handle.", "i64 conn = http.accept(srv)"},
+    {"http.req_method", "http.req_method(conn: i64) -> string", "Get request method.", "Returns the HTTP method (GET, POST, etc.) from an accepted connection.", "string method = http.req_method(conn)"},
+    {"http.req_path", "http.req_path(conn: i64) -> string", "Get request path.", "Returns the request path from an accepted connection.", "string path = http.req_path(conn)"},
+    {"http.req_body", "http.req_body(conn: i64) -> string", "Get request body.", "Returns the request body from an accepted connection.", "string body = http.req_body(conn)"},
+    {"http.respond", "http.respond(conn: i64, status: i32, headers: string, body: string) -> i32", "Send HTTP response.", "Sends response and closes the connection. Returns 0 on success.", "http.respond(conn, 200, \"Content-Type: text/plain\\r\\n\", \"hello\")"},
+    {"http.close", "http.close(server: i64) -> void", "Close HTTP server.", "Closes the listener socket.", "http.close(srv)"},
 };
 
 #define HTTP_COUNT (sizeof(http_docs) / sizeof(http_docs[0]))
