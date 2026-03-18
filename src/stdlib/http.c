@@ -196,9 +196,13 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
     return 0;
 }
 
+/* ── Constants ───────────────────────────────────────────────────── */
+
+#define HTTP_MAX_REDIRECTS 10
+
 /* ── Unified client request ──────────────────────────────────────── */
 
-HTTP_STATIC int do_request(const char *method, const char *url_str,
+HTTP_STATIC int do_request_once(const char *method, const char *url_str,
                       const char *headers, const char *body, size_t body_len,
                       http_response_t *resp) {
     memset(resp, 0, sizeof(*resp));
@@ -225,6 +229,68 @@ HTTP_STATIC int do_request(const char *method, const char *url_str,
         return -1;
     }
     return socket_request(method, &url, headers, body, body_len, resp);
+}
+
+/* Extract Location header from response headers string. */
+static const char *find_location_header(const char *hdrs, char *buf, size_t buf_sz) {
+    if (!hdrs) return NULL;
+    const char *p = hdrs;
+    while (*p) {
+        const char *eol = strstr(p, "\r\n");
+        if (!eol) eol = p + strlen(p);
+        if ((eol - p > 10) &&
+            (p[0] == 'L' || p[0] == 'l') &&
+            (p[1] == 'o' || p[1] == 'O') &&
+            (p[8] == ':' || p[9] == ':')) {
+            const char *colon = strchr(p, ':');
+            if (colon && colon < eol) {
+                const char *val = colon + 1;
+                while (val < eol && *val == ' ') val++;
+                size_t vlen = (size_t)(eol - val);
+                if (vlen < buf_sz) {
+                    memcpy(buf, val, vlen);
+                    buf[vlen] = '\0';
+                    return buf;
+                }
+            }
+        }
+        if (*eol == '\0') break;
+        p = eol + 2;
+    }
+    return NULL;
+}
+
+HTTP_STATIC int do_request(const char *method, const char *url_str,
+                      const char *headers, const char *body, size_t body_len,
+                      http_response_t *resp) {
+    char url_buf[4096];
+    size_t ulen = strlen(url_str);
+    if (ulen >= sizeof(url_buf)) ulen = sizeof(url_buf) - 1;
+    memcpy(url_buf, url_str, ulen); url_buf[ulen] = '\0';
+
+    for (int redirects = 0; redirects <= HTTP_MAX_REDIRECTS; redirects++) {
+        int rc = do_request_once(method, url_buf, headers, body, body_len, resp);
+        if (rc != 0) return rc;
+
+        if (resp->status_code >= 301 && resp->status_code <= 308 &&
+            resp->status_code != 304 && resp->status_code != 305) {
+            char loc[4096];
+            if (find_location_header(resp->headers, loc, sizeof(loc))) {
+                int code = resp->status_code;
+                response_free(resp);
+                ulen = strlen(loc);
+                if (ulen >= sizeof(url_buf)) break;
+                memcpy(url_buf, loc, ulen + 1);
+                /* 301/302/303 change method to GET */
+                if (code == 301 || code == 302 || code == 303) {
+                    method = "GET"; body = NULL; body_len = 0;
+                }
+                continue;
+            }
+        }
+        return 0;
+    }
+    return 0; /* max redirects reached, return last response */
 }
 
 /* ── HTTP server via platform TCP sockets ────────────────────────── */
@@ -797,6 +863,39 @@ static basl_status_t http_current_conn(basl_vm_t *vm, size_t arg_count, basl_err
     return push_i64(vm, g_current_conn, error);
 }
 
+static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    const char *url; size_t url_len;
+    get_string_arg(vm, base, 1, &url, &url_len);
+    int64_t status_code = arg_count >= 3 ? get_i64_arg(vm, base, 2) : 302;
+
+    char ubuf[2048];
+    if (url_len >= sizeof(ubuf)) url_len = sizeof(ubuf) - 1;
+    memcpy(ubuf, url, url_len); ubuf[url_len] = '\0';
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    http_conn_t *c = get_client(ch);
+    if (!c || c->sock == BASL_INVALID_SOCKET) return push_i64(vm, -1, error);
+
+    const char *reason = "Found";
+    if (status_code == 301) reason = "Moved Permanently";
+    else if (status_code == 307) reason = "Temporary Redirect";
+    else if (status_code == 308) reason = "Permanent Redirect";
+
+    char hdr[4096];
+    int hlen = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 %d %s\r\nLocation: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        (int)status_code, reason, ubuf);
+    basl_platform_tcp_send(c->sock, hdr, (size_t)hlen, NULL, NULL);
+    basl_platform_tcp_close(c->sock, NULL);
+    c->sock = BASL_INVALID_SOCKET;
+    client_free_fields(c); c->in_use = 0;
+    return push_i64(vm, 0, error);
+}
+
+/* ── Client: redirect following ──────────────────────────────────── */
+
 /* ── Client BASL functions ───────────────────────────────────────── */
 
 static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
@@ -908,6 +1007,7 @@ static const basl_native_module_function_t http_functions[] = {
     { "req_header", 10, http_req_header, 2, http_i64_str, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "req_query", 9, http_req_query, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "respond", 7, http_respond, 4, http_respond_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "redirect", 8, http_redirect, 2, http_i64_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "close", 5, http_server_close, 1, http_i64, BASL_TYPE_VOID, 0, NULL, 0, NULL, NULL },
     { "set_read_timeout", 16, http_set_read_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "set_write_timeout", 17, http_set_write_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
