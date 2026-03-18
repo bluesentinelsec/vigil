@@ -322,6 +322,8 @@ typedef struct {
     char *headers;
     char *body;
     size_t body_len;
+    char *pending_cookies;
+    size_t cookies_len;
 } http_conn_t;
 
 static http_server_t g_servers[HTTP_MAX_SERVERS];
@@ -358,6 +360,8 @@ static void client_free_fields(http_conn_t *c) {
     free(c->headers);  c->headers = NULL;
     free(c->body);    c->body = NULL;
     c->body_len = 0;
+    free(c->pending_cookies); c->pending_cookies = NULL;
+    c->cookies_len = 0;
 }
 
 static int64_t alloc_client(basl_socket_t s) {
@@ -628,8 +632,9 @@ static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t 
 
     char resp_hdr[4096];
     int hlen = snprintf(resp_hdr, sizeof(resp_hdr),
-        "HTTP/1.1 %d %s\r\n%sContent-Length: %zu\r\nConnection: close\r\n\r\n",
-        (int)status_code, reason, hc ? hc : "", body_len);
+        "HTTP/1.1 %d %s\r\n%s%sContent-Length: %zu\r\nConnection: close\r\n\r\n",
+        (int)status_code, reason, hc ? hc : "",
+        c->pending_cookies ? c->pending_cookies : "", body_len);
 
     int rc = 0;
     if (basl_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
@@ -896,6 +901,68 @@ static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t
 
 /* ── Client: redirect following ──────────────────────────────────── */
 
+/* ── Cookie helpers ──────────────────────────────────────────────── */
+
+static basl_status_t http_set_cookie(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    const char *name, *value;
+    size_t nlen, vlen;
+    get_string_arg(vm, base, 1, &name, &nlen);
+    get_string_arg(vm, base, 2, &value, &vlen);
+    const char *opts = NULL; size_t olen = 0;
+    if (arg_count >= 4) get_string_arg(vm, base, 3, &opts, &olen);
+
+    char cookie[4096];
+    int clen;
+    if (opts && olen > 0)
+        clen = snprintf(cookie, sizeof(cookie), "Set-Cookie: %.*s=%.*s; %.*s\r\n",
+                        (int)nlen, name, (int)vlen, value, (int)olen, opts);
+    else
+        clen = snprintf(cookie, sizeof(cookie), "Set-Cookie: %.*s=%.*s\r\n",
+                        (int)nlen, name, (int)vlen, value);
+    basl_vm_stack_pop_n(vm, arg_count);
+
+    http_conn_t *c = get_client(ch);
+    if (!c) return push_i64(vm, -1, error);
+
+    /* Append to pending_cookies buffer */
+    size_t new_len = c->cookies_len + (size_t)clen;
+    char *nb = (char *)realloc(c->pending_cookies, new_len + 1);
+    if (!nb) return push_i64(vm, -1, error);
+    memcpy(nb + c->cookies_len, cookie, (size_t)clen);
+    nb[new_len] = '\0';
+    c->pending_cookies = nb;
+    c->cookies_len = new_len;
+    return push_i64(vm, 0, error);
+}
+
+static basl_status_t http_req_cookies(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    int64_t ch = get_i64_arg(vm, base, 0);
+    basl_vm_stack_pop_n(vm, arg_count);
+    http_conn_t *c = get_client(ch);
+    if (!c || !c->headers) return push_string(vm, "", 0, error);
+
+    /* Find Cookie: header */
+    const char *p = c->headers;
+    while (*p) {
+        const char *eol = strstr(p, "\r\n");
+        if (!eol) eol = p + strlen(p);
+        if ((eol - p > 7) &&
+            (p[0] == 'C' || p[0] == 'c') &&
+            (p[1] == 'o' || p[1] == 'O') &&
+            (p[6] == ':')) {
+            const char *val = p + 7;
+            while (val < eol && *val == ' ') val++;
+            return push_string(vm, val, (size_t)(eol - val), error);
+        }
+        if (*eol == '\0') break;
+        p = eol + 2;
+    }
+    return push_string(vm, "", 0, error);
+}
+
 /* ── Client BASL functions ───────────────────────────────────────── */
 
 static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
@@ -988,6 +1055,7 @@ static const int http_i64[] = { BASL_TYPE_I64 };
 static const int http_respond_p[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING, BASL_TYPE_STRING };
 
 static const int http_i64_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
+static const int http_i64_str_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_STRING };
 static const int http_i64_i64[] = { BASL_TYPE_I64, BASL_TYPE_I64 };
 static const int http_handle_p[] = { BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_OBJECT };
 
@@ -1008,6 +1076,8 @@ static const basl_native_module_function_t http_functions[] = {
     { "req_query", 9, http_req_query, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "respond", 7, http_respond, 4, http_respond_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "redirect", 8, http_redirect, 2, http_i64_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "set_cookie", 10, http_set_cookie, 3, http_i64_str_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "req_cookies", 11, http_req_cookies, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
     { "close", 5, http_server_close, 1, http_i64, BASL_TYPE_VOID, 0, NULL, 0, NULL, NULL },
     { "set_read_timeout", 16, http_set_read_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
     { "set_write_timeout", 17, http_set_write_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
