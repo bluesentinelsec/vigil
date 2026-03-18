@@ -247,6 +247,7 @@ basl_status_t basl_platform_cond_create(basl_platform_cond_t **out_cond, basl_er
 
 void basl_platform_cond_destroy(basl_platform_cond_t *cond) { (void)cond; }
 void basl_platform_cond_wait(basl_platform_cond_t *cond, basl_platform_mutex_t *mutex) { (void)cond; (void)mutex; }
+int basl_platform_cond_timedwait(basl_platform_cond_t *cond, basl_platform_mutex_t *mutex, uint64_t timeout_ms) { (void)cond; (void)mutex; (void)timeout_ms; return 0; }
 void basl_platform_cond_signal(basl_platform_cond_t *cond) { (void)cond; }
 void basl_platform_cond_broadcast(basl_platform_cond_t *cond) { (void)cond; }
 

@@ -444,6 +444,13 @@ BASL_API void basl_platform_cond_wait(
     basl_platform_mutex_t *mutex
 );
 
+/** Wait on condition variable with timeout.  Returns 1 if signalled, 0 on timeout. */
+BASL_API int basl_platform_cond_timedwait(
+    basl_platform_cond_t *cond,
+    basl_platform_mutex_t *mutex,
+    uint64_t timeout_ms
+);
+
 /** Signal one waiting thread. */
 BASL_API void basl_platform_cond_signal(basl_platform_cond_t *cond);
 

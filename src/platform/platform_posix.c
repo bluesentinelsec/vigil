@@ -864,11 +864,13 @@ struct basl_platform_thread {
     pthread_t handle;
     basl_thread_func_t func;
     void *arg;
+    volatile int detached;
 };
 
 static void *thread_wrapper(void *arg) {
     basl_platform_thread_t *t = (basl_platform_thread_t *)arg;
     t->func(t->arg);
+    if (t->detached) free(t);
     return NULL;
 }
 
@@ -882,6 +884,7 @@ BASL_API basl_status_t basl_platform_thread_create(
     if (!t) return BASL_STATUS_OUT_OF_MEMORY;
     t->func = func;
     t->arg = arg;
+    t->detached = 0;
     if (pthread_create(&t->handle, NULL, thread_wrapper, t) != 0) {
         free(t);
         basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_create failed");
@@ -911,7 +914,7 @@ BASL_API basl_status_t basl_platform_thread_detach(
         basl_error_set_literal(error, BASL_STATUS_INTERNAL, "pthread_detach failed");
         return BASL_STATUS_INTERNAL;
     }
-    free(thread);
+    thread->detached = 1; /* wrapper will free after func returns */
     return BASL_STATUS_OK;
 }
 
@@ -1009,6 +1012,23 @@ BASL_API void basl_platform_cond_wait(
     basl_platform_mutex_t *mutex
 ) {
     pthread_cond_wait(&cond->handle, &mutex->handle);
+}
+
+BASL_API int basl_platform_cond_timedwait(
+    basl_platform_cond_t *cond,
+    basl_platform_mutex_t *mutex,
+    uint64_t timeout_ms
+) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec  += (time_t)(timeout_ms / 1000);
+    ts.tv_nsec += (long)((timeout_ms % 1000) * 1000000);
+    if (ts.tv_nsec >= 1000000000L) {
+        ts.tv_sec  += 1;
+        ts.tv_nsec -= 1000000000L;
+    }
+    int rc = pthread_cond_timedwait(&cond->handle, &mutex->handle, &ts);
+    return rc == 0 ? 1 : 0;
 }
 
 BASL_API void basl_platform_cond_signal(basl_platform_cond_t *cond) {
