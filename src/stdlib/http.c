@@ -459,7 +459,7 @@ static int parse_incoming_request(http_conn_t *conn) {
 
 static basl_status_t http_listen(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
-    const char *host; size_t host_len;
+    const char *host = NULL; size_t host_len = 0;
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
         basl_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
@@ -544,7 +544,7 @@ static basl_status_t http_req_headers(basl_vm_t *vm, size_t arg_count, basl_erro
 static basl_status_t http_req_header(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    const char *name; size_t name_len;
+    const char *name = NULL; size_t name_len = 0;
     get_string_arg(vm, base, 1, &name, &name_len);
     char nbuf[256];
     if (name_len >= sizeof(nbuf)) name_len = sizeof(nbuf) - 1;
@@ -751,7 +751,7 @@ static void serve_thread_entry(void *arg) {
 static basl_status_t http_handle(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t srv_h = get_i64_arg(vm, base, 0);
-    const char *pattern; size_t plen;
+    const char *pattern = NULL; size_t plen = 0;
     get_string_arg(vm, base, 1, &pattern, &plen);
     basl_value_t fn_val = basl_vm_stack_get(vm, base + 2);
     basl_object_t *fn = basl_value_as_object(&fn_val);
@@ -910,7 +910,7 @@ static basl_status_t http_write_header(basl_vm_t *vm, size_t arg_count, basl_err
 static basl_status_t http_write(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    const char *data; size_t dlen;
+    const char *data = NULL; size_t dlen = 0;
     get_string_arg(vm, base, 1, &data, &dlen);
     char *dc = NULL;
     if (dlen > 0) { dc = (char *)malloc(dlen); memcpy(dc, data, dlen); }
@@ -950,7 +950,7 @@ static basl_status_t http_flush(basl_vm_t *vm, size_t arg_count, basl_error_t *e
 static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    const char *url; size_t url_len;
+    const char *url = NULL; size_t url_len = 0;
     get_string_arg(vm, base, 1, &url, &url_len);
     int64_t status_code = arg_count >= 3 ? get_i64_arg(vm, base, 2) : 302;
 
@@ -985,8 +985,8 @@ static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t
 static basl_status_t http_set_cookie(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    const char *name, *value;
-    size_t nlen, vlen;
+    const char *name = NULL, *value = NULL;
+    size_t nlen = 0, vlen = 0;
     get_string_arg(vm, base, 1, &name, &nlen);
     get_string_arg(vm, base, 2, &value, &vlen);
     const char *opts = NULL; size_t olen = 0;
@@ -1046,7 +1046,7 @@ static basl_status_t http_req_cookies(basl_vm_t *vm, size_t arg_count, basl_erro
 
 static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
     size_t base = basl_vm_stack_depth(vm) - arg_count;
-    const char *url; size_t url_len;
+    const char *url = NULL; size_t url_len = 0;
     if (!get_string_arg(vm, base, 0, &url, &url_len)) {
         basl_vm_stack_pop_n(vm, arg_count);
         push_string(vm, "", 0, error); push_string(vm, "", 0, error);
