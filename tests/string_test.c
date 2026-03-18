@@ -71,10 +71,10 @@ TEST(VigilStringTest, AppendPreservesExistingContents) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_string_init(&string, runtime);
 
-    ASSERT_EQ(vigil_string_assign_cstr(&string, "bas", &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_string_append_cstr(&string, "l", &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_string_assign_cstr(&string, "vigil", &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_string_append_cstr(&string, " run", &error), VIGIL_STATUS_OK);
     ASSERT_EQ(
-        vigil_string_append(&string, " runtime", strlen(" runtime"), &error),
+        vigil_string_append(&string, "time", strlen("time"), &error),
         VIGIL_STATUS_OK
     );
 

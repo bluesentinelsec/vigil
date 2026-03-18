@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-#define VIGIL_PACKAGE_MAGIC "VIGILPKG1"
+#define VIGIL_PACKAGE_MAGIC "VIGLPKG1"
 #define VIGIL_PACKAGE_MAGIC_LEN 8
 #define VIGIL_PACKAGE_KEY_LEN 32
 /* Trailer: [8 bytes payload len][32 bytes key][8 bytes magic] = 48 */

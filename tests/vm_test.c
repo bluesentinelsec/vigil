@@ -299,8 +299,8 @@ TEST(VigilVmTest, ConcatenatesAndComparesStringsByValue) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_chunk_init(&chunk, runtime);
-    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "ba", &left_object, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "sl", &right_object, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "vi", &left_object, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "gil", &right_object, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(
         vigil_string_object_new_cstr(runtime, "vigil", &expected_object, &error),
         VIGIL_STATUS_OK
