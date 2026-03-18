@@ -86,9 +86,9 @@ static const int basl_test_fail_params[] = { BASL_TYPE_STRING };
 
 static const basl_native_class_method_t basl_test_t_methods[] = {
     { "assert", 6U, basl_test_assert, 2U, basl_test_assert_params,
-      BASL_TYPE_VOID, 0U, NULL, 0, NULL, 0U },
+      BASL_TYPE_VOID, 0U, NULL, 0, NULL, 0U, 0 },
     { "fail", 4U, basl_test_fail, 1U, basl_test_fail_params,
-      BASL_TYPE_VOID, 0U, NULL, 0, NULL, 0U },
+      BASL_TYPE_VOID, 0U, NULL, 0, NULL, 0U, 0 },
 };
 
 static const basl_native_class_t basl_test_classes[] = {

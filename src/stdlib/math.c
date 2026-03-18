@@ -526,19 +526,19 @@ static basl_status_t basl_vec2_reflect(
 
 /* Helper: instance method descriptor (is_static=0). */
 #define BASL_METHOD(n, nl, fn, pc, pt, rt, rc, rts) \
-    { n, nl, fn, pc, pt, rt, rc, rts, 0, NULL, 0U }
+    { n, nl, fn, pc, pt, rt, rc, rts, 0, NULL, 0U, 0 }
 
 /* Helper: static method descriptor (is_static=1). */
 #define BASL_STATIC(n, nl, fn, pc, pt, rt, rc, rts) \
-    { n, nl, fn, pc, pt, rt, rc, rts, 1, NULL, 0U }
+    { n, nl, fn, pc, pt, rt, rc, rts, 1, NULL, 0U, 0 }
 
 /* Helper: instance method returning a different class. */
 #define BASL_METHOD_RET(n, nl, fn, pc, pt, rt, rc, rts, cn, cnl) \
-    { n, nl, fn, pc, pt, rt, rc, rts, 0, cn, cnl }
+    { n, nl, fn, pc, pt, rt, rc, rts, 0, cn, cnl, 0 }
 
 /* Helper: static method returning a different class. */
 #define BASL_STATIC_RET(n, nl, fn, pc, pt, rt, rc, rts, cn, cnl) \
-    { n, nl, fn, pc, pt, rt, rc, rts, 1, cn, cnl }
+    { n, nl, fn, pc, pt, rt, rc, rts, 1, cn, cnl, 0 }
 
 /* Helper: read class_index from hidden first arg (static methods). */
 static size_t basl_static_class_index(basl_vm_t *vm, size_t base) {

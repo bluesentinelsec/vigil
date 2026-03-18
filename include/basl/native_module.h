@@ -84,6 +84,7 @@ typedef struct basl_native_class_method {
     int is_static;              /* 1 = no self argument */
     const char *return_class_name;      /* non-NULL: resolve to this class */
     size_t return_class_name_length;
+    int return_element_type;    /* For array returns: element type (basl_type_kind_t) */
 } basl_native_class_method_t;
 
 typedef struct basl_native_class {

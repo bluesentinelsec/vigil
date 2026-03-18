@@ -4225,14 +4225,15 @@ static basl_status_t basl_program_parse_constant_comparison(
         if (
             (!basl_parser_type_is_integer(left.type) ||
              !basl_parser_type_equal(left.type, right.type)) &&
-            (!basl_parser_type_is_f64(left.type) || !basl_parser_type_is_f64(right.type))
+            (!basl_parser_type_is_f64(left.type) || !basl_parser_type_is_f64(right.type)) &&
+            !(basl_parser_type_is_string(left.type) && basl_parser_type_is_string(right.type))
         ) {
             basl_constant_result_release(&left);
             basl_constant_result_release(&right);
             return basl_compile_report(
                 program,
                 token->span,
-                "comparison operators require matching integer or f64 operands"
+                "comparison operators require matching integer, f64, or string operands"
             );
         }
 
@@ -7905,6 +7906,47 @@ static size_t basl_parser_resolve_return_class(
     return class_index;
 }
 
+/* Resolve the return type for a native class method, handling array returns. */
+static void basl_parser_set_native_method_return_type(
+    basl_parser_state_t *state,
+    const basl_native_class_method_t *method,
+    size_t class_index,
+    basl_expression_result_t *out_result
+) {
+    size_t i;
+    if (method->return_count <= 1U) {
+        if (method->return_type == BASL_TYPE_OBJECT &&
+            method->return_element_type != 0) {
+            basl_parser_type_t elem_type = basl_binding_type_primitive(
+                (basl_type_kind_t)method->return_element_type);
+            size_t arr_idx;
+            if (basl_program_find_array_type(state->program, elem_type, &arr_idx)) {
+                basl_expression_result_set_type(out_result, basl_binding_type_array(arr_idx));
+            } else {
+                basl_expression_result_set_type(
+                    out_result, basl_binding_type_primitive(BASL_TYPE_OBJECT));
+            }
+        } else if (method->return_type == BASL_TYPE_OBJECT) {
+            basl_expression_result_set_type(
+                out_result, basl_binding_type_class(
+                    basl_parser_resolve_return_class(state, method, class_index)));
+        } else {
+            basl_expression_result_set_type(
+                out_result,
+                basl_binding_type_primitive((basl_type_kind_t)method->return_type));
+        }
+    } else {
+        basl_parser_type_t ret_types[2];
+        size_t rc = method->return_count > 2U ? 2U : method->return_count;
+        for (i = 0U; i < rc; i++) {
+            ret_types[i] = basl_binding_type_primitive(
+                (basl_type_kind_t)method->return_types[i]);
+        }
+        basl_expression_result_set_return_types(
+            out_result, ret_types[0], ret_types, rc);
+    }
+}
+
 /* Parse a static method call on a native class: no self on the stack. */
 static basl_status_t basl_parser_parse_native_static_method_call(
     basl_parser_state_t *state,
@@ -7916,7 +7958,6 @@ static basl_status_t basl_parser_parse_native_static_method_call(
     basl_status_t status;
     basl_expression_result_t arg_result;
     size_t arg_count;
-    size_t i;
     basl_object_t *native_obj;
     basl_value_t native_val;
     basl_value_t ci_val;
@@ -8024,27 +8065,8 @@ static basl_status_t basl_parser_parse_native_static_method_call(
     }
 
     /* Set return type. */
-    if (method->return_count <= 1U) {
-        if (method->return_type == BASL_TYPE_OBJECT) {
-            basl_expression_result_set_type(
-                out_result, basl_binding_type_class(
-                    basl_parser_resolve_return_class(state, method, class_index)));
-        } else {
-            basl_expression_result_set_type(
-                out_result,
-                basl_binding_type_primitive((basl_type_kind_t)method->return_type)
-            );
-        }
-    } else {
-        basl_parser_type_t ret_types[2];
-        size_t rc = method->return_count > 2U ? 2U : method->return_count;
-        for (i = 0U; i < rc; i++) {
-            ret_types[i] = basl_binding_type_primitive(
-                (basl_type_kind_t)method->return_types[i]);
-        }
-        basl_expression_result_set_return_types(
-            out_result, ret_types[0], ret_types, rc);
-    }
+    basl_parser_set_native_method_return_type(
+        state, method, class_index, out_result);
     return BASL_STATUS_OK;
 }
 
@@ -8059,7 +8081,6 @@ static basl_status_t basl_parser_parse_native_method_call(
     basl_status_t status;
     basl_expression_result_t arg_result;
     size_t arg_count;
-    size_t i;
     basl_object_t *native_obj;
     basl_value_t native_val;
 
@@ -8158,27 +8179,8 @@ static basl_status_t basl_parser_parse_native_method_call(
     }
 
     /* Set return type. */
-    if (method->return_count <= 1U) {
-        if (method->return_type == BASL_TYPE_OBJECT) {
-            basl_expression_result_set_type(
-                out_result, basl_binding_type_class(
-                    basl_parser_resolve_return_class(state, method, class_index)));
-        } else {
-            basl_expression_result_set_type(
-                out_result,
-                basl_binding_type_primitive((basl_type_kind_t)method->return_type)
-            );
-        }
-    } else {
-        basl_parser_type_t ret_types[2];
-        size_t rc = method->return_count > 2U ? 2U : method->return_count;
-        for (i = 0U; i < rc; i++) {
-            ret_types[i] = basl_binding_type_primitive(
-                (basl_type_kind_t)method->return_types[i]);
-        }
-        basl_expression_result_set_return_types(
-            out_result, ret_types[0], ret_types, rc);
-    }
+    basl_parser_set_native_method_return_type(
+        state, method, class_index, out_result);
     return BASL_STATUS_OK;
 }
 
@@ -10669,7 +10671,7 @@ static basl_status_t basl_parser_parse_comparison(
             status = basl_parser_report(
                 state,
                 operator_span,
-                "comparison operators require matching integer or f64 operands"
+                "comparison operators require matching integer, f64, or string operands"
             );
         } else {
             status = BASL_STATUS_OK;
