@@ -54,7 +54,7 @@ All implementations must work on:
    - **Needed for:** `cp -r`, `rm -r`, `ls -R`
    - **Current:** `file.list_dir()` only lists immediate children
    - **Required:** Need recursive directory traversal
-   - **Workaround:** Implement recursion in BASL code
+   - **Workaround:** Implement recursion in VIGIL code
 
 2. **❌ Copy file operation**
    - **Impact:** HIGH
@@ -131,7 +131,7 @@ These REQUIRE new stdlib functions:
 
 ### Option A: Implement Subset Now
 Implement 7 tools (mkdir, rmdir, touch, mv, rm, ls, cp) with limitations:
-- No recursive operations (or implement in BASL)
+- No recursive operations (or implement in VIGIL)
 - No detailed file metadata in ls
 - No timestamp updates in touch
 - Document limitations

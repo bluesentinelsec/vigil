@@ -1,45 +1,45 @@
 #include <stdlib.h>
 #include <string.h>
-#include "basl/lexer.h"
-#include "internal/basl_compiler_types.h"
-#include "internal/basl_internal.h"
+#include "vigil/lexer.h"
+#include "internal/vigil_compiler_types.h"
+#include "internal/vigil_internal.h"
 
-basl_status_t basl_program_append_decoded_string_range(
-    const basl_program_state_t *program,
-    basl_source_span_t span,
+vigil_status_t vigil_program_append_decoded_string_range(
+    const vigil_program_state_t *program,
+    vigil_source_span_t span,
     const char *text,
     size_t start,
     size_t end,
-    basl_string_t *out_text
+    vigil_string_t *out_text
 ) {
     size_t index;
     char decoded;
-    basl_status_t status;
+    vigil_status_t status;
 
     if (program == NULL || text == NULL || out_text == NULL || start > end) {
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     for (index = start; index < end; index += 1U) {
         if (index + 1U < end && text[index] == '{' && text[index + 1U] == '{') {
-            status = basl_string_append(out_text, "{", 1U, program->error);
-            if (status != BASL_STATUS_OK) {
+            status = vigil_string_append(out_text, "{", 1U, program->error);
+            if (status != VIGIL_STATUS_OK) {
                 return status;
             }
             index += 1U;
             continue;
         }
         if (index + 1U < end && text[index] == '}' && text[index + 1U] == '}') {
-            status = basl_string_append(out_text, "}", 1U, program->error);
-            if (status != BASL_STATUS_OK) {
+            status = vigil_string_append(out_text, "}", 1U, program->error);
+            if (status != VIGIL_STATUS_OK) {
                 return status;
             }
             index += 1U;
             continue;
         }
         if (text[index] != '\\') {
-            status = basl_string_append(out_text, text + index, 1U, program->error);
-            if (status != BASL_STATUS_OK) {
+            status = vigil_string_append(out_text, text + index, 1U, program->error);
+            if (status != VIGIL_STATUS_OK) {
                 return status;
             }
             continue;
@@ -47,7 +47,7 @@ basl_status_t basl_program_append_decoded_string_range(
 
         index += 1U;
         if (index >= end) {
-            return basl_compile_report(program, span, "invalid escape sequence");
+            return vigil_compile_report(program, span, "invalid escape sequence");
         }
 
         switch (text[index]) {
@@ -76,7 +76,7 @@ basl_status_t basl_program_append_decoded_string_range(
                 unsigned int hi;
                 unsigned int lo;
                 if (index + 2U >= end) {
-                    return basl_compile_report(program, span,
+                    return vigil_compile_report(program, span,
                         "\\x escape requires two hex digits");
                 }
                 hi = (unsigned int)text[index + 1U];
@@ -85,14 +85,14 @@ basl_status_t basl_program_append_decoded_string_range(
                 else if (hi >= 'a' && hi <= 'f') { hi = hi - 'a' + 10U; }
                 else if (hi >= 'A' && hi <= 'F') { hi = hi - 'A' + 10U; }
                 else {
-                    return basl_compile_report(program, span,
+                    return vigil_compile_report(program, span,
                         "\\x escape requires two hex digits");
                 }
                 if (lo >= '0' && lo <= '9') { lo = lo - '0'; }
                 else if (lo >= 'a' && lo <= 'f') { lo = lo - 'a' + 10U; }
                 else if (lo >= 'A' && lo <= 'F') { lo = lo - 'A' + 10U; }
                 else {
-                    return basl_compile_report(program, span,
+                    return vigil_compile_report(program, span,
                         "\\x escape requires two hex digits");
                 }
                 decoded = (char)((hi << 4U) | lo);
@@ -100,19 +100,19 @@ basl_status_t basl_program_append_decoded_string_range(
                 break;
             }
             default:
-                return basl_compile_report(program, span, "invalid escape sequence");
+                return vigil_compile_report(program, span, "invalid escape sequence");
         }
 
-        status = basl_string_append(out_text, &decoded, 1U, program->error);
-        if (status != BASL_STATUS_OK) {
+        status = vigil_string_append(out_text, &decoded, 1U, program->error);
+        if (status != VIGIL_STATUS_OK) {
             return status;
         }
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-size_t basl_program_skip_quoted_text(
+size_t vigil_program_skip_quoted_text(
     const char *text,
     size_t length,
     size_t index,
@@ -132,35 +132,35 @@ size_t basl_program_skip_quoted_text(
     return length;
 }
 
-basl_status_t basl_parser_parse_embedded_expression(
-    basl_parser_state_t *state,
+vigil_status_t vigil_parser_parse_embedded_expression(
+    vigil_parser_state_t *state,
     const char *text,
     size_t length,
     size_t absolute_offset,
-    basl_source_span_t error_span,
-    basl_expression_result_t *out_result
+    vigil_source_span_t error_span,
+    vigil_expression_result_t *out_result
 ) {
-    basl_status_t status;
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_source_id_t source_id;
-    const basl_source_file_t *source;
-    basl_token_list_t tokens;
+    vigil_status_t status;
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_source_id_t source_id;
+    const vigil_source_file_t *source;
+    vigil_token_list_t tokens;
     size_t token_index;
-    basl_program_state_t *program;
-    const basl_token_list_t *previous_tokens;
-    basl_parser_state_t nested;
-    basl_expression_result_t nested_result;
+    vigil_program_state_t *program;
+    const vigil_token_list_t *previous_tokens;
+    vigil_parser_state_t nested;
+    vigil_expression_result_t nested_result;
 
     if (state == NULL || text == NULL || out_result == NULL) {
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    basl_source_registry_init(&registry, state->program->registry->runtime);
-    basl_diagnostic_list_init(&diagnostics, state->program->registry->runtime);
-    basl_token_list_init(&tokens, state->program->registry->runtime);
+    vigil_source_registry_init(&registry, state->program->registry->runtime);
+    vigil_diagnostic_list_init(&diagnostics, state->program->registry->runtime);
+    vigil_token_list_init(&tokens, state->program->registry->runtime);
     source_id = 0U;
-    status = basl_source_registry_register(
+    status = vigil_source_registry_register(
         &registry,
         "<fstring>",
         9U,
@@ -169,27 +169,27 @@ basl_status_t basl_parser_parse_embedded_expression(
         &source_id,
         state->program->error
     );
-    if (status != BASL_STATUS_OK) {
-        basl_token_list_free(&tokens);
-        basl_diagnostic_list_free(&diagnostics);
-        basl_source_registry_free(&registry);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_token_list_free(&tokens);
+        vigil_diagnostic_list_free(&diagnostics);
+        vigil_source_registry_free(&registry);
         return status;
     }
 
-    status = basl_lex_source(&registry, source_id, &tokens, &diagnostics, state->program->error);
-    if (status != BASL_STATUS_OK) {
-        basl_token_list_free(&tokens);
-        basl_diagnostic_list_free(&diagnostics);
-        basl_source_registry_free(&registry);
-        return basl_parser_report(state, error_span, "invalid f-string interpolation expression");
+    status = vigil_lex_source(&registry, source_id, &tokens, &diagnostics, state->program->error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_token_list_free(&tokens);
+        vigil_diagnostic_list_free(&diagnostics);
+        vigil_source_registry_free(&registry);
+        return vigil_parser_report(state, error_span, "invalid f-string interpolation expression");
     }
 
-    source = basl_source_registry_get(&registry, source_id);
+    source = vigil_source_registry_get(&registry, source_id);
     if (source == NULL) {
-        basl_token_list_free(&tokens);
-        basl_diagnostic_list_free(&diagnostics);
-        basl_source_registry_free(&registry);
-        return BASL_STATUS_INTERNAL;
+        vigil_token_list_free(&tokens);
+        vigil_diagnostic_list_free(&diagnostics);
+        vigil_source_registry_free(&registry);
+        return VIGIL_STATUS_INTERNAL;
     }
 
     for (token_index = 0U; token_index < tokens.count; token_index += 1U) {
@@ -198,103 +198,103 @@ basl_status_t basl_parser_parse_embedded_expression(
         tokens.items[token_index].span.end_offset += absolute_offset;
     }
 
-    program = (basl_program_state_t *)state->program;
+    program = (vigil_program_state_t *)state->program;
     previous_tokens = program->tokens;
     program->tokens = &tokens;
     nested = *state;
     nested.current = 0U;
-    nested.body_end = basl_token_list_count(&tokens);
-    basl_expression_result_clear(&nested_result);
-    status = basl_parser_parse_expression(&nested, &nested_result);
-    if (status == BASL_STATUS_OK && !basl_parser_check(&nested, BASL_TOKEN_EOF)) {
-        status = basl_parser_report(
+    nested.body_end = vigil_token_list_count(&tokens);
+    vigil_expression_result_clear(&nested_result);
+    status = vigil_parser_parse_expression(&nested, &nested_result);
+    if (status == VIGIL_STATUS_OK && !vigil_parser_check(&nested, VIGIL_TOKEN_EOF)) {
+        status = vigil_parser_report(
             &nested,
-            basl_parser_peek(&nested) == NULL ? error_span : basl_parser_peek(&nested)->span,
+            vigil_parser_peek(&nested) == NULL ? error_span : vigil_parser_peek(&nested)->span,
             "expected end of f-string interpolation expression"
         );
     }
-    if (status == BASL_STATUS_OK) {
+    if (status == VIGIL_STATUS_OK) {
         state->chunk = nested.chunk;
         *out_result = nested_result;
     }
     program->tokens = previous_tokens;
-    basl_token_list_free(&tokens);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
+    vigil_token_list_free(&tokens);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
     return status;
 }
 
-basl_status_t basl_parser_emit_fstring_part_string(
-    basl_parser_state_t *state,
-    basl_source_span_t span,
+vigil_status_t vigil_parser_emit_fstring_part_string(
+    vigil_parser_state_t *state,
+    vigil_source_span_t span,
     int *part_count,
     const char *text,
     size_t length
 ) {
-    basl_status_t status;
+    vigil_status_t status;
 
     if (state == NULL || part_count == NULL || text == NULL) {
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    status = basl_parser_emit_string_constant_text(state, span, text, length);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_parser_emit_string_constant_text(state, span, text, length);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
     if (*part_count > 0) {
-        status = basl_parser_emit_opcode(state, BASL_OPCODE_ADD, span);
-        if (status != BASL_STATUS_OK) {
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_ADD, span);
+        if (status != VIGIL_STATUS_OK) {
             return status;
         }
     }
     *part_count += 1;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_parser_emit_fstring_part_value(
-    basl_parser_state_t *state,
-    basl_source_span_t span,
+vigil_status_t vigil_parser_emit_fstring_part_value(
+    vigil_parser_state_t *state,
+    vigil_source_span_t span,
     int *part_count
 ) {
-    basl_status_t status;
+    vigil_status_t status;
 
     if (state == NULL || part_count == NULL) {
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (*part_count > 0) {
-        status = basl_parser_emit_opcode(state, BASL_OPCODE_ADD, span);
-        if (status != BASL_STATUS_OK) {
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_ADD, span);
+        if (status != VIGIL_STATUS_OK) {
             return status;
         }
     }
     *part_count += 1;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_parser_parse_fstring_literal(
-    basl_parser_state_t *state,
-    const basl_token_t *token,
-    basl_expression_result_t *out_result
+vigil_status_t vigil_parser_parse_fstring_literal(
+    vigil_parser_state_t *state,
+    const vigil_token_t *token,
+    vigil_expression_result_t *out_result
 ) {
     const char *text;
     size_t length;
     size_t index;
     size_t segment_start;
     int part_count;
-    basl_string_t segment;
-    basl_status_t status;
+    vigil_string_t segment;
+    vigil_status_t status;
 
     if (state == NULL || token == NULL || out_result == NULL) {
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    text = basl_parser_token_text(state, token, &length);
+    text = vigil_parser_token_text(state, token, &length);
     if (text == NULL || length < 3U) {
-        return basl_parser_report(state, token->span, "invalid f-string literal");
+        return vigil_parser_report(state, token->span, "invalid f-string literal");
     }
 
-    basl_string_init(&segment, state->program->registry->runtime);
+    vigil_string_init(&segment, state->program->registry->runtime);
     segment_start = 2U;
     part_count = 0;
     index = 2U;
@@ -309,7 +309,7 @@ basl_status_t basl_parser_parse_fstring_literal(
         size_t bracket_depth;
         size_t brace_depth;
         size_t cursor;
-        basl_expression_result_t expression_result;
+        vigil_expression_result_t expression_result;
 
         if (text[index] == '\\') {
             index += 2U;
@@ -325,15 +325,15 @@ basl_status_t basl_parser_parse_fstring_literal(
         }
         if (text[index] != '{') {
             if (text[index] == '}') {
-                basl_string_free(&segment);
-                return basl_parser_report(state, token->span, "unmatched '}' in f-string");
+                vigil_string_free(&segment);
+                return vigil_parser_report(state, token->span, "unmatched '}' in f-string");
             }
             index += 1U;
             continue;
         }
 
-        basl_string_clear(&segment);
-        status = basl_program_append_decoded_string_range(
+        vigil_string_clear(&segment);
+        status = vigil_program_append_decoded_string_range(
             state->program,
             token->span,
             text,
@@ -341,20 +341,20 @@ basl_status_t basl_parser_parse_fstring_literal(
             index,
             &segment
         );
-        if (status != BASL_STATUS_OK) {
-            basl_string_free(&segment);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_string_free(&segment);
             return status;
         }
-        if (basl_string_length(&segment) > 0U) {
-            status = basl_parser_emit_fstring_part_string(
+        if (vigil_string_length(&segment) > 0U) {
+            status = vigil_parser_emit_fstring_part_string(
                 state,
                 token->span,
                 &part_count,
-                basl_string_c_str(&segment),
-                basl_string_length(&segment)
+                vigil_string_c_str(&segment),
+                vigil_string_length(&segment)
             );
-            if (status != BASL_STATUS_OK) {
-                basl_string_free(&segment);
+            if (status != VIGIL_STATUS_OK) {
+                vigil_string_free(&segment);
                 return status;
             }
         }
@@ -368,7 +368,7 @@ basl_status_t basl_parser_parse_fstring_literal(
         cursor = expression_start;
         while (cursor < length - 1U) {
             if (text[cursor] == '"' || text[cursor] == '\'' || text[cursor] == '`') {
-                cursor = basl_program_skip_quoted_text(text, length - 1U, cursor, text[cursor]);
+                cursor = vigil_program_skip_quoted_text(text, length - 1U, cursor, text[cursor]);
                 continue;
             }
             if (text[cursor] == '(') {
@@ -407,19 +407,19 @@ basl_status_t basl_parser_parse_fstring_literal(
         }
 
         if (expression_end == SIZE_MAX || cursor >= length - 1U) {
-            basl_string_free(&segment);
-            return basl_parser_report(state, token->span, "unterminated f-string interpolation");
+            vigil_string_free(&segment);
+            return vigil_parser_report(state, token->span, "unterminated f-string interpolation");
         }
 
-        basl_program_trim_text_range(text, expression_start, expression_end, &trim_start, &trim_end);
+        vigil_program_trim_text_range(text, expression_start, expression_end, &trim_start, &trim_end);
         if (trim_start == trim_end) {
-            basl_string_free(&segment);
-            return basl_parser_report(state, token->span, "f-string interpolation expression must not be empty");
+            vigil_string_free(&segment);
+            return vigil_parser_report(state, token->span, "f-string interpolation expression must not be empty");
         }
 
         absolute_offset = token->span.start_offset + trim_start;
-        basl_expression_result_clear(&expression_result);
-        status = basl_parser_parse_embedded_expression(
+        vigil_expression_result_clear(&expression_result);
+        status = vigil_parser_parse_embedded_expression(
             state,
             text + trim_start,
             trim_end - trim_start,
@@ -427,38 +427,38 @@ basl_status_t basl_parser_parse_fstring_literal(
             token->span,
             &expression_result
         );
-        if (status != BASL_STATUS_OK) {
-            basl_string_free(&segment);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_string_free(&segment);
             return status;
         }
-        status = basl_parser_require_scalar_expression(
+        status = vigil_parser_require_scalar_expression(
             state,
             token->span,
             &expression_result,
             "f-string interpolation expressions must be single values"
         );
-        if (status != BASL_STATUS_OK) {
-            basl_string_free(&segment);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_string_free(&segment);
             return status;
         }
 
         if (format_start == SIZE_MAX) {
-            if (!basl_parser_type_is_string(expression_result.type)) {
+            if (!vigil_parser_type_is_string(expression_result.type)) {
                 if (
-                    !basl_parser_type_is_integer(expression_result.type) &&
-                    !basl_parser_type_is_f64(expression_result.type) &&
-                    !basl_parser_type_is_bool(expression_result.type)
+                    !vigil_parser_type_is_integer(expression_result.type) &&
+                    !vigil_parser_type_is_f64(expression_result.type) &&
+                    !vigil_parser_type_is_bool(expression_result.type)
                 ) {
-                    basl_string_free(&segment);
-                    return basl_parser_report(
+                    vigil_string_free(&segment);
+                    return vigil_parser_report(
                         state,
                         token->span,
                         "f-string interpolation requires a string, integer, f64, or bool value"
                     );
                 }
-                status = basl_parser_emit_opcode(state, BASL_OPCODE_TO_STRING, token->span);
-                if (status != BASL_STATUS_OK) {
-                    basl_string_free(&segment);
+                status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_TO_STRING, token->span);
+                if (status != VIGIL_STATUS_OK) {
+                    vigil_string_free(&segment);
                     return status;
                 }
             }
@@ -483,10 +483,10 @@ basl_status_t basl_parser_parse_fstring_literal(
             uint32_t word1;
             uint32_t word2;
 
-            basl_program_trim_text_range(text, format_start, cursor, &trim_start, &trim_end);
+            vigil_program_trim_text_range(text, format_start, cursor, &trim_start, &trim_end);
             if (trim_start >= trim_end) {
-                basl_string_free(&segment);
-                return basl_parser_report(state, token->span, "empty format specifier");
+                vigil_string_free(&segment);
+                return vigil_parser_report(state, token->span, "empty format specifier");
             }
 
             fs = trim_start;
@@ -543,37 +543,37 @@ basl_status_t basl_parser_parse_fstring_literal(
                 else if (tc == 'o') { fmt_type = 5U; fs += 1U; }
                 else if (tc == 'f') { fmt_type = 6U; fs += 1U; }
                 else {
-                    basl_string_free(&segment);
-                    return basl_parser_report(state, token->span,
+                    vigil_string_free(&segment);
+                    return vigil_parser_report(state, token->span,
                         "invalid format type character (expected d, x, X, b, o, or f)");
                 }
             }
 
             if (fs != fe) {
-                basl_string_free(&segment);
-                return basl_parser_report(state, token->span, "invalid f-string format specifier");
+                vigil_string_free(&segment);
+                return vigil_parser_report(state, token->span, "invalid f-string format specifier");
             }
 
             /* Type-check: float formats require f64, integer formats require integer */
             if (fmt_type == 6U) {
-                if (!basl_parser_type_is_f64(expression_result.type)) {
-                    basl_string_free(&segment);
-                    return basl_parser_report(state, token->span,
+                if (!vigil_parser_type_is_f64(expression_result.type)) {
+                    vigil_string_free(&segment);
+                    return vigil_parser_report(state, token->span,
                         "float format specifier 'f' requires an f64 value");
                 }
             } else if (fmt_type >= 1U && fmt_type <= 5U) {
-                if (!basl_parser_type_is_integer(expression_result.type)) {
-                    basl_string_free(&segment);
-                    return basl_parser_report(state, token->span,
+                if (!vigil_parser_type_is_integer(expression_result.type)) {
+                    vigil_string_free(&segment);
+                    return vigil_parser_report(state, token->span,
                         "integer format specifier requires an integer value");
                 }
             } else if (grouping_val) {
                 /* Bare ',' with no type — infer decimal for integers */
-                if (basl_parser_type_is_integer(expression_result.type)) {
+                if (vigil_parser_type_is_integer(expression_result.type)) {
                     fmt_type = 1U;
                 } else {
-                    basl_string_free(&segment);
-                    return basl_parser_report(state, token->span,
+                    vigil_string_free(&segment);
+                    return vigil_parser_report(state, token->span,
                         "grouping ',' requires an integer value");
                 }
             }
@@ -582,10 +582,10 @@ basl_status_t basl_parser_parse_fstring_literal(
                The value will be stringified first. */
             if (fmt_type == 0U && !grouping_val) {
                 /* Convert to string first, then FORMAT_SPEC will pad. */
-                if (!basl_parser_type_is_string(expression_result.type)) {
-                    status = basl_parser_emit_opcode(state, BASL_OPCODE_TO_STRING, token->span);
-                    if (status != BASL_STATUS_OK) {
-                        basl_string_free(&segment);
+                if (!vigil_parser_type_is_string(expression_result.type)) {
+                    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_TO_STRING, token->span);
+                    if (status != VIGIL_STATUS_OK) {
+                        vigil_string_free(&segment);
                         return status;
                     }
                 }
@@ -598,26 +598,26 @@ basl_status_t basl_parser_parse_fstring_literal(
                   | (grouping_val << 14U);
             word2 = (width_val & 0xFFFFU) | ((prec_val & 0xFFFFU) << 16U);
 
-            status = basl_parser_emit_opcode(state, BASL_OPCODE_FORMAT_SPEC, token->span);
-            if (status != BASL_STATUS_OK) {
-                basl_string_free(&segment);
+            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_FORMAT_SPEC, token->span);
+            if (status != VIGIL_STATUS_OK) {
+                vigil_string_free(&segment);
                 return status;
             }
-            status = basl_parser_emit_u32(state, word1, token->span);
-            if (status != BASL_STATUS_OK) {
-                basl_string_free(&segment);
+            status = vigil_parser_emit_u32(state, word1, token->span);
+            if (status != VIGIL_STATUS_OK) {
+                vigil_string_free(&segment);
                 return status;
             }
-            status = basl_parser_emit_u32(state, word2, token->span);
-            if (status != BASL_STATUS_OK) {
-                basl_string_free(&segment);
+            status = vigil_parser_emit_u32(state, word2, token->span);
+            if (status != VIGIL_STATUS_OK) {
+                vigil_string_free(&segment);
                 return status;
             }
         }
 
-        status = basl_parser_emit_fstring_part_value(state, token->span, &part_count);
-        if (status != BASL_STATUS_OK) {
-            basl_string_free(&segment);
+        status = vigil_parser_emit_fstring_part_value(state, token->span, &part_count);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_string_free(&segment);
             return status;
         }
 
@@ -625,8 +625,8 @@ basl_status_t basl_parser_parse_fstring_literal(
         segment_start = index;
     }
 
-    basl_string_clear(&segment);
-    status = basl_program_append_decoded_string_range(
+    vigil_string_clear(&segment);
+    status = vigil_program_append_decoded_string_range(
         state->program,
         token->span,
         text,
@@ -634,24 +634,24 @@ basl_status_t basl_parser_parse_fstring_literal(
         length - 1U,
         &segment
     );
-    if (status != BASL_STATUS_OK) {
-        basl_string_free(&segment);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_string_free(&segment);
         return status;
     }
-    if (basl_string_length(&segment) > 0U || part_count == 0) {
-        status = basl_parser_emit_fstring_part_string(
+    if (vigil_string_length(&segment) > 0U || part_count == 0) {
+        status = vigil_parser_emit_fstring_part_string(
             state,
             token->span,
             &part_count,
-            basl_string_c_str(&segment),
-            basl_string_length(&segment)
+            vigil_string_c_str(&segment),
+            vigil_string_length(&segment)
         );
     }
-    basl_string_free(&segment);
-    if (status != BASL_STATUS_OK) {
+    vigil_string_free(&segment);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    basl_expression_result_set_type(out_result, basl_binding_type_primitive(BASL_TYPE_STRING));
-    return BASL_STATUS_OK;
+    vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_STRING));
+    return VIGIL_STATUS_OK;
 }

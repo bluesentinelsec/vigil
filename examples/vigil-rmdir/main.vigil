@@ -1,0 +1,37 @@
+import "os";
+import "file";
+import "fmt";
+
+fn main() -> i32 {
+    array<string> args = os.args();
+    
+    if (args.len() == 0) {
+        fmt.eprintln("vigil-rmdir: missing operand");
+        return 1;
+    }
+    
+    for (i32 i = 0; i < args.len(); i++) {
+        string path = args[i];
+        
+        // Check if it's a directory
+        FileStat info, err e1 = file.stat(path);
+        if (e1 != ok) {
+            fmt.eprintln(f"vigil-rmdir: {path}: {e1.message()}");
+            return 1;
+        }
+        
+        if (!info.is_dir) {
+            fmt.eprintln(f"vigil-rmdir: {path}: Not a directory");
+            return 1;
+        }
+        
+        // Remove (only works on empty directories)
+        err e2 = file.remove(path);
+        if (e2 != ok) {
+            fmt.eprintln(f"vigil-rmdir: {path}: {e2.message()}");
+            return 1;
+        }
+    }
+    
+    return 0;
+}

@@ -1,4 +1,4 @@
-/* BASL standard library: net module.
+/* VIGIL standard library: net module.
  *
  * TCP and UDP socket support with cross-platform compatibility.
  */
@@ -12,12 +12,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -91,53 +91,53 @@ static void free_socket(int64_t handle) {
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static bool get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
+static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
                            const char **out, size_t *out_len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (!basl_nanbox_is_object(v)) return false;
-    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return false;
-    *out = basl_string_object_c_str(obj);
-    *out_len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (!vigil_nanbox_is_object(v)) return false;
+    vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    *out = vigil_string_object_c_str(obj);
+    *out_len = vigil_string_object_length(obj);
     return true;
 }
 
-static int64_t get_i64_arg(basl_vm_t *vm, size_t base, size_t idx) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (basl_nanbox_is_int(v)) return basl_nanbox_decode_int(v);
+static int64_t get_i64_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (vigil_nanbox_is_int(v)) return vigil_nanbox_decode_int(v);
     return 0;
 }
 
-static int32_t get_i32_arg(basl_vm_t *vm, size_t base, size_t idx) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    return basl_nanbox_decode_i32(v);
+static int32_t get_i32_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    return vigil_nanbox_decode_i32(v);
 }
 
-static basl_status_t push_i64(basl_vm_t *vm, int64_t val, basl_error_t *error) {
-    basl_value_t v = basl_nanbox_encode_int(val);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_i64(vigil_vm_t *vm, int64_t val, vigil_error_t *error) {
+    vigil_value_t v = vigil_nanbox_encode_int(val);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
-static basl_status_t push_i32(basl_vm_t *vm, int32_t val, basl_error_t *error) {
-    basl_value_t v = basl_nanbox_encode_i32(val);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_i32(vigil_vm_t *vm, int32_t val, vigil_error_t *error) {
+    vigil_value_t v = vigil_nanbox_encode_i32(val);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
-static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
-                                  basl_error_t *error) {
-    basl_object_t *obj;
-    basl_value_t v;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    v = basl_nanbox_encode_object(obj);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
+                                  vigil_error_t *error) {
+    vigil_object_t *obj;
+    vigil_value_t v;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    v = vigil_nanbox_encode_object(obj);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
 /* ── TCP Functions ───────────────────────────────────────────────── */
 
 /* net.tcp_listen(host: string, port: i32) -> i64 */
-static basl_status_t net_tcp_listen(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_tcp_listen(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *host;
     size_t host_len;
     int32_t port;
@@ -149,11 +149,11 @@ static basl_status_t net_tcp_listen(basl_vm_t *vm, size_t arg_count, basl_error_
     net_init();
 
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
     port = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCK) return push_i64(vm, -1, error);
@@ -198,10 +198,10 @@ static basl_status_t net_tcp_listen(basl_vm_t *vm, size_t arg_count, basl_error_
 }
 
 /* net.tcp_accept(listener: i64) -> i64 */
-static basl_status_t net_tcp_accept(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_tcp_accept(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t listener = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     socket_t listen_sock = get_socket(listener);
     if (listen_sock == INVALID_SOCK) return push_i64(vm, -1, error);
@@ -221,8 +221,8 @@ static basl_status_t net_tcp_accept(basl_vm_t *vm, size_t arg_count, basl_error_
 }
 
 /* net.tcp_connect(host: string, port: i32) -> i64 */
-static basl_status_t net_tcp_connect(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_tcp_connect(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *host;
     size_t host_len;
     int32_t port;
@@ -234,11 +234,11 @@ static basl_status_t net_tcp_connect(basl_vm_t *vm, size_t arg_count, basl_error
     net_init();
 
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
     port = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (host_len >= sizeof(host_buf)) host_len = sizeof(host_buf) - 1;
     memcpy(host_buf, host, host_len);
@@ -278,11 +278,11 @@ static basl_status_t net_tcp_connect(basl_vm_t *vm, size_t arg_count, basl_error
 }
 
 /* net.read(sock: i64, max_bytes: i32) -> string */
-static basl_status_t net_read(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_read(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int32_t max_bytes = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     socket_t sock = get_socket(handle);
     if (sock == INVALID_SOCK) return push_string(vm, "", 0, error);
@@ -299,23 +299,23 @@ static basl_status_t net_read(basl_vm_t *vm, size_t arg_count, basl_error_t *err
         return push_string(vm, "", 0, error);
     }
 
-    basl_status_t s = push_string(vm, buf, (size_t)n, error);
+    vigil_status_t s = push_string(vm, buf, (size_t)n, error);
     free(buf);
     return s;
 }
 
 /* net.write(sock: i64, data: string) -> i32 */
-static basl_status_t net_write(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_write(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     const char *data;
     size_t data_len;
 
     if (!get_string_arg(vm, base, 1, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i32(vm, -1, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     socket_t sock = get_socket(handle);
     if (sock == INVALID_SOCK) return push_i32(vm, -1, error);
@@ -325,20 +325,20 @@ static basl_status_t net_write(basl_vm_t *vm, size_t arg_count, basl_error_t *er
 }
 
 /* net.close(sock: i64) */
-static basl_status_t net_close(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_close(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     free_socket(handle);
     (void)error;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── UDP Functions ───────────────────────────────────────────────── */
 
 /* net.udp_bind(host: string, port: i32) -> i64 */
-static basl_status_t net_udp_bind(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_udp_bind(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *host;
     size_t host_len;
     int32_t port;
@@ -349,11 +349,11 @@ static basl_status_t net_udp_bind(basl_vm_t *vm, size_t arg_count, basl_error_t 
     net_init();
 
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
     port = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock == INVALID_SOCK) return push_i64(vm, -1, error);
@@ -387,7 +387,7 @@ static basl_status_t net_udp_bind(basl_vm_t *vm, size_t arg_count, basl_error_t 
 }
 
 /* net.udp_new() -> i64 */
-static basl_status_t net_udp_new(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+static vigil_status_t net_udp_new(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     (void)arg_count;
     net_init();
 
@@ -404,8 +404,8 @@ static basl_status_t net_udp_new(basl_vm_t *vm, size_t arg_count, basl_error_t *
 }
 
 /* net.udp_send(sock: i64, host: string, port: i32, data: string) -> i32 */
-static basl_status_t net_udp_send(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_udp_send(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     const char *host, *data;
     size_t host_len, data_len;
@@ -415,11 +415,11 @@ static basl_status_t net_udp_send(basl_vm_t *vm, size_t arg_count, basl_error_t 
 
     if (!get_string_arg(vm, base, 1, &host, &host_len) ||
         !get_string_arg(vm, base, 3, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i32(vm, -1, error);
     }
     port = get_i32_arg(vm, base, 2);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     socket_t sock = get_socket(handle);
     if (sock == INVALID_SOCK) return push_i32(vm, -1, error);
@@ -444,11 +444,11 @@ static basl_status_t net_udp_send(basl_vm_t *vm, size_t arg_count, basl_error_t 
 }
 
 /* net.udp_recv(sock: i64, max_bytes: i32) -> string */
-static basl_status_t net_udp_recv(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_udp_recv(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int32_t max_bytes = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     socket_t sock = get_socket(handle);
     if (sock == INVALID_SOCK) return push_string(vm, "", 0, error);
@@ -467,23 +467,23 @@ static basl_status_t net_udp_recv(basl_vm_t *vm, size_t arg_count, basl_error_t 
         return push_string(vm, "", 0, error);
     }
 
-    basl_status_t s = push_string(vm, buf, (size_t)n, error);
+    vigil_status_t s = push_string(vm, buf, (size_t)n, error);
     free(buf);
     return s;
 }
 
 /* net.set_timeout(sock: i64, ms: i32) -> bool */
-static basl_status_t net_set_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t net_set_timeout(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int32_t ms = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     socket_t sock = get_socket(handle);
     if (sock == INVALID_SOCK) {
-        basl_value_t v;
-        basl_value_init_bool(&v, 0);
-        return basl_vm_stack_push(vm, &v, error);
+        vigil_value_t v;
+        vigil_value_init_bool(&v, 0);
+        return vigil_vm_stack_push(vm, &v, error);
     }
 
 #ifdef _WIN32
@@ -498,36 +498,36 @@ static basl_status_t net_set_timeout(basl_vm_t *vm, size_t arg_count, basl_error
     setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 #endif
 
-    basl_value_t v;
-    basl_value_init_bool(&v, 1);
-    return basl_vm_stack_push(vm, &v, error);
+    vigil_value_t v;
+    vigil_value_init_bool(&v, 1);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
 /* ── Module definition ───────────────────────────────────────────── */
 
-static const int str_i32_param[] = {BASL_TYPE_STRING, BASL_TYPE_I32};
-static const int i64_param[] = {BASL_TYPE_I64};
-static const int i64_i32_param[] = {BASL_TYPE_I64, BASL_TYPE_I32};
-static const int i64_str_param[] = {BASL_TYPE_I64, BASL_TYPE_STRING};
-static const int udp_send_param[] = {BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_I32, BASL_TYPE_STRING};
+static const int str_i32_param[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_I32};
+static const int i64_param[] = {VIGIL_TYPE_I64};
+static const int i64_i32_param[] = {VIGIL_TYPE_I64, VIGIL_TYPE_I32};
+static const int i64_str_param[] = {VIGIL_TYPE_I64, VIGIL_TYPE_STRING};
+static const int udp_send_param[] = {VIGIL_TYPE_I64, VIGIL_TYPE_STRING, VIGIL_TYPE_I32, VIGIL_TYPE_STRING};
 
-static const basl_native_module_function_t net_functions[] = {
-    {"tcp_listen", 10U, net_tcp_listen, 2U, str_i32_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"tcp_accept", 10U, net_tcp_accept, 1U, i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"tcp_connect", 11U, net_tcp_connect, 2U, str_i32_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"read", 4U, net_read, 2U, i64_i32_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"write", 5U, net_write, 2U, i64_str_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"close", 5U, net_close, 1U, i64_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
-    {"udp_bind", 8U, net_udp_bind, 2U, str_i32_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"udp_new", 7U, net_udp_new, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"udp_send", 8U, net_udp_send, 4U, udp_send_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"udp_recv", 8U, net_udp_recv, 2U, i64_i32_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"set_timeout", 11U, net_set_timeout, 2U, i64_i32_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+static const vigil_native_module_function_t net_functions[] = {
+    {"tcp_listen", 10U, net_tcp_listen, 2U, str_i32_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"tcp_accept", 10U, net_tcp_accept, 1U, i64_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"tcp_connect", 11U, net_tcp_connect, 2U, str_i32_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"read", 4U, net_read, 2U, i64_i32_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"write", 5U, net_write, 2U, i64_str_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"close", 5U, net_close, 1U, i64_param, VIGIL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"udp_bind", 8U, net_udp_bind, 2U, str_i32_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"udp_new", 7U, net_udp_new, 0U, NULL, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"udp_send", 8U, net_udp_send, 4U, udp_send_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"udp_recv", 8U, net_udp_recv, 2U, i64_i32_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"set_timeout", 11U, net_set_timeout, 2U, i64_i32_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
 };
 
 #define NET_FUNCTION_COUNT (sizeof(net_functions) / sizeof(net_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_net = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_net = {
     "net", 3U,
     net_functions, NET_FUNCTION_COUNT,
     NULL, 0U

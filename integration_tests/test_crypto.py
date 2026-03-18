@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL crypto module."""
+"""Integration tests for VIGIL crypto module."""
 
 import os
 import subprocess
@@ -7,15 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    with tempfile.TemporaryDirectory(prefix="basl_crypto_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    with tempfile.TemporaryDirectory(prefix="vigil_crypto_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True, text=True, timeout=10,
         )
         return result.returncode, result.stdout, result.stderr
@@ -29,7 +29,7 @@ fn main() -> i32 {
     if (h == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_sha256_hello(self):
@@ -39,7 +39,7 @@ fn main() -> i32 {
     if (h == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -52,7 +52,7 @@ fn main() -> i32 {
     if (h.starts_with("9b71d224bd62f3785d96d46ad3ea3d73")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -64,7 +64,7 @@ fn main() -> i32 {
     if (h == "6e9ef29b75fffc5b7abae527d58fdadb2fe42e7219011976917343065f58ed4a") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -76,7 +76,7 @@ fn main() -> i32 {
     if (h == "68656c6c6f") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_hex_decode(self):
@@ -86,7 +86,7 @@ fn main() -> i32 {
     if (d == "hello") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_hex_roundtrip(self):
@@ -98,7 +98,7 @@ fn main() -> i32 {
     if (back == orig) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -110,7 +110,7 @@ fn main() -> i32 {
     if (b == "aGVsbG8=") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_base64_decode(self):
@@ -120,7 +120,7 @@ fn main() -> i32 {
     if (d == "hello") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_base64_roundtrip(self):
@@ -132,7 +132,7 @@ fn main() -> i32 {
     if (back == orig) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -146,7 +146,7 @@ fn main() -> i32 {
     if (hex.len() == 64) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_random_bytes_different(self):
@@ -157,7 +157,7 @@ fn main() -> i32 {
     if (r1 != r2) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -168,7 +168,7 @@ fn main() -> i32 {
     if (crypto.constant_time_eq("hello", "hello")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_not_equal(self):
@@ -177,7 +177,7 @@ fn main() -> i32 {
     if (!crypto.constant_time_eq("hello", "world")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -193,7 +193,7 @@ fn main() -> i32 {
     if (decrypted == plaintext) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_wrong_key_fails(self):
@@ -207,7 +207,7 @@ fn main() -> i32 {
     if (decrypted == "") { return 0; }  // Should fail auth
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -220,7 +220,7 @@ fn main() -> i32 {
     if (key.starts_with("120fb6cf")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -234,7 +234,7 @@ fn main() -> i32 {
     if (decrypted != plaintext) { return 1; }
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_wrong_password_fails(self):
@@ -245,7 +245,7 @@ fn main() -> i32 {
     if (decrypted == "") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

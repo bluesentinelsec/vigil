@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that basl_core sources only include C11-standard headers.
+"""Verify that vigil_core sources only include C11-standard headers.
 
 Run from the repository root:
     python3 scripts/check_core_portability.py
@@ -57,8 +57,8 @@ def check_file(path: Path) -> list[str]:
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
 
-    # All source files that belong to basl_core.
-    core_dirs = [root / "src", root / "include" / "basl"]
+    # All source files that belong to vigil_core.
+    core_dirs = [root / "src", root / "include" / "vigil"]
     core_globs = ["*.c", "*.h"]
     # Exclude the CLI — it's allowed to have platform code.
     exclude = {root / "src" / "cli", root / "src" / "stdlib", root / "src" / "platform"}
@@ -72,7 +72,7 @@ def main() -> int:
                 errors.extend(check_file(path))
 
     if errors:
-        print(f"FAIL: {len(errors)} portability violation(s) in basl_core:\n")
+        print(f"FAIL: {len(errors)} portability violation(s) in vigil_core:\n")
         for e in errors:
             print(f"  {e}")
         return 1

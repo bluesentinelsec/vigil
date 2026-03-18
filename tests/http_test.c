@@ -1,5 +1,5 @@
-/* Unit tests for BASL http module. */
-#include "basl_test.h"
+/* Unit tests for VIGIL http module. */
+#include "vigil_test.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -7,7 +7,7 @@
 
 #include "platform/platform.h"
 
-/* ── Declarations for http.c internals (BASL_HTTP_TESTING) ───────── */
+/* ── Declarations for http.c internals (VIGIL_HTTP_TESTING) ───────── */
 
 typedef struct {
     char scheme[16];
@@ -34,7 +34,7 @@ extern int do_request(const char *method, const char *url_str,
 
 /* ── URL parsing tests (table-style) ─────────────────────────────── */
 
-TEST(BaslHttpTest, ParseUrlFull) {
+TEST(VigilHttpTest, ParseUrlFull) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("https://example.com:8080/api/v1", &u));
     EXPECT_STREQ(u.scheme, "https");
@@ -43,7 +43,7 @@ TEST(BaslHttpTest, ParseUrlFull) {
     EXPECT_TRUE(strcmp(u.path, "/api/v1") == 0);
 }
 
-TEST(BaslHttpTest, ParseUrlHttpDefault) {
+TEST(VigilHttpTest, ParseUrlHttpDefault) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("http://localhost/test", &u));
     EXPECT_STREQ(u.scheme, "http");
@@ -52,20 +52,20 @@ TEST(BaslHttpTest, ParseUrlHttpDefault) {
     EXPECT_TRUE(strcmp(u.path, "/test") == 0);
 }
 
-TEST(BaslHttpTest, ParseUrlHttpsDefaultPort) {
+TEST(VigilHttpTest, ParseUrlHttpsDefaultPort) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("https://example.com/secure", &u));
     EXPECT_EQ(u.port, 443);
 }
 
-TEST(BaslHttpTest, ParseUrlNoPath) {
+TEST(VigilHttpTest, ParseUrlNoPath) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("http://example.com", &u));
     EXPECT_STREQ(u.host, "example.com");
     EXPECT_TRUE(strcmp(u.path, "/") == 0);
 }
 
-TEST(BaslHttpTest, ParseUrlNoScheme) {
+TEST(VigilHttpTest, ParseUrlNoScheme) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("example.com/foo", &u));
     EXPECT_STREQ(u.scheme, "http");
@@ -73,7 +73,7 @@ TEST(BaslHttpTest, ParseUrlNoScheme) {
     EXPECT_TRUE(strcmp(u.path, "/foo") == 0);
 }
 
-TEST(BaslHttpTest, ParseUrlLoopback) {
+TEST(VigilHttpTest, ParseUrlLoopback) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("http://127.0.0.1:9100/data", &u));
     EXPECT_STREQ(u.host, "127.0.0.1");
@@ -86,7 +86,7 @@ TEST(BaslHttpTest, ParseUrlLoopback) {
 #define TEST_PORT 18787
 
 typedef struct {
-    basl_socket_t listener;
+    vigil_socket_t listener;
     volatile int ready;
     const char *response;  /* full HTTP response to send */
 } test_server_t;
@@ -94,55 +94,55 @@ typedef struct {
 static void test_server_func(void *arg) {
     test_server_t *srv = (test_server_t *)arg;
 
-    if (basl_platform_tcp_listen("127.0.0.1", TEST_PORT, &srv->listener, NULL) != BASL_STATUS_OK) {
-        srv->listener = BASL_INVALID_SOCKET;
+    if (vigil_platform_tcp_listen("127.0.0.1", TEST_PORT, &srv->listener, NULL) != VIGIL_STATUS_OK) {
+        srv->listener = VIGIL_INVALID_SOCKET;
         return;
     }
 
     srv->ready = 1;
 
-    basl_socket_t client = BASL_INVALID_SOCKET;
-    if (basl_platform_tcp_accept(srv->listener, &client, NULL) != BASL_STATUS_OK) return;
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(srv->listener, &client, NULL) != VIGIL_STATUS_OK) return;
 
     /* Drain the request */
     char buf[4096];
     size_t n = 0;
-    basl_platform_tcp_recv(client, buf, sizeof(buf), &n, NULL);
+    vigil_platform_tcp_recv(client, buf, sizeof(buf), &n, NULL);
 
     /* Send response */
     const char *resp = srv->response;
-    basl_platform_tcp_send(client, resp, strlen(resp), NULL, NULL);
-    basl_platform_tcp_close(client, NULL);
+    vigil_platform_tcp_send(client, resp, strlen(resp), NULL, NULL);
+    vigil_platform_tcp_close(client, NULL);
 }
 
 static int start_test_server(test_server_t *srv, const char *response,
-                             basl_platform_thread_t **thread) {
+                             vigil_platform_thread_t **thread) {
     memset(srv, 0, sizeof(*srv));
-    srv->listener = BASL_INVALID_SOCKET;
+    srv->listener = VIGIL_INVALID_SOCKET;
     srv->response = response;
 
-    basl_platform_net_init(NULL);
-    basl_status_t st = basl_platform_thread_create(thread, test_server_func,
+    vigil_platform_net_init(NULL);
+    vigil_status_t st = vigil_platform_thread_create(thread, test_server_func,
                                                     srv, NULL);
-    if (st != BASL_STATUS_OK) return 0;
+    if (st != VIGIL_STATUS_OK) return 0;
 
     for (int i = 0; i < 200 && !srv->ready; i++)
-        basl_platform_thread_sleep(10);
+        vigil_platform_thread_sleep(10);
     return srv->ready;
 }
 
 static void stop_test_server(test_server_t *srv,
-                             basl_platform_thread_t *thread) {
-    if (srv->listener != BASL_INVALID_SOCKET)
-        basl_platform_tcp_close(srv->listener, NULL);
-    basl_platform_thread_join(thread, NULL);
+                             vigil_platform_thread_t *thread) {
+    if (srv->listener != VIGIL_INVALID_SOCKET)
+        vigil_platform_tcp_close(srv->listener, NULL);
+    vigil_platform_thread_join(thread, NULL);
 }
 
 /* ── Socket client tests against loopback server ─────────────────── */
 
-TEST(BaslHttpTest, SocketGetBasic) {
+TEST(VigilHttpTest, SocketGetBasic) {
     test_server_t srv;
-    basl_platform_thread_t *thr = NULL;
+    vigil_platform_thread_t *thr = NULL;
     const char *canned =
         "HTTP/1.1 200 OK\r\n"
         "Content-Length: 5\r\n"
@@ -168,9 +168,9 @@ TEST(BaslHttpTest, SocketGetBasic) {
     stop_test_server(&srv, thr);
 }
 
-TEST(BaslHttpTest, SocketPostBody) {
+TEST(VigilHttpTest, SocketPostBody) {
     test_server_t srv;
-    basl_platform_thread_t *thr = NULL;
+    vigil_platform_thread_t *thr = NULL;
     const char *canned =
         "HTTP/1.1 201 Created\r\n"
         "Content-Length: 2\r\n"
@@ -194,9 +194,9 @@ TEST(BaslHttpTest, SocketPostBody) {
     stop_test_server(&srv, thr);
 }
 
-TEST(BaslHttpTest, Socket404Response) {
+TEST(VigilHttpTest, Socket404Response) {
     test_server_t srv;
-    basl_platform_thread_t *thr = NULL;
+    vigil_platform_thread_t *thr = NULL;
     const char *canned =
         "HTTP/1.1 404 Not Found\r\n"
         "Content-Length: 9\r\n"
@@ -218,9 +218,9 @@ TEST(BaslHttpTest, Socket404Response) {
     stop_test_server(&srv, thr);
 }
 
-TEST(BaslHttpTest, SocketEmptyBody) {
+TEST(VigilHttpTest, SocketEmptyBody) {
     test_server_t srv;
-    basl_platform_thread_t *thr = NULL;
+    vigil_platform_thread_t *thr = NULL;
     const char *canned =
         "HTTP/1.1 204 No Content\r\n"
         "Content-Length: 0\r\n"
@@ -241,7 +241,7 @@ TEST(BaslHttpTest, SocketEmptyBody) {
     stop_test_server(&srv, thr);
 }
 
-TEST(BaslHttpTest, SocketConnectionRefused) {
+TEST(VigilHttpTest, SocketConnectionRefused) {
     parsed_url_t url;
     parse_url("http://127.0.0.1:18788/nothing", &url);
 
@@ -250,7 +250,7 @@ TEST(BaslHttpTest, SocketConnectionRefused) {
     EXPECT_EQ(rc, -1);
 }
 
-TEST(BaslHttpTest, DoRequestHttpsFallbackFails) {
+TEST(VigilHttpTest, DoRequestHttpsFallbackFails) {
     /* Without libcurl, HTTPS via do_request should fail gracefully */
     http_response_t resp;
     int rc = do_request("GET", "https://127.0.0.1:18789/secure",
@@ -265,7 +265,7 @@ TEST(BaslHttpTest, DoRequestHttpsFallbackFails) {
 
 /* ── Response free safety ────────────────────────────────────────── */
 
-TEST(BaslHttpTest, ResponseFreeNull) {
+TEST(VigilHttpTest, ResponseFreeNull) {
     http_response_t resp;
     memset(&resp, 0, sizeof(resp));
     response_free(&resp); /* should not crash */
@@ -288,15 +288,15 @@ typedef struct {
 static void server_thread_func(void *arg) {
     server_test_ctx_t *ctx = (server_test_ctx_t *)arg;
 
-    basl_socket_t listener = BASL_INVALID_SOCKET;
-    if (basl_platform_tcp_listen("127.0.0.1", ctx->port, &listener, NULL) != BASL_STATUS_OK)
+    vigil_socket_t listener = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_listen("127.0.0.1", ctx->port, &listener, NULL) != VIGIL_STATUS_OK)
         return;
 
     ctx->ready = 1;
 
-    basl_socket_t client = BASL_INVALID_SOCKET;
-    if (basl_platform_tcp_accept(listener, &client, NULL) != BASL_STATUS_OK) {
-        basl_platform_tcp_close(listener, NULL);
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(listener, &client, NULL) != VIGIL_STATUS_OK) {
+        vigil_platform_tcp_close(listener, NULL);
         return;
     }
 
@@ -305,7 +305,7 @@ static void server_thread_func(void *arg) {
     size_t len = 0;
     for (;;) {
         size_t n = 0;
-        if (basl_platform_tcp_recv(client, buf + len, sizeof(buf) - len - 1, &n, NULL) != BASL_STATUS_OK || n == 0) break;
+        if (vigil_platform_tcp_recv(client, buf + len, sizeof(buf) - len - 1, &n, NULL) != VIGIL_STATUS_OK || n == 0) break;
         len += n;
         buf[len] = '\0';
         if (strstr(buf, "\r\n\r\n")) break;
@@ -347,24 +347,24 @@ static void server_thread_func(void *arg) {
         "Connection: close\r\n"
         "\r\n"
         "hello world";
-    basl_platform_tcp_send(client, response, strlen(response), NULL, NULL);
+    vigil_platform_tcp_send(client, response, strlen(response), NULL, NULL);
 
-    basl_platform_tcp_close(client, NULL);
-    basl_platform_tcp_close(listener, NULL);
+    vigil_platform_tcp_close(client, NULL);
+    vigil_platform_tcp_close(listener, NULL);
 }
 
-TEST(BaslHttpTest, ServerRoundTrip) {
+TEST(VigilHttpTest, ServerRoundTrip) {
     server_test_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.port = SERVER_TEST_PORT;
 
-    basl_platform_thread_t *thr = NULL;
-    basl_status_t st = basl_platform_thread_create(&thr, server_thread_func, &ctx, NULL);
-    if (st != BASL_STATUS_OK) return;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_status_t st = vigil_platform_thread_create(&thr, server_thread_func, &ctx, NULL);
+    if (st != VIGIL_STATUS_OK) return;
 
     for (int i = 0; i < 200 && !ctx.ready; i++)
-        basl_platform_thread_sleep(10);
-    if (!ctx.ready) { basl_platform_thread_join(thr, NULL); return; }
+        vigil_platform_thread_sleep(10);
+    if (!ctx.ready) { vigil_platform_thread_join(thr, NULL); return; }
 
     /* Use socket_request to talk to our server */
     parsed_url_t url;
@@ -377,25 +377,25 @@ TEST(BaslHttpTest, ServerRoundTrip) {
     EXPECT_STREQ(resp.body, "hello world");
     response_free(&resp);
 
-    basl_platform_thread_join(thr, NULL);
+    vigil_platform_thread_join(thr, NULL);
 
     /* Verify the server received the right request */
     EXPECT_STREQ(ctx.received_method, "GET");
     EXPECT_TRUE(strcmp(ctx.received_path, "/test/path") == 0);
 }
 
-TEST(BaslHttpTest, ServerPostRoundTrip) {
+TEST(VigilHttpTest, ServerPostRoundTrip) {
     server_test_ctx_t ctx;
     memset(&ctx, 0, sizeof(ctx));
     ctx.port = SERVER_TEST_PORT + 1;
 
-    basl_platform_thread_t *thr = NULL;
-    basl_status_t st = basl_platform_thread_create(&thr, server_thread_func, &ctx, NULL);
-    if (st != BASL_STATUS_OK) return;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_status_t st = vigil_platform_thread_create(&thr, server_thread_func, &ctx, NULL);
+    if (st != VIGIL_STATUS_OK) return;
 
     for (int i = 0; i < 200 && !ctx.ready; i++)
-        basl_platform_thread_sleep(10);
-    if (!ctx.ready) { basl_platform_thread_join(thr, NULL); return; }
+        vigil_platform_thread_sleep(10);
+    if (!ctx.ready) { vigil_platform_thread_join(thr, NULL); return; }
 
     parsed_url_t url;
     parse_url("http://127.0.0.1:18789/submit", &url);
@@ -408,7 +408,7 @@ TEST(BaslHttpTest, ServerPostRoundTrip) {
     EXPECT_EQ(resp.status_code, 200);
     response_free(&resp);
 
-    basl_platform_thread_join(thr, NULL);
+    vigil_platform_thread_join(thr, NULL);
 
     EXPECT_STREQ(ctx.received_method, "POST");
     EXPECT_TRUE(strcmp(ctx.received_path, "/submit") == 0);
@@ -418,22 +418,22 @@ TEST(BaslHttpTest, ServerPostRoundTrip) {
 
 void register_http_tests(void) {
     /* URL parsing */
-    REGISTER_TEST(BaslHttpTest, ParseUrlFull);
-    REGISTER_TEST(BaslHttpTest, ParseUrlHttpDefault);
-    REGISTER_TEST(BaslHttpTest, ParseUrlHttpsDefaultPort);
-    REGISTER_TEST(BaslHttpTest, ParseUrlNoPath);
-    REGISTER_TEST(BaslHttpTest, ParseUrlNoScheme);
-    REGISTER_TEST(BaslHttpTest, ParseUrlLoopback);
+    REGISTER_TEST(VigilHttpTest, ParseUrlFull);
+    REGISTER_TEST(VigilHttpTest, ParseUrlHttpDefault);
+    REGISTER_TEST(VigilHttpTest, ParseUrlHttpsDefaultPort);
+    REGISTER_TEST(VigilHttpTest, ParseUrlNoPath);
+    REGISTER_TEST(VigilHttpTest, ParseUrlNoScheme);
+    REGISTER_TEST(VigilHttpTest, ParseUrlLoopback);
     /* Socket client */
-    REGISTER_TEST(BaslHttpTest, SocketGetBasic);
-    REGISTER_TEST(BaslHttpTest, SocketPostBody);
-    REGISTER_TEST(BaslHttpTest, Socket404Response);
-    REGISTER_TEST(BaslHttpTest, SocketEmptyBody);
-    REGISTER_TEST(BaslHttpTest, SocketConnectionRefused);
-    REGISTER_TEST(BaslHttpTest, DoRequestHttpsFallbackFails);
+    REGISTER_TEST(VigilHttpTest, SocketGetBasic);
+    REGISTER_TEST(VigilHttpTest, SocketPostBody);
+    REGISTER_TEST(VigilHttpTest, Socket404Response);
+    REGISTER_TEST(VigilHttpTest, SocketEmptyBody);
+    REGISTER_TEST(VigilHttpTest, SocketConnectionRefused);
+    REGISTER_TEST(VigilHttpTest, DoRequestHttpsFallbackFails);
     /* Misc */
-    REGISTER_TEST(BaslHttpTest, ResponseFreeNull);
+    REGISTER_TEST(VigilHttpTest, ResponseFreeNull);
     /* Server */
-    REGISTER_TEST(BaslHttpTest, ServerRoundTrip);
-    REGISTER_TEST(BaslHttpTest, ServerPostRoundTrip);
+    REGISTER_TEST(VigilHttpTest, ServerRoundTrip);
+    REGISTER_TEST(VigilHttpTest, ServerPostRoundTrip);
 }

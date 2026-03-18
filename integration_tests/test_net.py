@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL net module."""
+"""Integration tests for VIGIL net module."""
 
 import os
 import socket
@@ -10,16 +10,16 @@ import time
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str, timeout: int = 10) -> tuple[int, str, str]:
-    """Run BASL code and return (exit_code, stdout, stderr)."""
-    with tempfile.TemporaryDirectory(prefix="basl_net_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str, timeout: int = 10) -> tuple[int, str, str]:
+    """Run VIGIL code and return (exit_code, stdout, stderr)."""
+    with tempfile.TemporaryDirectory(prefix="vigil_net_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -27,12 +27,12 @@ def run_basl(code: str, timeout: int = 10) -> tuple[int, str, str]:
         return result.returncode, result.stdout, result.stderr
 
 
-def run_basl_async(code: str, tmpdir: str) -> subprocess.Popen:
-    """Run BASL code asynchronously."""
-    path = Path(tmpdir) / "test.basl"
+def run_vigil_async(code: str, tmpdir: str) -> subprocess.Popen:
+    """Run VIGIL code asynchronously."""
+    path = Path(tmpdir) / "test.vigil"
     path.write_text(code)
     return subprocess.Popen(
-        [BASL_BIN, "run", str(path)],
+        [VIGIL_BIN, "run", str(path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -53,7 +53,7 @@ fn main() -> i32 {
     }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -71,7 +71,7 @@ fn main() -> i32 {
     net.close(sock);
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -80,7 +80,7 @@ class TcpClientServerTest(unittest.TestCase):
 
     def test_tcp_echo(self):
         """TCP server can accept connection and echo data."""
-        with tempfile.TemporaryDirectory(prefix="basl_tcp_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_tcp_") as tmpdir:
             server_code = '''import "net";
 import "fmt";
 fn main() -> i32 {
@@ -118,10 +118,10 @@ fn main() -> i32 {
     return 2;
 }'''
             # Start server
-            server_path = Path(tmpdir) / "server.basl"
+            server_path = Path(tmpdir) / "server.vigil"
             server_path.write_text(server_code)
             server_proc = subprocess.Popen(
-                [BASL_BIN, "run", str(server_path)],
+                [VIGIL_BIN, "run", str(server_path)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -130,10 +130,10 @@ fn main() -> i32 {
             time.sleep(0.2)  # Let server start
 
             # Run client
-            client_path = Path(tmpdir) / "client.basl"
+            client_path = Path(tmpdir) / "client.vigil"
             client_path.write_text(client_code)
             client_result = subprocess.run(
-                [BASL_BIN, "run", str(client_path)],
+                [VIGIL_BIN, "run", str(client_path)],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -151,7 +151,7 @@ class TcpReadWriteTest(unittest.TestCase):
 
     def test_write_returns_bytes_sent(self):
         """write returns number of bytes sent."""
-        with tempfile.TemporaryDirectory(prefix="basl_rw_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_rw_") as tmpdir:
             server_code = '''import "net";
 fn main() -> i32 {
     i64 server = net.tcp_listen("127.0.0.1", 19003);
@@ -174,20 +174,20 @@ fn main() -> i32 {
     if (sent == 9) { return 0; }
     return 2;
 }'''
-            server_path = Path(tmpdir) / "server.basl"
+            server_path = Path(tmpdir) / "server.vigil"
             server_path.write_text(server_code)
             server_proc = subprocess.Popen(
-                [BASL_BIN, "run", str(server_path)],
+                [VIGIL_BIN, "run", str(server_path)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
 
             time.sleep(0.2)
 
-            client_path = Path(tmpdir) / "client.basl"
+            client_path = Path(tmpdir) / "client.vigil"
             client_path.write_text(client_code)
             client_result = subprocess.run(
-                [BASL_BIN, "run", str(client_path)],
+                [VIGIL_BIN, "run", str(client_path)],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -212,7 +212,7 @@ fn main() -> i32 {
     }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -230,7 +230,7 @@ fn main() -> i32 {
     }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -267,7 +267,7 @@ fn main() -> i32 {
     if (data == "udp test") { return 0; }
     return 4;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -287,7 +287,7 @@ fn main() -> i32 {
     if (ok) { return 0; }
     return 2;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_set_timeout_invalid_socket(self):
@@ -298,7 +298,7 @@ fn main() -> i32 {
     if (!ok) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -314,7 +314,7 @@ fn main() -> i32 {
     net.close(sock);
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_close_invalid_socket(self):
@@ -324,7 +324,7 @@ fn main() -> i32 {
     net.close(i64(999));
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_double_close(self):
@@ -336,7 +336,7 @@ fn main() -> i32 {
     net.close(sock);
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

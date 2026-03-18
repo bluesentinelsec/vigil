@@ -2,68 +2,68 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "internal/basl_internal.h"
-#include "basl/diagnostic.h"
+#include "internal/vigil_internal.h"
+#include "vigil/diagnostic.h"
 
-static basl_status_t basl_diagnostic_list_validate_mutable(
-    const basl_diagnostic_list_t *list,
-    basl_error_t *error
+static vigil_status_t vigil_diagnostic_list_validate_mutable(
+    const vigil_diagnostic_list_t *list,
+    vigil_error_t *error
 ) {
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (list == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic list must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (list->runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic list runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (list->items == NULL && (list->count != 0U || list->capacity != 0U)) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic list state is inconsistent"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (list->count > list->capacity) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic list count exceeds capacity"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_diagnostic_list_grow(
-    basl_diagnostic_list_t *list,
+static vigil_status_t vigil_diagnostic_list_grow(
+    vigil_diagnostic_list_t *list,
     size_t minimum_capacity,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     size_t old_capacity;
     size_t capacity;
     size_t next_capacity;
     void *memory;
-    basl_status_t status;
+    vigil_status_t status;
 
     if (minimum_capacity <= list->capacity) {
-        basl_error_clear(error);
-        return BASL_STATUS_OK;
+        vigil_error_clear(error);
+        return VIGIL_STATUS_OK;
     }
 
     old_capacity = list->capacity;
@@ -79,55 +79,55 @@ static basl_status_t basl_diagnostic_list_grow(
     }
 
     if (next_capacity > (SIZE_MAX / sizeof(*list->items))) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_OUT_OF_MEMORY,
+            VIGIL_STATUS_OUT_OF_MEMORY,
             "diagnostic list allocation overflow"
         );
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     if (list->items == NULL) {
         memory = NULL;
-        status = basl_runtime_alloc(
+        status = vigil_runtime_alloc(
             list->runtime,
             next_capacity * sizeof(*list->items),
             &memory,
             error
         );
-        if (status != BASL_STATUS_OK) {
+        if (status != VIGIL_STATUS_OK) {
             return status;
         }
 
-        list->items = (basl_diagnostic_t *)memory;
+        list->items = (vigil_diagnostic_t *)memory;
         list->capacity = next_capacity;
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     memory = list->items;
-    status = basl_runtime_realloc(
+    status = vigil_runtime_realloc(
         list->runtime,
         &memory,
         next_capacity * sizeof(*list->items),
         error
     );
-    if (status != BASL_STATUS_OK) {
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    list->items = (basl_diagnostic_t *)memory;
+    list->items = (vigil_diagnostic_t *)memory;
     memset(
         list->items + old_capacity,
         0,
         (next_capacity - old_capacity) * sizeof(*list->items)
     );
     list->capacity = next_capacity;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-void basl_diagnostic_list_init(
-    basl_diagnostic_list_t *list,
-    basl_runtime_t *runtime
+void vigil_diagnostic_list_init(
+    vigil_diagnostic_list_t *list,
+    vigil_runtime_t *runtime
 ) {
     if (list == NULL) {
         return;
@@ -137,7 +137,7 @@ void basl_diagnostic_list_init(
     list->runtime = runtime;
 }
 
-void basl_diagnostic_list_clear(basl_diagnostic_list_t *list) {
+void vigil_diagnostic_list_clear(vigil_diagnostic_list_t *list) {
     size_t i;
 
     if (list == NULL) {
@@ -145,31 +145,31 @@ void basl_diagnostic_list_clear(basl_diagnostic_list_t *list) {
     }
 
     for (i = 0U; i < list->count; ++i) {
-        basl_string_free(&list->items[i].message);
+        vigil_string_free(&list->items[i].message);
         memset(&list->items[i], 0, sizeof(list->items[i]));
     }
 
     list->count = 0U;
 }
 
-void basl_diagnostic_list_free(basl_diagnostic_list_t *list) {
+void vigil_diagnostic_list_free(vigil_diagnostic_list_t *list) {
     void *memory;
 
     if (list == NULL) {
         return;
     }
 
-    basl_diagnostic_list_clear(list);
+    vigil_diagnostic_list_clear(list);
 
     memory = list->items;
     if (list->runtime != NULL) {
-        basl_runtime_free(list->runtime, &memory);
+        vigil_runtime_free(list->runtime, &memory);
     }
 
     memset(list, 0, sizeof(*list));
 }
 
-size_t basl_diagnostic_list_count(const basl_diagnostic_list_t *list) {
+size_t vigil_diagnostic_list_count(const vigil_diagnostic_list_t *list) {
     if (list == NULL) {
         return 0U;
     }
@@ -177,23 +177,23 @@ size_t basl_diagnostic_list_count(const basl_diagnostic_list_t *list) {
     return list->count;
 }
 
-const char *basl_diagnostic_severity_name(
-    basl_diagnostic_severity_t severity
+const char *vigil_diagnostic_severity_name(
+    vigil_diagnostic_severity_t severity
 ) {
     switch (severity) {
-        case BASL_DIAGNOSTIC_ERROR:
+        case VIGIL_DIAGNOSTIC_ERROR:
             return "error";
-        case BASL_DIAGNOSTIC_WARNING:
+        case VIGIL_DIAGNOSTIC_WARNING:
             return "warning";
-        case BASL_DIAGNOSTIC_NOTE:
+        case VIGIL_DIAGNOSTIC_NOTE:
             return "note";
         default:
             return "unknown";
     }
 }
 
-const basl_diagnostic_t *basl_diagnostic_list_get(
-    const basl_diagnostic_list_t *list,
+const vigil_diagnostic_t *vigil_diagnostic_list_get(
+    const vigil_diagnostic_list_t *list,
     size_t index
 ) {
     if (list == NULL || index >= list->count) {
@@ -203,76 +203,76 @@ const basl_diagnostic_t *basl_diagnostic_list_get(
     return &list->items[index];
 }
 
-basl_status_t basl_diagnostic_list_append(
-    basl_diagnostic_list_t *list,
-    basl_diagnostic_severity_t severity,
-    basl_source_span_t span,
+vigil_status_t vigil_diagnostic_list_append(
+    vigil_diagnostic_list_t *list,
+    vigil_diagnostic_severity_t severity,
+    vigil_source_span_t span,
     const char *message,
     size_t message_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_diagnostic_t *diagnostic;
+    vigil_status_t status;
+    vigil_diagnostic_t *diagnostic;
 
-    status = basl_diagnostic_list_validate_mutable(list, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_diagnostic_list_validate_mutable(list, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
     if (message == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic message must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (list->count == SIZE_MAX) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_OUT_OF_MEMORY,
+            VIGIL_STATUS_OUT_OF_MEMORY,
             "diagnostic list capacity overflow"
         );
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
-    status = basl_diagnostic_list_grow(list, list->count + 1U, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_diagnostic_list_grow(list, list->count + 1U, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
     diagnostic = &list->items[list->count];
-    basl_string_init(&diagnostic->message, list->runtime);
-    status = basl_string_assign(&diagnostic->message, message, message_length, error);
-    if (status != BASL_STATUS_OK) {
-        basl_string_free(&diagnostic->message);
+    vigil_string_init(&diagnostic->message, list->runtime);
+    status = vigil_string_assign(&diagnostic->message, message, message_length, error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_string_free(&diagnostic->message);
         return status;
     }
 
     diagnostic->severity = severity;
     diagnostic->span = span;
     list->count += 1U;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_diagnostic_list_append_cstr(
-    basl_diagnostic_list_t *list,
-    basl_diagnostic_severity_t severity,
-    basl_source_span_t span,
+vigil_status_t vigil_diagnostic_list_append_cstr(
+    vigil_diagnostic_list_t *list,
+    vigil_diagnostic_severity_t severity,
+    vigil_source_span_t span,
     const char *message,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     if (message == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic message must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_diagnostic_list_append(
+    return vigil_diagnostic_list_append(
         list,
         severity,
         span,
@@ -282,68 +282,68 @@ basl_status_t basl_diagnostic_list_append_cstr(
     );
 }
 
-basl_status_t basl_diagnostic_format(
-    const basl_source_registry_t *registry,
-    const basl_diagnostic_t *diagnostic,
-    basl_string_t *output,
-    basl_error_t *error
+vigil_status_t vigil_diagnostic_format(
+    const vigil_source_registry_t *registry,
+    const vigil_diagnostic_t *diagnostic,
+    vigil_string_t *output,
+    vigil_error_t *error
 ) {
-    basl_source_location_t location;
-    const basl_source_file_t *source;
+    vigil_source_location_t location;
+    const vigil_source_file_t *source;
     char prefix[128];
     int written;
-    basl_status_t status;
+    vigil_status_t status;
     const char *path;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (registry == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source registry must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (diagnostic == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "diagnostic must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (output == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "output string must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (output->bytes.runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "output string runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    basl_string_clear(output);
+    vigil_string_clear(output);
 
     path = "<unknown>";
-    basl_source_location_clear(&location);
+    vigil_source_location_clear(&location);
     location.source_id = diagnostic->span.source_id;
     location.offset = diagnostic->span.start_offset;
-    source = basl_source_registry_get(registry, diagnostic->span.source_id);
+    source = vigil_source_registry_get(registry, diagnostic->span.source_id);
     if (source != NULL) {
-        path = basl_string_c_str(&source->path);
-        if (basl_source_registry_resolve_location(registry, &location, NULL) != BASL_STATUS_OK) {
-            basl_source_location_clear(&location);
+        path = vigil_string_c_str(&source->path);
+        if (vigil_source_registry_resolve_location(registry, &location, NULL) != VIGIL_STATUS_OK) {
+            vigil_source_location_clear(&location);
             location.source_id = diagnostic->span.source_id;
             location.offset = diagnostic->span.start_offset;
         }
@@ -356,21 +356,21 @@ basl_status_t basl_diagnostic_format(
         path,
         location.line,
         location.column,
-        basl_diagnostic_severity_name(diagnostic->severity)
+        vigil_diagnostic_severity_name(diagnostic->severity)
     );
     if (written < 0) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INTERNAL,
+            VIGIL_STATUS_INTERNAL,
             "failed to format diagnostic prefix"
         );
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
 
-    status = basl_string_append(output, prefix, (size_t)written, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_string_append(output, prefix, (size_t)written, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    return basl_string_append_cstr(output, basl_string_c_str(&diagnostic->message), error);
+    return vigil_string_append_cstr(output, vigil_string_c_str(&diagnostic->message), error);
 }

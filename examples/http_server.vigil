@@ -1,0 +1,38 @@
+import "http";
+import "fmt";
+
+class ServerResponse {
+    pub i32 status;
+    pub map<string, string> headers;
+    pub string body;
+
+    fn init(i32 status, string body) -> void {
+        self.status = status;
+        self.headers = {};
+        self.body = body;
+    }
+}
+
+fn handler(HttpRequest req) -> ServerResponse {
+    string path = req.path;
+
+    if (path == "/") {
+        return ServerResponse(200, "Hello from VIGIL HTTP server!");
+    } else if (path == "/json") {
+        ServerResponse resp = ServerResponse(200, "{\"message\": \"Hello JSON\"}");
+        resp.headers["Content-Type"] = "application/json";
+        return resp;
+    }
+
+    return ServerResponse(404, "Not Found");
+}
+
+fn main() -> i32 {
+    fmt.println("Starting server on http://localhost:8080");
+    err e = http.listen(":8080", handler);
+    if (e != ok) {
+        fmt.println(f"Server error: {e}");
+        return 1;
+    }
+    return 0;
+}

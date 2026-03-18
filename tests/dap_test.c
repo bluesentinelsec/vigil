@@ -1,4 +1,4 @@
-#include "basl_test.h"
+#include "vigil_test.h"
 #include <string.h>
 
 /* Suppress MSVC C4996 for tmpfile — it's standard C and fine for tests. */
@@ -7,14 +7,14 @@
 #endif
 
 
-#include "basl/dap.h"
-#include "basl/json.h"
-#include "basl/jsonrpc.h"
-#include "basl/native_module.h"
-#include "basl/runtime.h"
-#include "basl/source.h"
-#include "basl/stdlib.h"
-#include "basl/vm.h"
+#include "vigil/dap.h"
+#include "vigil/json.h"
+#include "vigil/jsonrpc.h"
+#include "vigil/native_module.h"
+#include "vigil/runtime.h"
+#include "vigil/source.h"
+#include "vigil/stdlib.h"
+#include "vigil/vm.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
@@ -39,41 +39,41 @@ static char *read_all(FILE *f) {
 
 /* ── JSON-RPC transport tests ────────────────────────────────────── */
 
-TEST(BaslJsonRpcTest, ReadWriteRoundtrip) {
+TEST(VigilJsonRpcTest, ReadWriteRoundtrip) {
     FILE *pipe = tmpfile();
     ASSERT_NE(pipe, NULL);
 
     /* Write a message. */
-    basl_jsonrpc_transport_t tx;
-    basl_jsonrpc_transport_init(&tx, NULL, pipe, NULL);
+    vigil_jsonrpc_transport_t tx;
+    vigil_jsonrpc_transport_init(&tx, NULL, pipe, NULL);
 
-    basl_json_value_t *msg = NULL;
-    basl_error_t error = {0};
-    ASSERT_EQ(basl_json_object_new(NULL, &msg, &error), BASL_STATUS_OK);
+    vigil_json_value_t *msg = NULL;
+    vigil_error_t error = {0};
+    ASSERT_EQ(vigil_json_object_new(NULL, &msg, &error), VIGIL_STATUS_OK);
 
-    basl_json_value_t *val = NULL;
-    basl_json_string_new(NULL, "hello", 5, &val, &error);
-    basl_json_object_set(msg, "test", 4, val, &error);
+    vigil_json_value_t *val = NULL;
+    vigil_json_string_new(NULL, "hello", 5, &val, &error);
+    vigil_json_object_set(msg, "test", 4, val, &error);
 
-    ASSERT_EQ(basl_jsonrpc_write(&tx, msg, &error), BASL_STATUS_OK);
-    basl_json_free(&msg);
+    ASSERT_EQ(vigil_jsonrpc_write(&tx, msg, &error), VIGIL_STATUS_OK);
+    vigil_json_free(&msg);
 
     /* Read it back. */
     fseek(pipe, 0, SEEK_SET);
     tx.in = pipe;
-    basl_json_value_t *read_msg = NULL;
-    ASSERT_EQ(basl_jsonrpc_read(&tx, &read_msg, &error), BASL_STATUS_OK);
+    vigil_json_value_t *read_msg = NULL;
+    ASSERT_EQ(vigil_jsonrpc_read(&tx, &read_msg, &error), VIGIL_STATUS_OK);
     ASSERT_NE(read_msg, NULL);
 
-    const basl_json_value_t *test_val = basl_json_object_get(read_msg, "test");
+    const vigil_json_value_t *test_val = vigil_json_object_get(read_msg, "test");
     ASSERT_NE(test_val, NULL);
-    EXPECT_STREQ(basl_json_string_value(test_val), "hello");
+    EXPECT_STREQ(vigil_json_string_value(test_val), "hello");
 
-    basl_json_free(&read_msg);
+    vigil_json_free(&read_msg);
     fclose(pipe);
 }
 
-TEST(BaslJsonRpcTest, ReadMultipleMessages) {
+TEST(VigilJsonRpcTest, ReadMultipleMessages) {
     FILE *pipe = tmpfile();
     ASSERT_NE(pipe, NULL);
 
@@ -81,78 +81,78 @@ TEST(BaslJsonRpcTest, ReadMultipleMessages) {
     write_message(pipe, "{\"seq\":2}");
     fseek(pipe, 0, SEEK_SET);
 
-    basl_jsonrpc_transport_t tx;
-    basl_jsonrpc_transport_init(&tx, pipe, NULL, NULL);
-    basl_error_t error = {0};
+    vigil_jsonrpc_transport_t tx;
+    vigil_jsonrpc_transport_init(&tx, pipe, NULL, NULL);
+    vigil_error_t error = {0};
 
-    basl_json_value_t *m1 = NULL, *m2 = NULL;
-    ASSERT_EQ(basl_jsonrpc_read(&tx, &m1, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_jsonrpc_read(&tx, &m2, &error), BASL_STATUS_OK);
+    vigil_json_value_t *m1 = NULL, *m2 = NULL;
+    ASSERT_EQ(vigil_jsonrpc_read(&tx, &m1, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_jsonrpc_read(&tx, &m2, &error), VIGIL_STATUS_OK);
 
-    EXPECT_EQ((int)basl_json_number_value(basl_json_object_get(m1, "seq")), 1);
-    EXPECT_EQ((int)basl_json_number_value(basl_json_object_get(m2, "seq")), 2);
+    EXPECT_EQ((int)vigil_json_number_value(vigil_json_object_get(m1, "seq")), 1);
+    EXPECT_EQ((int)vigil_json_number_value(vigil_json_object_get(m2, "seq")), 2);
 
-    basl_json_free(&m1);
-    basl_json_free(&m2);
+    vigil_json_free(&m1);
+    vigil_json_free(&m2);
     fclose(pipe);
 }
 
-TEST(BaslJsonRpcTest, ReadEofReturnsError) {
+TEST(VigilJsonRpcTest, ReadEofReturnsError) {
     FILE *pipe = tmpfile();
     ASSERT_NE(pipe, NULL);
     fseek(pipe, 0, SEEK_SET);
 
-    basl_jsonrpc_transport_t tx;
-    basl_jsonrpc_transport_init(&tx, pipe, NULL, NULL);
-    basl_error_t error = {0};
+    vigil_jsonrpc_transport_t tx;
+    vigil_jsonrpc_transport_init(&tx, pipe, NULL, NULL);
+    vigil_error_t error = {0};
 
-    basl_json_value_t *msg = NULL;
-    EXPECT_NE(basl_jsonrpc_read(&tx, &msg, &error), BASL_STATUS_OK);
+    vigil_json_value_t *msg = NULL;
+    EXPECT_NE(vigil_jsonrpc_read(&tx, &msg, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(msg, NULL);
     fclose(pipe);
 }
 
 /* ── DAP server tests ────────────────────────────────────────────── */
 
-TEST(BaslDapTest, CreateAndDestroy) {
+TEST(VigilDapTest, CreateAndDestroy) {
     FILE *in = tmpfile();
     FILE *out = tmpfile();
-    basl_error_t error = {0};
+    vigil_error_t error = {0};
 
-    basl_dap_server_t *server = NULL;
-    ASSERT_EQ(basl_dap_server_create(&server, in, out, NULL, &error), BASL_STATUS_OK);
+    vigil_dap_server_t *server = NULL;
+    ASSERT_EQ(vigil_dap_server_create(&server, in, out, NULL, &error), VIGIL_STATUS_OK);
     ASSERT_NE(server, NULL);
-    basl_dap_server_destroy(&server);
+    vigil_dap_server_destroy(&server);
     EXPECT_EQ(server, NULL);
 
     fclose(in);
     fclose(out);
 }
 
-TEST(BaslDapTest, InitializeAndDisconnect) {
+TEST(VigilDapTest, InitializeAndDisconnect) {
     FILE *in = tmpfile();
     FILE *out = tmpfile();
-    basl_error_t error = {0};
+    vigil_error_t error = {0};
 
     /* Write initialize + disconnect sequence. */
     write_message(in, "{\"seq\":1,\"type\":\"request\",\"command\":\"initialize\",\"arguments\":{}}");
     write_message(in, "{\"seq\":2,\"type\":\"request\",\"command\":\"disconnect\",\"arguments\":{}}");
     fseek(in, 0, SEEK_SET);
 
-    basl_dap_server_t *server = NULL;
-    ASSERT_EQ(basl_dap_server_create(&server, in, out, NULL, &error), BASL_STATUS_OK);
+    vigil_dap_server_t *server = NULL;
+    ASSERT_EQ(vigil_dap_server_create(&server, in, out, NULL, &error), VIGIL_STATUS_OK);
 
     /* Need a runtime for set_runtime. */
-    basl_runtime_t *runtime = NULL;
-    basl_vm_t *vm = NULL;
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
 
-    basl_source_registry_t registry;
-    basl_source_registry_init(&registry, runtime);
+    vigil_source_registry_t registry;
+    vigil_source_registry_init(&registry, runtime);
 
-    ASSERT_EQ(basl_dap_server_set_runtime(server, vm, &registry, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_dap_server_run(server, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_dap_server_set_runtime(server, vm, &registry, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_dap_server_run(server, &error), VIGIL_STATUS_OK);
 
     /* Check output contains initialize response. */
     fseek(out, 0, SEEK_SET);
@@ -161,37 +161,37 @@ TEST(BaslDapTest, InitializeAndDisconnect) {
     EXPECT_TRUE(strstr(output, "\"success\":true") != NULL);
     EXPECT_TRUE(strstr(output, "\"event\":\"initialized\"") != NULL);
 
-    basl_dap_server_destroy(&server);
+    vigil_dap_server_destroy(&server);
     free(output);
-    basl_source_registry_free(&registry);
-    basl_vm_close(&vm);
-    basl_runtime_close(&runtime);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
     fclose(in);
     fclose(out);
 }
 
-TEST(BaslDapTest, LaunchAndBreakpoint) {
+TEST(VigilDapTest, LaunchAndBreakpoint) {
     FILE *in = tmpfile();
     FILE *out = tmpfile();
-    basl_error_t error = {0};
+    vigil_error_t error = {0};
 
     /* Compile a simple program. */
-    basl_runtime_t *runtime = NULL;
-    basl_vm_t *vm = NULL;
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
 
-    basl_source_registry_t registry;
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_t diagnostics;
-    basl_diagnostic_list_init(&diagnostics, runtime);
-    basl_native_registry_t natives;
-    basl_native_registry_init(&natives);
-    basl_stdlib_register_all(&natives, &error);
+    vigil_source_registry_t registry;
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_t diagnostics;
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+    vigil_native_registry_t natives;
+    vigil_native_registry_init(&natives);
+    vigil_stdlib_register_all(&natives, &error);
 
-    basl_source_id_t source_id = 0;
-    basl_source_registry_register_cstr(
-        &registry, "main.basl",
+    vigil_source_id_t source_id = 0;
+    vigil_source_registry_register_cstr(
+        &registry, "main.vigil",
         "fn main() -> i32 {\n"
         "    i32 x = 10;\n"
         "    i32 y = 20;\n"
@@ -199,18 +199,18 @@ TEST(BaslDapTest, LaunchAndBreakpoint) {
         "}\n",
         &source_id, &error);
 
-    basl_object_t *function = NULL;
+    vigil_object_t *function = NULL;
     ASSERT_EQ(
-        basl_compile_source_with_natives(
+        vigil_compile_source_with_natives(
             &registry, source_id, &natives, &function,
             &diagnostics, &error),
-        BASL_STATUS_OK);
+        VIGIL_STATUS_OK);
 
     /* Write DAP sequence: initialize, setBreakpoints on line 3,
        configurationDone, launch, then continue + disconnect when stopped. */
     write_message(in, "{\"seq\":1,\"type\":\"request\",\"command\":\"initialize\",\"arguments\":{}}");
     write_message(in, "{\"seq\":2,\"type\":\"request\",\"command\":\"setBreakpoints\","
-                      "\"arguments\":{\"source\":{\"path\":\"main.basl\"},"
+                      "\"arguments\":{\"source\":{\"path\":\"main.vigil\"},"
                       "\"breakpoints\":[{\"line\":3}]}}");
     write_message(in, "{\"seq\":3,\"type\":\"request\",\"command\":\"configurationDone\",\"arguments\":{}}");
     write_message(in, "{\"seq\":4,\"type\":\"request\",\"command\":\"launch\",\"arguments\":{}}");
@@ -221,11 +221,11 @@ TEST(BaslDapTest, LaunchAndBreakpoint) {
     write_message(in, "{\"seq\":7,\"type\":\"request\",\"command\":\"disconnect\",\"arguments\":{}}");
     fseek(in, 0, SEEK_SET);
 
-    basl_dap_server_t *server = NULL;
-    ASSERT_EQ(basl_dap_server_create(&server, in, out, NULL, &error), BASL_STATUS_OK);
-    ASSERT_EQ(basl_dap_server_set_runtime(server, vm, &registry, &error), BASL_STATUS_OK);
-    basl_dap_server_set_program(server, function, source_id);
-    ASSERT_EQ(basl_dap_server_run(server, &error), BASL_STATUS_OK);
+    vigil_dap_server_t *server = NULL;
+    ASSERT_EQ(vigil_dap_server_create(&server, in, out, NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_dap_server_set_runtime(server, vm, &registry, &error), VIGIL_STATUS_OK);
+    vigil_dap_server_set_program(server, function, source_id);
+    ASSERT_EQ(vigil_dap_server_run(server, &error), VIGIL_STATUS_OK);
 
     /* Verify output. */
     fseek(out, 0, SEEK_SET);
@@ -240,23 +240,23 @@ TEST(BaslDapTest, LaunchAndBreakpoint) {
     EXPECT_TRUE(strstr(output, "\"command\":\"stackTrace\"") != NULL);
     EXPECT_TRUE(strstr(output, "\"event\":\"terminated\"") != NULL);
 
-    basl_dap_server_destroy(&server);
+    vigil_dap_server_destroy(&server);
     free(output);
-    basl_object_release(&function);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_native_registry_free(&natives);
-    basl_source_registry_free(&registry);
-    basl_vm_close(&vm);
-    basl_runtime_close(&runtime);
+    vigil_object_release(&function);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_native_registry_free(&natives);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
     fclose(in);
     fclose(out);
 }
 
 void register_dap_tests(void) {
-    REGISTER_TEST(BaslJsonRpcTest, ReadWriteRoundtrip);
-    REGISTER_TEST(BaslJsonRpcTest, ReadMultipleMessages);
-    REGISTER_TEST(BaslJsonRpcTest, ReadEofReturnsError);
-    REGISTER_TEST(BaslDapTest, CreateAndDestroy);
-    REGISTER_TEST(BaslDapTest, InitializeAndDisconnect);
-    REGISTER_TEST(BaslDapTest, LaunchAndBreakpoint);
+    REGISTER_TEST(VigilJsonRpcTest, ReadWriteRoundtrip);
+    REGISTER_TEST(VigilJsonRpcTest, ReadMultipleMessages);
+    REGISTER_TEST(VigilJsonRpcTest, ReadEofReturnsError);
+    REGISTER_TEST(VigilDapTest, CreateAndDestroy);
+    REGISTER_TEST(VigilDapTest, InitializeAndDisconnect);
+    REGISTER_TEST(VigilDapTest, LaunchAndBreakpoint);
 }

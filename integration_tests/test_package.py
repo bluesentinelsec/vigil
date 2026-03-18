@@ -1,4 +1,4 @@
-"""Integration tests for 'basl package' command and args module."""
+"""Integration tests for 'vigil package' command and args module."""
 
 import os
 import subprocess
@@ -8,16 +8,16 @@ import unittest
 from pathlib import Path
 
 
-def resolve_basl_command():
-    env_bin = os.environ.get("BASL_BIN")
+def resolve_vigil_command():
+    env_bin = os.environ.get("VIGIL_BIN")
     if env_bin:
         return [env_bin]
-    return [str(Path(__file__).resolve().parent.parent / "build" / "RELEASE" / "basl")]
+    return [str(Path(__file__).resolve().parent.parent / "build" / "RELEASE" / "vigil")]
 
 
-class TestBaslArgs(unittest.TestCase):
+class TestVigilArgs(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp(prefix="basl_args_")
+        self.tmpdir = tempfile.mkdtemp(prefix="vigil_args_")
 
     def tearDown(self):
         import shutil
@@ -25,7 +25,7 @@ class TestBaslArgs(unittest.TestCase):
 
     def test_args_count_and_at(self):
         """args.count() and args.at() return script arguments."""
-        script = Path(self.tmpdir) / "test.basl"
+        script = Path(self.tmpdir) / "test.vigil"
         script.write_text(
             'import "args";\n'
             'import "fmt";\n'
@@ -35,7 +35,7 @@ class TestBaslArgs(unittest.TestCase):
             '}\n'
         )
         result = subprocess.run(
-            [*resolve_basl_command(), "run", str(script), "a", "b", "c"],
+            [*resolve_vigil_command(), "run", str(script), "a", "b", "c"],
             capture_output=True, text=True, timeout=10
         )
         self.assertEqual(result.returncode, 3)
@@ -43,7 +43,7 @@ class TestBaslArgs(unittest.TestCase):
 
     def test_args_no_args(self):
         """args.count() returns 0 when no script args."""
-        script = Path(self.tmpdir) / "test.basl"
+        script = Path(self.tmpdir) / "test.vigil"
         script.write_text(
             'import "args";\n'
             'fn main() -> i32 {\n'
@@ -51,15 +51,15 @@ class TestBaslArgs(unittest.TestCase):
             '}\n'
         )
         result = subprocess.run(
-            [*resolve_basl_command(), "run", str(script)],
+            [*resolve_vigil_command(), "run", str(script)],
             capture_output=True, text=True, timeout=10
         )
         self.assertEqual(result.returncode, 0)
 
 
-class TestBaslPackage(unittest.TestCase):
+class TestVigilPackage(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp(prefix="basl_pkg_")
+        self.tmpdir = tempfile.mkdtemp(prefix="vigil_pkg_")
 
     def tearDown(self):
         import shutil
@@ -69,7 +69,7 @@ class TestBaslPackage(unittest.TestCase):
         if sys.platform == "win32":
             self.skipTest("Packaged binary execution unreliable on Windows CI")
         """Package a script and run the standalone binary."""
-        script = Path(self.tmpdir) / "hello.basl"
+        script = Path(self.tmpdir) / "hello.vigil"
         script.write_text(
             'import "fmt";\n'
             'fn main() -> i32 {\n'
@@ -79,7 +79,7 @@ class TestBaslPackage(unittest.TestCase):
         )
         out_bin = Path(self.tmpdir) / "hello_app"
         result = subprocess.run(
-            [*resolve_basl_command(), "package", str(script), "-o", str(out_bin)],
+            [*resolve_vigil_command(), "package", str(script), "-o", str(out_bin)],
             capture_output=True, text=True, timeout=10
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
@@ -96,7 +96,7 @@ class TestBaslPackage(unittest.TestCase):
         if sys.platform == "win32":
             self.skipTest("Packaged binary execution unreliable on Windows CI")
         """Packaged binary passes CLI args to script."""
-        script = Path(self.tmpdir) / "argtest.basl"
+        script = Path(self.tmpdir) / "argtest.vigil"
         script.write_text(
             'import "args";\n'
             'fn main() -> i32 {\n'
@@ -105,7 +105,7 @@ class TestBaslPackage(unittest.TestCase):
         )
         out_bin = Path(self.tmpdir) / "argtest_app"
         subprocess.run(
-            [*resolve_basl_command(), "package", str(script), "-o", str(out_bin)],
+            [*resolve_vigil_command(), "package", str(script), "-o", str(out_bin)],
             capture_output=True, text=True, timeout=10
         )
         result = subprocess.run(
@@ -115,26 +115,26 @@ class TestBaslPackage(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
 
     def test_package_inspect(self):
-        """basl package --inspect shows bundled files."""
-        script = Path(self.tmpdir) / "inspect.basl"
+        """vigil package --inspect shows bundled files."""
+        script = Path(self.tmpdir) / "inspect.vigil"
         script.write_text('fn main() -> i32 { return 0; }\n')
         out_bin = Path(self.tmpdir) / "inspect_app"
         subprocess.run(
-            [*resolve_basl_command(), "package", str(script), "-o", str(out_bin)],
+            [*resolve_vigil_command(), "package", str(script), "-o", str(out_bin)],
             capture_output=True, text=True, timeout=10
         )
         result = subprocess.run(
-            [*resolve_basl_command(), "package", "--inspect", str(out_bin)],
+            [*resolve_vigil_command(), "package", "--inspect", str(out_bin)],
             capture_output=True, text=True, timeout=10
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("entry.basl", result.stdout)
+        self.assertIn("entry.vigil", result.stdout)
 
     def test_package_encrypted(self):
         if sys.platform == "win32":
             self.skipTest("Packaged binary execution unreliable on Windows CI")
         """Encrypted package runs correctly."""
-        script = Path(self.tmpdir) / "secret.basl"
+        script = Path(self.tmpdir) / "secret.vigil"
         script.write_text(
             'import "fmt";\n'
             'fn main() -> i32 {\n'
@@ -144,7 +144,7 @@ class TestBaslPackage(unittest.TestCase):
         )
         out_bin = Path(self.tmpdir) / "secret_app"
         subprocess.run(
-            [*resolve_basl_command(), "package", str(script),
+            [*resolve_vigil_command(), "package", str(script),
              "-o", str(out_bin), "--key", "mypassword"],
             capture_output=True, text=True, timeout=10
         )

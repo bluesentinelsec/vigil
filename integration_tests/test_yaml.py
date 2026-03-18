@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL yaml module."""
+"""Integration tests for VIGIL yaml module."""
 
 import os
 import subprocess
@@ -7,16 +7,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    """Run BASL code and return (exit_code, stdout, stderr)."""
-    with tempfile.TemporaryDirectory(prefix="basl_yaml_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    """Run VIGIL code and return (exit_code, stdout, stderr)."""
+    with tempfile.TemporaryDirectory(prefix="vigil_yaml_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True,
             text=True,
             timeout=10,
@@ -37,7 +37,7 @@ fn main() -> i32 {
     fmt.println(j);
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stdout: {out}, stderr: {err}")
 
     def test_parse_sequence(self):
@@ -50,7 +50,7 @@ fn main() -> i32 {
     fmt.println(j);
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stdout: {out}, stderr: {err}")
 
     def test_parse_nested(self):
@@ -63,7 +63,7 @@ fn main() -> i32 {
     fmt.println(j);
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stdout: {out}, stderr: {err}")
 
 
@@ -77,7 +77,7 @@ fn main() -> i32 {
     if (yaml.get(y, "name") == "test") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_get_nested(self):
@@ -87,7 +87,7 @@ fn main() -> i32 {
     if (yaml.get(y, "server.host") == "localhost") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_get_array_index(self):
@@ -97,7 +97,7 @@ fn main() -> i32 {
     if (yaml.get(y, "items[1]") == "b") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_get_number(self):
@@ -107,7 +107,7 @@ fn main() -> i32 {
     if (yaml.get(y, "count") == "42") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_get_bool(self):
@@ -117,7 +117,7 @@ fn main() -> i32 {
     if (yaml.get(y, "enabled") == "true") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -131,7 +131,7 @@ fn main() -> i32 {
     if (yaml.get(y, "name") == "test") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_quoted_string(self):
@@ -141,7 +141,7 @@ fn main() -> i32 {
     if (yaml.get(y, "msg") == "hello world") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

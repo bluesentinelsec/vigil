@@ -1,0 +1,4 @@
+[package]
+name = "vigil-mkdir"
+version = "0.1.0"
+entry = "main.vigil"

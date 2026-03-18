@@ -4,7 +4,7 @@
  * Falls back to fgets when stdin is not a terminal.
  */
 #include "platform.h"
-#include "internal/basl_internal.h"
+#include "internal/vigil_internal.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,15 +54,15 @@ enum {
 
 /* Read a keypress, translating escape sequences. */
 static int read_key(void) {
-    int c = basl_platform_terminal_read_byte();
+    int c = vigil_platform_terminal_read_byte();
     if (c != KEY_ESC) return c;
 
-    int c2 = basl_platform_terminal_read_byte();
+    int c2 = vigil_platform_terminal_read_byte();
     if (c2 == -1) return KEY_ESC;
     if (c2 == '[') {
-        int c3 = basl_platform_terminal_read_byte();
+        int c3 = vigil_platform_terminal_read_byte();
         if (c3 >= '0' && c3 <= '9') {
-            int c4 = basl_platform_terminal_read_byte();
+            int c4 = vigil_platform_terminal_read_byte();
             if (c4 == '~') {
                 switch (c3) {
                     case '1': return KEY_HOME;
@@ -83,7 +83,7 @@ static int read_key(void) {
             case 'F': return KEY_END;
         }
     } else if (c2 == 'O') {
-        int c3 = basl_platform_terminal_read_byte();
+        int c3 = vigil_platform_terminal_read_byte();
         switch (c3) {
             case 'H': return KEY_HOME;
             case 'F': return KEY_END;
@@ -159,14 +159,14 @@ static void refresh_line(const char *prompt, const line_buf_t *lb) {
 
 /* ── History ─────────────────────────────────────────────────────── */
 
-void basl_line_history_init(basl_line_history_t *h, size_t max_entries) {
+void vigil_line_history_init(vigil_line_history_t *h, size_t max_entries) {
     h->entries = NULL;
     h->count = 0;
     h->capacity = 0;
     h->max_entries = max_entries > 0 ? max_entries : 1000;
 }
 
-void basl_line_history_free(basl_line_history_t *h) {
+void vigil_line_history_free(vigil_line_history_t *h) {
     for (size_t i = 0; i < h->count; i++) free(h->entries[i]);
     free(h->entries);
     h->entries = NULL;
@@ -174,7 +174,7 @@ void basl_line_history_free(basl_line_history_t *h) {
     h->capacity = 0;
 }
 
-void basl_line_history_add(basl_line_history_t *h, const char *line) {
+void vigil_line_history_add(vigil_line_history_t *h, const char *line) {
     if (!line || !line[0]) return;
     /* Skip duplicates of the most recent entry. */
     if (h->count > 0 && strcmp(h->entries[h->count - 1], line) == 0) return;
@@ -197,55 +197,55 @@ void basl_line_history_add(basl_line_history_t *h, const char *line) {
     }
 }
 
-const char *basl_line_history_get(const basl_line_history_t *h, size_t index) {
+const char *vigil_line_history_get(const vigil_line_history_t *h, size_t index) {
     if (index >= h->count) return NULL;
     return h->entries[index];
 }
 
-void basl_line_history_clear(basl_line_history_t *h) {
+void vigil_line_history_clear(vigil_line_history_t *h) {
     for (size_t i = 0; i < h->count; i++) free(h->entries[i]);
     h->count = 0;
 }
 
-basl_status_t basl_line_history_load(
-    basl_line_history_t *h, const char *path, basl_error_t *error
+vigil_status_t vigil_line_history_load(
+    vigil_line_history_t *h, const char *path, vigil_error_t *error
 ) {
     FILE *f = fopen(path, "r");
     if (!f) {
         /* Missing file is not an error — just no history. */
         (void)error;
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
     char line[4096];
     while (fgets(line, (int)sizeof(line), f)) {
         size_t len = strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
             line[--len] = '\0';
-        basl_line_history_add(h, line);
+        vigil_line_history_add(h, line);
     }
     fclose(f);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_line_history_save(
-    const basl_line_history_t *h, const char *path, basl_error_t *error
+vigil_status_t vigil_line_history_save(
+    const vigil_line_history_t *h, const char *path, vigil_error_t *error
 ) {
     FILE *f = fopen(path, "w");
     if (!f) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "cannot open history file");
-        return BASL_STATUS_INTERNAL;
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "cannot open history file");
+        return VIGIL_STATUS_INTERNAL;
     }
     for (size_t i = 0; i < h->count; i++)
         fprintf(f, "%s\n", h->entries[i]);
     fclose(f);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Main editing loop ───────────────────────────────────────────── */
 
-static basl_status_t edit_line(
+static vigil_status_t edit_line(
     const char *prompt, char *out_buf, size_t buf_size,
-    basl_line_history_t *history
+    vigil_line_history_t *history
 ) {
     line_buf_t lb;
     size_t hist_index;
@@ -261,7 +261,7 @@ static basl_status_t edit_line(
         if (key == -1 || key == KEY_CTRL_D) {
             if (lb.len == 0) {
                 free(saved_line);
-                return BASL_STATUS_INTERNAL; /* EOF */
+                return VIGIL_STATUS_INTERNAL; /* EOF */
             }
             /* Ctrl-D with content: delete char under cursor. */
             lb_delete_at(&lb, lb.pos);
@@ -274,7 +274,7 @@ static basl_status_t edit_line(
             fputs("\r\n", stdout);
             fflush(stdout);
             free(saved_line);
-            return BASL_STATUS_OK;
+            return VIGIL_STATUS_OK;
 
         case KEY_CTRL_C:
             lb.len = 0;
@@ -426,45 +426,45 @@ static basl_status_t edit_line(
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-basl_status_t basl_line_editor_readline(
+vigil_status_t vigil_line_editor_readline(
     const char *prompt, char *out_buf, size_t buf_size,
-    basl_line_history_t *history, basl_error_t *error
+    vigil_line_history_t *history, vigil_error_t *error
 ) {
-    basl_terminal_state_t *term_state = NULL;
-    basl_status_t status;
+    vigil_terminal_state_t *term_state = NULL;
+    vigil_status_t status;
 
     if (!out_buf || buf_size == 0) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "platform: NULL argument");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     /* Non-terminal: fall back to fgets. */
-    if (!basl_platform_is_terminal()) {
+    if (!vigil_platform_is_terminal()) {
         size_t len;
         if (prompt) { fputs(prompt, stdout); fflush(stdout); }
         if (!fgets(out_buf, (int)buf_size, stdin)) {
             out_buf[0] = '\0';
-            basl_error_set_literal(error, BASL_STATUS_INTERNAL, "platform: EOF on stdin");
-            return BASL_STATUS_INTERNAL;
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "platform: EOF on stdin");
+            return VIGIL_STATUS_INTERNAL;
         }
         len = strlen(out_buf);
         while (len > 0 && (out_buf[len - 1] == '\n' || out_buf[len - 1] == '\r'))
             out_buf[--len] = '\0';
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     /* Terminal: enter raw mode, edit, restore. */
-    status = basl_platform_terminal_raw(&term_state, error);
-    if (status != BASL_STATUS_OK) return status;
+    status = vigil_platform_terminal_raw(&term_state, error);
+    if (status != VIGIL_STATUS_OK) return status;
 
     status = edit_line(prompt, out_buf, buf_size, history);
 
-    basl_platform_terminal_restore(term_state);
+    vigil_platform_terminal_restore(term_state);
 
-    if (status != BASL_STATUS_OK) {
+    if (status != VIGIL_STATUS_OK) {
         out_buf[0] = '\0';
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL, "platform: EOF on stdin");
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "platform: EOF on stdin");
     }
     return status;
 }

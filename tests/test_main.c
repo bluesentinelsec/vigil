@@ -1,8 +1,8 @@
-#define BASL_TEST_IMPLEMENTATION
-#include "basl_test.h"
+#define VIGIL_TEST_IMPLEMENTATION
+#include "vigil_test.h"
 
 extern void register_array_tests(void);
-extern void register_basl_new_tests(void);
+extern void register_vigil_new_tests(void);
 extern void register_binding_tests(void);
 extern void register_checker_tests(void);
 extern void register_chunk_tests(void);
@@ -42,7 +42,7 @@ extern void register_vm_tests(void);
 
 int main(void) {
     register_array_tests();
-    register_basl_new_tests();
+    register_vigil_new_tests();
     register_binding_tests();
     register_checker_tests();
     register_chunk_tests();
@@ -79,6 +79,6 @@ int main(void) {
     register_type_tests();
     register_value_tests();
     register_vm_tests();
-    return basl_test_run_all_();
+    return vigil_test_run_all_();
 }
 

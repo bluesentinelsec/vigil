@@ -1,118 +1,118 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "internal/basl_internal.h"
-#include "basl/source.h"
+#include "internal/vigil_internal.h"
+#include "vigil/source.h"
 
-static basl_status_t basl_source_registry_validate(
-    const basl_source_registry_t *registry,
-    basl_error_t *error
+static vigil_status_t vigil_source_registry_validate(
+    const vigil_source_registry_t *registry,
+    vigil_error_t *error
 ) {
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (registry == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source registry must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (registry->files == NULL && (registry->count != 0U || registry->capacity != 0U)) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source registry state is inconsistent"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (registry->count > registry->capacity) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source registry count exceeds capacity"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_source_registry_validate_mutable(
-    const basl_source_registry_t *registry,
-    basl_error_t *error
+static vigil_status_t vigil_source_registry_validate_mutable(
+    const vigil_source_registry_t *registry,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
+    vigil_status_t status;
 
-    status = basl_source_registry_validate(registry, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_source_registry_validate(registry, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
     if (registry->runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source registry runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_source_registry_locate(
-    const basl_source_registry_t *registry,
-    basl_source_id_t source_id,
+static vigil_status_t vigil_source_registry_locate(
+    const vigil_source_registry_t *registry,
+    vigil_source_id_t source_id,
     size_t offset,
-    basl_source_location_t *out_location,
-    basl_error_t *error
+    vigil_source_location_t *out_location,
+    vigil_error_t *error
 ) {
-    const basl_source_file_t *file;
+    const vigil_source_file_t *file;
     const char *text;
     size_t length;
     size_t index;
-    basl_status_t status;
-    basl_source_location_t location;
+    vigil_status_t status;
+    vigil_source_location_t location;
 
-    status = basl_source_registry_validate(registry, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_source_registry_validate(registry, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
     if (out_location == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source location output must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    file = basl_source_registry_get(registry, source_id);
+    file = vigil_source_registry_get(registry, source_id);
     if (file == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source_id must reference a registered source file"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    text = basl_string_c_str(&file->text);
-    length = basl_string_length(&file->text);
+    text = vigil_string_c_str(&file->text);
+    length = vigil_string_length(&file->text);
     if (offset > length) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source offset exceeds source text length"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    basl_source_location_clear(&location);
+    vigil_source_location_clear(&location);
     location.source_id = source_id;
     location.offset = offset;
     location.line = 1U;
@@ -128,24 +128,24 @@ static basl_status_t basl_source_registry_locate(
     }
 
     *out_location = location;
-    basl_error_clear(error);
-    return BASL_STATUS_OK;
+    vigil_error_clear(error);
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_source_registry_grow(
-    basl_source_registry_t *registry,
+static vigil_status_t vigil_source_registry_grow(
+    vigil_source_registry_t *registry,
     size_t minimum_capacity,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     size_t old_capacity;
     size_t capacity;
     size_t next_capacity;
     void *memory;
-    basl_status_t status;
+    vigil_status_t status;
 
     if (minimum_capacity <= registry->capacity) {
-        basl_error_clear(error);
-        return BASL_STATUS_OK;
+        vigil_error_clear(error);
+        return VIGIL_STATUS_OK;
     }
 
     old_capacity = registry->capacity;
@@ -161,53 +161,53 @@ static basl_status_t basl_source_registry_grow(
     }
 
     if (next_capacity > (SIZE_MAX / sizeof(*registry->files))) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_OUT_OF_MEMORY,
+            VIGIL_STATUS_OUT_OF_MEMORY,
             "source registry allocation overflow"
         );
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     if (registry->files == NULL) {
         memory = NULL;
-        status = basl_runtime_alloc(
+        status = vigil_runtime_alloc(
             registry->runtime,
             next_capacity * sizeof(*registry->files),
             &memory,
             error
         );
-        if (status != BASL_STATUS_OK) {
+        if (status != VIGIL_STATUS_OK) {
             return status;
         }
 
-        registry->files = (basl_source_file_t *)memory;
+        registry->files = (vigil_source_file_t *)memory;
         registry->capacity = next_capacity;
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     memory = registry->files;
-    status = basl_runtime_realloc(
+    status = vigil_runtime_realloc(
         registry->runtime,
         &memory,
         next_capacity * sizeof(*registry->files),
         error
     );
-    if (status != BASL_STATUS_OK) {
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    registry->files = (basl_source_file_t *)memory;
+    registry->files = (vigil_source_file_t *)memory;
     memset(
         registry->files + old_capacity,
         0,
         (next_capacity - old_capacity) * sizeof(*registry->files)
     );
     registry->capacity = next_capacity;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-void basl_source_span_clear(basl_source_span_t *span) {
+void vigil_source_span_clear(vigil_source_span_t *span) {
     if (span == NULL) {
         return;
     }
@@ -215,9 +215,9 @@ void basl_source_span_clear(basl_source_span_t *span) {
     memset(span, 0, sizeof(*span));
 }
 
-void basl_source_registry_init(
-    basl_source_registry_t *registry,
-    basl_runtime_t *runtime
+void vigil_source_registry_init(
+    vigil_source_registry_t *registry,
+    vigil_runtime_t *runtime
 ) {
     if (registry == NULL) {
         return;
@@ -227,7 +227,7 @@ void basl_source_registry_init(
     registry->runtime = runtime;
 }
 
-void basl_source_registry_free(basl_source_registry_t *registry) {
+void vigil_source_registry_free(vigil_source_registry_t *registry) {
     size_t i;
     void *memory;
 
@@ -236,19 +236,19 @@ void basl_source_registry_free(basl_source_registry_t *registry) {
     }
 
     for (i = 0U; i < registry->count; ++i) {
-        basl_string_free(&registry->files[i].path);
-        basl_string_free(&registry->files[i].text);
+        vigil_string_free(&registry->files[i].path);
+        vigil_string_free(&registry->files[i].text);
     }
 
     memory = registry->files;
     if (registry->runtime != NULL) {
-        basl_runtime_free(registry->runtime, &memory);
+        vigil_runtime_free(registry->runtime, &memory);
     }
 
     memset(registry, 0, sizeof(*registry));
 }
 
-size_t basl_source_registry_count(const basl_source_registry_t *registry) {
+size_t vigil_source_registry_count(const vigil_source_registry_t *registry) {
     if (registry == NULL) {
         return 0U;
     }
@@ -256,9 +256,9 @@ size_t basl_source_registry_count(const basl_source_registry_t *registry) {
     return registry->count;
 }
 
-const basl_source_file_t *basl_source_registry_get(
-    const basl_source_registry_t *registry,
-    basl_source_id_t source_id
+const vigil_source_file_t *vigil_source_registry_get(
+    const vigil_source_registry_t *registry,
+    vigil_source_id_t source_id
 ) {
     if (registry == NULL || source_id == 0U) {
         return NULL;
@@ -271,36 +271,36 @@ const basl_source_file_t *basl_source_registry_get(
     return &registry->files[source_id - 1U];
 }
 
-basl_status_t basl_source_registry_resolve_location(
-    const basl_source_registry_t *registry,
-    basl_source_location_t *location,
-    basl_error_t *error
+vigil_status_t vigil_source_registry_resolve_location(
+    const vigil_source_registry_t *registry,
+    vigil_source_location_t *location,
+    vigil_error_t *error
 ) {
     if (location == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source location must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_source_registry_locate(
+    return vigil_source_registry_locate(
         registry,
-        (basl_source_id_t)location->source_id,
+        (vigil_source_id_t)location->source_id,
         location->offset,
         location,
         error
     );
 }
 
-basl_status_t basl_source_registry_resolve_span_start(
-    const basl_source_registry_t *registry,
-    basl_source_span_t span,
-    basl_source_location_t *out_location,
-    basl_error_t *error
+vigil_status_t vigil_source_registry_resolve_span_start(
+    const vigil_source_registry_t *registry,
+    vigil_source_span_t span,
+    vigil_source_location_t *out_location,
+    vigil_error_t *error
 ) {
-    return basl_source_registry_locate(
+    return vigil_source_registry_locate(
         registry,
         span.source_id,
         span.start_offset,
@@ -309,87 +309,87 @@ basl_status_t basl_source_registry_resolve_span_start(
     );
 }
 
-basl_status_t basl_source_registry_register(
-    basl_source_registry_t *registry,
+vigil_status_t vigil_source_registry_register(
+    vigil_source_registry_t *registry,
     const char *path,
     size_t path_length,
     const char *text,
     size_t text_length,
-    basl_source_id_t *out_source_id,
-    basl_error_t *error
+    vigil_source_id_t *out_source_id,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_source_file_t *file;
+    vigil_status_t status;
+    vigil_source_file_t *file;
 
-    status = basl_source_registry_validate_mutable(registry, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_source_registry_validate_mutable(registry, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
     if (path == NULL || text == NULL || out_source_id == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source register requires path, text, and out_source_id"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (registry->count == UINT32_MAX) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_OUT_OF_MEMORY,
+            VIGIL_STATUS_OUT_OF_MEMORY,
             "source registry exhausted source ids"
         );
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
-    status = basl_source_registry_grow(registry, registry->count + 1U, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_source_registry_grow(registry, registry->count + 1U, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
     file = &registry->files[registry->count];
-    basl_string_init(&file->path, registry->runtime);
-    basl_string_init(&file->text, registry->runtime);
+    vigil_string_init(&file->path, registry->runtime);
+    vigil_string_init(&file->text, registry->runtime);
 
-    status = basl_string_assign(&file->path, path, path_length, error);
-    if (status != BASL_STATUS_OK) {
-        basl_string_free(&file->path);
-        basl_string_free(&file->text);
+    status = vigil_string_assign(&file->path, path, path_length, error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_string_free(&file->path);
+        vigil_string_free(&file->text);
         return status;
     }
 
-    status = basl_string_assign(&file->text, text, text_length, error);
-    if (status != BASL_STATUS_OK) {
-        basl_string_free(&file->path);
-        basl_string_free(&file->text);
+    status = vigil_string_assign(&file->text, text, text_length, error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_string_free(&file->path);
+        vigil_string_free(&file->text);
         return status;
     }
 
-    file->id = (basl_source_id_t)(registry->count + 1U);
+    file->id = (vigil_source_id_t)(registry->count + 1U);
     registry->count += 1U;
     *out_source_id = file->id;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_source_registry_register_cstr(
-    basl_source_registry_t *registry,
+vigil_status_t vigil_source_registry_register_cstr(
+    vigil_source_registry_t *registry,
     const char *path,
     const char *text,
-    basl_source_id_t *out_source_id,
-    basl_error_t *error
+    vigil_source_id_t *out_source_id,
+    vigil_error_t *error
 ) {
     if (path == NULL || text == NULL || out_source_id == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "source register requires path, text, and out_source_id"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_source_registry_register(
+    return vigil_source_registry_register(
         registry,
         path,
         strlen(path),

@@ -1,0 +1,43 @@
+import "file";
+import "fmt";
+
+fn main() -> i32 {
+    // Write to a file
+    string content = "Hello from VIGIL!\nThis is line 2.\n";
+    err e = file.write_all("test.txt", content);
+    if (e != ok) {
+        fmt.println(f"Error writing file: {e}");
+        return 1;
+    }
+    fmt.println("File written successfully");
+    
+    // Read from a file
+    string data, err e2 = file.read_all("test.txt");
+    if (e2 != ok) {
+        fmt.println(f"Error reading file: {e2}");
+        return 1;
+    }
+    fmt.println(f"File contents:\n{data}");
+    
+    // Check if file exists
+    bool exists = file.exists("test.txt");
+    fmt.println(f"File exists: {exists}");
+    
+    // Get file info
+    file.FileStat info, err e3 = file.stat("test.txt");
+    if (e3 == ok) {
+        fmt.println(f"File size: {info.size} bytes");
+        fmt.println(f"Is directory: {info.is_dir}");
+    }
+    
+    // List directory
+    array<string> files, err e4 = file.list_dir(".");
+    if (e4 == ok) {
+        fmt.println("\nFiles in current directory:");
+        for name in files {
+            fmt.println(f"  - {name}");
+        }
+    }
+    
+    return 0;
+}

@@ -1,4 +1,4 @@
-/* BASL standard library: time module.
+/* VIGIL standard library: time module.
  *
  * Provides date/time operations using portable C time functions.
  * All timestamps are Unix timestamps (seconds since 1970-01-01 UTC).
@@ -19,12 +19,12 @@
 #include <string.h>
 #include <time.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 #include "platform/platform.h"
 
 #ifdef _WIN32
@@ -35,65 +35,65 @@
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static int64_t get_i64_arg(basl_vm_t *vm, size_t base, size_t idx) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    return basl_nanbox_decode_int(v);
+static int64_t get_i64_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    return vigil_nanbox_decode_int(v);
 }
 
-static int32_t get_i32_arg(basl_vm_t *vm, size_t base, size_t idx) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    return basl_nanbox_decode_i32(v);
+static int32_t get_i32_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    return vigil_nanbox_decode_i32(v);
 }
 
-static bool get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
+static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
                            const char **out, size_t *out_len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (!basl_nanbox_is_object(v)) return false;
-    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return false;
-    *out = basl_string_object_c_str(obj);
-    *out_len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (!vigil_nanbox_is_object(v)) return false;
+    vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    *out = vigil_string_object_c_str(obj);
+    *out_len = vigil_string_object_length(obj);
     return true;
 }
 
-static basl_status_t push_i64(basl_vm_t *vm, int64_t val, basl_error_t *error) {
-    basl_value_t v = basl_nanbox_encode_int(val);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_i64(vigil_vm_t *vm, int64_t val, vigil_error_t *error) {
+    vigil_value_t v = vigil_nanbox_encode_int(val);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
-static basl_status_t push_i32(basl_vm_t *vm, int32_t val, basl_error_t *error) {
-    basl_value_t v = basl_nanbox_encode_i32(val);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_i32(vigil_vm_t *vm, int32_t val, vigil_error_t *error) {
+    vigil_value_t v = vigil_nanbox_encode_i32(val);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
-static basl_status_t push_bool(basl_vm_t *vm, int val, basl_error_t *error) {
-    basl_value_t v;
-    basl_value_init_bool(&v, val);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_bool(vigil_vm_t *vm, int val, vigil_error_t *error) {
+    vigil_value_t v;
+    vigil_value_init_bool(&v, val);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
-static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
-                                  basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    basl_value_t v;
-    basl_value_init_object(&v, &obj);
-    s = basl_vm_stack_push(vm, &v, error);
-    basl_value_release(&v);
+static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
+                                  vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    vigil_value_t v;
+    vigil_value_init_object(&v, &obj);
+    s = vigil_vm_stack_push(vm, &v, error);
+    vigil_value_release(&v);
     return s;
 }
 
 /* ── time.now() -> i64 ───────────────────────────────────────────── */
 
-static basl_status_t time_now(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+static vigil_status_t time_now(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     (void)arg_count;
     return push_i64(vm, (int64_t)time(NULL), error);
 }
 
 /* ── time.now_ms() -> i64 ────────────────────────────────────────── */
 
-static basl_status_t time_now_ms(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+static vigil_status_t time_now_ms(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     int64_t ms;
     (void)arg_count;
 #ifdef _WIN32
@@ -114,7 +114,7 @@ static basl_status_t time_now_ms(basl_vm_t *vm, size_t arg_count, basl_error_t *
 
 /* ── time.now_ns() -> i64 ────────────────────────────────────────── */
 
-static basl_status_t time_now_ns(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+static vigil_status_t time_now_ns(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     int64_t ns;
     (void)arg_count;
 #ifdef _WIN32
@@ -134,15 +134,15 @@ static basl_status_t time_now_ns(basl_vm_t *vm, size_t arg_count, basl_error_t *
 
 /* ── time.sleep(ms: i64) ─────────────────────────────────────────── */
 
-static basl_status_t time_sleep(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_sleep(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ms = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (ms > 0) {
-        basl_platform_thread_sleep((uint64_t)ms);
+        vigil_platform_thread_sleep((uint64_t)ms);
     }
     (void)error;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Component extraction helpers ────────────────────────────────── */
@@ -160,106 +160,106 @@ static struct tm *get_local_tm(int64_t ts, struct tm *storage) {
 
 /* ── time.year(ts: i64) -> i32 ───────────────────────────────────── */
 
-static basl_status_t time_year(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_year(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_year + 1900 : 0, error);
 }
 
 /* ── time.month(ts: i64) -> i32 ──────────────────────────────────── */
 
-static basl_status_t time_month(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_month(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_mon + 1 : 0, error);
 }
 
 /* ── time.day(ts: i64) -> i32 ────────────────────────────────────── */
 
-static basl_status_t time_day(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_day(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_mday : 0, error);
 }
 
 /* ── time.hour(ts: i64) -> i32 ───────────────────────────────────── */
 
-static basl_status_t time_hour(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_hour(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_hour : 0, error);
 }
 
 /* ── time.minute(ts: i64) -> i32 ─────────────────────────────────── */
 
-static basl_status_t time_minute(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_minute(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_min : 0, error);
 }
 
 /* ── time.second(ts: i64) -> i32 ─────────────────────────────────── */
 
-static basl_status_t time_second(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_second(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_sec : 0, error);
 }
 
 /* ── time.weekday(ts: i64) -> i32 ────────────────────────────────── */
 
-static basl_status_t time_weekday(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_weekday(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_wday : 0, error);
 }
 
 /* ── time.yearday(ts: i64) -> i32 ────────────────────────────────── */
 
-static basl_status_t time_yearday(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_yearday(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_i32(vm, tm ? tm->tm_yday + 1 : 0, error);
 }
 
 /* ── time.is_dst(ts: i64) -> bool ────────────────────────────────── */
 
-static basl_status_t time_is_dst(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_is_dst(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     struct tm storage, *tm;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     tm = get_local_tm(ts, &storage);
     return push_bool(vm, tm && tm->tm_isdst > 0, error);
 }
 
 /* ── time.utc_offset() -> i32 ────────────────────────────────────── */
 
-static basl_status_t time_utc_offset(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
+static vigil_status_t time_utc_offset(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     time_t now = time(NULL);
     struct tm local_tm, utc_tm;
     int32_t offset;
@@ -289,8 +289,8 @@ static basl_status_t time_utc_offset(basl_vm_t *vm, size_t arg_count, basl_error
 
 /* ── time.date(y, m, d, h, min, s) -> i64 ────────────────────────── */
 
-static basl_status_t time_date(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_date(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int32_t y = get_i32_arg(vm, base, 0);
     int32_t m = get_i32_arg(vm, base, 1);
     int32_t d = get_i32_arg(vm, base, 2);
@@ -300,7 +300,7 @@ static basl_status_t time_date(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     struct tm tm_val;
     time_t result;
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     memset(&tm_val, 0, sizeof(tm_val));
     tm_val.tm_year = y - 1900;
@@ -317,8 +317,8 @@ static basl_status_t time_date(basl_vm_t *vm, size_t arg_count, basl_error_t *er
 
 /* ── time.format(ts: i64, fmt: string) -> string ─────────────────── */
 
-static basl_status_t time_format(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_format(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     const char *fmt;
     size_t fmt_len;
@@ -328,10 +328,10 @@ static basl_status_t time_format(basl_vm_t *vm, size_t arg_count, basl_error_t *
     size_t len;
 
     if (!get_string_arg(vm, base, 1, &fmt, &fmt_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     tm = get_local_tm(ts, &storage);
     if (!tm) {
@@ -351,8 +351,8 @@ static basl_status_t time_format(basl_vm_t *vm, size_t arg_count, basl_error_t *
 
 #ifndef _WIN32
 /* strptime is POSIX, not available on Windows */
-static basl_status_t time_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_parse(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *str, *fmt;
     size_t str_len, fmt_len;
     struct tm tm_val;
@@ -361,10 +361,10 @@ static basl_status_t time_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *e
 
     if (!get_string_arg(vm, base, 0, &str, &str_len) ||
         !get_string_arg(vm, base, 1, &fmt, &fmt_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (str_len >= sizeof(str_buf)) str_len = sizeof(str_buf) - 1;
     memcpy(str_buf, str, str_len);
@@ -386,8 +386,8 @@ static basl_status_t time_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *e
 }
 #else
 /* Windows fallback: parse ISO 8601 format only */
-static basl_status_t time_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_parse(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *str, *fmt;
     size_t str_len, fmt_len;
     struct tm tm_val;
@@ -397,10 +397,10 @@ static basl_status_t time_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *e
 
     if (!get_string_arg(vm, base, 0, &str, &str_len) ||
         !get_string_arg(vm, base, 1, &fmt, &fmt_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (str_len >= sizeof(str_buf)) str_len = sizeof(str_buf) - 1;
     memcpy(str_buf, str, str_len);
@@ -438,84 +438,84 @@ static basl_status_t time_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *e
 
 /* ── Arithmetic functions ────────────────────────────────────────── */
 
-static basl_status_t time_add_days(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_add_days(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     int32_t n = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, ts + (int64_t)n * 86400, error);
 }
 
-static basl_status_t time_add_hours(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_add_hours(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     int32_t n = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, ts + (int64_t)n * 3600, error);
 }
 
-static basl_status_t time_add_minutes(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_add_minutes(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     int32_t n = get_i32_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, ts + (int64_t)n * 60, error);
 }
 
-static basl_status_t time_add_seconds(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_add_seconds(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ts = get_i64_arg(vm, base, 0);
     int64_t n = get_i64_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, ts + n, error);
 }
 
-static basl_status_t time_diff_days(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t time_diff_days(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t a = get_i64_arg(vm, base, 0);
     int64_t b = get_i64_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, (a - b) / 86400, error);
 }
 
 /* ── Module definition ───────────────────────────────────────────── */
 
-static const int i64_param[] = {BASL_TYPE_I64};
-static const int i64_i32_param[] = {BASL_TYPE_I64, BASL_TYPE_I32};
-static const int i64_i64_param[] = {BASL_TYPE_I64, BASL_TYPE_I64};
-static const int i64_str_param[] = {BASL_TYPE_I64, BASL_TYPE_STRING};
-static const int str_str_param[] = {BASL_TYPE_STRING, BASL_TYPE_STRING};
-static const int date_params[] = {BASL_TYPE_I32, BASL_TYPE_I32, BASL_TYPE_I32,
-                                   BASL_TYPE_I32, BASL_TYPE_I32, BASL_TYPE_I32};
+static const int i64_param[] = {VIGIL_TYPE_I64};
+static const int i64_i32_param[] = {VIGIL_TYPE_I64, VIGIL_TYPE_I32};
+static const int i64_i64_param[] = {VIGIL_TYPE_I64, VIGIL_TYPE_I64};
+static const int i64_str_param[] = {VIGIL_TYPE_I64, VIGIL_TYPE_STRING};
+static const int str_str_param[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_STRING};
+static const int date_params[] = {VIGIL_TYPE_I32, VIGIL_TYPE_I32, VIGIL_TYPE_I32,
+                                   VIGIL_TYPE_I32, VIGIL_TYPE_I32, VIGIL_TYPE_I32};
 
-static const basl_native_module_function_t time_functions[] = {
-    {"now", 3U, time_now, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"now_ms", 6U, time_now_ms, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"now_ns", 6U, time_now_ns, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"sleep", 5U, time_sleep, 1U, i64_param, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
-    {"year", 4U, time_year, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"month", 5U, time_month, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"day", 3U, time_day, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"hour", 4U, time_hour, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"minute", 6U, time_minute, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"second", 6U, time_second, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"weekday", 7U, time_weekday, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"yearday", 7U, time_yearday, 1U, i64_param, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"is_dst", 6U, time_is_dst, 1U, i64_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"utc_offset", 10U, time_utc_offset, 0U, NULL, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"date", 4U, time_date, 6U, date_params, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"format", 6U, time_format, 2U, i64_str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"parse", 5U, time_parse, 2U, str_str_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"add_days", 8U, time_add_days, 2U, i64_i32_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"add_hours", 9U, time_add_hours, 2U, i64_i32_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"add_minutes", 11U, time_add_minutes, 2U, i64_i32_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"add_seconds", 11U, time_add_seconds, 2U, i64_i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"diff_days", 9U, time_diff_days, 2U, i64_i64_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+static const vigil_native_module_function_t time_functions[] = {
+    {"now", 3U, time_now, 0U, NULL, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"now_ms", 6U, time_now_ms, 0U, NULL, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"now_ns", 6U, time_now_ns, 0U, NULL, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"sleep", 5U, time_sleep, 1U, i64_param, VIGIL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"year", 4U, time_year, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"month", 5U, time_month, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"day", 3U, time_day, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"hour", 4U, time_hour, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"minute", 6U, time_minute, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"second", 6U, time_second, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"weekday", 7U, time_weekday, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"yearday", 7U, time_yearday, 1U, i64_param, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"is_dst", 6U, time_is_dst, 1U, i64_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"utc_offset", 10U, time_utc_offset, 0U, NULL, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"date", 4U, time_date, 6U, date_params, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"format", 6U, time_format, 2U, i64_str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"parse", 5U, time_parse, 2U, str_str_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"add_days", 8U, time_add_days, 2U, i64_i32_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"add_hours", 9U, time_add_hours, 2U, i64_i32_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"add_minutes", 11U, time_add_minutes, 2U, i64_i32_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"add_seconds", 11U, time_add_seconds, 2U, i64_i64_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"diff_days", 9U, time_diff_days, 2U, i64_i64_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
 };
 
 #define TIME_FUNCTION_COUNT (sizeof(time_functions) / sizeof(time_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_time = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_time = {
     "time", 4U,
     time_functions, TIME_FUNCTION_COUNT,
     NULL, 0U

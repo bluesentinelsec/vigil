@@ -1,4 +1,4 @@
-#include "basl_test.h"
+#include "vigil_test.h"
 #ifdef _WIN32
 #include <io.h>
 #define dup    _dup
@@ -13,63 +13,63 @@
 #include <string.h>
 
 
-#include "basl/basl.h"
-#include "basl/stdlib.h"
+#include "vigil/vigil.h"
+#include "vigil/stdlib.h"
 
 /* ── test harness ────────────────────────────────────────────────── */
 
 /*
- * Compile and run a BASL program that imports stdlib modules.
+ * Compile and run a VIGIL program that imports stdlib modules.
  * The program's main() must return i32.  Returns that value.
  */
-static int64_t RunWithStdlib(int *basl_test_failed_, const char *source_text) {
-    basl_runtime_t *runtime = NULL;
-    basl_vm_t *vm = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_native_registry_t natives;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_value_t result;
-    basl_source_id_t source_id = 0U;
+static int64_t RunWithStdlib(int *vigil_test_failed_, const char *source_text) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_native_registry_t natives;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_value_t result;
+    vigil_source_id_t source_id = 0U;
     int64_t output = 0;
 
-    EXPECT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
-    basl_native_registry_init(&natives);
-    EXPECT_EQ(basl_stdlib_register_all(&natives, &error), BASL_STATUS_OK);
+    EXPECT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+    vigil_native_registry_init(&natives);
+    EXPECT_EQ(vigil_stdlib_register_all(&natives, &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(
-        basl_source_registry_register_cstr(
-            &registry, "main.basl", source_text, &source_id, &error),
-        BASL_STATUS_OK
+        vigil_source_registry_register_cstr(
+            &registry, "main.vigil", source_text, &source_id, &error),
+        VIGIL_STATUS_OK
     );
 
     EXPECT_EQ(
-        basl_compile_source_with_natives(
+        vigil_compile_source_with_natives(
             &registry, source_id, &natives, &function, &diagnostics, &error),
-        BASL_STATUS_OK
+        VIGIL_STATUS_OK
     );
     EXPECT_NE(function, NULL);
-    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+    EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
-    basl_value_init_nil(&result);
+    vigil_value_init_nil(&result);
     EXPECT_EQ(
-        basl_vm_execute_function(vm, function, &result, &error),
-        BASL_STATUS_OK
+        vigil_vm_execute_function(vm, function, &result, &error),
+        VIGIL_STATUS_OK
     );
-    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
-    output = basl_value_as_int(&result);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
+    output = vigil_value_as_int(&result);
 
-    basl_value_release(&result);
-    basl_object_release(&function);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_native_registry_free(&natives);
-    basl_source_registry_free(&registry);
-    basl_vm_close(&vm);
-    basl_runtime_close(&runtime);
+    vigil_value_release(&result);
+    vigil_object_release(&function);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_native_registry_free(&natives);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
     return output;
 }
 
@@ -77,12 +77,12 @@ static int64_t RunWithStdlib(int *basl_test_failed_, const char *source_text) {
  * Same as RunWithStdlib but captures stdout and returns it.
  * The program's exit code is expected to be 0.
  */
-static char *RunAndCaptureStdout(int *basl_test_failed_, const char *source_text) {
+static char *RunAndCaptureStdout(int *vigil_test_failed_, const char *source_text) {
     FILE *tmp = tmpfile();
     int saved = dup(fileno(stdout));
     fflush(stdout);
     dup2(fileno(tmp), fileno(stdout));
-    int64_t rc = RunWithStdlib(basl_test_failed_, source_text);
+    int64_t rc = RunWithStdlib(vigil_test_failed_, source_text);
     fflush(stdout);
     dup2(saved, fileno(stdout));
     close(saved);
@@ -96,12 +96,12 @@ static char *RunAndCaptureStdout(int *basl_test_failed_, const char *source_text
     return buf;
 }
 
-static char *RunAndCaptureStderr(int *basl_test_failed_, const char *source_text) {
+static char *RunAndCaptureStderr(int *vigil_test_failed_, const char *source_text) {
     FILE *tmp = tmpfile();
     int saved = dup(fileno(stderr));
     fflush(stderr);
     dup2(fileno(tmp), fileno(stderr));
-    int64_t rc = RunWithStdlib(basl_test_failed_, source_text);
+    int64_t rc = RunWithStdlib(vigil_test_failed_, source_text);
     fflush(stderr);
     dup2(saved, fileno(stderr));
     close(saved);
@@ -117,8 +117,8 @@ static char *RunAndCaptureStderr(int *basl_test_failed_, const char *source_text
 
 /* ── fmt tests ───────────────────────────────────────────────────── */
 
-TEST(BaslStdlibFmtTest, PrintlnOutputsStringWithNewline) {
-    char *out = RunAndCaptureStdout(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, PrintlnOutputsStringWithNewline) {
+    char *out = RunAndCaptureStdout(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            fmt.println(\"hello\");\n"
@@ -129,8 +129,8 @@ TEST(BaslStdlibFmtTest, PrintlnOutputsStringWithNewline) {
     free(out);
 }
 
-TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline) {
-    char *out = RunAndCaptureStdout(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, PrintOutputsStringWithoutNewline) {
+    char *out = RunAndCaptureStdout(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            fmt.print(\"ab\");\n"
@@ -142,8 +142,8 @@ TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline) {
     free(out);
 }
 
-TEST(BaslStdlibFmtTest, EprintlnOutputsToStderr) {
-    char *err = RunAndCaptureStderr(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, EprintlnOutputsToStderr) {
+    char *err = RunAndCaptureStderr(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            fmt.eprintln(\"oops\");\n"
@@ -154,8 +154,8 @@ TEST(BaslStdlibFmtTest, EprintlnOutputsToStderr) {
     free(err);
 }
 
-TEST(BaslStdlibFmtTest, PrintlnEmptyString) {
-    char *out = RunAndCaptureStdout(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, PrintlnEmptyString) {
+    char *out = RunAndCaptureStdout(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            fmt.println(\"\");\n"
@@ -166,8 +166,8 @@ TEST(BaslStdlibFmtTest, PrintlnEmptyString) {
     free(out);
 }
 
-TEST(BaslStdlibFmtTest, PrintlnWithFString) {
-    char *out = RunAndCaptureStdout(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, PrintlnWithFString) {
+    char *out = RunAndCaptureStdout(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            i32 x = 42;\n"
@@ -179,8 +179,8 @@ TEST(BaslStdlibFmtTest, PrintlnWithFString) {
     free(out);
 }
 
-TEST(BaslStdlibFmtTest, PrintlnWithVariable) {
-    char *out = RunAndCaptureStdout(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, PrintlnWithVariable) {
+    char *out = RunAndCaptureStdout(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            string s = \"world\";\n"
@@ -192,8 +192,8 @@ TEST(BaslStdlibFmtTest, PrintlnWithVariable) {
     free(out);
 }
 
-TEST(BaslStdlibFmtTest, PrintlnInLoop) {
-    char *out = RunAndCaptureStdout(basl_test_failed_, "\n"
+TEST(VigilStdlibFmtTest, PrintlnInLoop) {
+    char *out = RunAndCaptureStdout(vigil_test_failed_, "\n"
         "        import \"fmt\";\n"
         "        fn main() -> i32 {\n"
         "            for (i32 i = 0; i < 3; i++) {\n"
@@ -208,12 +208,12 @@ TEST(BaslStdlibFmtTest, PrintlnInLoop) {
 
 /* ── math: constants ─────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, PiReturnsCorrectValue) {
+TEST(VigilStdlibMathTest, PiReturnsCorrectValue) {
     /*
      * Encode a pass/fail check as an integer return.
-     * The BASL program returns 0 if pi matches within tolerance.
+     * The VIGIL program returns 0 if pi matches within tolerance.
      */
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 diff = math.abs(math.pi() - 3.14159265358979323846);\n"
@@ -223,8 +223,8 @@ TEST(BaslStdlibMathTest, PiReturnsCorrectValue) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, EReturnsCorrectValue) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, EReturnsCorrectValue) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 diff = math.abs(math.e() - 2.71828182845904523536);\n"
@@ -238,13 +238,13 @@ TEST(BaslStdlibMathTest, EReturnsCorrectValue) {
 
 /*
  * Each rounding function is tested with a table of inputs including
- * positive, negative, zero, and edge cases.  The BASL program
+ * positive, negative, zero, and edge cases.  The VIGIL program
  * encodes the index of the first failing case (1-based) or 0 on
  * success.
  */
 
-TEST(BaslStdlibMathTest, FloorTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, FloorTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.floor(3.7) != 3.0)   { return 1; }\n"
@@ -257,8 +257,8 @@ TEST(BaslStdlibMathTest, FloorTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, CeilTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, CeilTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.ceil(3.2) != 4.0)    { return 1; }\n"
@@ -271,8 +271,8 @@ TEST(BaslStdlibMathTest, CeilTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, RoundTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, RoundTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.round(3.5) != 4.0)    { return 1; }\n"
@@ -284,8 +284,8 @@ TEST(BaslStdlibMathTest, RoundTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, TruncTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, TruncTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.trunc(3.7) != 3.0)    { return 1; }\n"
@@ -297,8 +297,8 @@ TEST(BaslStdlibMathTest, TruncTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, AbsTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, AbsTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.abs(-42.0) != 42.0)  { return 1; }\n"
@@ -310,8 +310,8 @@ TEST(BaslStdlibMathTest, AbsTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, SignTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, SignTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.sign(42.0) != 1.0)   { return 1; }\n"
@@ -324,8 +324,8 @@ TEST(BaslStdlibMathTest, SignTable) {
 
 /* ── math: trig / exponential ────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, SqrtTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, SqrtTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.sqrt(144.0) != 12.0)  { return 1; }\n"
@@ -336,8 +336,8 @@ TEST(BaslStdlibMathTest, SqrtTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, SinCosAtZero) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, SinCosAtZero) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.sin(0.0) != 0.0)  { return 1; }\n"
@@ -348,8 +348,8 @@ TEST(BaslStdlibMathTest, SinCosAtZero) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, LogTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, LogTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.log(1.0) != 0.0)      { return 1; }\n"
@@ -360,8 +360,8 @@ TEST(BaslStdlibMathTest, LogTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, ExpAtZeroAndOne) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, ExpAtZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.exp(0.0) != 1.0)  { return 1; }\n"
@@ -374,8 +374,8 @@ TEST(BaslStdlibMathTest, ExpAtZeroAndOne) {
 
 /* ── math: two-argument functions ────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, PowTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, PowTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.pow(2.0, 10.0) != 1024.0)  { return 1; }\n"
@@ -387,8 +387,8 @@ TEST(BaslStdlibMathTest, PowTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, MinMaxTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, MinMaxTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.min(3.0, 7.0) != 3.0)    { return 1; }\n"
@@ -402,8 +402,8 @@ TEST(BaslStdlibMathTest, MinMaxTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Atan2Table) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Atan2Table) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.atan2(0.0, 1.0) != 0.0)  { return 1; }\n"
@@ -417,8 +417,8 @@ TEST(BaslStdlibMathTest, Atan2Table) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, HypotTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, HypotTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.hypot(3.0, 4.0) != 5.0)    { return 1; }\n"
@@ -430,8 +430,8 @@ TEST(BaslStdlibMathTest, HypotTable) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, FmodTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, FmodTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.fmod(7.5, 3.0) != 1.5)    { return 1; }\n"
@@ -444,8 +444,8 @@ TEST(BaslStdlibMathTest, FmodTable) {
 
 /* ── math: three-argument functions ──────────────────────────────── */
 
-TEST(BaslStdlibMathTest, ClampTable) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, ClampTable) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.clamp(5.0, 0.0, 10.0) != 5.0)    { return 1; }\n"
@@ -460,8 +460,8 @@ TEST(BaslStdlibMathTest, ClampTable) {
 
 /* ── math: composition ───────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, ComposedExpressions) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, ComposedExpressions) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            // pythagorean theorem via composition\n"
@@ -481,8 +481,8 @@ TEST(BaslStdlibMathTest, ComposedExpressions) {
 
 /* ── native class: Vec2 ──────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Vec2ConstructionAndFields) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2ConstructionAndFields) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 v = math.Vec2(3.0, 4.0);\n"
@@ -493,8 +493,8 @@ TEST(BaslStdlibMathTest, Vec2ConstructionAndFields) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec2FieldMutation) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2FieldMutation) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 v = math.Vec2(1.0, 2.0);\n"
@@ -507,8 +507,8 @@ TEST(BaslStdlibMathTest, Vec2FieldMutation) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec2Length) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2Length) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 v = math.Vec2(3.0, 4.0);\n"
@@ -522,8 +522,8 @@ TEST(BaslStdlibMathTest, Vec2Length) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec2Dot) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2Dot) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 a = math.Vec2(3.0, 4.0);\n"
@@ -539,8 +539,8 @@ TEST(BaslStdlibMathTest, Vec2Dot) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec2WithScalarMath) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2WithScalarMath) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 v = math.Vec2(3.0, 4.0);\n"
@@ -553,8 +553,8 @@ TEST(BaslStdlibMathTest, Vec2WithScalarMath) {
 
 /* ── new scalar functions ────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, InverseTrig) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, InverseTrig) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -571,8 +571,8 @@ TEST(BaslStdlibMathTest, InverseTrig) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Deg2RadRad2Deg) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Deg2RadRad2Deg) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -587,8 +587,8 @@ TEST(BaslStdlibMathTest, Deg2RadRad2Deg) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Lerp) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Lerp) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.lerp(0.0, 10.0, 0.0) != 0.0) { return 1; }\n"
@@ -600,8 +600,8 @@ TEST(BaslStdlibMathTest, Lerp) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Normalize) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Normalize) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.normalize(5.0, 0.0, 10.0) != 0.5) { return 1; }\n"
@@ -614,8 +614,8 @@ TEST(BaslStdlibMathTest, Normalize) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Wrap) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Wrap) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -628,8 +628,8 @@ TEST(BaslStdlibMathTest, Wrap) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Remap) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Remap) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.remap(5.0, 0.0, 10.0, 0.0, 100.0) != 50.0) { return 1; }\n"
@@ -643,8 +643,8 @@ TEST(BaslStdlibMathTest, Remap) {
 
 /* ── Vec2 new methods ────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Vec2Normalize) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2Normalize) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -663,8 +663,8 @@ TEST(BaslStdlibMathTest, Vec2Normalize) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec2AddSubScaleDistance) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2AddSubScaleDistance) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -688,8 +688,8 @@ TEST(BaslStdlibMathTest, Vec2AddSubScaleDistance) {
 
 /* ── Vec3 ────────────────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Vec3ConstructionAndFields) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3ConstructionAndFields) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec3 v = math.Vec3(1.0, 2.0, 3.0);\n"
@@ -701,8 +701,8 @@ TEST(BaslStdlibMathTest, Vec3ConstructionAndFields) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3Length) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3Length) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -715,8 +715,8 @@ TEST(BaslStdlibMathTest, Vec3Length) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3DotAndCross) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3DotAndCross) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec3 x = math.Vec3(1.0, 0.0, 0.0);\n"
@@ -736,8 +736,8 @@ TEST(BaslStdlibMathTest, Vec3DotAndCross) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3NormalizeAddSubScaleDistance) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3NormalizeAddSubScaleDistance) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -769,8 +769,8 @@ TEST(BaslStdlibMathTest, Vec3NormalizeAddSubScaleDistance) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3MethodChaining) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3MethodChaining) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -788,8 +788,8 @@ TEST(BaslStdlibMathTest, Vec3MethodChaining) {
 
 /* ── Tier 1 scalar: step, smoothstep, inverseLerp ────────────────── */
 
-TEST(BaslStdlibMathTest, Step) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Step) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.step(0.5, 0.3) != 0.0) { return 1; }\n"
@@ -802,8 +802,8 @@ TEST(BaslStdlibMathTest, Step) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Smoothstep) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Smoothstep) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -819,8 +819,8 @@ TEST(BaslStdlibMathTest, Smoothstep) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, InverseLerp) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, InverseLerp) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            if (math.inverseLerp(0.0, 10.0, 0.0) != 0.0) { return 1; }\n"
@@ -835,8 +835,8 @@ TEST(BaslStdlibMathTest, InverseLerp) {
 
 /* ── Tier 1 Vec2: lengthSqr, negate, lerp, reflect ──────────────── */
 
-TEST(BaslStdlibMathTest, Vec2LengthSqrAndNegate) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2LengthSqrAndNegate) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 v = math.Vec2(3.0, 4.0);\n"
@@ -853,8 +853,8 @@ TEST(BaslStdlibMathTest, Vec2LengthSqrAndNegate) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec2LerpAndReflect) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2LerpAndReflect) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -883,8 +883,8 @@ TEST(BaslStdlibMathTest, Vec2LerpAndReflect) {
 
 /* ── Tier 1 Vec3: lengthSqr, negate, lerp, reflect, angle ───────── */
 
-TEST(BaslStdlibMathTest, Vec3LengthSqrAndNegate) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3LengthSqrAndNegate) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec3 v = math.Vec3(1.0, 2.0, 3.0);\n"
@@ -898,8 +898,8 @@ TEST(BaslStdlibMathTest, Vec3LengthSqrAndNegate) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3LerpAndReflect) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3LerpAndReflect) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -921,8 +921,8 @@ TEST(BaslStdlibMathTest, Vec3LerpAndReflect) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3Angle) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3Angle) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -942,8 +942,8 @@ TEST(BaslStdlibMathTest, Vec3Angle) {
 
 /* ── Vec4 ────────────────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Vec4ConstructionAndFields) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec4ConstructionAndFields) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec4 v = math.Vec4(1.0, 2.0, 3.0, 4.0);\n"
@@ -956,8 +956,8 @@ TEST(BaslStdlibMathTest, Vec4ConstructionAndFields) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec4LengthAndDot) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec4LengthAndDot) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -976,8 +976,8 @@ TEST(BaslStdlibMathTest, Vec4LengthAndDot) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec4Arithmetic) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec4Arithmetic) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1010,8 +1010,8 @@ TEST(BaslStdlibMathTest, Vec4Arithmetic) {
 
 /* ── Quaternion ──────────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, QuaternionIdentity) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionIdentity) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1026,8 +1026,8 @@ TEST(BaslStdlibMathTest, QuaternionIdentity) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionConjugateAndInverse) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionConjugateAndInverse) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1050,8 +1050,8 @@ TEST(BaslStdlibMathTest, QuaternionConjugateAndInverse) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionMultiply) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionMultiply) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1070,8 +1070,8 @@ TEST(BaslStdlibMathTest, QuaternionMultiply) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionFromAxisAngle) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionFromAxisAngle) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1091,8 +1091,8 @@ TEST(BaslStdlibMathTest, QuaternionFromAxisAngle) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionSlerp) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionSlerp) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1115,8 +1115,8 @@ TEST(BaslStdlibMathTest, QuaternionSlerp) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionToEuler) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionToEuler) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.01;\n"
@@ -1134,8 +1134,8 @@ TEST(BaslStdlibMathTest, QuaternionToEuler) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionDotAndNormalize) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionDotAndNormalize) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1152,8 +1152,8 @@ TEST(BaslStdlibMathTest, QuaternionDotAndNormalize) {
 
 /* ── Mat4 ────────────────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Mat4ConstructionAndFieldAccess) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4ConstructionAndFieldAccess) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            array<f64> d = [1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0];\n"
@@ -1168,8 +1168,8 @@ TEST(BaslStdlibMathTest, Mat4ConstructionAndFieldAccess) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4Identity) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4Identity) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Mat4 id = math.Mat4.identity();\n"
@@ -1184,8 +1184,8 @@ TEST(BaslStdlibMathTest, Mat4Identity) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4GetSetTranspose) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4GetSetTranspose) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Mat4 id = math.Mat4.identity();\n"
@@ -1202,8 +1202,8 @@ TEST(BaslStdlibMathTest, Mat4GetSetTranspose) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4MultiplyAndDeterminant) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4MultiplyAndDeterminant) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1222,8 +1222,8 @@ TEST(BaslStdlibMathTest, Mat4MultiplyAndDeterminant) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4AddAndScale) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4AddAndScale) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Mat4 id = math.Mat4.identity();\n"
@@ -1240,8 +1240,8 @@ TEST(BaslStdlibMathTest, Mat4AddAndScale) {
 
 /* ── Static methods ──────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Vec2StaticZeroAndOne) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2StaticZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec2 z = math.Vec2.zero();\n"
@@ -1255,8 +1255,8 @@ TEST(BaslStdlibMathTest, Vec2StaticZeroAndOne) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3StaticZeroAndOne) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3StaticZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec3 z = math.Vec3.zero();\n"
@@ -1270,8 +1270,8 @@ TEST(BaslStdlibMathTest, Vec3StaticZeroAndOne) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec4StaticZeroAndOne) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec4StaticZeroAndOne) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Vec4 z = math.Vec4.zero();\n"
@@ -1285,8 +1285,8 @@ TEST(BaslStdlibMathTest, Vec4StaticZeroAndOne) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4StaticIdentity) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4StaticIdentity) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            math.Mat4 id = math.Mat4.identity();\n"
@@ -1299,8 +1299,8 @@ TEST(BaslStdlibMathTest, Mat4StaticIdentity) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionStaticFromAxisAngle) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionStaticFromAxisAngle) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1313,8 +1313,8 @@ TEST(BaslStdlibMathTest, QuaternionStaticFromAxisAngle) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, StaticMethodChaining) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, StaticMethodChaining) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            // Static factory -> instance method chain\n"
@@ -1330,8 +1330,8 @@ TEST(BaslStdlibMathTest, StaticMethodChaining) {
 
 /* ── Vec2 angle/rotate ───────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Vec2AngleAndRotate) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec2AngleAndRotate) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1354,8 +1354,8 @@ TEST(BaslStdlibMathTest, Vec2AngleAndRotate) {
 
 /* ── Vec3 transform/rotateByQuaternion/unproject ─────────────────── */
 
-TEST(BaslStdlibMathTest, Vec3Transform) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3Transform) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1377,8 +1377,8 @@ TEST(BaslStdlibMathTest, Vec3Transform) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3RotateByQuaternion) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3RotateByQuaternion) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1395,8 +1395,8 @@ TEST(BaslStdlibMathTest, Vec3RotateByQuaternion) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Vec3Unproject) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Vec3Unproject) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.01;\n"
@@ -1414,8 +1414,8 @@ TEST(BaslStdlibMathTest, Vec3Unproject) {
 
 /* ── Quaternion fromEuler/toMat4 ─────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, QuaternionFromEuler) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionFromEuler) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1438,8 +1438,8 @@ TEST(BaslStdlibMathTest, QuaternionFromEuler) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, QuaternionToMat4) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, QuaternionToMat4) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1467,8 +1467,8 @@ TEST(BaslStdlibMathTest, QuaternionToMat4) {
 
 /* ── Mat4 new methods ────────────────────────────────────────────── */
 
-TEST(BaslStdlibMathTest, Mat4Trace) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4Trace) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1480,8 +1480,8 @@ TEST(BaslStdlibMathTest, Mat4Trace) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4Invert) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4Invert) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1503,8 +1503,8 @@ TEST(BaslStdlibMathTest, Mat4Invert) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4TranslateAndScaleV) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4TranslateAndScaleV) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1524,8 +1524,8 @@ TEST(BaslStdlibMathTest, Mat4TranslateAndScaleV) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4RotateXYZ) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4RotateXYZ) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1553,8 +1553,8 @@ TEST(BaslStdlibMathTest, Mat4RotateXYZ) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4LookAt) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4LookAt) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1576,8 +1576,8 @@ TEST(BaslStdlibMathTest, Mat4LookAt) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4PerspectiveAndOrtho) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4PerspectiveAndOrtho) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1597,8 +1597,8 @@ TEST(BaslStdlibMathTest, Mat4PerspectiveAndOrtho) {
         "    "), 0);
 }
 
-TEST(BaslStdlibMathTest, Mat4Frustum) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibMathTest, Mat4Frustum) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "        import \"math\";\n"
         "        fn main() -> i32 {\n"
         "            f64 eps = 0.000001;\n"
@@ -1614,8 +1614,8 @@ TEST(BaslStdlibMathTest, Mat4Frustum) {
 
 /* ── String trim_left / trim_right ────────────────────────────────── */
 
-TEST(BaslStdlibStringTest, TrimLeftAndTrimRight) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, TrimLeftAndTrimRight) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    string s = \"  hello  \";\n"
         "    if (s.trim_left() != \"hello  \") { return 1; }\n"
@@ -1631,8 +1631,8 @@ TEST(BaslStdlibStringTest, TrimLeftAndTrimRight) {
 
 /* ── String reverse ──────────────────────────────────────────────── */
 
-TEST(BaslStdlibStringTest, Reverse) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, Reverse) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    if (\"hello\".reverse() != \"olleh\") { return 1; }\n"
         "    if (\"\".reverse() != \"\") { return 2; }\n"
@@ -1645,8 +1645,8 @@ TEST(BaslStdlibStringTest, Reverse) {
 
 /* ── String is_empty ─────────────────────────────────────────────── */
 
-TEST(BaslStdlibStringTest, IsEmpty) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, IsEmpty) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    if (\"\".is_empty() != true) { return 1; }\n"
         "    if (\"x\".is_empty() != false) { return 2; }\n"
@@ -1658,8 +1658,8 @@ TEST(BaslStdlibStringTest, IsEmpty) {
 
 /* ── String repeat ───────────────────────────────────────────────── */
 
-TEST(BaslStdlibStringTest, Repeat) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, Repeat) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    if (\"abc\".repeat(i32(3)) != \"abcabcabc\") { return 1; }\n"
         "    if (\"x\".repeat(i32(0)) != \"\") { return 2; }\n"
@@ -1672,8 +1672,8 @@ TEST(BaslStdlibStringTest, Repeat) {
 
 /* ── String count ────────────────────────────────────────────────── */
 
-TEST(BaslStdlibStringTest, Count) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, Count) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    if (\"abcabcabc\".count(\"abc\") != i32(3)) { return 1; }\n"
         "    if (\"hello\".count(\"x\") != i32(0)) { return 2; }\n"
@@ -1686,8 +1686,8 @@ TEST(BaslStdlibStringTest, Count) {
 
 /* ── String last_index_of ────────────────────────────────────────── */
 
-TEST(BaslStdlibStringTest, LastIndexOf) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, LastIndexOf) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    i32 idx, bool found = \"hello world\".last_index_of(\"o\");\n"
         "    if (idx != i32(7)) { return 1; }\n"
@@ -1704,8 +1704,8 @@ TEST(BaslStdlibStringTest, LastIndexOf) {
 
 /* ── String trim_prefix / trim_suffix ────────────────────────────── */
 
-TEST(BaslStdlibStringTest, TrimPrefixAndTrimSuffix) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibStringTest, TrimPrefixAndTrimSuffix) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "fn main() -> i32 {\n"
         "    if (\"hello world\".trim_prefix(\"hello \") != \"world\") { return 1; }\n"
         "    if (\"hello world\".trim_suffix(\" world\") != \"hello\") { return 2; }\n"
@@ -1720,8 +1720,8 @@ TEST(BaslStdlibStringTest, TrimPrefixAndTrimSuffix) {
 
 /* ── Crypto SHA-256 ──────────────────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, Sha256Empty) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, Sha256Empty) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string h = crypto.sha256(\"\");\n"
@@ -1730,8 +1730,8 @@ TEST(BaslStdlibCryptoTest, Sha256Empty) {
         "}\n"), 0);
 }
 
-TEST(BaslStdlibCryptoTest, Sha256Hello) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, Sha256Hello) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string h = crypto.sha256(\"hello\");\n"
@@ -1742,8 +1742,8 @@ TEST(BaslStdlibCryptoTest, Sha256Hello) {
 
 /* ── Crypto SHA-512 ──────────────────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, Sha512Hello) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, Sha512Hello) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string h = crypto.sha512(\"hello\");\n"
@@ -1754,8 +1754,8 @@ TEST(BaslStdlibCryptoTest, Sha512Hello) {
 
 /* ── Crypto HMAC-SHA256 ──────────────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, HmacSha256) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, HmacSha256) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string h = crypto.hmac_sha256(\"key\", \"message\");\n"
@@ -1766,8 +1766,8 @@ TEST(BaslStdlibCryptoTest, HmacSha256) {
 
 /* ── Crypto hex encode/decode ────────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, HexEncode) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, HexEncode) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    if (crypto.hex_encode(\"ABC\") != \"414243\") { return 1; }\n"
@@ -1775,8 +1775,8 @@ TEST(BaslStdlibCryptoTest, HexEncode) {
         "}\n"), 0);
 }
 
-TEST(BaslStdlibCryptoTest, HexDecode) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, HexDecode) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    if (crypto.hex_decode(\"414243\") != \"ABC\") { return 1; }\n"
@@ -1786,8 +1786,8 @@ TEST(BaslStdlibCryptoTest, HexDecode) {
 
 /* ── Crypto base64 encode/decode ─────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, Base64Encode) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, Base64Encode) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    if (crypto.base64_encode(\"hello\") != \"aGVsbG8=\") { return 1; }\n"
@@ -1795,8 +1795,8 @@ TEST(BaslStdlibCryptoTest, Base64Encode) {
         "}\n"), 0);
 }
 
-TEST(BaslStdlibCryptoTest, Base64Decode) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, Base64Decode) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    if (crypto.base64_decode(\"aGVsbG8=\") != \"hello\") { return 1; }\n"
@@ -1806,8 +1806,8 @@ TEST(BaslStdlibCryptoTest, Base64Decode) {
 
 /* ── Crypto encrypt/decrypt roundtrip ────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, EncryptDecryptRoundtrip) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, EncryptDecryptRoundtrip) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string key = crypto.random_bytes(32);\n"
@@ -1822,8 +1822,8 @@ TEST(BaslStdlibCryptoTest, EncryptDecryptRoundtrip) {
 
 /* ── Crypto constant_time_eq ─────────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, ConstantTimeEq) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, ConstantTimeEq) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    if (!crypto.constant_time_eq(\"abc\", \"abc\")) { return 1; }\n"
@@ -1834,8 +1834,8 @@ TEST(BaslStdlibCryptoTest, ConstantTimeEq) {
 
 /* ── Crypto random_bytes ─────────────────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, RandomBytesLength) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, RandomBytesLength) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string r = crypto.random_bytes(32);\n"
@@ -1846,8 +1846,8 @@ TEST(BaslStdlibCryptoTest, RandomBytesLength) {
 
 /* ── Crypto password_encrypt/decrypt ─────────────────────────────── */
 
-TEST(BaslStdlibCryptoTest, PasswordEncryptDecrypt) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, PasswordEncryptDecrypt) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string plaintext = \"secret message\";\n"
@@ -1858,8 +1858,8 @@ TEST(BaslStdlibCryptoTest, PasswordEncryptDecrypt) {
         "}\n"), 0);
 }
 
-TEST(BaslStdlibCryptoTest, PasswordDecryptWrongPassword) {
-    EXPECT_EQ(RunWithStdlib(basl_test_failed_, "\n"
+TEST(VigilStdlibCryptoTest, PasswordDecryptWrongPassword) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
         "import \"crypto\";\n"
         "fn main() -> i32 {\n"
         "    string encrypted = crypto.password_encrypt(\"correct\", \"secret\");\n"
@@ -1870,110 +1870,110 @@ TEST(BaslStdlibCryptoTest, PasswordDecryptWrongPassword) {
 }
 
 void register_stdlib_tests(void) {
-    REGISTER_TEST(BaslStdlibFmtTest, PrintlnOutputsStringWithNewline);
-    REGISTER_TEST(BaslStdlibFmtTest, PrintOutputsStringWithoutNewline);
-    REGISTER_TEST(BaslStdlibFmtTest, EprintlnOutputsToStderr);
-    REGISTER_TEST(BaslStdlibFmtTest, PrintlnEmptyString);
-    REGISTER_TEST(BaslStdlibFmtTest, PrintlnWithFString);
-    REGISTER_TEST(BaslStdlibFmtTest, PrintlnWithVariable);
-    REGISTER_TEST(BaslStdlibFmtTest, PrintlnInLoop);
-    REGISTER_TEST(BaslStdlibMathTest, PiReturnsCorrectValue);
-    REGISTER_TEST(BaslStdlibMathTest, EReturnsCorrectValue);
-    REGISTER_TEST(BaslStdlibMathTest, FloorTable);
-    REGISTER_TEST(BaslStdlibMathTest, CeilTable);
-    REGISTER_TEST(BaslStdlibMathTest, RoundTable);
-    REGISTER_TEST(BaslStdlibMathTest, TruncTable);
-    REGISTER_TEST(BaslStdlibMathTest, AbsTable);
-    REGISTER_TEST(BaslStdlibMathTest, SignTable);
-    REGISTER_TEST(BaslStdlibMathTest, SqrtTable);
-    REGISTER_TEST(BaslStdlibMathTest, SinCosAtZero);
-    REGISTER_TEST(BaslStdlibMathTest, LogTable);
-    REGISTER_TEST(BaslStdlibMathTest, ExpAtZeroAndOne);
-    REGISTER_TEST(BaslStdlibMathTest, PowTable);
-    REGISTER_TEST(BaslStdlibMathTest, MinMaxTable);
-    REGISTER_TEST(BaslStdlibMathTest, Atan2Table);
-    REGISTER_TEST(BaslStdlibMathTest, HypotTable);
-    REGISTER_TEST(BaslStdlibMathTest, FmodTable);
-    REGISTER_TEST(BaslStdlibMathTest, ClampTable);
-    REGISTER_TEST(BaslStdlibMathTest, ComposedExpressions);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2ConstructionAndFields);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2FieldMutation);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2Length);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2Dot);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2WithScalarMath);
-    REGISTER_TEST(BaslStdlibMathTest, InverseTrig);
-    REGISTER_TEST(BaslStdlibMathTest, Deg2RadRad2Deg);
-    REGISTER_TEST(BaslStdlibMathTest, Lerp);
-    REGISTER_TEST(BaslStdlibMathTest, Normalize);
-    REGISTER_TEST(BaslStdlibMathTest, Wrap);
-    REGISTER_TEST(BaslStdlibMathTest, Remap);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2Normalize);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2AddSubScaleDistance);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3ConstructionAndFields);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3Length);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3DotAndCross);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3NormalizeAddSubScaleDistance);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3MethodChaining);
-    REGISTER_TEST(BaslStdlibMathTest, Step);
-    REGISTER_TEST(BaslStdlibMathTest, Smoothstep);
-    REGISTER_TEST(BaslStdlibMathTest, InverseLerp);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2LengthSqrAndNegate);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2LerpAndReflect);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3LengthSqrAndNegate);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3LerpAndReflect);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3Angle);
-    REGISTER_TEST(BaslStdlibMathTest, Vec4ConstructionAndFields);
-    REGISTER_TEST(BaslStdlibMathTest, Vec4LengthAndDot);
-    REGISTER_TEST(BaslStdlibMathTest, Vec4Arithmetic);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionIdentity);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionConjugateAndInverse);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionMultiply);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionFromAxisAngle);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionSlerp);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionToEuler);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionDotAndNormalize);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4ConstructionAndFieldAccess);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4Identity);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4GetSetTranspose);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4MultiplyAndDeterminant);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4AddAndScale);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2StaticZeroAndOne);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3StaticZeroAndOne);
-    REGISTER_TEST(BaslStdlibMathTest, Vec4StaticZeroAndOne);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4StaticIdentity);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionStaticFromAxisAngle);
-    REGISTER_TEST(BaslStdlibMathTest, StaticMethodChaining);
-    REGISTER_TEST(BaslStdlibMathTest, Vec2AngleAndRotate);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3Transform);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3RotateByQuaternion);
-    REGISTER_TEST(BaslStdlibMathTest, Vec3Unproject);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionFromEuler);
-    REGISTER_TEST(BaslStdlibMathTest, QuaternionToMat4);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4Trace);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4Invert);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4TranslateAndScaleV);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4RotateXYZ);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4LookAt);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4PerspectiveAndOrtho);
-    REGISTER_TEST(BaslStdlibMathTest, Mat4Frustum);
-    REGISTER_TEST(BaslStdlibStringTest, TrimLeftAndTrimRight);
-    REGISTER_TEST(BaslStdlibStringTest, Reverse);
-    REGISTER_TEST(BaslStdlibStringTest, IsEmpty);
-    REGISTER_TEST(BaslStdlibStringTest, Repeat);
-    REGISTER_TEST(BaslStdlibStringTest, Count);
-    REGISTER_TEST(BaslStdlibStringTest, LastIndexOf);
-    REGISTER_TEST(BaslStdlibStringTest, TrimPrefixAndTrimSuffix);
-    REGISTER_TEST(BaslStdlibCryptoTest, Sha256Empty);
-    REGISTER_TEST(BaslStdlibCryptoTest, Sha256Hello);
-    REGISTER_TEST(BaslStdlibCryptoTest, Sha512Hello);
-    REGISTER_TEST(BaslStdlibCryptoTest, HmacSha256);
-    REGISTER_TEST(BaslStdlibCryptoTest, HexEncode);
-    REGISTER_TEST(BaslStdlibCryptoTest, HexDecode);
-    REGISTER_TEST(BaslStdlibCryptoTest, Base64Encode);
-    REGISTER_TEST(BaslStdlibCryptoTest, Base64Decode);
-    REGISTER_TEST(BaslStdlibCryptoTest, EncryptDecryptRoundtrip);
-    REGISTER_TEST(BaslStdlibCryptoTest, ConstantTimeEq);
-    REGISTER_TEST(BaslStdlibCryptoTest, RandomBytesLength);
-    REGISTER_TEST(BaslStdlibCryptoTest, PasswordEncryptDecrypt);
-    REGISTER_TEST(BaslStdlibCryptoTest, PasswordDecryptWrongPassword);
+    REGISTER_TEST(VigilStdlibFmtTest, PrintlnOutputsStringWithNewline);
+    REGISTER_TEST(VigilStdlibFmtTest, PrintOutputsStringWithoutNewline);
+    REGISTER_TEST(VigilStdlibFmtTest, EprintlnOutputsToStderr);
+    REGISTER_TEST(VigilStdlibFmtTest, PrintlnEmptyString);
+    REGISTER_TEST(VigilStdlibFmtTest, PrintlnWithFString);
+    REGISTER_TEST(VigilStdlibFmtTest, PrintlnWithVariable);
+    REGISTER_TEST(VigilStdlibFmtTest, PrintlnInLoop);
+    REGISTER_TEST(VigilStdlibMathTest, PiReturnsCorrectValue);
+    REGISTER_TEST(VigilStdlibMathTest, EReturnsCorrectValue);
+    REGISTER_TEST(VigilStdlibMathTest, FloorTable);
+    REGISTER_TEST(VigilStdlibMathTest, CeilTable);
+    REGISTER_TEST(VigilStdlibMathTest, RoundTable);
+    REGISTER_TEST(VigilStdlibMathTest, TruncTable);
+    REGISTER_TEST(VigilStdlibMathTest, AbsTable);
+    REGISTER_TEST(VigilStdlibMathTest, SignTable);
+    REGISTER_TEST(VigilStdlibMathTest, SqrtTable);
+    REGISTER_TEST(VigilStdlibMathTest, SinCosAtZero);
+    REGISTER_TEST(VigilStdlibMathTest, LogTable);
+    REGISTER_TEST(VigilStdlibMathTest, ExpAtZeroAndOne);
+    REGISTER_TEST(VigilStdlibMathTest, PowTable);
+    REGISTER_TEST(VigilStdlibMathTest, MinMaxTable);
+    REGISTER_TEST(VigilStdlibMathTest, Atan2Table);
+    REGISTER_TEST(VigilStdlibMathTest, HypotTable);
+    REGISTER_TEST(VigilStdlibMathTest, FmodTable);
+    REGISTER_TEST(VigilStdlibMathTest, ClampTable);
+    REGISTER_TEST(VigilStdlibMathTest, ComposedExpressions);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2ConstructionAndFields);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2FieldMutation);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2Length);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2Dot);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2WithScalarMath);
+    REGISTER_TEST(VigilStdlibMathTest, InverseTrig);
+    REGISTER_TEST(VigilStdlibMathTest, Deg2RadRad2Deg);
+    REGISTER_TEST(VigilStdlibMathTest, Lerp);
+    REGISTER_TEST(VigilStdlibMathTest, Normalize);
+    REGISTER_TEST(VigilStdlibMathTest, Wrap);
+    REGISTER_TEST(VigilStdlibMathTest, Remap);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2Normalize);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2AddSubScaleDistance);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3ConstructionAndFields);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3Length);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3DotAndCross);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3NormalizeAddSubScaleDistance);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3MethodChaining);
+    REGISTER_TEST(VigilStdlibMathTest, Step);
+    REGISTER_TEST(VigilStdlibMathTest, Smoothstep);
+    REGISTER_TEST(VigilStdlibMathTest, InverseLerp);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2LengthSqrAndNegate);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2LerpAndReflect);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3LengthSqrAndNegate);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3LerpAndReflect);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3Angle);
+    REGISTER_TEST(VigilStdlibMathTest, Vec4ConstructionAndFields);
+    REGISTER_TEST(VigilStdlibMathTest, Vec4LengthAndDot);
+    REGISTER_TEST(VigilStdlibMathTest, Vec4Arithmetic);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionIdentity);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionConjugateAndInverse);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionMultiply);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionFromAxisAngle);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionSlerp);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionToEuler);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionDotAndNormalize);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4ConstructionAndFieldAccess);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4Identity);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4GetSetTranspose);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4MultiplyAndDeterminant);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4AddAndScale);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2StaticZeroAndOne);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3StaticZeroAndOne);
+    REGISTER_TEST(VigilStdlibMathTest, Vec4StaticZeroAndOne);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4StaticIdentity);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionStaticFromAxisAngle);
+    REGISTER_TEST(VigilStdlibMathTest, StaticMethodChaining);
+    REGISTER_TEST(VigilStdlibMathTest, Vec2AngleAndRotate);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3Transform);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3RotateByQuaternion);
+    REGISTER_TEST(VigilStdlibMathTest, Vec3Unproject);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionFromEuler);
+    REGISTER_TEST(VigilStdlibMathTest, QuaternionToMat4);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4Trace);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4Invert);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4TranslateAndScaleV);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4RotateXYZ);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4LookAt);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4PerspectiveAndOrtho);
+    REGISTER_TEST(VigilStdlibMathTest, Mat4Frustum);
+    REGISTER_TEST(VigilStdlibStringTest, TrimLeftAndTrimRight);
+    REGISTER_TEST(VigilStdlibStringTest, Reverse);
+    REGISTER_TEST(VigilStdlibStringTest, IsEmpty);
+    REGISTER_TEST(VigilStdlibStringTest, Repeat);
+    REGISTER_TEST(VigilStdlibStringTest, Count);
+    REGISTER_TEST(VigilStdlibStringTest, LastIndexOf);
+    REGISTER_TEST(VigilStdlibStringTest, TrimPrefixAndTrimSuffix);
+    REGISTER_TEST(VigilStdlibCryptoTest, Sha256Empty);
+    REGISTER_TEST(VigilStdlibCryptoTest, Sha256Hello);
+    REGISTER_TEST(VigilStdlibCryptoTest, Sha512Hello);
+    REGISTER_TEST(VigilStdlibCryptoTest, HmacSha256);
+    REGISTER_TEST(VigilStdlibCryptoTest, HexEncode);
+    REGISTER_TEST(VigilStdlibCryptoTest, HexDecode);
+    REGISTER_TEST(VigilStdlibCryptoTest, Base64Encode);
+    REGISTER_TEST(VigilStdlibCryptoTest, Base64Decode);
+    REGISTER_TEST(VigilStdlibCryptoTest, EncryptDecryptRoundtrip);
+    REGISTER_TEST(VigilStdlibCryptoTest, ConstantTimeEq);
+    REGISTER_TEST(VigilStdlibCryptoTest, RandomBytesLength);
+    REGISTER_TEST(VigilStdlibCryptoTest, PasswordEncryptDecrypt);
+    REGISTER_TEST(VigilStdlibCryptoTest, PasswordDecryptWrongPassword);
 }

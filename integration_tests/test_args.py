@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL args module."""
+"""Integration tests for VIGIL args module."""
 
 import os
 import subprocess
@@ -7,14 +7,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str, args: list[str] = None) -> tuple[int, str, str]:
-    with tempfile.TemporaryDirectory(prefix="basl_args_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str, args: list[str] = None) -> tuple[int, str, str]:
+    with tempfile.TemporaryDirectory(prefix="vigil_args_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
-        cmd = [BASL_BIN, "run", str(path)]
+        cmd = [VIGIL_BIN, "run", str(path)]
         if args:
             cmd.extend(args)
         result = subprocess.run(
@@ -31,7 +31,7 @@ fn main() -> i32 {
     if (c == 0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_count_with_args(self):
@@ -41,7 +41,7 @@ fn main() -> i32 {
     if (c == 3) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code, ["one", "two", "three"])
+        rc, out, err = run_vigil(code, ["one", "two", "three"])
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -53,7 +53,7 @@ fn main() -> i32 {
     if (a == "hello") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code, ["hello", "world"])
+        rc, out, err = run_vigil(code, ["hello", "world"])
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_at_second(self):
@@ -63,7 +63,7 @@ fn main() -> i32 {
     if (a == "world") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code, ["hello", "world"])
+        rc, out, err = run_vigil(code, ["hello", "world"])
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_at_out_of_bounds(self):
@@ -73,7 +73,7 @@ fn main() -> i32 {
     if (a == "") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code, ["hello"])
+        rc, out, err = run_vigil(code, ["hello"])
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_at_negative(self):
@@ -83,7 +83,7 @@ fn main() -> i32 {
     if (a == "") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code, ["hello"])
+        rc, out, err = run_vigil(code, ["hello"])
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

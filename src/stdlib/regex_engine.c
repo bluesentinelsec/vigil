@@ -1,4 +1,4 @@
-/* BASL regex engine - Thompson NFA implementation
+/* VIGIL regex engine - Thompson NFA implementation
  *
  * This implements RE2-style regex with linear time guarantees.
  * Based on Russ Cox's articles on regular expression matching.
@@ -54,7 +54,7 @@ typedef struct nfa_state {
 } nfa_state_t;
 
 /* Compiled regex structure */
-struct basl_regex {
+struct vigil_regex {
     nfa_state_t *start;
     nfa_state_t *states;        /* Array of all states */
     size_t state_count;
@@ -73,7 +73,7 @@ typedef struct {
     size_t pos;
     char *error_buf;
     size_t error_buf_size;
-    basl_regex_t *re;
+    vigil_regex_t *re;
     size_t group_count;
 } parser_t;
 
@@ -87,7 +87,7 @@ typedef struct {
 
 /* ── Memory Management ──────────────────────────────────────── */
 
-static nfa_state_t *alloc_state(basl_regex_t *re, nfa_type_t type) {
+static nfa_state_t *alloc_state(vigil_regex_t *re, nfa_type_t type) {
     if (re->state_count >= re->state_capacity) {
         size_t new_cap = re->state_capacity == 0 ? 64 : re->state_capacity * 2;
         nfa_state_t *new_states = realloc(re->states, new_cap * sizeof(nfa_state_t));
@@ -103,7 +103,7 @@ static nfa_state_t *alloc_state(basl_regex_t *re, nfa_type_t type) {
     return s;
 }
 
-static char_class_t *alloc_class(basl_regex_t *re) {
+static char_class_t *alloc_class(vigil_regex_t *re) {
     if (re->class_count >= re->class_capacity) {
         size_t new_cap = re->class_capacity == 0 ? 16 : re->class_capacity * 2;
         char_class_t *new_classes = realloc(re->classes, new_cap * sizeof(char_class_t));
@@ -363,7 +363,7 @@ static bool parse_group(parser_t *p, fragment_t *out) {
     }
 
     if (capturing) {
-        if (p->group_count >= BASL_REGEX_MAX_GROUPS) {
+        if (p->group_count >= VIGIL_REGEX_MAX_GROUPS) {
             parser_error(p, "too many capture groups");
             return false;
         }
@@ -926,14 +926,14 @@ static bool step(
     return next->count > 0;
 }
 
-static bool check_match(state_list_t *l, basl_regex_result_t *result, size_t group_count) {
+static bool check_match(state_list_t *l, vigil_regex_result_t *result, size_t group_count) {
     for (size_t i = 0; i < l->count; i++) {
         if (l->states[i]->type == NFA_MATCH) {
             if (result) {
                 result->matched = true;
                 result->group_count = group_count;
                 const size_t *saves = &l->saves[i * l->save_count];
-                for (size_t g = 0; g < group_count && g < BASL_REGEX_MAX_GROUPS; g++) {
+                for (size_t g = 0; g < group_count && g < VIGIL_REGEX_MAX_GROUPS; g++) {
                     result->groups[g].start = saves[g * 2];
                     result->groups[g].end = saves[g * 2 + 1];
                 }
@@ -947,13 +947,13 @@ static bool check_match(state_list_t *l, basl_regex_result_t *result, size_t gro
 
 /* ── Public API ─────────────────────────────────────────────── */
 
-basl_regex_t *basl_regex_compile(
+vigil_regex_t *vigil_regex_compile(
     const char *pattern,
     size_t pattern_len,
     char *error_buf,
     size_t error_buf_size
 ) {
-    basl_regex_t *re = calloc(1, sizeof(basl_regex_t));
+    vigil_regex_t *re = calloc(1, sizeof(vigil_regex_t));
     if (!re) {
         if (error_buf) snprintf(error_buf, error_buf_size, "out of memory");
         return NULL;
@@ -971,14 +971,14 @@ basl_regex_t *basl_regex_compile(
 
     fragment_t frag;
     if (!parse_alternation(&p, &frag)) {
-        basl_regex_free(re);
+        vigil_regex_free(re);
         return NULL;
     }
 
     if (!parser_eof(&p)) {
         parser_error(&p, "unexpected character");
         fragment_free(&frag);
-        basl_regex_free(re);
+        vigil_regex_free(re);
         return NULL;
     }
 
@@ -986,7 +986,7 @@ basl_regex_t *basl_regex_compile(
     nfa_state_t *match = alloc_state(re, NFA_MATCH);
     if (!match) {
         fragment_free(&frag);
-        basl_regex_free(re);
+        vigil_regex_free(re);
         if (error_buf) snprintf(error_buf, error_buf_size, "out of memory");
         return NULL;
     }
@@ -997,7 +997,7 @@ basl_regex_t *basl_regex_compile(
     nfa_state_t *save_end = alloc_state(re, NFA_SAVE);
     if (!save_start || !save_end) {
         fragment_free(&frag);
-        basl_regex_free(re);
+        vigil_regex_free(re);
         if (error_buf) snprintf(error_buf, error_buf_size, "out of memory");
         return NULL;
     }
@@ -1022,18 +1022,18 @@ basl_regex_t *basl_regex_compile(
     return re;
 }
 
-void basl_regex_free(basl_regex_t *re) {
+void vigil_regex_free(vigil_regex_t *re) {
     if (!re) return;
     free(re->states);
     free(re->classes);
     free(re);
 }
 
-bool basl_regex_match(
-    const basl_regex_t *re,
+bool vigil_regex_match(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
-    basl_regex_result_t *result
+    vigil_regex_result_t *result
 ) {
     if (!re || !re->start) return false;
 
@@ -1082,11 +1082,11 @@ bool basl_regex_match(
     return matched;
 }
 
-bool basl_regex_find(
-    const basl_regex_t *re,
+bool vigil_regex_find(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
-    basl_regex_result_t *result
+    vigil_regex_result_t *result
 ) {
     if (!re || !re->start) return false;
 
@@ -1120,7 +1120,7 @@ bool basl_regex_find(
         add_state(&curr, re->start, init_saves, start, input, input_len, visited, gen);
 
         /* Track best (longest) match at this start position */
-        basl_regex_result_t best;
+        vigil_regex_result_t best;
         best.matched = false;
 
         /* Check for immediate match (empty pattern) */
@@ -1136,7 +1136,7 @@ bool basl_regex_find(
             curr = next;
             next = tmp;
 
-            basl_regex_result_t candidate;
+            vigil_regex_result_t candidate;
             if (check_match(&curr, &candidate, re->group_count)) {
                 best = candidate;
                 /* Continue to find longer match (greedy) */
@@ -1158,11 +1158,11 @@ bool basl_regex_find(
 }
 
 
-size_t basl_regex_find_all(
-    const basl_regex_t *re,
+size_t vigil_regex_find_all(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
-    basl_regex_result_t *results,
+    vigil_regex_result_t *results,
     size_t max_results
 ) {
     if (!re || !results || max_results == 0) return 0;
@@ -1171,8 +1171,8 @@ size_t basl_regex_find_all(
     size_t pos = 0;
 
     while (pos <= input_len && count < max_results) {
-        basl_regex_result_t r;
-        if (basl_regex_find(re, input + pos, input_len - pos, &r)) {
+        vigil_regex_result_t r;
+        if (vigil_regex_find(re, input + pos, input_len - pos, &r)) {
             /* Adjust offsets to be relative to original input */
             for (size_t g = 0; g < r.group_count; g++) {
                 if (r.groups[g].start != SIZE_MAX) {
@@ -1198,8 +1198,8 @@ size_t basl_regex_find_all(
     return count;
 }
 
-basl_status_t basl_regex_replace(
-    const basl_regex_t *re,
+vigil_status_t vigil_regex_replace(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
     const char *replacement,
@@ -1207,15 +1207,15 @@ basl_status_t basl_regex_replace(
     char **output,
     size_t *output_len
 ) {
-    basl_regex_result_t r;
-    if (!basl_regex_find(re, input, input_len, &r)) {
+    vigil_regex_result_t r;
+    if (!vigil_regex_find(re, input, input_len, &r)) {
         /* No match - return copy of input */
         *output = malloc(input_len + 1);
-        if (!*output) return BASL_STATUS_OUT_OF_MEMORY;
+        if (!*output) return VIGIL_STATUS_OUT_OF_MEMORY;
         memcpy(*output, input, input_len);
         (*output)[input_len] = '\0';
         *output_len = input_len;
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     size_t match_start = r.groups[0].start;
@@ -1223,7 +1223,7 @@ basl_status_t basl_regex_replace(
     size_t new_len = match_start + replacement_len + (input_len - match_end);
 
     *output = malloc(new_len + 1);
-    if (!*output) return BASL_STATUS_OUT_OF_MEMORY;
+    if (!*output) return VIGIL_STATUS_OUT_OF_MEMORY;
 
     memcpy(*output, input, match_start);
     memcpy(*output + match_start, replacement, replacement_len);
@@ -1231,11 +1231,11 @@ basl_status_t basl_regex_replace(
     (*output)[new_len] = '\0';
     *output_len = new_len;
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_regex_replace_all(
-    const basl_regex_t *re,
+vigil_status_t vigil_regex_replace_all(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
     const char *replacement,
@@ -1244,16 +1244,16 @@ basl_status_t basl_regex_replace_all(
     size_t *output_len
 ) {
     /* Find all matches first */
-    basl_regex_result_t results[256];
-    size_t match_count = basl_regex_find_all(re, input, input_len, results, 256);
+    vigil_regex_result_t results[256];
+    size_t match_count = vigil_regex_find_all(re, input, input_len, results, 256);
 
     if (match_count == 0) {
         *output = malloc(input_len + 1);
-        if (!*output) return BASL_STATUS_OUT_OF_MEMORY;
+        if (!*output) return VIGIL_STATUS_OUT_OF_MEMORY;
         memcpy(*output, input, input_len);
         (*output)[input_len] = '\0';
         *output_len = input_len;
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     /* Calculate new length */
@@ -1264,7 +1264,7 @@ basl_status_t basl_regex_replace_all(
     }
 
     *output = malloc(new_len + 1);
-    if (!*output) return BASL_STATUS_OUT_OF_MEMORY;
+    if (!*output) return VIGIL_STATUS_OUT_OF_MEMORY;
 
     size_t out_pos = 0;
     size_t in_pos = 0;
@@ -1289,11 +1289,11 @@ basl_status_t basl_regex_replace_all(
     (*output)[out_pos] = '\0';
     *output_len = out_pos;
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_regex_split(
-    const basl_regex_t *re,
+vigil_status_t vigil_regex_split(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
     char ***parts,
@@ -1301,8 +1301,8 @@ basl_status_t basl_regex_split(
     size_t *part_count
 ) {
     /* Find all matches */
-    basl_regex_result_t results[256];
-    size_t match_count = basl_regex_find_all(re, input, input_len, results, 256);
+    vigil_regex_result_t results[256];
+    size_t match_count = vigil_regex_find_all(re, input, input_len, results, 256);
 
     *part_count = match_count + 1;
     *parts = malloc(*part_count * sizeof(char *));
@@ -1310,7 +1310,7 @@ basl_status_t basl_regex_split(
     if (!*parts || !*part_lens) {
         free(*parts);
         free(*part_lens);
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     size_t pos = 0;
@@ -1323,7 +1323,7 @@ basl_status_t basl_regex_split(
             for (size_t j = 0; j < i; j++) free((*parts)[j]);
             free(*parts);
             free(*part_lens);
-            return BASL_STATUS_OUT_OF_MEMORY;
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
         memcpy((*parts)[i], input + pos, len);
         (*parts)[i][len] = '\0';
@@ -1339,11 +1339,11 @@ basl_status_t basl_regex_split(
         for (size_t j = 0; j < match_count; j++) free((*parts)[j]);
         free(*parts);
         free(*part_lens);
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     memcpy((*parts)[match_count], input + pos, len);
     (*parts)[match_count][len] = '\0';
     (*part_lens)[match_count] = len;
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }

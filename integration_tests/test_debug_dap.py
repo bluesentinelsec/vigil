@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Integration test for 'basl debug' — DAP protocol over stdio.
+"""Integration test for 'vigil debug' — DAP protocol over stdio.
 
-Spawns 'basl debug <file>' and exchanges DAP messages via
+Spawns 'vigil debug <file>' and exchanges DAP messages via
 Content-Length framed JSON on stdin/stdout.
 """
 
@@ -17,10 +17,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def resolve_basl_command() -> list[str]:
-    configured_bin = os.environ.get("BASL_BIN")
-    native_bin = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
-    wasm_bin = REPO_ROOT / "build" / "basl.js"
+def resolve_vigil_command() -> list[str]:
+    configured_bin = os.environ.get("VIGIL_BIN")
+    native_bin = REPO_ROOT / "build" / ("vigil.exe" if os.name == "nt" else "vigil")
+    wasm_bin = REPO_ROOT / "build" / "vigil.js"
 
     if configured_bin:
         p = Path(configured_bin)
@@ -31,7 +31,7 @@ def resolve_basl_command() -> list[str]:
         return [str(native_bin)]
     if wasm_bin.exists():
         return ["node", str(wasm_bin)]
-    raise FileNotFoundError("Cannot find basl binary")
+    raise FileNotFoundError("Cannot find vigil binary")
 
 
 class DAPClient:
@@ -99,16 +99,16 @@ class DAPClient:
                 self.pending_events.append(msg)
 
 
-class TestBaslDebug(unittest.TestCase):
-    """Test the 'basl debug' DAP server."""
+class TestVigilDebug(unittest.TestCase):
+    """Test the 'vigil debug' DAP server."""
 
     def _start_debug(self, script_content: str) -> tuple[DAPClient, Path]:
-        """Write a script to a temp file and start basl debug."""
-        self.tmpdir = tempfile.mkdtemp(prefix="basl_debug_")
-        script_path = Path(self.tmpdir) / "test.basl"
+        """Write a script to a temp file and start vigil debug."""
+        self.tmpdir = tempfile.mkdtemp(prefix="vigil_debug_")
+        script_path = Path(self.tmpdir) / "test.vigil"
         script_path.write_text(script_content)
 
-        cmd = [*resolve_basl_command(), "debug", str(script_path)]
+        cmd = [*resolve_vigil_command(), "debug", str(script_path)]
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -164,7 +164,7 @@ class TestBaslDebug(unittest.TestCase):
         # Initialize.
         client.send("initialize", {
             "clientID": "test",
-            "adapterID": "basl",
+            "adapterID": "vigil",
         })
         resp = client.recv_response("initialize")
         self.assertTrue(resp.get("success"), f"initialize failed: {resp}")
@@ -191,7 +191,7 @@ class TestBaslDebug(unittest.TestCase):
         )
 
         # Initialize.
-        client.send("initialize", {"clientID": "test", "adapterID": "basl"})
+        client.send("initialize", {"clientID": "test", "adapterID": "vigil"})
         client.recv_response("initialize")
         client.recv_event("initialized")
 
@@ -210,14 +210,14 @@ class TestBaslDebug(unittest.TestCase):
         self.proc.wait(timeout=5)
 
     def test_debug_missing_file(self):
-        """basl debug with nonexistent file should exit with error."""
-        cmd = [*resolve_basl_command(), "debug", "/nonexistent/file.basl"]
+        """vigil debug with nonexistent file should exit with error."""
+        cmd = [*resolve_vigil_command(), "debug", "/nonexistent/file.vigil"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
 
     def test_help_shows_debug(self):
-        """basl --help should list the debug command."""
-        cmd = [*resolve_basl_command()]
+        """vigil --help should list the debug command."""
+        cmd = [*resolve_vigil_command()]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         output = result.stdout + result.stderr
         self.assertIn("debug", output)

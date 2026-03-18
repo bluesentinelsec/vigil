@@ -1,42 +1,42 @@
-/* BASL regex engine - Thompson NFA implementation (RE2-style)
+/* VIGIL regex engine - Thompson NFA implementation (RE2-style)
  *
  * Guarantees linear time O(n*m) matching where n=pattern, m=input.
  * No backtracking, no pathological cases.
  */
-#ifndef BASL_STDLIB_REGEX_H
-#define BASL_STDLIB_REGEX_H
+#ifndef VIGIL_STDLIB_REGEX_H
+#define VIGIL_STDLIB_REGEX_H
 
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "basl/status.h"
+#include "vigil/status.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Maximum number of capture groups */
-#define BASL_REGEX_MAX_GROUPS 32
+#define VIGIL_REGEX_MAX_GROUPS 32
 
 /* Opaque regex handle */
-typedef struct basl_regex basl_regex_t;
+typedef struct vigil_regex vigil_regex_t;
 
 /* Match result for a single capture group */
-typedef struct basl_regex_match {
+typedef struct vigil_regex_match {
     size_t start;       /* Start offset in input (SIZE_MAX if not matched) */
     size_t end;         /* End offset in input */
-} basl_regex_match_t;
+} vigil_regex_match_t;
 
 /* Full match result */
-typedef struct basl_regex_result {
+typedef struct vigil_regex_result {
     bool matched;
     size_t group_count;
-    basl_regex_match_t groups[BASL_REGEX_MAX_GROUPS];
-} basl_regex_result_t;
+    vigil_regex_match_t groups[VIGIL_REGEX_MAX_GROUPS];
+} vigil_regex_result_t;
 
 /* Compile a regex pattern. Returns NULL on error, sets error message. */
-basl_regex_t *basl_regex_compile(
+vigil_regex_t *vigil_regex_compile(
     const char *pattern,
     size_t pattern_len,
     char *error_buf,
@@ -44,36 +44,36 @@ basl_regex_t *basl_regex_compile(
 );
 
 /* Free a compiled regex */
-void basl_regex_free(basl_regex_t *re);
+void vigil_regex_free(vigil_regex_t *re);
 
 /* Check if input matches the pattern (anchored at start) */
-bool basl_regex_match(
-    const basl_regex_t *re,
+bool vigil_regex_match(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
-    basl_regex_result_t *result
+    vigil_regex_result_t *result
 );
 
 /* Find first match anywhere in input */
-bool basl_regex_find(
-    const basl_regex_t *re,
+bool vigil_regex_find(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
-    basl_regex_result_t *result
+    vigil_regex_result_t *result
 );
 
 /* Find all non-overlapping matches */
-size_t basl_regex_find_all(
-    const basl_regex_t *re,
+size_t vigil_regex_find_all(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
-    basl_regex_result_t *results,
+    vigil_regex_result_t *results,
     size_t max_results
 );
 
 /* Replace first match with replacement string */
-basl_status_t basl_regex_replace(
-    const basl_regex_t *re,
+vigil_status_t vigil_regex_replace(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
     const char *replacement,
@@ -83,8 +83,8 @@ basl_status_t basl_regex_replace(
 );
 
 /* Replace all matches with replacement string */
-basl_status_t basl_regex_replace_all(
-    const basl_regex_t *re,
+vigil_status_t vigil_regex_replace_all(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
     const char *replacement,
@@ -94,8 +94,8 @@ basl_status_t basl_regex_replace_all(
 );
 
 /* Split input by pattern */
-basl_status_t basl_regex_split(
-    const basl_regex_t *re,
+vigil_status_t vigil_regex_split(
+    const vigil_regex_t *re,
     const char *input,
     size_t input_len,
     char ***parts,
@@ -107,4 +107,4 @@ basl_status_t basl_regex_split(
 }
 #endif
 
-#endif /* BASL_STDLIB_REGEX_H */
+#endif /* VIGIL_STDLIB_REGEX_H */

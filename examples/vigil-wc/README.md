@@ -1,0 +1,123 @@
+# vigil-wc
+
+A VIGIL implementation of the Unix `wc` (word count) utility.
+
+## Usage
+
+```bash
+vigil main.vigil [OPTIONS] [FILE...]
+```
+
+Count lines, words, and bytes in files.
+
+### Options
+
+- `-l`, `--lines` - Print line count only
+- `-w`, `--words` - Print word count only  
+- `-c`, `--bytes` - Print byte count only
+
+If no options are specified, all three counts are shown.
+
+### Arguments
+
+- `FILE...` - One or more files to process
+- `-` - Read from stdin
+- No arguments - Read from stdin
+
+### Examples
+
+```bash
+# Count all metrics for a file
+vigil main.vigil file.txt
+
+# Count only lines
+vigil main.vigil -l file.txt
+
+# Count multiple files (shows total)
+vigil main.vigil file1.txt file2.txt
+
+# Read from stdin
+cat file.txt | vigil main.vigil
+
+# Mix files and stdin
+vigil main.vigil file1.txt - file2.txt < input.txt
+```
+
+## Project Structure
+
+```
+vigil-wc/
+├── main.vigil              # CLI entrypoint (argument parsing, error handling)
+├── lib/
+│   ├── counter.vigil       # Core counting logic
+│   └── processor.vigil     # File and stdin processing
+└── test/
+    ├── wc_test.vigil       # Integration tests
+    └── lib/
+        └── counter_test.vigil  # Unit tests for counter logic
+```
+
+## Testing
+
+```bash
+vigil test                  # Run all tests (16 tests)
+vigil test test/lib/        # Run unit tests only (9 tests)
+vigil test test/wc_test.vigil  # Run integration tests only (7 tests)
+```
+
+Tests validate:
+- Counter logic (empty, single/multiple lines, whitespace handling)
+- Single file processing
+- Multiple files with totals
+- Flag handling (`-l`)
+- Empty files
+- Missing file error handling
+- Stdin via `-` argument
+- Stdin via no arguments
+- Error propagation
+- Path-independent execution
+
+## Implementation Notes
+
+### Architecture
+
+The implementation is split into three layers:
+
+1. **main.vigil** - Lean CLI entrypoint that handles argument parsing and orchestrates processing
+2. **lib/processor.vigil** - File and stdin I/O with error propagation
+3. **lib/counter.vigil** - Pure counting logic, fully unit tested
+
+This separation enables:
+- Unit testing of counting logic without I/O
+- Clear error handling boundaries
+- Reusable components
+
+### Counting Logic
+
+- **Lines**: Count of newline characters (`\n`)
+- **Words**: Sequences of non-whitespace characters (Unix `wc` semantics)
+  - Whitespace: space, tab, newline, carriage return
+  - Everything else (including punctuation and UTF-8) is part of a word
+- **Bytes**: `string.len()` which returns byte length (UTF-8)
+
+### Error Handling
+
+All functions properly propagate errors:
+- `counter.count_content()` returns `(i32, i32, i32, err)`
+- `processor.process_file()` and `process_stdin()` return `(i32, i32, i32, err)`
+- `main()` checks all errors and returns exit code 1 on failure
+- Stdin read failures are reported to stderr and cause non-zero exit
+
+## Gaps Identified
+
+This implementation revealed several areas where VIGIL could improve:
+
+1. **No chunked streaming**: Uses `file.read_all()` which loads entire file into memory. For large files, VIGIL would benefit from chunked reading or line-by-line iteration.
+
+2. **args.ArgParser hangs**: The `args` module's `ArgParser` was found to hang during execution, requiring manual argument parsing. This suggests the args module needs fixes or better documentation.
+
+3. **Limited string iteration**: Character-by-character access requires `substr(i, 1)` in a loop. A character iterator or byte access would be more efficient.
+
+4. **No Unicode character counting**: `string.len()` returns bytes. True character counting (Unicode code points) would require additional stdlib support.
+
+Despite these gaps, VIGIL successfully implements a functional `wc` utility that handles common use cases correctly with proper error handling.

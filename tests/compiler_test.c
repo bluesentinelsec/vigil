@@ -1,101 +1,101 @@
-#include "basl_test.h"
+#include "vigil_test.h"
 
 #include <string.h>
 
 
-#include "basl/basl.h"
+#include "vigil/vigil.h"
 
 struct TestSource {
     const char *path;
     const char *text;
 };
 
-static basl_source_id_t RegisterSource(int *basl_test_failed_,
-    basl_source_registry_t *registry,
+static vigil_source_id_t RegisterSource(int *vigil_test_failed_,
+    vigil_source_registry_t *registry,
     const char *path,
     const char *text,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
-    basl_source_id_t source_id = 0U;
+    vigil_source_id_t source_id = 0U;
 
     EXPECT_EQ(
-        basl_source_registry_register_cstr(registry, path, text, &source_id, error),
-        BASL_STATUS_OK
+        vigil_source_registry_register_cstr(registry, path, text, &source_id, error),
+        VIGIL_STATUS_OK
     );
     return source_id;
 }
 
-static int64_t CompileAndRun(int *basl_test_failed_, const char *source_text) {
-    basl_runtime_t *runtime = NULL;
-    basl_vm_t *vm = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_value_t result;
-    basl_source_id_t source_id;
+static int64_t CompileAndRun(int *vigil_test_failed_, const char *source_text) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_value_t result;
+    vigil_source_id_t source_id;
     int64_t output = 0;
 
-    EXPECT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
-    source_id = RegisterSource(basl_test_failed_, &registry, "main.basl", source_text, &error);
+    EXPECT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+    source_id = RegisterSource(vigil_test_failed_, &registry, "main.vigil", source_text, &error);
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_OK
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_OK
     );
     EXPECT_NE(function, NULL);
-    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+    EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
-    basl_value_init_nil(&result);
+    vigil_value_init_nil(&result);
     EXPECT_EQ(
-        basl_vm_execute_function(vm, function, &result, &error),
-        BASL_STATUS_OK
+        vigil_vm_execute_function(vm, function, &result, &error),
+        VIGIL_STATUS_OK
     );
-    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
-    output = basl_value_as_int(&result);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
+    output = vigil_value_as_int(&result);
 
-    basl_value_release(&result);
-    basl_object_release(&function);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_vm_close(&vm);
-    basl_runtime_close(&runtime);
+    vigil_value_release(&result);
+    vigil_object_release(&function);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
     return output;
 }
 
-static int64_t CompileAndRunMulti(int *basl_test_failed_,
+static int64_t CompileAndRunMulti(int *vigil_test_failed_,
     const struct TestSource *sources,
     size_t source_count,
     const char *entry_path
 ) {
-    basl_runtime_t *runtime = NULL;
-    basl_vm_t *vm = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_value_t result;
-    basl_source_id_t source_id = 0U;
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_value_t result;
+    vigil_source_id_t source_id = 0U;
     int64_t output = 0;
     size_t index;
 
-    EXPECT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    EXPECT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
     for (index = 0U; index < source_count; index += 1U) {
-        RegisterSource(basl_test_failed_, &registry, sources[index].path, sources[index].text, &error);
+        RegisterSource(vigil_test_failed_, &registry, sources[index].path, sources[index].text, &error);
     }
 
-    for (index = 1U; index <= basl_source_registry_count(&registry); index += 1U) {
-        const basl_source_file_t *source =
-            basl_source_registry_get(&registry, (basl_source_id_t)index);
+    for (index = 1U; index <= vigil_source_registry_count(&registry); index += 1U) {
+        const vigil_source_file_t *source =
+            vigil_source_registry_get(&registry, (vigil_source_id_t)index);
 
-        if (source != NULL && strcmp(basl_string_c_str(&source->path), entry_path) == 0) {
+        if (source != NULL && strcmp(vigil_string_c_str(&source->path), entry_path) == 0) {
             source_id = source->id;
             break;
         }
@@ -103,33 +103,33 @@ static int64_t CompileAndRunMulti(int *basl_test_failed_,
 
     EXPECT_NE(source_id, 0U);
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_OK
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_OK
     );
     EXPECT_NE(function, NULL);
-    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+    EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
-    basl_value_init_nil(&result);
+    vigil_value_init_nil(&result);
     EXPECT_EQ(
-        basl_vm_execute_function(vm, function, &result, &error),
-        BASL_STATUS_OK
+        vigil_vm_execute_function(vm, function, &result, &error),
+        VIGIL_STATUS_OK
     );
-    EXPECT_EQ(basl_value_kind(&result), BASL_VALUE_INT);
-    output = basl_value_as_int(&result);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
+    output = vigil_value_as_int(&result);
 
-    basl_value_release(&result);
-    basl_object_release(&function);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_vm_close(&vm);
-    basl_runtime_close(&runtime);
+    vigil_value_release(&result);
+    vigil_object_release(&function);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
     return output;
 }
 
 
-TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
+TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 x = 1 + 2 * 3;"
             "    x = (x + 4) / 2;"
             "    return x;"
@@ -139,9 +139,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
+TEST(VigilCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn scale(f64 value) -> f64 {"
+        CompileAndRun(vigil_test_failed_, "fn scale(f64 value) -> f64 {"
             "    value *= 2.0;"
             "    value++;"
             "    return value;"
@@ -158,9 +158,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
+TEST(VigilCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    const f64 scaled = f64(4) / 2.0;"
             "    const string label = string(5) + string(true);"
             "    i32 truncated = i32(scaled + 3.8);"
@@ -174,9 +174,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
+TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "const u8 LIMIT = u8(12);"
+        CompileAndRun(vigil_test_failed_, "const u8 LIMIT = u8(12);"
             "fn double_i64(i64 value) -> i64 {"
             "    return value * i64(2);"
             "}"
@@ -199,9 +199,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
+TEST(VigilCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "class Holder {"
+        CompileAndRun(vigil_test_failed_, "class Holder {"
             "    fn(i32, i32) -> i32 op;"
             "}"
             "fn add(i32 a, i32 b) -> i32 {"
@@ -227,9 +227,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions) {
+TEST(VigilCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 factor = 10;"
             "    fn(i32) -> i32 scale = fn(i32 x) -> i32 {"
             "        return x * factor;"
@@ -247,9 +247,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunc
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
+TEST(VigilCompilerTest, CompilesAndExecutesExplicitErrorValues) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn fail(bool bad) -> err {"
+        CompileAndRun(vigil_test_failed_, "fn fail(bool bad) -> err {"
             "    if (bad) {"
             "        return err(\"boom\", err.arg);"
             "    }"
@@ -279,9 +279,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
+TEST(VigilCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn divide(i32 a, i32 b) -> (i32, err) {"
+        CompileAndRun(vigil_test_failed_, "fn divide(i32 a, i32 b) -> (i32, err) {"
             "    if (b == 0) {"
             "        return (0, err(\"division by zero\", err.arg));"
             "    }"
@@ -303,9 +303,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
+TEST(VigilCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    i32 i = 0;"
             "    while (i < 5) {"
@@ -323,9 +323,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
+TEST(VigilCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    bool ready = 1 + 1 == 2;"
             "    if (ready != false) {"
             "        return 7;"
@@ -337,9 +337,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesDirectFunctionCalls) {
+TEST(VigilCompilerTest, CompilesAndExecutesDirectFunctionCalls) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn add(i32 left, i32 right) -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn add(i32 left, i32 right) -> i32 {"
             "    return left + right;"
             "}"
             "fn is_ten(i32 value) -> bool {"
@@ -357,9 +357,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesDirectFunctionCalls) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
+TEST(VigilCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn sum_to(i32 value) -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn sum_to(i32 value) -> i32 {"
             "    if (value == 0) {"
             "        return 0;"
             "    }"
@@ -373,9 +373,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
+TEST(VigilCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn panic_bool() -> bool {"
+        CompileAndRun(vigil_test_failed_, "fn panic_bool() -> bool {"
             "    i32 x = 1 / 0;"
             "    return x == 0;"
             "}"
@@ -392,9 +392,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
+TEST(VigilCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "const i32 MASK = (1 << 3) | 1;"
+        CompileAndRun(vigil_test_failed_, "const i32 MASK = (1 << 3) | 1;"
             "const i32 PICK = true ? MASK : 0;"
             "fn main() -> i32 {"
             "    i32 bits = PICK ^ 2;"
@@ -405,9 +405,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
+TEST(VigilCompilerTest, CompilesAndExecutesBreakAndContinue) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    i32 i = 0;"
             "    while (i < 8) {"
@@ -430,9 +430,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
+TEST(VigilCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    for (i32 i = 0; i < 5; i++) {"
             "        sum += i;"
@@ -444,9 +444,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
+TEST(VigilCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 sum = 0;"
             "    for (i32 i = 0; i < 6; i++) {"
             "        if (i == 2) {"
@@ -464,16 +464,16 @@ TEST(BaslCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/math.basl",
+            "/project/math.vigil",
             "pub fn add(i32 left, i32 right) -> i32 {"
             "    return left + right;"
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"math\";"
             "fn main() -> i32 {"
             "    return math.add(2, 5);"
@@ -481,26 +481,26 @@ TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/lib/math.basl",
+            "/project/lib/math.vigil",
             "pub fn inc(i32 value) -> i32 {"
             "    return value + 1;"
             "}"
         },
         {
-            "/project/lib/logic.basl",
+            "/project/lib/logic.vigil",
             "import \"math\";"
             "pub fn bump_twice(i32 value) -> i32 {"
             "    return math.inc(math.inc(value));"
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"lib/logic\";"
             "fn main() -> i32 {"
             "    return logic.bump_twice(5);"
@@ -508,24 +508,24 @@ TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 7);
 }
 
-TEST(BaslCompilerTest, RejectsUnregisteredImportedSource) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsUnregisteredImportedSource) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "import \"missing\";"
         "fn main() -> i32 {"
         "    return 0;"
@@ -534,28 +534,28 @@ TEST(BaslCompilerTest, RejectsUnregisteredImportedSource) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "imported source is not registered"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/config.basl",
+            "/project/config.vigil",
             "pub const i32 LIMIT = 7;"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"config\";"
             "fn main() -> i32 {"
             "    return config.LIMIT;"
@@ -563,18 +563,18 @@ TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions) {
+TEST(VigilCompilerTest, CompilesAndExecutesConstantExpressions) {
     const struct TestSource sources[] = {
         {
-            "/project/config.basl",
+            "/project/config.vigil",
             "pub const i32 BASE = 2 + 3 * 4;"
             "pub const bool READY = BASE == 14;"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"config\";"
             "fn main() -> i32 {"
             "    if (config.READY) {"
@@ -585,12 +585,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 14);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 14);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) {
+TEST(VigilCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "class Pair {"
+        CompileAndRun(vigil_test_failed_, "class Pair {"
             "    i32 left;"
             "    i32 right;"
             "}"
@@ -607,10 +607,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) 
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/model.basl",
+            "/project/model.vigil",
             "pub class Counter {"
             "    pub i32 value;"
             "}"
@@ -622,7 +622,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"model\";"
             "fn main() -> i32 {"
             "    model.Counter counter = model.make_counter(7);"
@@ -631,12 +631,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
+TEST(VigilCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "class Counter {"
+        CompileAndRun(vigil_test_failed_, "class Counter {"
             "    i32 value;"
             "    fn bump(i32 delta) -> i32 {"
             "        self.value = self.value + delta;"
@@ -656,9 +656,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
+TEST(VigilCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "f64 scale = 1.5;"
+        CompileAndRun(vigil_test_failed_, "f64 scale = 1.5;"
             "class Counter {"
             "    f64 value;"
             "    fn init(f64 value) -> void {"
@@ -681,9 +681,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors) {
+TEST(VigilCompilerTest, CompilesAndExecutesInitBasedConstructors) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "class Counter {"
+        CompileAndRun(vigil_test_failed_, "class Counter {"
             "    i32 value;"
             "    i32 doubled;"
             "    fn init(i32 value) -> void {"
@@ -700,9 +700,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
+TEST(VigilCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "class Connection {"
+        CompileAndRun(vigil_test_failed_, "class Connection {"
             "    pub i32 port;"
             "    fn init(i32 port) -> err {"
             "        if (port < 0) {"
@@ -727,10 +727,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/model.basl",
+            "/project/model.vigil",
             "pub class Counter {"
             "    i32 value;"
             "    pub fn bump(i32 delta) -> i32 {"
@@ -743,7 +743,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"model\";"
             "fn main() -> i32 {"
             "    model.Counter counter = model.build(8);"
@@ -752,13 +752,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 11);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 11);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/models.basl",
+            "/project/models.vigil",
             "pub class Counter {"
             "    pub i32 value;"
             "    fn init(i32 value) -> void {"
@@ -767,7 +767,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"models\";"
             "fn main() -> i32 {"
             "    models.Counter counter = models.Counter(6);"
@@ -776,13 +776,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/model.basl",
+            "/project/model.vigil",
             "pub interface Reader {"
             "    fn read() -> i32;"
             "}"
@@ -803,7 +803,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"model\";"
             "fn use_reader(model.Reader reader) -> i32 {"
             "    return reader.read();"
@@ -815,13 +815,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 7);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/model.basl",
+            "/project/model.vigil",
             "pub const i32 OFFSET = 2;"
             "pub class Counter {"
             "    pub i32 value;"
@@ -835,7 +835,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"model\" as models;"
             "fn read(models.Counter counter) -> i32 {"
             "    return counter.value;"
@@ -847,25 +847,25 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 19);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 19);
 }
 
-TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
     const struct TestSource sources[] = {
         {
-            "/project/math.basl",
+            "/project/math.vigil",
             "pub fn add(i32 left, i32 right) -> i32 {"
             "    return left + right;"
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"math\";"
             "fn main() -> i32 {"
             "    return add(2, 5);"
@@ -873,48 +873,48 @@ TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
         }
     };
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
     for (size_t index = 0U; index < sizeof(sources) / sizeof(sources[0]); index += 1U) {
-        source_id = RegisterSource(basl_test_failed_, &registry, sources[index].path, sources[index].text, &error);
+        source_id = RegisterSource(vigil_test_failed_, &registry, sources[index].path, sources[index].text, &error);
     }
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown function"
     );
 
-    basl_object_release(&function);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_object_release(&function);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
+TEST(VigilCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
     const struct TestSource sources[] = {
         {
-            "/project/alpha.basl",
+            "/project/alpha.vigil",
             "pub const i32 VALUE = 4;"
             "pub fn read() -> i32 {"
             "    return VALUE;"
             "}"
         },
         {
-            "/project/beta.basl",
+            "/project/beta.vigil",
             "pub const i32 VALUE = 9;"
             "pub fn read() -> i32 {"
             "    return VALUE;"
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"alpha\";"
             "import \"beta\";"
             "fn main() -> i32 {"
@@ -923,19 +923,19 @@ TEST(BaslCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 13);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 13);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/contracts.basl",
+            "/project/contracts.vigil",
             "pub interface Reader {"
             "    fn read() -> i32;"
             "}"
         },
         {
-            "/project/model.basl",
+            "/project/model.vigil",
             "import \"contracts\";"
             "pub class Counter implements contracts.Reader {"
             "    i32 value;"
@@ -948,7 +948,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"contracts\";"
             "import \"model\";"
             "fn use_reader(contracts.Reader reader) -> i32 {"
@@ -960,17 +960,17 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 9);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 9);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions) {
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions) {
     const struct TestSource sources[] = {
         {
-            "/project/config.basl",
+            "/project/config.vigil",
             "pub const i32 BASE = 7;"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"config\" as cfg;"
             "const i32 LIMIT = cfg.BASE + 1;"
             "fn main() -> i32 {"
@@ -979,12 +979,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpression
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 8);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 8);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
+TEST(VigilCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "enum Color {"
+        CompileAndRun(vigil_test_failed_, "enum Color {"
             "    Red,"
             "    Green = 3,"
             "    Blue"
@@ -1005,7 +1005,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesStringsAndStringConstants) {
+TEST(VigilCompilerTest, CompilesAndExecutesStringsAndStringConstants) {
     const char *source = "\n"
         "const string PREFIX = \"he\" + 'l';\n"
         "\n"
@@ -1022,15 +1022,15 @@ TEST(BaslCompilerTest, CompilesAndExecutesStringsAndStringConstants) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 12);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 12);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "labels.basl",
+            "labels.vigil",
             "\n"
-        "pub const string GREETING = \"ba\" + \"sl\";\n"
+        "pub const string GREETING = \"vi\" + \"gil\";\n"
         "\n"
         "pub fn render(string suffix) -> string {\n"
         "    return GREETING + suffix;\n"
@@ -1038,13 +1038,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
         ""
         },
         {
-            "main.basl",
+            "main.vigil",
             "\n"
         "import \"labels\";\n"
         "\n"
         "fn main() -> i32 {\n"
         "    string value = labels.render(\" vm\");\n"
-        "    if (value == \"basl vm\") {\n"
+        "    if (value == \"vigil vm\") {\n"
         "        return 15;\n"
         "    }\n"
         "    return 0;\n"
@@ -1053,20 +1053,20 @@ TEST(BaslCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, sizeof(sources) / sizeof(sources[0]), "main.basl"), 15);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, sizeof(sources) / sizeof(sources[0]), "main.vigil"), 15);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
     const char *source = "\n"
         "fn main() -> i32 {\n"
-        "    string value = \"  basl vm  \";\n"
+        "    string value = \"  vigil vm  \";\n"
         "    string trimmed = value.trim();\n"
         "    array<string> parts = \"a,b,c\".split(\",\");\n"
         "    array<u8> bytes = \"AZ\".bytes();\n"
         "    i32 split_hits = 0;\n"
         "    i32 byte_sum = 0;\n"
-        "    i32 index, bool found = value.index_of(\"asl\");\n"
-        "    string sub, err sub_err = trimmed.substr(0, 4);\n"
+        "    i32 index, bool found = value.index_of(\"igil\");\n"
+        "    string sub, err sub_err = trimmed.substr(0, 5);\n"
         "    string ch, err ch_err = value.char_at(2);\n"
         "    string missing, err missing_err = trimmed.char_at(99);\n"
         "\n"
@@ -1080,19 +1080,19 @@ TEST(BaslCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
         "        byte_sum += i32(byte);\n"
         "    }\n"
         "\n"
-        "    if (value.len() == 11 &&\n"
-        "        value.contains(\"sl\") &&\n"
-        "        value.starts_with(\"  b\") &&\n"
+        "    if (value.len() == 12 &&\n"
+        "        value.contains(\"gil\") &&\n"
+        "        value.starts_with(\"  v\") &&\n"
         "        value.ends_with(\"  \") &&\n"
-        "        trimmed == \"basl vm\" &&\n"
-        "        trimmed.to_upper() == \"BASL VM\" &&\n"
-        "        trimmed.to_lower() == \"basl vm\" &&\n"
-        "        value.replace(\"vm\", \"bytecode\") == \"  basl bytecode  \" &&\n"
+        "        trimmed == \"vigil vm\" &&\n"
+        "        trimmed.to_upper() == \"VIGIL VM\" &&\n"
+        "        trimmed.to_lower() == \"vigil vm\" &&\n"
+        "        value.replace(\"vm\", \"bytecode\") == \"  vigil bytecode  \" &&\n"
         "        index == 3 &&\n"
         "        found == true &&\n"
-        "        sub == \"basl\" &&\n"
+        "        sub == \"vigil\" &&\n"
         "        sub_err == ok &&\n"
-        "        ch == \"b\" &&\n"
+        "        ch == \"v\" &&\n"
         "        ch_err == ok &&\n"
         "        missing == \"\" &&\n"
         "        missing_err != ok &&\n"
@@ -1105,10 +1105,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 19);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 19);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesArrayBuiltInMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesArrayBuiltInMethods) {
     const char *source = "\n"
         "fn main() -> i32 {\n"
         "    array<i32> nums = [1, 2];\n"
@@ -1136,10 +1136,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesArrayBuiltInMethods) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 23);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 23);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesMapBuiltInMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesMapBuiltInMethods) {
     const char *source = "\n"
         "fn main() -> i32 {\n"
         "    map<i32, string> labels = {1: \"a\", 2: \"b\"};\n"
@@ -1180,10 +1180,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesMapBuiltInMethods) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 29);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 29);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals) {
+TEST(VigilCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals) {
     const char *source = "\n"
         "fn empty_nums() -> array<i32> {\n"
         "    return [];\n"
@@ -1210,10 +1210,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 17);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 17);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
     const char *source = "\n"
         "class Counter {\n"
         "    i32 value;\n"
@@ -1243,10 +1243,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 6);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 6);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments) {
     const char *source = "\n"
         "i32 state = 0;\n"
         "\n"
@@ -1270,10 +1270,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArgum
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 221);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 221);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain) {
     const char *source = "\n"
         "class Counter {\n"
         "    i32 value;\n"
@@ -1296,10 +1296,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 97);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 97);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesDeferredInterfaceCalls) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredInterfaceCalls) {
     const char *source = "\n"
         "interface Reader {\n"
         "    fn read() -> i32;\n"
@@ -1326,10 +1326,10 @@ TEST(BaslCompilerTest, CompilesAndExecutesDeferredInterfaceCalls) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 8);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 8);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesDeferredInitConstructors) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors) {
     const char *source = "\n"
         "i32 state = 0;\n"
         "\n"
@@ -1353,13 +1353,13 @@ TEST(BaslCompilerTest, CompilesAndExecutesDeferredInitConstructors) {
         "}\n"
         "";
 
-    EXPECT_EQ(CompileAndRun(basl_test_failed_, source), 32);
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 32);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/lib.basl",
+            "/project/lib.vigil",
             "pub i32 counter = 3;"
             "pub fn bump() -> i32 {"
             "    counter = counter + 1;"
@@ -1367,7 +1367,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"lib\";"
             "fn main() -> i32 {"
             "    return lib.bump() + lib.counter;"
@@ -1375,17 +1375,17 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 8);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 8);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/lib.basl",
+            "/project/lib.vigil",
             "pub i32 counter = 3;"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"lib\";"
             "fn main() -> i32 {"
             "    lib.counter += 2;"
@@ -1395,18 +1395,18 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) 
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 6);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 6);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/lib.basl",
+            "/project/lib.vigil",
             "pub array<i32> nums = [];"
             "pub map<i32, string> labels = {};"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"lib\";"
             "fn main() -> i32 {"
             "    lib.nums = [];"
@@ -1416,12 +1416,12 @@ TEST(BaslCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 5);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 5);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
+TEST(VigilCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "class Counter {"
+        CompileAndRun(vigil_test_failed_, "class Counter {"
             "    i32 value;"
             "}"
             "i32 total = 2;"
@@ -1437,9 +1437,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting) {
+TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    string name = \"Alice\";"
             "    i32 age = 30;"
             "    f64 pi = 3.14159;"
@@ -1454,16 +1454,16 @@ TEST(BaslCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
+TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
     const struct TestSource sources[] = {
         {
-            "/project/contracts.basl",
+            "/project/contracts.vigil",
             "pub interface Reader {"
             "    fn read() -> i32;"
             "}"
         },
         {
-            "/project/model.basl",
+            "/project/model.vigil",
             "import \"contracts\";"
             "pub i32 seed = 4;"
             "pub class Counter implements contracts.Reader {"
@@ -1477,7 +1477,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"contracts\";"
             "import \"model\";"
             "fn main() -> i32 {"
@@ -1488,24 +1488,24 @@ TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 3U, "/project/main.basl"), 13);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 13);
 }
 
-TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(basl_test_failed_, 
+    RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/model.basl",
+        "/project/model.vigil",
         "pub class Counter {"
         "    i32 value;"
         "    fn init(i32 value) -> void {"
@@ -1517,9 +1517,9 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
         "}",
         &error
     );
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "import \"model\";"
         "fn main() -> i32 {"
         "    model.Counter counter = model.Counter(7);"
@@ -1529,35 +1529,35 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "class field is not public"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(basl_test_failed_, 
+    RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/model.basl",
+        "/project/model.vigil",
         "pub class Counter {"
         "    pub i32 value;"
         "    fn init(i32 value) -> void {"
@@ -1569,9 +1569,9 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
         "}",
         &error
     );
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "import \"model\";"
         "fn main() -> i32 {"
         "    model.Counter counter = model.Counter(7);"
@@ -1581,24 +1581,24 @@ TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "class method is not public"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
     const struct TestSource sources[] = {
         {
-            "/project/colors.basl",
+            "/project/colors.vigil",
             "pub enum Color {"
             "    Red,"
             "    Green,"
@@ -1609,7 +1609,7 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
             "}"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"colors\";"
             "fn main() -> i32 {"
             "    colors.Color color = colors.pick();"
@@ -1625,18 +1625,18 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 2);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 2);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions) {
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions) {
     const struct TestSource sources[] = {
         {
-            "/project/config.basl",
+            "/project/config.vigil",
             "pub const i32 BASE = 1 << 4;"
             "pub const i32 FLAG = BASE | 3;"
         },
         {
-            "/project/main.basl",
+            "/project/main.vigil",
             "import \"config\" as cfg;"
             "const i32 LIMIT = true ? cfg.FLAG : 0;"
             "fn main() -> i32 {"
@@ -1645,24 +1645,24 @@ TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressio
         }
     };
 
-    EXPECT_EQ(CompileAndRunMulti(basl_test_failed_, sources, 2U, "/project/main.basl"), 17);
+    EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 17);
 }
 
-TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "const i32 LIMIT = 1;"
         "const i32 LIMIT = 2;"
         "fn main() -> i32 {"
@@ -1672,35 +1672,35 @@ TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "global constant is already declared"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "enum Color { Red, Blue }"
         "fn main() -> i32 {"
         "    Color color = 1;"
@@ -1710,44 +1710,44 @@ TEST(BaslCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "initializer type does not match local variable type"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(basl_test_failed_, 
+    RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/lib.basl",
+        "/project/lib.vigil",
         "fn hidden() -> i32 {"
         "    return 7;"
         "}"
         "i32 value = 3;",
         &error
     );
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "import \"lib\";"
         "fn main() -> i32 {"
         "    return lib.hidden() + lib.value;"
@@ -1756,41 +1756,41 @@ TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "module member is not public"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsAssignmentToImportedConstants) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(basl_test_failed_, 
+    RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/lib.basl",
+        "/project/lib.vigil",
         "pub const i32 LIMIT = 3;",
         &error
     );
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "/project/main.basl",
+        "/project/main.vigil",
         "import \"lib\";"
         "fn main() -> i32 {"
         "    lib.LIMIT = 4;"
@@ -1800,35 +1800,35 @@ TEST(BaslCompilerTest, RejectsAssignmentToImportedConstants) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "cannot assign to module constant"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsClassesMissingInterfaceMethods) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "missing_interface_method.basl",
+        "missing_interface_method.vigil",
         "interface Reader { fn read() -> i32; }"
         "class Counter implements Reader {"
         "    i32 value;"
@@ -1840,35 +1840,35 @@ TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "class does not implement required interface method"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsNonVoidInitMethods) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsNonVoidInitMethods) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_init.basl",
+        "bad_init.vigil",
         "class Counter {"
         "    fn init(i32 value) -> i32 {"
         "        return value;"
@@ -1882,35 +1882,35 @@ TEST(BaslCompilerTest, RejectsNonVoidInitMethods) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "init methods must return void or err"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "wrong_interface_signature.basl",
+        "wrong_interface_signature.vigil",
         "interface Reader { fn read() -> i32; }"
         "class Counter implements Reader {"
         "    i32 value;"
@@ -1925,35 +1925,35 @@ TEST(BaslCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "class method signature does not match interface"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsUnknownClassFields) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsUnknownClassFields) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "missing_field.basl",
+        "missing_field.vigil",
         "class Pair { i32 left; }"
         "fn main() -> i32 {"
         "    Pair pair = Pair(1);"
@@ -1963,35 +1963,35 @@ TEST(BaslCompilerTest, RejectsUnknownClassFields) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown class field"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsUnknownClassMethods) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsUnknownClassMethods) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "missing_method.basl",
+        "missing_method.vigil",
         "class Pair { i32 left; }"
         "fn main() -> i32 {"
         "    Pair pair = Pair(1);"
@@ -2001,161 +2001,161 @@ TEST(BaslCompilerTest, RejectsUnknownClassMethods) {
     );
 
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown class method"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
-    const basl_diagnostic_t *diagnostic;
+TEST(VigilCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+    const vigil_diagnostic_t *diagnostic;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "string_type.basl",
+        "string_type.vigil",
         "fn main() -> string { return 1; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
-    diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    diagnostic = vigil_diagnostic_list_get(&diagnostics, 0U);
     ASSERT_NE(diagnostic, NULL);
     EXPECT_STREQ(
-        basl_string_c_str(&diagnostic->message),
+        vigil_string_c_str(&diagnostic->message),
         "main entrypoint must declare return type i32"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "void_return_value.basl",
+        "void_return_value.vigil",
         "fn helper() -> void { return 1; }"
         "fn main() -> i32 { helper(); return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "void functions cannot return a value"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bool_return.basl",
+        "bool_return.vigil",
         "fn main() -> i32 { return true; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "main entrypoint must return an i32 expression"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "nil_return.basl",
+        "nil_return.vigil",
         "fn main() -> i32 { return nil; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "main entrypoint must return an i32 expression"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "float_return.basl",
+        "float_return.vigil",
         "fn main() -> i32 { return 3.14; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "main entrypoint must return an i32 expression"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsMixedI32AndF64Arithmetic) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "mixed_numeric.basl",
+        "mixed_numeric.vigil",
         "fn main() -> i32 { f64 x = 1.0 + 2; return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "'+' requires matching integer, f64, or string operands"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
+TEST(VigilCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i64 signed_large = 3000000000;"
             "    u64 huge = 9223372036854775808;"
             "    u64 max = 18446744073709551615;"
@@ -2170,143 +2170,143 @@ TEST(BaslCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
     );
 }
 
-TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidLocalsAndConditions) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "uninit.basl",
+        "uninit.vigil",
         "fn main() -> i32 { i32 x; return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "variables must be initialized at declaration"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "unknown.basl",
+        "unknown.vigil",
         "fn main() -> i32 { x = 1; return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown local variable"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "condition.basl",
+        "condition.vigil",
         "fn main() -> i32 { if (1) { return 1; } return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "if condition must be bool"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "type.basl",
+        "type.vigil",
         "fn main() -> i32 { bool ready = 1; return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "initializer type does not match local variable type"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "main_params.basl",
+        "main_params.vigil",
         "fn main(i32 value) -> i32 { return value; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
     EXPECT_EQ(error.location.source_id, source_id);
     EXPECT_EQ(error.location.line, 1U);
     EXPECT_EQ(error.location.column, 4U);
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "main entrypoint must not declare parameters"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "arg_count.basl",
+        "arg_count.vigil",
         "fn add(i32 left, i32 right) -> i32 { return left + right; }"
         "fn main() -> i32 { return add(1); }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "call argument count does not match function signature"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "arg_type.basl",
+        "arg_type.vigil",
         "fn truthy(bool ready) -> i32 {"
         "    if (ready) { return 1; }"
         "    return 0;"
@@ -2315,119 +2315,119 @@ TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "call argument type does not match parameter type"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "unknown_call.basl",
+        "unknown_call.vigil",
         "fn main() -> i32 { return missing(1); }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown function"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "logical_type.basl",
+        "logical_type.vigil",
         "fn main() -> i32 { if (1 && true) { return 1; } return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "logical '&&' requires bool operands"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "break_outside.basl",
+        "break_outside.vigil",
         "fn main() -> i32 { break; return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "'break' is only valid inside a loop"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "continue_outside.basl",
+        "continue_outside.vigil",
         "fn main() -> i32 { continue; return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "'continue' is only valid inside a loop"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "missing_return.basl",
+        "missing_return.vigil",
         "fn choose(bool ready) -> i32 {"
         "    if (ready) {"
         "        return 1;"
@@ -2439,19 +2439,19 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "function must return a value on all paths"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "missing_main_return.basl",
+        "missing_main_return.vigil",
         "fn main() -> i32 {"
         "    if (true) {"
         "        return 1;"
@@ -2460,19 +2460,19 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "main entrypoint must return an i32 value on all paths"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "void_missing_value.basl",
+        "void_missing_value.vigil",
         "fn helper(bool ready) -> void {"
         "    if (ready) {"
         "        return;"
@@ -2482,16 +2482,16 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_OK
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_OK
     );
-    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
-    basl_object_release(&function);
+    EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
+    vigil_object_release(&function);
     function = NULL;
 
-    basl_diagnostic_list_clear(&diagnostics);
+    vigil_diagnostic_list_clear(&diagnostics);
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn choose(bool ready) -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn choose(bool ready) -> i32 {"
             "    if (ready) {"
                 "        return 1;"
             "    } else {"
@@ -2506,7 +2506,7 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
     );
 
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    i32 value = 7;"
             "    {"
             "        i32 value = 2;"
@@ -2517,114 +2517,114 @@ TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
         7
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsVoidInNonReturnTypePositions) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "void_local.basl",
+        "void_local.vigil",
         "fn helper() -> void {}"
         "fn main() -> i32 { void x = helper(); return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "local variables cannot use type void"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "void_param.basl",
+        "void_param.vigil",
         "fn bad(void value) -> i32 { return 0; }"
         "fn main() -> i32 { return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "function parameters cannot use type void"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "void_global.basl",
+        "void_global.vigil",
         "void state = nil;"
         "fn main() -> i32 { return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "global variables cannot use type void"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "void_field.basl",
+        "void_field.vigil",
         "class Bad { void value; }"
         "fn main() -> i32 { return 0; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "class fields cannot use type void"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsDeferWithoutCallExpression) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_defer.basl",
+        "bad_defer.vigil",
         "fn main() -> i32 {"
         "    i32 value = 1;"
         "    defer value;"
@@ -2633,35 +2633,35 @@ TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "defer requires a call expression"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsAssignmentToConstLocal) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsAssignmentToConstLocal) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "const_assign.basl",
+        "const_assign.vigil",
         "fn main() -> i32 {"
         "    const i32 value = 1;"
         "    value = 2;"
@@ -2670,23 +2670,23 @@ TEST(BaslCompilerTest, RejectsAssignmentToConstLocal) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "cannot assign to const local variable"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment) {
+TEST(VigilCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    array<i32> nums = [1, 2, 3];"
             "    map<i32, i32> scores = {1: 4, 2: 5};"
             "    map<bool, i32> flags = {true: 3, false: 1};"
@@ -2702,9 +2702,9 @@ TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignme
     );
 }
 
-TEST(BaslCompilerTest, CompilesAndExecutesForInOverArraysAndMaps) {
+TEST(VigilCompilerTest, CompilesAndExecutesForInOverArraysAndMaps) {
     EXPECT_EQ(
-        CompileAndRun(basl_test_failed_, "fn main() -> i32 {"
+        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
             "    array<i32> nums = [2, 4, 6, 8];"
             "    map<string, i32> scores = {\"a\": 1, \"b\": 3, \"c\": 5};"
             "    i32 sum = 0;"
@@ -2729,21 +2729,21 @@ TEST(BaslCompilerTest, CompilesAndExecutesForInOverArraysAndMaps) {
     );
 }
 
-TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidForInBindingsAndIterables) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_array_for_in.basl",
+        "bad_array_for_in.vigil",
         "fn main() -> i32 {"
         "    array<i32> nums = [1, 2];"
         "    for left, right in nums {"
@@ -2754,19 +2754,19 @@ TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "for-in over arrays requires a single loop binding"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_non_iterable_for_in.basl",
+        "bad_non_iterable_for_in.vigil",
         "fn main() -> i32 {"
         "    i32 value = 4;"
         "    for item in value {"
@@ -2777,35 +2777,35 @@ TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "for-in requires an array or map iterable"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_array_index.basl",
+        "bad_array_index.vigil",
         "fn main() -> i32 {"
         "    array<i32> nums = [1, 2];"
         "    return nums[\"zero\"];"
@@ -2813,19 +2813,19 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "array index must be i32"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_map_index.basl",
+        "bad_map_index.vigil",
         "fn main() -> i32 {"
         "    map<string, i32> scores = {\"a\": 1};"
         "    return scores[0];"
@@ -2833,19 +2833,19 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "map index must match map key type"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_map_key_type.basl",
+        "bad_map_key_type.vigil",
         "fn main() -> i32 {"
         "    map<f64, i32> scores = {1.5: 1};"
         "    return 0;"
@@ -2853,19 +2853,19 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "map keys must use an integer, bool, string, or enum type"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_index_compound_type.basl",
+        "bad_index_compound_type.vigil",
         "fn main() -> i32 {"
         "    array<i32> nums = [1, 2];"
         "    nums[0] += \"x\";"
@@ -2874,35 +2874,35 @@ TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignm
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "compound assignment requires matching integer, f64, or string operands"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidBuiltinConversions) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_conv.basl",
+        "bad_conv.vigil",
         "fn main() -> i32 {"
         "    bool ready = bool(1);"
         "    return ready ? 1 : 0;"
@@ -2910,35 +2910,35 @@ TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "bool(...) requires a bool argument"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_any_call.basl",
+        "bad_any_call.vigil",
         "fn add(i32 a, i32 b) -> i32 {"
         "    return a + b;"
         "}"
@@ -2949,19 +2949,19 @@ TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignat
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "indirect calls require a concrete function signature"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_function_assign.basl",
+        "bad_function_assign.vigil",
         "fn log_name(string name) -> void {}"
         "fn main() -> i32 {"
         "    fn(i32, i32) -> i32 op = log_name;"
@@ -2970,35 +2970,35 @@ TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignat
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "initializer type does not match local variable type"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_err_ctor.basl",
+        "bad_err_ctor.vigil",
         "fn main() -> i32 {"
         "    err e = err(1, err.arg);"
         "    return 0;"
@@ -3006,19 +3006,19 @@ TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "err(...) message must be a string"
     );
 
-    basl_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(basl_test_failed_, 
+    vigil_diagnostic_list_clear(&diagnostics);
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_err_method.basl",
+        "bad_err_method.vigil",
         "fn main() -> i32 {"
         "    err e = ok;"
         "    return e.code();"
@@ -3026,35 +3026,35 @@ TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "unknown error method"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, RejectsInvalidGuardBindings) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
+TEST(VigilCompilerTest, RejectsInvalidGuardBindings) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad_guard.basl",
+        "bad_guard.vigil",
         "fn divide(i32 a, i32 b) -> (i32, err) {"
         "    if (b == 0) {"
         "        return (0, err(\"division by zero\", err.arg));"
@@ -3070,141 +3070,141 @@ TEST(BaslCompilerTest, RejectsInvalidGuardBindings) {
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
     EXPECT_EQ(function, NULL);
-    ASSERT_EQ(basl_diagnostic_list_count(&diagnostics), 1U);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     EXPECT_STREQ(
-        basl_string_c_str(&basl_diagnostic_list_get(&diagnostics, 0U)->message),
+        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
         "guard error binding must be named"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_source_id_t source_id;
-    const basl_diagnostic_t *diagnostic;
+TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+    const vigil_diagnostic_t *diagnostic;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(basl_test_failed_, 
+    source_id = RegisterSource(vigil_test_failed_, 
         &registry,
-        "bad.basl",
+        "bad.vigil",
         "fn helper() -> i32 { return 1; }",
         &error
     );
     EXPECT_EQ(
-        basl_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        BASL_STATUS_SYNTAX_ERROR
+        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
+        VIGIL_STATUS_SYNTAX_ERROR
     );
-    diagnostic = basl_diagnostic_list_get(&diagnostics, 0U);
+    diagnostic = vigil_diagnostic_list_get(&diagnostics, 0U);
     ASSERT_NE(diagnostic, NULL);
     EXPECT_STREQ(
-        basl_string_c_str(&diagnostic->message),
+        vigil_string_c_str(&diagnostic->message),
         "expected top-level function 'main'"
     );
 
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_runtime_close(&runtime);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
 }
 
 void register_compiler_tests(void) {
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesArithmeticAndLocals);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesExplicitErrorValues);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesTupleBindingsAndGuard);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesIfElseAndWhile);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesBoolLocalsAndEquality);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesDirectFunctionCalls);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesRecursiveFunctionCalls);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesBreakAndContinue);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesForLoopContinueAndBreak);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, RejectsUnregisteredImportedSource);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesConstantExpressions);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesClassesAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesClassMethodsAndSelf);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesInitBasedConstructors);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesMethodsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesEnumsAndSwitch);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesStringsAndStringConstants);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesStringBuiltInMethods);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesArrayBuiltInMethods);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesMapBuiltInMethods);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesDeferredInterfaceCalls);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesDeferredInitConstructors);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals);
-    REGISTER_TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions);
-    REGISTER_TEST(BaslCompilerTest, RejectsDuplicateGlobalConstantNames);
-    REGISTER_TEST(BaslCompilerTest, RejectsAssigningRawI32ToEnumVariable);
-    REGISTER_TEST(BaslCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers);
-    REGISTER_TEST(BaslCompilerTest, RejectsAssignmentToImportedConstants);
-    REGISTER_TEST(BaslCompilerTest, RejectsClassesMissingInterfaceMethods);
-    REGISTER_TEST(BaslCompilerTest, RejectsNonVoidInitMethods);
-    REGISTER_TEST(BaslCompilerTest, RejectsInterfaceMethodsWithWrongSignature);
-    REGISTER_TEST(BaslCompilerTest, RejectsUnknownClassFields);
-    REGISTER_TEST(BaslCompilerTest, RejectsUnknownClassMethods);
-    REGISTER_TEST(BaslCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions);
-    REGISTER_TEST(BaslCompilerTest, RejectsMixedI32AndF64Arithmetic);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidLocalsAndConditions);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidFunctionSignaturesAndCalls);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops);
-    REGISTER_TEST(BaslCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing);
-    REGISTER_TEST(BaslCompilerTest, RejectsVoidInNonReturnTypePositions);
-    REGISTER_TEST(BaslCompilerTest, RejectsDeferWithoutCallExpression);
-    REGISTER_TEST(BaslCompilerTest, RejectsAssignmentToConstLocal);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment);
-    REGISTER_TEST(BaslCompilerTest, CompilesAndExecutesForInOverArraysAndMaps);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidForInBindingsAndIterables);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidBuiltinConversions);
-    REGISTER_TEST(BaslCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidErrorConstructionAndMethods);
-    REGISTER_TEST(BaslCompilerTest, RejectsInvalidGuardBindings);
-    REGISTER_TEST(BaslCompilerTest, ReportsSyntaxErrorsForUnsupportedShape);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesExplicitErrorValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesTupleBindingsAndGuard);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesIfElseAndWhile);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesBoolLocalsAndEquality);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDirectFunctionCalls);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesRecursiveFunctionCalls);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesBreakAndContinue);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesForLoopContinueAndBreak);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, RejectsUnregisteredImportedSource);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesConstantExpressions);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesClassesAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesClassMethodsAndSelf);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesInitBasedConstructors);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesMethodsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEnumsAndSwitch);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesStringsAndStringConstants);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesStringBuiltInMethods);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesArrayBuiltInMethods);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesMapBuiltInMethods);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInterfaceCalls);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals);
+    REGISTER_TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions);
+    REGISTER_TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable);
+    REGISTER_TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers);
+    REGISTER_TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants);
+    REGISTER_TEST(VigilCompilerTest, RejectsClassesMissingInterfaceMethods);
+    REGISTER_TEST(VigilCompilerTest, RejectsNonVoidInitMethods);
+    REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsWithWrongSignature);
+    REGISTER_TEST(VigilCompilerTest, RejectsUnknownClassFields);
+    REGISTER_TEST(VigilCompilerTest, RejectsUnknownClassMethods);
+    REGISTER_TEST(VigilCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions);
+    REGISTER_TEST(VigilCompilerTest, RejectsMixedI32AndF64Arithmetic);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidLocalsAndConditions);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidFunctionSignaturesAndCalls);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops);
+    REGISTER_TEST(VigilCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing);
+    REGISTER_TEST(VigilCompilerTest, RejectsVoidInNonReturnTypePositions);
+    REGISTER_TEST(VigilCompilerTest, RejectsDeferWithoutCallExpression);
+    REGISTER_TEST(VigilCompilerTest, RejectsAssignmentToConstLocal);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesForInOverArraysAndMaps);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidForInBindingsAndIterables);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidBuiltinConversions);
+    REGISTER_TEST(VigilCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidGuardBindings);
+    REGISTER_TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape);
 }

@@ -5,10 +5,10 @@ BUILD_DIR ?= build
 all: build
 
 configure-dev:
-	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug -DBASL_BUILD_TESTS=ON
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug -DVIGIL_BUILD_TESTS=ON
 
 configure-release:
-	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DBASL_BUILD_TESTS=ON
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DVIGIL_BUILD_TESTS=ON
 
 build: configure-dev
 	cmake --build $(BUILD_DIR)

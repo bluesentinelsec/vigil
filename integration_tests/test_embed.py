@@ -1,4 +1,4 @@
-"""Integration tests for basl embed."""
+"""Integration tests for vigil embed."""
 
 import os
 import subprocess
@@ -6,17 +6,17 @@ import sys
 import tempfile
 import unittest
 
-BASL_BIN = os.environ.get("BASL_BIN", "basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "vigil")
 
 
 def run_embed(*args):
     return subprocess.run(
-        [BASL_BIN, "embed"] + list(args),
+        [VIGIL_BIN, "embed"] + list(args),
         capture_output=True, text=True, timeout=10
     )
 
 
-class TestBaslEmbed(unittest.TestCase):
+class TestVigilEmbed(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -30,7 +30,7 @@ class TestBaslEmbed(unittest.TestCase):
 
     def test_single_file(self):
         src = self._write("hello.txt", "Hello!")
-        out = os.path.join(self.tmpdir, "hello.basl")
+        out = os.path.join(self.tmpdir, "hello.vigil")
         result = run_embed(src, "-o", out)
         self.assertEqual(result.returncode, 0)
         with open(out) as f:
@@ -42,7 +42,7 @@ class TestBaslEmbed(unittest.TestCase):
     def test_multi_file(self):
         a = self._write("a.txt", "AAA")
         b = self._write("b.txt", "BBB")
-        out = os.path.join(self.tmpdir, "assets.basl")
+        out = os.path.join(self.tmpdir, "assets.vigil")
         result = run_embed(a, b, "-o", out)
         self.assertEqual(result.returncode, 0)
         with open(out) as f:
@@ -60,7 +60,7 @@ class TestBaslEmbed(unittest.TestCase):
             f.write("root")
         with open(os.path.join(subdir, "sub", "nested.txt"), "w") as f:
             f.write("nested")
-        out = os.path.join(self.tmpdir, "dir.basl")
+        out = os.path.join(self.tmpdir, "dir.vigil")
         result = run_embed(subdir, "-o", out)
         self.assertEqual(result.returncode, 0)
         with open(out) as f:
@@ -71,7 +71,7 @@ class TestBaslEmbed(unittest.TestCase):
 
     def test_string_correctness(self):
         src = self._write("data.txt", "test data 123")
-        out = os.path.join(self.tmpdir, "data.basl")
+        out = os.path.join(self.tmpdir, "data.vigil")
         result = run_embed(src, "-o", out)
         self.assertEqual(result.returncode, 0)
         with open(out) as f:
@@ -87,7 +87,7 @@ class TestBaslEmbed(unittest.TestCase):
         self.assertIn("Usage:", result.stdout)
 
     def test_missing_file(self):
-        result = run_embed("/nonexistent/file.txt", "-o", "/tmp/out.basl")
+        result = run_embed("/nonexistent/file.txt", "-o", "/tmp/out.vigil")
         self.assertNotEqual(result.returncode, 0)
 
 

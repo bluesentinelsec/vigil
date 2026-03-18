@@ -1,4 +1,4 @@
-"""Integration tests for 'basl doc' command."""
+"""Integration tests for 'vigil doc' command."""
 
 import os
 import subprocess
@@ -8,16 +8,16 @@ import unittest
 from pathlib import Path
 
 
-def resolve_basl_command():
-    env_bin = os.environ.get("BASL_BIN")
+def resolve_vigil_command():
+    env_bin = os.environ.get("VIGIL_BIN")
     if env_bin:
         return [env_bin]
-    return [str(Path(__file__).resolve().parent.parent / "build" / "RELEASE" / "basl")]
+    return [str(Path(__file__).resolve().parent.parent / "build" / "RELEASE" / "vigil")]
 
 
-class TestBaslDoc(unittest.TestCase):
+class TestVigilDoc(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp(prefix="basl_doc_")
+        self.tmpdir = tempfile.mkdtemp(prefix="vigil_doc_")
 
     def tearDown(self):
         import shutil
@@ -29,12 +29,12 @@ class TestBaslDoc(unittest.TestCase):
         return str(path)
 
     def _run_doc(self, *args):
-        cmd = [*resolve_basl_command(), "doc", *args]
+        cmd = [*resolve_vigil_command(), "doc", *args]
         return subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
     def test_module_view(self):
-        """basl doc <file> shows public symbols."""
-        path = self._write_file("sample.basl",
+        """vigil doc <file> shows public symbols."""
+        path = self._write_file("sample.vigil",
             "// Sample module.\n"
             "\n"
             "// Adds two numbers.\n"
@@ -53,8 +53,8 @@ class TestBaslDoc(unittest.TestCase):
         self.assertNotIn("private_fn", result.stdout)
 
     def test_symbol_lookup(self):
-        """basl doc <file> <symbol> shows specific symbol."""
-        path = self._write_file("lookup.basl",
+        """vigil doc <file> <symbol> shows specific symbol."""
+        path = self._write_file("lookup.vigil",
             "// Adds two numbers.\n"
             "pub fn add(i32 a, i32 b) -> i32 {\n"
             "    return a + b;\n"
@@ -66,8 +66,8 @@ class TestBaslDoc(unittest.TestCase):
         self.assertIn("Adds two numbers.", result.stdout)
 
     def test_missing_symbol(self):
-        """basl doc <file> <missing> exits with error."""
-        path = self._write_file("empty.basl",
+        """vigil doc <file> <missing> exits with error."""
+        path = self._write_file("empty.vigil",
             "pub fn hello() -> void {\n"
             "}\n"
         )
@@ -76,13 +76,13 @@ class TestBaslDoc(unittest.TestCase):
         self.assertIn("not found", result.stderr)
 
     def test_missing_file(self):
-        """basl doc <nonexistent> exits with error."""
-        result = self._run_doc("/tmp/nonexistent_basl_file.basl")
+        """vigil doc <nonexistent> exits with error."""
+        result = self._run_doc("/tmp/nonexistent_vigil_file.vigil")
         self.assertNotEqual(result.returncode, 0)
 
     def test_help_shows_doc(self):
-        """basl --help should list the doc command."""
-        cmd = [*resolve_basl_command(), "--help"]
+        """vigil --help should list the doc command."""
+        cmd = [*resolve_vigil_command(), "--help"]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         output = result.stdout + result.stderr
         self.assertIn("doc", output)

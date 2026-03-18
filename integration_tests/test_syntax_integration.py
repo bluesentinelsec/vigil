@@ -11,10 +11,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def resolve_basl_command() -> list[str]:
-    configured_bin = os.environ.get("BASL_BIN")
-    native_bin = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
-    wasm_bin = REPO_ROOT / "build" / "basl.js"
+def resolve_vigil_command() -> list[str]:
+    configured_bin = os.environ.get("VIGIL_BIN")
+    native_bin = REPO_ROOT / "build" / ("vigil.exe" if os.name == "nt" else "vigil")
+    wasm_bin = REPO_ROOT / "build" / "vigil.js"
 
     if configured_bin:
         return [configured_bin]
@@ -23,7 +23,7 @@ def resolve_basl_command() -> list[str]:
     if wasm_bin.exists():
         return [os.environ.get("EMSDK_NODE", "node"), str(wasm_bin)]
 
-    raise FileNotFoundError("could not locate BASL CLI executable in build output")
+    raise FileNotFoundError("could not locate VIGIL CLI executable in build output")
 
 
 def write_sources(root: Path, sources: dict[str, str]) -> None:
@@ -33,9 +33,9 @@ def write_sources(root: Path, sources: dict[str, str]) -> None:
         path.write_text(textwrap.dedent(text).strip() + "\n", encoding="utf-8")
 
 
-def run_basl(root: Path, entrypoint: str) -> subprocess.CompletedProcess[str]:
+def run_vigil(root: Path, entrypoint: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [*resolve_basl_command(), "run", str(root / entrypoint)],
+        [*resolve_vigil_command(), "run", str(root / entrypoint)],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
@@ -47,22 +47,22 @@ class SyntaxIntegrationTest(unittest.TestCase):
     """Existing tests from PR #88."""
 
     def test_import_alias_and_default_nested_alias(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
             write_sources(
                 root,
                 {
-                    "lib/math.basl": """
+                    "lib/math.vigil": """
                         pub fn double(i32 x) -> i32 {
                             return x * 2;
                         }
                     """,
-                    "shared/utils.basl": """
+                    "shared/utils.vigil": """
                         pub fn answer() -> i32 {
                             return 9;
                         }
                     """,
-                    "main.basl": """
+                    "main.vigil": """
                         import "lib/math" as ops;
                         import "shared/utils";
 
@@ -73,17 +73,17 @@ class SyntaxIntegrationTest(unittest.TestCase):
                 },
             )
 
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 18, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_numeric_and_character_literals(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
             write_sources(
                 root,
                 {
-                    "main.basl": """
+                    "main.vigil": """
                         fn main() -> i32 {
                             i32 total = 0x10 + 0b11 + 0o7;
                             string letter = 'A';
@@ -98,17 +98,17 @@ class SyntaxIntegrationTest(unittest.TestCase):
                 },
             )
 
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 26, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_function_typed_globals_and_imported_collection_globals(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
             write_sources(
                 root,
                 {
-                    "lib/state.basl": """
+                    "lib/state.vigil": """
                         pub array<i32> nums = [];
 
                         pub fn seed() -> void {
@@ -116,7 +116,7 @@ class SyntaxIntegrationTest(unittest.TestCase):
                             nums.push(4);
                         }
                     """,
-                    "main.basl": """
+                    "main.vigil": """
                         import "lib/state" as st;
 
                         fn twice(i32 value) -> i32 {
@@ -136,17 +136,17 @@ class SyntaxIntegrationTest(unittest.TestCase):
                 },
             )
 
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 24, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_multiple_interface_dispatch(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
             write_sources(
                 root,
                 {
-                    "main.basl": """
+                    "main.vigil": """
                         interface Named {
                             fn name() -> string;
                         }
@@ -188,7 +188,7 @@ class SyntaxIntegrationTest(unittest.TestCase):
                 },
             )
 
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 12, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
@@ -199,9 +199,9 @@ class DocsConformanceTest(unittest.TestCase):
     # -- closures and function values --
 
     def test_closure_captures_local(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 factor = 3;
                     fn(i32) -> i32 scale = fn(i32 x) -> i32 {
@@ -210,14 +210,14 @@ class DocsConformanceTest(unittest.TestCase):
                     return scale(7);
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 21, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_iife(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 result = fn() -> i32 {
                         return 42;
@@ -225,14 +225,14 @@ class DocsConformanceTest(unittest.TestCase):
                     return result;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 42, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_local_named_function(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     fn helper(i32 x) -> i32 {
                         return x * 2;
@@ -240,16 +240,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return helper(11);
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 22, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- error flow and guard --
 
     def test_error_flow(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn risky(bool fail) -> (i32, err) {
                     if (fail) {
                         return (0, err("bad", err.arg));
@@ -268,14 +268,14 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_guard_statement(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn fallible(i32 x) -> (i32, err) {
                     if (x == 0) {
                         return (0, err("zero", err.arg));
@@ -290,14 +290,14 @@ class DocsConformanceTest(unittest.TestCase):
                     return val;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 99, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_fallible_class_init(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 class Conn {
                     pub string host;
 
@@ -321,16 +321,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- loops, break, continue --
 
     def test_for_while_forin_break_continue(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 total = 0;
 
@@ -364,16 +364,16 @@ class DocsConformanceTest(unittest.TestCase):
                 }
             """})
             # 0+1+2+4=7, +30 while, +60 for-in array, +3 for-in map, +100 break loop = 200
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 200, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- switch and enum --
 
     def test_switch_with_enum(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 enum Color {
                     Red,
                     Green,
@@ -394,14 +394,14 @@ class DocsConformanceTest(unittest.TestCase):
                     }
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 2, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_switch_multi_case(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 x = 3;
                     switch (x) {
@@ -414,14 +414,14 @@ class DocsConformanceTest(unittest.TestCase):
                     }
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 20, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_enum_with_explicit_values(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 enum HttpStatus {
                     Ok = 200,
                     NotFound = 404
@@ -437,16 +437,16 @@ class DocsConformanceTest(unittest.TestCase):
                     }
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 44, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- defer --
 
     def test_defer_runs_after_return(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 i32 counter = 0;
 
                 fn bump() -> void {
@@ -466,16 +466,16 @@ class DocsConformanceTest(unittest.TestCase):
             """})
             # work() returns 0 (defers haven't run yet), then defers run: counter=2
             # main returns 0 + 2 = 2
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 2, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- string built-ins --
 
     def test_string_builtins(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     string s = "  Hello World  ";
                     string trimmed = s.trim();
@@ -485,7 +485,7 @@ class DocsConformanceTest(unittest.TestCase):
                     if (!trimmed.ends_with("World")) { return 4; }
                     if (trimmed.to_upper() != "HELLO WORLD") { return 5; }
                     if (trimmed.to_lower() != "hello world") { return 6; }
-                    if (trimmed.replace("World", "BASL") != "Hello BASL") { return 7; }
+                    if (trimmed.replace("World", "VIGIL") != "Hello VIGIL") { return 7; }
                     array<string> parts = trimmed.split(" ");
                     if (parts.len() != 2) { return 8; }
                     i32 idx, bool found = trimmed.index_of("World");
@@ -502,16 +502,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- array built-ins --
 
     def test_array_builtins(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     array<i32> a = [1, 2, 3];
                     a.push(4);
@@ -531,16 +531,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- map built-ins --
 
     def test_map_builtins(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     map<string, i32> m = {"a": 1, "b": 2};
                     if (m.len() != 2) { return 1; }
@@ -561,16 +561,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- type conversions --
 
     def test_type_conversions(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 x = 42;
                     i64 big = i64(x);
@@ -581,16 +581,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- wider integer types --
 
     def test_wider_integer_types(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     u8 byte = u8(255);
                     u32 mid = u32(1000);
@@ -601,16 +601,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- constants --
 
     def test_constants(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 const i32 MAX = 100;
                 const string LABEL = "test";
 
@@ -622,16 +622,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- ternary --
 
     def test_ternary_expression(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 a = 10;
                     i32 b = 20;
@@ -639,16 +639,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return max;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 20, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- bitwise operations --
 
     def test_bitwise_operations(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 a = 0xFF;
                     i32 b = 0x0F;
@@ -657,16 +657,16 @@ class DocsConformanceTest(unittest.TestCase):
                 }
             """})
             # 0xFF & 0x0F = 0x0F = 15, 15 | 0x10 = 31
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 31, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- f-strings --
 
     def test_fstring_interpolation(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 x = 5;
                     i32 y = 10;
@@ -675,16 +675,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return 0;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- classes --
 
     def test_class_construction_and_methods(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 class Counter {
                     pub i32 value;
 
@@ -703,16 +703,16 @@ class DocsConformanceTest(unittest.TestCase):
                     return c.value;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 15, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- compound assignment --
 
     def test_compound_assignment_and_increment(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     i32 x = 10;
                     x += 5;
@@ -725,17 +725,17 @@ class DocsConformanceTest(unittest.TestCase):
                 }
             """})
             # 10+5=15, -1=14, *2=28, /7=4, %3=1, ++=2
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 2, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- pub enforcement across modules --
 
     def test_pub_enforcement(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "lib.basl": """
+                "lib.vigil": """
                     fn private_fn() -> i32 {
                         return 1;
                     }
@@ -744,7 +744,7 @@ class DocsConformanceTest(unittest.TestCase):
                         return 2;
                     }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "lib";
 
                     fn main() -> i32 {
@@ -752,7 +752,7 @@ class DocsConformanceTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("not public", result.stderr)
 
@@ -763,9 +763,9 @@ class RealProgramPatternsTest(unittest.TestCase):
     # -- error kind routing --
 
     def test_error_kind_switch(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn lookup(string key) -> (string, err) {
                     if (key == "") {
                         return ("", err("empty key", err.arg));
@@ -789,17 +789,17 @@ class RealProgramPatternsTest(unittest.TestCase):
                     }
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 10, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- cross-module classes, interfaces, enums --
 
     def test_cross_module_interface_dispatch(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "types.basl": """
+                "types.vigil": """
                     pub enum Status {
                         Active,
                         Inactive
@@ -823,7 +823,7 @@ class RealProgramPatternsTest(unittest.TestCase):
                         }
                     }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "types";
 
                     fn print_desc(types.Describable d) -> string {
@@ -840,16 +840,16 @@ class RealProgramPatternsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- nested generic types (>> token splitting) --
 
     def test_nested_array_type(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     array<array<i32>> grid = [[1, 2], [3, 4], [5, 6]];
                     i32 total = 0;
@@ -861,14 +861,14 @@ class RealProgramPatternsTest(unittest.TestCase):
                     return total;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 21, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_map_with_nested_array_value(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     map<string, array<i32>> data = {"a": [1, 2], "b": [3, 4]};
                     array<i32> a_vals, bool found = data.get("a");
@@ -876,29 +876,29 @@ class RealProgramPatternsTest(unittest.TestCase):
                     return a_vals[0] + a_vals[1];
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 3, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_triple_nested_array(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     array<array<array<i32>>> deep = [[[1, 2], [3]], [[4]]];
                     return deep.len();
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 2, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- nested control flow --
 
     def test_guard_in_loop_with_continue(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn maybe(i32 x) -> (i32, err) {
                     if (x == 2) {
                         return (0, err("skip", err.arg));
@@ -918,14 +918,14 @@ class RealProgramPatternsTest(unittest.TestCase):
                 }
             """})
             # i=0->0, i=1->10, i=2->skip, i=3->30, i=4->40 = 80
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 80, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_defer_with_break(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 i32 counter = 0;
 
                 fn bump() -> void {
@@ -946,14 +946,14 @@ class RealProgramPatternsTest(unittest.TestCase):
                 }
             """})
             # work() returns 0, defer runs -> counter=1, main returns 0+1=1
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 1, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_defer_guard_forin_combined(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 i32 cleanup_count = 0;
 
                 fn do_cleanup() -> void {
@@ -987,16 +987,16 @@ class RealProgramPatternsTest(unittest.TestCase):
                 }
             """})
             # 1+3+5=9, cleanup_count=1
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 9, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- closures capturing loop variables --
 
     def test_closure_captures_loop_variable(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     array<fn() -> i32> fns = [];
                     for (i32 i = 0; i < 3; i++) {
@@ -1012,16 +1012,16 @@ class RealProgramPatternsTest(unittest.TestCase):
                 }
             """})
             # f0()=0, f2()=2, total=2
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 2, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     # -- compound expressions --
 
     def test_ternary_in_function_args(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn add(i32 a, i32 b) -> i32 {
                     return a + b;
                 }
@@ -1031,30 +1031,30 @@ class RealProgramPatternsTest(unittest.TestCase):
                     return add(flag ? 10 : 20, flag ? 1 : 2);
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 11, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_chained_string_methods(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
-                    string result = "  Hello World  ".trim().to_lower().replace("world", "basl");
-                    if (result == "hello basl") {
+                    string result = "  Hello World  ".trim().to_lower().replace("world", "vigil");
+                    if (result == "hello vigil") {
                         return 0;
                     }
                     return 1;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_map_compound_index_assignment(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     map<string, i32> m = {"a": 1, "b": 2};
                     m["a"] += 10;
@@ -1063,14 +1063,14 @@ class RealProgramPatternsTest(unittest.TestCase):
                 }
             """})
             # 1+10=11, 2*3=6, 11+6=17
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 17, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_nested_indexing(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     array<array<i32>> grid = [];
                     array<i32> row1 = [1, 2, 3];
@@ -1081,14 +1081,14 @@ class RealProgramPatternsTest(unittest.TestCase):
                 }
             """})
             # grid[0][1]=2, grid[1][2]=6, 2+6=8
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 8, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
     def test_fstring_with_method_call(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_syntax_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
             root = Path(tmpdir)
-            write_sources(root, {"main.basl": """
+            write_sources(root, {"main.vigil": """
                 fn main() -> i32 {
                     string name = "  alice  ";
                     string msg = f"hello {name.trim()}!";
@@ -1098,7 +1098,7 @@ class RealProgramPatternsTest(unittest.TestCase):
                     return 1;
                 }
             """})
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 

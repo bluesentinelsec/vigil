@@ -1,4 +1,4 @@
-/* BASL YAML parsing library.
+/* VIGIL YAML parsing library.
  *
  * Parses a subset of YAML 1.2:
  * - Scalars: strings, integers, floats, booleans, null
@@ -13,8 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/yaml.h"
-#include "internal/basl_internal.h"
+#include "vigil/yaml.h"
+#include "internal/vigil_internal.h"
 
 /* ── Parser state ────────────────────────────────────────────────── */
 
@@ -24,8 +24,8 @@ typedef struct {
     size_t pos;
     size_t line;
     size_t col;
-    basl_allocator_t alloc;
-    basl_error_t *error;
+    vigil_allocator_t alloc;
+    vigil_error_t *error;
 } yaml_parser_t;
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -95,13 +95,13 @@ static size_t measure_indent(yaml_parser_t *p) {
 static void set_error(yaml_parser_t *p, const char *msg) {
     char buf[256];
     snprintf(buf, sizeof(buf), "yaml: line %zu: %s", p->line, msg);
-    basl_error_set_literal(p->error, BASL_STATUS_SYNTAX_ERROR, buf);
+    vigil_error_set_literal(p->error, VIGIL_STATUS_SYNTAX_ERROR, buf);
 }
 
 /* ── Forward declarations ────────────────────────────────────────── */
 
-static basl_status_t parse_value(yaml_parser_t *p, size_t min_indent,
-                                  basl_json_value_t **out);
+static vigil_status_t parse_value(yaml_parser_t *p, size_t min_indent,
+                                  vigil_json_value_t **out);
 
 /* ── Scalar parsing ──────────────────────────────────────────────── */
 
@@ -109,8 +109,8 @@ static int is_scalar_char(char c) {
     return c && c != '\n' && c != '#' && c != ':';
 }
 
-static basl_status_t parse_quoted_string(yaml_parser_t *p, char quote,
-                                          basl_json_value_t **out) {
+static vigil_status_t parse_quoted_string(yaml_parser_t *p, char quote,
+                                          vigil_json_value_t **out) {
     advance(p); /* skip opening quote */
     size_t start = p->pos;
     
@@ -130,7 +130,7 @@ static basl_status_t parse_quoted_string(yaml_parser_t *p, char quote,
     char *buf = (char *)yaml_alloc(p, len + 1);
     if (!buf) {
         set_error(p, "out of memory");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     
     p->pos = start;
@@ -159,13 +159,13 @@ static basl_status_t parse_quoted_string(yaml_parser_t *p, char quote,
     
     if (peek(p) == quote) advance(p);
     
-    basl_status_t s = basl_json_string_new(&p->alloc, buf, i, out, p->error);
+    vigil_status_t s = vigil_json_string_new(&p->alloc, buf, i, out, p->error);
     yaml_dealloc(p, buf);
     return s;
 }
 
-static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
-                                         basl_json_value_t **out) {
+static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style,
+                                         vigil_json_value_t **out) {
     advance(p); /* skip | or > */
     skip_spaces(p);
     skip_comment(p);
@@ -175,7 +175,7 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
     skip_blank_lines(p);
     size_t block_indent = measure_indent(p);
     if (block_indent == 0) {
-        return basl_json_string_new(&p->alloc, "", 0, out, p->error);
+        return vigil_json_string_new(&p->alloc, "", 0, out, p->error);
     }
     
     /* Collect lines */
@@ -184,7 +184,7 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
     char *buf = (char *)yaml_alloc(p, cap);
     if (!buf) {
         set_error(p, "out of memory");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     
     while (p->pos < p->len) {
@@ -199,7 +199,7 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
                 if (len + 1 >= cap) {
                     cap *= 2;
                     char *newbuf = (char *)p->alloc.reallocate(p->alloc.user_data, buf, cap);
-                    if (!newbuf) { yaml_dealloc(p, buf); return BASL_STATUS_OUT_OF_MEMORY; }
+                    if (!newbuf) { yaml_dealloc(p, buf); return VIGIL_STATUS_OUT_OF_MEMORY; }
                     buf = newbuf;
                 }
                 buf[len++] = '\n';
@@ -218,7 +218,7 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
             if (len + 1 >= cap) {
                 cap *= 2;
                 char *newbuf = (char *)p->alloc.reallocate(p->alloc.user_data, buf, cap);
-                if (!newbuf) { yaml_dealloc(p, buf); return BASL_STATUS_OUT_OF_MEMORY; }
+                if (!newbuf) { yaml_dealloc(p, buf); return VIGIL_STATUS_OUT_OF_MEMORY; }
                 buf = newbuf;
             }
             buf[len++] = peek(p);
@@ -231,7 +231,7 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
                 if (len + 1 >= cap) {
                     cap *= 2;
                     char *newbuf = (char *)p->alloc.reallocate(p->alloc.user_data, buf, cap);
-                    if (!newbuf) { yaml_dealloc(p, buf); return BASL_STATUS_OUT_OF_MEMORY; }
+                    if (!newbuf) { yaml_dealloc(p, buf); return VIGIL_STATUS_OUT_OF_MEMORY; }
                     buf = newbuf;
                 }
                 buf[len++] = '\n';
@@ -240,7 +240,7 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
                 if (len + 1 >= cap) {
                     cap *= 2;
                     char *newbuf = (char *)p->alloc.reallocate(p->alloc.user_data, buf, cap);
-                    if (!newbuf) { yaml_dealloc(p, buf); return BASL_STATUS_OUT_OF_MEMORY; }
+                    if (!newbuf) { yaml_dealloc(p, buf); return VIGIL_STATUS_OUT_OF_MEMORY; }
                     buf = newbuf;
                 }
                 buf[len++] = ' ';
@@ -257,12 +257,12 @@ static basl_status_t parse_block_scalar(yaml_parser_t *p, char style,
     }
     
     buf[len] = '\0';
-    basl_status_t s = basl_json_string_new(&p->alloc, buf, len, out, p->error);
+    vigil_status_t s = vigil_json_string_new(&p->alloc, buf, len, out, p->error);
     yaml_dealloc(p, buf);
     return s;
 }
 
-static basl_status_t parse_plain_scalar(yaml_parser_t *p, basl_json_value_t **out) {
+static vigil_status_t parse_plain_scalar(yaml_parser_t *p, vigil_json_value_t **out) {
     size_t start = p->pos;
     
     /* Find end of scalar */
@@ -282,21 +282,21 @@ static basl_status_t parse_plain_scalar(yaml_parser_t *p, basl_json_value_t **ou
     
     /* Check for special values */
     if (len == 4 && strncmp(str, "true", 4) == 0) {
-        return basl_json_bool_new(&p->alloc, 1, out, p->error);
+        return vigil_json_bool_new(&p->alloc, 1, out, p->error);
     }
     if (len == 5 && strncmp(str, "false", 5) == 0) {
-        return basl_json_bool_new(&p->alloc, 0, out, p->error);
+        return vigil_json_bool_new(&p->alloc, 0, out, p->error);
     }
     if (len == 4 && strncmp(str, "null", 4) == 0) {
-        return basl_json_null_new(&p->alloc, out, p->error);
+        return vigil_json_null_new(&p->alloc, out, p->error);
     }
     if (len == 1 && str[0] == '~') {
-        return basl_json_null_new(&p->alloc, out, p->error);
+        return vigil_json_null_new(&p->alloc, out, p->error);
     }
     
     /* Try to parse as number */
     char *numstr = (char *)yaml_alloc(p, len + 1);
-    if (!numstr) return BASL_STATUS_OUT_OF_MEMORY;
+    if (!numstr) return VIGIL_STATUS_OUT_OF_MEMORY;
     memcpy(numstr, str, len);
     numstr[len] = '\0';
     
@@ -304,20 +304,20 @@ static basl_status_t parse_plain_scalar(yaml_parser_t *p, basl_json_value_t **ou
     double num = strtod(numstr, &endptr);
     if (endptr == numstr + len && len > 0) {
         yaml_dealloc(p, numstr);
-        return basl_json_number_new(&p->alloc, num, out, p->error);
+        return vigil_json_number_new(&p->alloc, num, out, p->error);
     }
     yaml_dealloc(p, numstr);
     
     /* Return as string */
-    return basl_json_string_new(&p->alloc, str, len, out, p->error);
+    return vigil_json_string_new(&p->alloc, str, len, out, p->error);
 }
 
 /* ── Sequence parsing ────────────────────────────────────────────── */
 
-static basl_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent,
-                                     basl_json_value_t **out) {
-    basl_status_t s = basl_json_array_new(&p->alloc, out, p->error);
-    if (s != BASL_STATUS_OK) return s;
+static vigil_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent,
+                                     vigil_json_value_t **out) {
+    vigil_status_t s = vigil_json_array_new(&p->alloc, out, p->error);
+    if (s != VIGIL_STATUS_OK) return s;
     
     while (p->pos < p->len) {
         skip_blank_lines(p);
@@ -338,7 +338,7 @@ static basl_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent,
         skip_spaces(p);
         skip_comment(p);
         
-        basl_json_value_t *item = NULL;
+        vigil_json_value_t *item = NULL;
         
         if (peek(p) == '\n' || peek(p) == '\0') {
             /* Value on next line */
@@ -348,7 +348,7 @@ static basl_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent,
             if (item_indent > seq_indent) {
                 s = parse_value(p, item_indent, &item);
             } else {
-                s = basl_json_null_new(&p->alloc, &item, p->error);
+                s = vigil_json_null_new(&p->alloc, &item, p->error);
             }
         } else {
             /* Inline value - parse directly without indent check */
@@ -366,28 +366,28 @@ static basl_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent,
             if (peek(p) == '\n') advance(p);
         }
         
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(out);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(out);
             return s;
         }
         
-        s = basl_json_array_push(*out, item, p->error);
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(&item);
-            basl_json_free(out);
+        s = vigil_json_array_push(*out, item, p->error);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(&item);
+            vigil_json_free(out);
             return s;
         }
     }
     
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Mapping parsing ─────────────────────────────────────────────── */
 
-static basl_status_t parse_mapping(yaml_parser_t *p, size_t map_indent,
-                                    basl_json_value_t **out) {
-    basl_status_t s = basl_json_object_new(&p->alloc, out, p->error);
-    if (s != BASL_STATUS_OK) return s;
+static vigil_status_t parse_mapping(yaml_parser_t *p, size_t map_indent,
+                                    vigil_json_value_t **out) {
+    vigil_status_t s = vigil_json_object_new(&p->alloc, out, p->error);
+    if (s != VIGIL_STATUS_OK) return s;
     
     while (p->pos < p->len) {
         skip_blank_lines(p);
@@ -412,14 +412,14 @@ static basl_status_t parse_mapping(yaml_parser_t *p, size_t map_indent,
         
         if (peek(p) != ':') {
             set_error(p, "expected ':'");
-            basl_json_free(out);
-            return BASL_STATUS_SYNTAX_ERROR;
+            vigil_json_free(out);
+            return VIGIL_STATUS_SYNTAX_ERROR;
         }
         advance(p); /* skip ':' */
         skip_spaces(p);
         skip_comment(p);
         
-        basl_json_value_t *value = NULL;
+        vigil_json_value_t *value = NULL;
         
         if (peek(p) == '\n' || peek(p) == '\0') {
             /* Value on next line */
@@ -429,7 +429,7 @@ static basl_status_t parse_mapping(yaml_parser_t *p, size_t map_indent,
             if (val_indent > map_indent) {
                 s = parse_value(p, val_indent, &value);
             } else {
-                s = basl_json_null_new(&p->alloc, &value, p->error);
+                s = vigil_json_null_new(&p->alloc, &value, p->error);
             }
         } else {
             /* Inline value - parse directly without indent check */
@@ -447,33 +447,33 @@ static basl_status_t parse_mapping(yaml_parser_t *p, size_t map_indent,
             if (peek(p) == '\n') advance(p);
         }
         
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(out);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(out);
             return s;
         }
         
-        s = basl_json_object_set(*out, p->src + key_start, key_end - key_start,
+        s = vigil_json_object_set(*out, p->src + key_start, key_end - key_start,
                                   value, p->error);
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(&value);
-            basl_json_free(out);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(&value);
+            vigil_json_free(out);
             return s;
         }
     }
     
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Main value parser ───────────────────────────────────────────── */
 
-static basl_status_t parse_value(yaml_parser_t *p, size_t min_indent,
-                                  basl_json_value_t **out) {
+static vigil_status_t parse_value(yaml_parser_t *p, size_t min_indent,
+                                  vigil_json_value_t **out) {
     skip_blank_lines(p);
     
     size_t indent = measure_indent(p);
     if (indent < min_indent && p->pos < p->len) {
         /* Dedented - return null */
-        return basl_json_null_new(&p->alloc, out, p->error);
+        return vigil_json_null_new(&p->alloc, out, p->error);
     }
     
     /* Skip to content */
@@ -516,17 +516,17 @@ static basl_status_t parse_value(yaml_parser_t *p, size_t min_indent,
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-basl_status_t basl_yaml_parse(
+vigil_status_t vigil_yaml_parse(
     const char *yaml,
     size_t length,
-    const basl_allocator_t *allocator,
-    basl_json_value_t **out,
-    basl_error_t *error
+    const vigil_allocator_t *allocator,
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (!yaml || !out) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "yaml: invalid argument");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     
     yaml_parser_t p = {
@@ -535,7 +535,7 @@ basl_status_t basl_yaml_parse(
         .pos = 0,
         .line = 1,
         .col = 1,
-        .alloc = allocator ? *allocator : basl_default_allocator(),
+        .alloc = allocator ? *allocator : vigil_default_allocator(),
         .error = error
     };
     

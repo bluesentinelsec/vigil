@@ -1,4 +1,4 @@
-#include "basl/package.h"
+#include "vigil/package.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,7 +19,7 @@ static void xor_cipher(unsigned char *data, size_t len,
 
 static int key_is_zero(const unsigned char *key) {
     size_t i;
-    for (i = 0; i < BASL_PACKAGE_KEY_LEN; i++)
+    for (i = 0; i < VIGIL_PACKAGE_KEY_LEN; i++)
         if (key[i] != 0) return 0;
     return 1;
 }
@@ -83,7 +83,7 @@ static uint32_t crc32_compute(const unsigned char *data, size_t len) {
 
 /* Build a ZIP archive in memory (store-only). */
 static unsigned char *zip_build(
-    const basl_package_file_t *files, size_t count,
+    const vigil_package_file_t *files, size_t count,
     size_t *out_size
 ) {
     /* Calculate total size. */
@@ -260,53 +260,53 @@ fail:
     return 0;
 }
 
-/* ── basl_package_build ──────────────────────────────────────────── */
+/* ── vigil_package_build ──────────────────────────────────────────── */
 
-basl_status_t basl_package_build(
+vigil_status_t vigil_package_build(
     const char *output_path,
-    const basl_package_file_t *files,
+    const vigil_package_file_t *files,
     size_t file_count,
     const char *key,
     size_t key_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     char self_path[4096];
     char *exe_data = NULL;
     size_t exe_len = 0;
     unsigned char *zip_data = NULL;
     size_t zip_len = 0;
-    unsigned char trailer[BASL_PACKAGE_TRAILER_LEN];
+    unsigned char trailer[VIGIL_PACKAGE_TRAILER_LEN];
     FILE *out = NULL;
-    basl_status_t status;
+    vigil_status_t status;
 
     /* Get path to current executable. */
-    status = basl_platform_self_exe(self_path, sizeof(self_path), error);
-    if (status != BASL_STATUS_OK) return status;
+    status = vigil_platform_self_exe(self_path, sizeof(self_path), error);
+    if (status != VIGIL_STATUS_OK) return status;
 
     /* Read current executable. */
-    status = basl_platform_read_file(NULL, self_path, &exe_data, &exe_len, error);
-    if (status != BASL_STATUS_OK) return status;
+    status = vigil_platform_read_file(NULL, self_path, &exe_data, &exe_len, error);
+    if (status != VIGIL_STATUS_OK) return status;
 
     /* Build ZIP archive. */
     zip_data = zip_build(files, file_count, &zip_len);
     if (zip_data == NULL) {
         free(exe_data);
-        if (error) { error->type = BASL_STATUS_OUT_OF_MEMORY; error->value = "zip build failed"; error->length = 16; }
-        return BASL_STATUS_OUT_OF_MEMORY;
+        if (error) { error->type = VIGIL_STATUS_OUT_OF_MEMORY; error->value = "zip build failed"; error->length = 16; }
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     /* XOR encrypt if key provided. */
     memset(trailer, 0, sizeof(trailer));
     if (key != NULL && key_length > 0) {
-        size_t klen = key_length > BASL_PACKAGE_KEY_LEN ? BASL_PACKAGE_KEY_LEN : key_length;
+        size_t klen = key_length > VIGIL_PACKAGE_KEY_LEN ? VIGIL_PACKAGE_KEY_LEN : key_length;
         memcpy(trailer + 8, key, klen);
         /* Encrypt using the padded key from the trailer so decrypt matches. */
-        xor_cipher(zip_data, zip_len, trailer + 8, BASL_PACKAGE_KEY_LEN);
+        xor_cipher(zip_data, zip_len, trailer + 8, VIGIL_PACKAGE_KEY_LEN);
     }
 
     /* Build trailer: [8 bytes payload len][32 bytes key][8 bytes magic] */
     write_u64_le(trailer, (uint64_t)zip_len);
-    memcpy(trailer + 8 + BASL_PACKAGE_KEY_LEN, BASL_PACKAGE_MAGIC, BASL_PACKAGE_MAGIC_LEN);
+    memcpy(trailer + 8 + VIGIL_PACKAGE_KEY_LEN, VIGIL_PACKAGE_MAGIC, VIGIL_PACKAGE_MAGIC_LEN);
 
     /* Write output. */
     out = NULL;
@@ -317,83 +317,83 @@ basl_status_t basl_package_build(
 #endif
     if (out == NULL) {
         free(exe_data); free(zip_data);
-        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "cannot create output file"; error->length = 25; }
-        return BASL_STATUS_INTERNAL;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "cannot create output file"; error->length = 25; }
+        return VIGIL_STATUS_INTERNAL;
     }
 
     if (fwrite(exe_data, 1, exe_len, out) != exe_len ||
         fwrite(zip_data, 1, zip_len, out) != zip_len ||
-        fwrite(trailer, 1, BASL_PACKAGE_TRAILER_LEN, out) != BASL_PACKAGE_TRAILER_LEN) {
+        fwrite(trailer, 1, VIGIL_PACKAGE_TRAILER_LEN, out) != VIGIL_PACKAGE_TRAILER_LEN) {
         fclose(out);
         free(exe_data); free(zip_data);
-        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "write failed"; error->length = 12; }
-        return BASL_STATUS_INTERNAL;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "write failed"; error->length = 12; }
+        return VIGIL_STATUS_INTERNAL;
     }
 
     fclose(out);
     free(exe_data);
     free(zip_data);
 
-    basl_platform_make_executable(output_path, NULL);
+    vigil_platform_make_executable(output_path, NULL);
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-/* ── basl_package_read ───────────────────────────────────────────── */
+/* ── vigil_package_read ───────────────────────────────────────────── */
 
-static basl_status_t read_bundle_from_file(
+static vigil_status_t read_bundle_from_file(
     const char *path,
-    basl_package_bundle_t *out_bundle,
-    basl_error_t *error
+    vigil_package_bundle_t *out_bundle,
+    vigil_error_t *error
 ) {
     char *file_data = NULL;
     size_t file_len = 0;
     const unsigned char *trailer;
     uint64_t payload_len;
-    unsigned char key[BASL_PACKAGE_KEY_LEN];
+    unsigned char key[VIGIL_PACKAGE_KEY_LEN];
     unsigned char *zip_data;
-    basl_status_t status;
+    vigil_status_t status;
 
     memset(out_bundle, 0, sizeof(*out_bundle));
 
-    status = basl_platform_read_file(NULL, path, &file_data, &file_len, error);
-    if (status != BASL_STATUS_OK) return status;
+    status = vigil_platform_read_file(NULL, path, &file_data, &file_len, error);
+    if (status != VIGIL_STATUS_OK) return status;
 
-    if (file_len < BASL_PACKAGE_TRAILER_LEN) {
+    if (file_len < VIGIL_PACKAGE_TRAILER_LEN) {
         free(file_data);
-        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "no bundle trailer"; error->length = 17; }
-        return BASL_STATUS_INTERNAL;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "no bundle trailer"; error->length = 17; }
+        return VIGIL_STATUS_INTERNAL;
     }
 
-    trailer = (const unsigned char *)file_data + file_len - BASL_PACKAGE_TRAILER_LEN;
+    trailer = (const unsigned char *)file_data + file_len - VIGIL_PACKAGE_TRAILER_LEN;
 
     /* Check magic. */
-    if (memcmp(trailer + 8 + BASL_PACKAGE_KEY_LEN, BASL_PACKAGE_MAGIC, BASL_PACKAGE_MAGIC_LEN) != 0) {
+    if (memcmp(trailer + 8 + VIGIL_PACKAGE_KEY_LEN, VIGIL_PACKAGE_MAGIC, VIGIL_PACKAGE_MAGIC_LEN) != 0) {
         free(file_data);
-        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "not a packaged binary"; error->length = 21; }
-        return BASL_STATUS_INTERNAL;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "not a packaged binary"; error->length = 21; }
+        return VIGIL_STATUS_INTERNAL;
     }
 
     payload_len = read_u64_le(trailer);
-    memcpy(key, trailer + 8, BASL_PACKAGE_KEY_LEN);
+    memcpy(key, trailer + 8, VIGIL_PACKAGE_KEY_LEN);
 
-    if (payload_len == 0 || payload_len > file_len - BASL_PACKAGE_TRAILER_LEN) {
+    if (payload_len == 0 || payload_len > file_len - VIGIL_PACKAGE_TRAILER_LEN) {
         free(file_data);
-        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "invalid payload size"; error->length = 20; }
-        return BASL_STATUS_INTERNAL;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "invalid payload size"; error->length = 20; }
+        return VIGIL_STATUS_INTERNAL;
     }
 
     /* Extract and decrypt zip data. */
     zip_data = (unsigned char *)malloc((size_t)payload_len);
     if (zip_data == NULL) {
         free(file_data);
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
-    memcpy(zip_data, file_data + file_len - BASL_PACKAGE_TRAILER_LEN - payload_len, (size_t)payload_len);
+    memcpy(zip_data, file_data + file_len - VIGIL_PACKAGE_TRAILER_LEN - payload_len, (size_t)payload_len);
     free(file_data);
 
     if (!key_is_zero(key)) {
-        xor_cipher(zip_data, (size_t)payload_len, key, BASL_PACKAGE_KEY_LEN);
+        xor_cipher(zip_data, (size_t)payload_len, key, VIGIL_PACKAGE_KEY_LEN);
     }
 
     /* Parse ZIP. */
@@ -401,37 +401,37 @@ static basl_status_t read_bundle_from_file(
                    &out_bundle->paths, &out_bundle->contents,
                    &out_bundle->content_lengths, &out_bundle->file_count)) {
         free(zip_data);
-        if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "invalid zip archive"; error->length = 19; }
-        return BASL_STATUS_INTERNAL;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "invalid zip archive"; error->length = 19; }
+        return VIGIL_STATUS_INTERNAL;
     }
 
     free(zip_data);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_package_read(
+vigil_status_t vigil_package_read(
     const char *binary_path,
-    basl_package_bundle_t *out_bundle,
-    basl_error_t *error
+    vigil_package_bundle_t *out_bundle,
+    vigil_error_t *error
 ) {
     if (binary_path == NULL || out_bundle == NULL)
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     return read_bundle_from_file(binary_path, out_bundle, error);
 }
 
-basl_status_t basl_package_read_self(
-    basl_package_bundle_t *out_bundle,
-    basl_error_t *error
+vigil_status_t vigil_package_read_self(
+    vigil_package_bundle_t *out_bundle,
+    vigil_error_t *error
 ) {
     char self_path[4096];
-    basl_status_t status;
-    if (out_bundle == NULL) return BASL_STATUS_INVALID_ARGUMENT;
-    status = basl_platform_self_exe(self_path, sizeof(self_path), error);
-    if (status != BASL_STATUS_OK) return status;
+    vigil_status_t status;
+    if (out_bundle == NULL) return VIGIL_STATUS_INVALID_ARGUMENT;
+    status = vigil_platform_self_exe(self_path, sizeof(self_path), error);
+    if (status != VIGIL_STATUS_OK) return status;
     return read_bundle_from_file(self_path, out_bundle, error);
 }
 
-void basl_package_bundle_free(basl_package_bundle_t *bundle) {
+void vigil_package_bundle_free(vigil_package_bundle_t *bundle) {
     size_t i;
     if (bundle == NULL) return;
     for (i = 0; i < bundle->file_count; i++) {

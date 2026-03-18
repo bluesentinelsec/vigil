@@ -1,4 +1,4 @@
-/* BASL standard library: unsafe module.
+/* VIGIL standard library: unsafe module.
  *
  * Low-level memory operations for FFI interop.
  *
@@ -43,56 +43,56 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_internal.h"
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_internal.h"
+#include "internal/vigil_nanbox.h"
 #include "internal/ffi_callback.h"
 
-/* For basl_string_object_new_cstr */
-#include "basl/runtime.h"
+/* For vigil_string_object_new_cstr */
+#include "vigil/runtime.h"
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
-static basl_status_t push_i64(basl_vm_t *vm, int64_t v, basl_error_t *error) {
-    basl_value_t val = basl_nanbox_encode_int(v);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_i64(vigil_vm_t *vm, int64_t v, vigil_error_t *error) {
+    vigil_value_t val = vigil_nanbox_encode_int(v);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
-static basl_status_t push_i32(basl_vm_t *vm, int32_t v, basl_error_t *error) {
-    basl_value_t val = basl_nanbox_encode_i32(v);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_i32(vigil_vm_t *vm, int32_t v, vigil_error_t *error) {
+    vigil_value_t val = vigil_nanbox_encode_i32(v);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
-static int64_t arg_i64(basl_vm_t *vm, size_t base, size_t idx) {
-    return basl_nanbox_decode_int(basl_vm_stack_get(vm, base + idx));
+static int64_t arg_i64(vigil_vm_t *vm, size_t base, size_t idx) {
+    return vigil_nanbox_decode_int(vigil_vm_stack_get(vm, base + idx));
 }
 
-static int32_t arg_i32(basl_vm_t *vm, size_t base, size_t idx) {
-    return basl_nanbox_decode_i32(basl_vm_stack_get(vm, base + idx));
+static int32_t arg_i32(vigil_vm_t *vm, size_t base, size_t idx) {
+    return vigil_nanbox_decode_i32(vigil_vm_stack_get(vm, base + idx));
 }
 
-static double arg_f64(basl_vm_t *vm, size_t base, size_t idx) {
-    return basl_nanbox_decode_double(basl_vm_stack_get(vm, base + idx));
+static double arg_f64(vigil_vm_t *vm, size_t base, size_t idx) {
+    return vigil_nanbox_decode_double(vigil_vm_stack_get(vm, base + idx));
 }
 
-static basl_status_t push_f64(basl_vm_t *vm, double v, basl_error_t *error) {
-    basl_value_t val = basl_nanbox_encode_double(v);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_f64(vigil_vm_t *vm, double v, vigil_error_t *error) {
+    vigil_value_t val = vigil_nanbox_encode_double(v);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /*
  * Read a string arg into a caller buffer (safe against stack_pop_n).
  */
-static const char *arg_str_buf(basl_vm_t *vm, size_t base, size_t idx,
+static const char *arg_str_buf(vigil_vm_t *vm, size_t base, size_t idx,
                                 char *buf, size_t bufsz) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    const basl_object_t *obj = (const basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (obj && basl_object_type(obj) == BASL_OBJECT_STRING) {
-        const char *s = basl_string_object_c_str(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    const vigil_object_t *obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+        const char *s = vigil_string_object_c_str(obj);
         size_t len = strlen(s);
         if (len >= bufsz) len = bufsz - 1;
         memcpy(buf, s, len);
@@ -103,15 +103,15 @@ static const char *arg_str_buf(basl_vm_t *vm, size_t base, size_t idx,
     return buf;
 }
 
-static basl_status_t push_string(basl_vm_t *vm, basl_runtime_t *rt,
-                                  const char *s, basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t st = basl_string_object_new_cstr(rt, s ? s : "", &obj, error);
-    if (st != BASL_STATUS_OK) return st;
-    basl_value_t val;
-    basl_value_init_object(&val, &obj);
-    st = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+static vigil_status_t push_string(vigil_vm_t *vm, vigil_runtime_t *rt,
+                                  const char *s, vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t st = vigil_string_object_new_cstr(rt, s ? s : "", &obj, error);
+    if (st != VIGIL_STATUS_OK) return st;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &obj);
+    st = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return st;
 }
 
@@ -134,29 +134,29 @@ static int buf_find_slot(void) {
 
 /* ── unsafe.alloc(i32 size) -> i64 ───────────────────────────────── */
 
-static basl_status_t basl_unsafe_alloc(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_alloc(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int32_t size = arg_i32(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (size <= 0) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.alloc: size must be > 0");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     int slot = buf_find_slot();
     if (slot < 0) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.alloc: too many buffers");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     g_bufs[slot].data = (uint8_t *)calloc((size_t)size, 1);
     if (!g_bufs[slot].data) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.alloc: out of memory");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     g_bufs[slot].size = size;
     return push_i64(vm, (int64_t)slot, error);
@@ -164,76 +164,76 @@ static basl_status_t basl_unsafe_alloc(
 
 /* ── unsafe.free(i64 buf) ────────────────────────────────────────── */
 
-static basl_status_t basl_unsafe_free(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_free(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (slot >= 0 && slot < MAX_BUFS && g_bufs[slot].data) {
         free(g_bufs[slot].data);
         g_bufs[slot].data = NULL;
         g_bufs[slot].size = 0;
     }
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.get(i64 buf, i32 index) -> i32 ───────────────────────── */
 
-static basl_status_t basl_unsafe_get(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_get(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t idx = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         idx < 0 || idx >= g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.get: index out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     return push_i32(vm, (int32_t)g_bufs[slot].data[idx], error);
 }
 
 /* ── unsafe.set(i64 buf, i32 index, i32 value) ──────────────────── */
 
-static basl_status_t basl_unsafe_set(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_set(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t idx = arg_i32(vm, base, 1);
     int32_t val = arg_i32(vm, base, 2);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         idx < 0 || idx >= g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.set: index out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     g_bufs[slot].data[idx] = (uint8_t)val;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.get_i32(i64 buf, i32 offset) -> i32 ─────────────────── */
 
-static basl_status_t basl_unsafe_get_i32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_get_i32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 4 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.get_i32: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     int32_t v;
     memcpy(&v, g_bufs[slot].data + off, 4);
@@ -242,40 +242,40 @@ static basl_status_t basl_unsafe_get_i32(
 
 /* ── unsafe.set_i32(i64 buf, i32 offset, i32 value) ─────────────── */
 
-static basl_status_t basl_unsafe_set_i32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_set_i32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     int32_t val = arg_i32(vm, base, 2);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 4 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.set_i32: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     memcpy(g_bufs[slot].data + off, &val, 4);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.get_i64(i64 buf, i32 offset) -> i64 ─────────────────── */
 
-static basl_status_t basl_unsafe_get_i64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_get_i64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 8 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.get_i64: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     int64_t v;
     memcpy(&v, g_bufs[slot].data + off, 8);
@@ -284,130 +284,130 @@ static basl_status_t basl_unsafe_get_i64(
 
 /* ── unsafe.set_i64(i64 buf, i32 offset, i64 value) ─────────────── */
 
-static basl_status_t basl_unsafe_set_i64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_set_i64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     int64_t val = arg_i64(vm, base, 2);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 8 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.set_i64: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     memcpy(g_bufs[slot].data + off, &val, 8);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.ptr(i64 buf) -> i64 ──────────────────────────────────── */
 
-static basl_status_t basl_unsafe_ptr(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_ptr(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.ptr: invalid buffer");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     return push_i64(vm, (int64_t)(intptr_t)g_bufs[slot].data, error);
 }
 
 /* ── unsafe.null() -> i64 ────────────────────────────────────────── */
 
-static basl_status_t basl_unsafe_null(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_null(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, 0, error);
 }
 
 /* ── unsafe.str(i64 ptr) -> string ───────────────────────────────── */
 /* Read a NUL-terminated C string from a raw pointer.                 */
 
-static basl_status_t basl_unsafe_str(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_str(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *p = (const char *)(intptr_t)arg_i64(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    basl_runtime_t *rt = basl_vm_runtime(vm);
+    vigil_runtime_t *rt = vigil_vm_runtime(vm);
     return push_string(vm, rt, p, error);
 }
 
 /* ── unsafe.copy(i64 dst, i32 dst_off, i64 src, i32 src_off, i32 n) ─ */
 /* Copy bytes between buffers.                                          */
 
-static basl_status_t basl_unsafe_copy(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_copy(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int dst_slot = (int)arg_i64(vm, base, 0);
     int32_t dst_off = arg_i32(vm, base, 1);
     int src_slot = (int)arg_i64(vm, base, 2);
     int32_t src_off = arg_i32(vm, base, 3);
     int32_t n = arg_i32(vm, base, 4);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (dst_slot < 0 || dst_slot >= MAX_BUFS || !g_bufs[dst_slot].data ||
         src_slot < 0 || src_slot >= MAX_BUFS || !g_bufs[src_slot].data ||
         dst_off < 0 || src_off < 0 || n < 0 ||
         dst_off + n > g_bufs[dst_slot].size ||
         src_off + n > g_bufs[src_slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.copy: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     memmove(g_bufs[dst_slot].data + dst_off,
             g_bufs[src_slot].data + src_off, (size_t)n);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.len(i64 buf) -> i32 ──────────────────────────────────── */
 
-static basl_status_t basl_unsafe_len(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_len(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.len: invalid buffer");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     return push_i32(vm, g_bufs[slot].size, error);
 }
 
 /* ── unsafe.realloc(i64 buf, i32 new_size) -> i64 ───────────────── */
 
-static basl_status_t basl_unsafe_realloc(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_realloc(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t new_size = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data || new_size <= 0) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.realloc: invalid buffer or size");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     uint8_t *p = (uint8_t *)realloc(g_bufs[slot].data, (size_t)new_size);
     if (!p) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.realloc: out of memory");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     /* Zero-fill new bytes if grown. */
     if (new_size > g_bufs[slot].size)
@@ -419,19 +419,19 @@ static basl_status_t basl_unsafe_realloc(
 
 /* ── unsafe.get_f32(i64 buf, i32 off) -> f64 ────────────────────── */
 
-static basl_status_t basl_unsafe_get_f32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_get_f32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 4 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.get_f32: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     float f;
     memcpy(&f, g_bufs[slot].data + off, 4);
@@ -440,40 +440,40 @@ static basl_status_t basl_unsafe_get_f32(
 
 /* ── unsafe.set_f32(i64 buf, i32 off, f64 val) ──────────────────── */
 
-static basl_status_t basl_unsafe_set_f32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_set_f32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     float val = (float)arg_f64(vm, base, 2);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 4 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.set_f32: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     memcpy(g_bufs[slot].data + off, &val, 4);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.get_f64(i64 buf, i32 off) -> f64 ────────────────────── */
 
-static basl_status_t basl_unsafe_get_f64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_get_f64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 8 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.get_f64: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     double d;
     memcpy(&d, g_bufs[slot].data + off, 8);
@@ -482,55 +482,55 @@ static basl_status_t basl_unsafe_get_f64(
 
 /* ── unsafe.set_f64(i64 buf, i32 off, f64 val) ──────────────────── */
 
-static basl_status_t basl_unsafe_set_f64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_set_f64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     double val = arg_f64(vm, base, 2);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + 8 > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.set_f64: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     memcpy(g_bufs[slot].data + off, &val, 8);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.write_str(i64 buf, i32 off, string s) ───────────────── */
 /* Pack a NUL-terminated C string into a buffer at offset.            */
 
-static basl_status_t basl_unsafe_write_str(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_write_str(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int slot = (int)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     char str[512];
     arg_str_buf(vm, base, 2, str, sizeof(str));
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     size_t slen = strlen(str) + 1; /* include NUL */
     if (slot < 0 || slot >= MAX_BUFS || !g_bufs[slot].data ||
         off < 0 || off + (int32_t)slen > g_bufs[slot].size) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.write_str: out of bounds");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     memcpy(g_bufs[slot].data + off, str, slen);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.sizeof_ptr() -> i32 ──────────────────────────────────── */
 
-static basl_status_t basl_unsafe_sizeof_ptr(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_sizeof_ptr(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i32(vm, (int32_t)sizeof(void *), error);
 }
 
@@ -538,152 +538,152 @@ static basl_status_t basl_unsafe_sizeof_ptr(
 /* These operate on arbitrary pointers returned by C functions.        */
 /* No bounds checking — caller is responsible for validity.            */
 
-static basl_status_t basl_unsafe_peek_u8(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_peek_u8(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i32(vm, (int32_t)p[off], error);
 }
 
-static basl_status_t basl_unsafe_peek_i32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_peek_i32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     int32_t v;
     memcpy(&v, p + off, 4);
     return push_i32(vm, v, error);
 }
 
-static basl_status_t basl_unsafe_peek_i64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_peek_i64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     int64_t v;
     memcpy(&v, p + off, 8);
     return push_i64(vm, v, error);
 }
 
-static basl_status_t basl_unsafe_peek_f32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_peek_f32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     float f;
     memcpy(&f, p + off, 4);
     return push_f64(vm, (double)f, error);
 }
 
-static basl_status_t basl_unsafe_peek_f64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_peek_f64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     double d;
     memcpy(&d, p + off, 8);
     return push_f64(vm, d, error);
 }
 
-static basl_status_t basl_unsafe_peek_ptr(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_peek_ptr(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     void *v;
     memcpy(&v, p + off, sizeof(void *));
     return push_i64(vm, (int64_t)(intptr_t)v, error);
 }
 
-static basl_status_t basl_unsafe_poke_u8(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_poke_u8(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     uint8_t val = (uint8_t)arg_i32(vm, base, 2);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     p[off] = val;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_unsafe_poke_i32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_poke_i32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     int32_t val = arg_i32(vm, base, 2);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     memcpy(p + off, &val, 4);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_unsafe_poke_i64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_poke_i64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     int64_t val = arg_i64(vm, base, 2);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     memcpy(p + off, &val, 8);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_unsafe_poke_f32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_poke_f32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     float val = (float)arg_f64(vm, base, 2);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     memcpy(p + off, &val, 4);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_unsafe_poke_f64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_poke_f64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     double val = arg_f64(vm, base, 2);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     memcpy(p + off, &val, 8);
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_unsafe_poke_ptr(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_poke_ptr(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     uint8_t *p = (uint8_t *)(intptr_t)arg_i64(vm, base, 0);
     int32_t off = arg_i32(vm, base, 1);
     void *val = (void *)(intptr_t)arg_i64(vm, base, 2);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     memcpy(p + off, &val, sizeof(void *));
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.sizeof(string type_name) -> i32 ──────────────────────── */
@@ -706,38 +706,38 @@ static int32_t type_align(const char *t) {
     return type_sizeof(t);
 }
 
-static basl_status_t basl_unsafe_sizeof(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_sizeof(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     char name[32];
     arg_str_buf(vm, base, 0, name, sizeof(name));
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     int32_t sz = type_sizeof(name);
     if (sz == 0) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.sizeof: unknown type");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     return push_i32(vm, sz, error);
 }
 
 /* ── unsafe.alignof(string type_name) -> i32 ─────────────────────── */
 
-static basl_status_t basl_unsafe_alignof(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_alignof(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     char name[32];
     arg_str_buf(vm, base, 0, name, sizeof(name));
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     int32_t a = type_align(name);
     if (a == 0) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.alignof: unknown type");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     return push_i32(vm, a, error);
 }
@@ -747,14 +747,14 @@ static basl_status_t basl_unsafe_alignof(
 /* compute the byte offset of the field at field_index, respecting     */
 /* natural alignment and padding.                                      */
 
-static basl_status_t basl_unsafe_offsetof(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_offsetof(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     char layout[256];
     arg_str_buf(vm, base, 0, layout, sizeof(layout));
     int32_t target = arg_i32(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     int32_t offset = 0;
     int32_t idx = 0;
@@ -768,9 +768,9 @@ static basl_status_t basl_unsafe_offsetof(
         int32_t sz = type_sizeof(p);
         int32_t al = type_align(p);
         if (sz == 0) {
-            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                    "unsafe.offsetof: unknown type in layout");
-            return BASL_STATUS_INTERNAL;
+            return VIGIL_STATUS_INTERNAL;
         }
         /* Align offset. */
         if (al > 0) offset = (offset + al - 1) & ~(al - 1);
@@ -779,22 +779,22 @@ static basl_status_t basl_unsafe_offsetof(
         idx++;
         p = comma ? comma + 1 : p + strlen(p);
     }
-    basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+    vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                            "unsafe.offsetof: field index out of range");
-    return BASL_STATUS_INTERNAL;
+    return VIGIL_STATUS_INTERNAL;
 }
 
 /* ── unsafe.struct_size(string types_csv) -> i32 ─────────────────── */
 /* Total size of a struct with the given field types, including tail   */
 /* padding for alignment.                                              */
 
-static basl_status_t basl_unsafe_struct_size(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_struct_size(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     char layout[256];
     arg_str_buf(vm, base, 0, layout, sizeof(layout));
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     int32_t offset = 0;
     int32_t max_align = 1;
@@ -807,9 +807,9 @@ static basl_status_t basl_unsafe_struct_size(
         int32_t sz = type_sizeof(p);
         int32_t al = type_align(p);
         if (sz == 0) {
-            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                    "unsafe.struct_size: unknown type in layout");
-            return BASL_STATUS_INTERNAL;
+            return VIGIL_STATUS_INTERNAL;
         }
         if (al > max_align) max_align = al;
         offset = (offset + al - 1) & ~(al - 1);
@@ -823,126 +823,126 @@ static basl_status_t basl_unsafe_struct_size(
 
 /* ── unsafe.errno() -> i32 ───────────────────────────────────────── */
 
-static basl_status_t basl_unsafe_errno(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_errno(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i32(vm, (int32_t)errno, error);
 }
 
 /* ── unsafe.set_errno(i32 val) ───────────────────────────────────── */
 
-static basl_status_t basl_unsafe_set_errno(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_set_errno(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int32_t val = arg_i32(vm, base, 0);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     errno = val;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── unsafe.cb_alloc() -> i64 ────────────────────────────────────── */
 
-static basl_status_t basl_unsafe_cb_alloc(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_cb_alloc(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     void *ptr = NULL;
-    int slot = basl_ffi_callback_alloc(&ptr);
+    int slot = vigil_ffi_callback_alloc(&ptr);
     if (slot < 0) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "unsafe.cb_alloc: all callback slots in use");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
     return push_i64(vm, (int64_t)(intptr_t)ptr, error);
 }
 
 /* ── unsafe.cb_free(i32 slot) ────────────────────────────────────── */
 
-static basl_status_t basl_unsafe_cb_free(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_unsafe_cb_free(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int32_t slot = arg_i32(vm, base, 0);
     (void)error;
-    basl_vm_stack_pop_n(vm, arg_count);
-    basl_ffi_callback_free(slot);
-    return BASL_STATUS_OK;
+    vigil_vm_stack_pop_n(vm, arg_count);
+    vigil_ffi_callback_free(slot);
+    return VIGIL_STATUS_OK;
 }
 
 /* ── module descriptor ───────────────────────────────────────────── */
 
-static const int p_i32[] = { BASL_TYPE_I32 };
-static const int p_i64[] = { BASL_TYPE_I64 };
-static const int p_i64_i32[] = { BASL_TYPE_I64, BASL_TYPE_I32 };
-static const int p_i64_i32_i32[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I32 };
-static const int p_i64_i32_i64[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64 };
-static const int p_i64_i32_f64[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_F64 };
-static const int p_i64_i32_str[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING };
-static const int p_str[] = { BASL_TYPE_STRING };
-static const int p_str_i32[] = { BASL_TYPE_STRING, BASL_TYPE_I32 };
-static const int p_copy[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_I64,
-                               BASL_TYPE_I32, BASL_TYPE_I32 };
+static const int p_i32[] = { VIGIL_TYPE_I32 };
+static const int p_i64[] = { VIGIL_TYPE_I64 };
+static const int p_i64_i32[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32 };
+static const int p_i64_i32_i32[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32, VIGIL_TYPE_I32 };
+static const int p_i64_i32_i64[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32, VIGIL_TYPE_I64 };
+static const int p_i64_i32_f64[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32, VIGIL_TYPE_F64 };
+static const int p_i64_i32_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32, VIGIL_TYPE_STRING };
+static const int p_str[] = { VIGIL_TYPE_STRING };
+static const int p_str_i32[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_I32 };
+static const int p_copy[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32, VIGIL_TYPE_I64,
+                               VIGIL_TYPE_I32, VIGIL_TYPE_I32 };
 
 #define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL, 0, NULL, NULL }
-#define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, BASL_TYPE_VOID, 0, NULL, 0, NULL, NULL }
+#define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, VIGIL_TYPE_VOID, 0, NULL, 0, NULL, NULL }
 
-static const basl_native_module_function_t basl_unsafe_functions[] = {
+static const vigil_native_module_function_t vigil_unsafe_functions[] = {
     /* Buffer management */
-    F("alloc",      5U,  basl_unsafe_alloc,      1U, p_i32,         BASL_TYPE_I64),
-    F("realloc",    7U,  basl_unsafe_realloc,    2U, p_i64_i32,     BASL_TYPE_I64),
-    FV("free",      4U,  basl_unsafe_free,       1U, p_i64),
-    F("ptr",        3U,  basl_unsafe_ptr,        1U, p_i64,         BASL_TYPE_I64),
-    F("len",        3U,  basl_unsafe_len,        1U, p_i64,         BASL_TYPE_I32),
+    F("alloc",      5U,  vigil_unsafe_alloc,      1U, p_i32,         VIGIL_TYPE_I64),
+    F("realloc",    7U,  vigil_unsafe_realloc,    2U, p_i64_i32,     VIGIL_TYPE_I64),
+    FV("free",      4U,  vigil_unsafe_free,       1U, p_i64),
+    F("ptr",        3U,  vigil_unsafe_ptr,        1U, p_i64,         VIGIL_TYPE_I64),
+    F("len",        3U,  vigil_unsafe_len,        1U, p_i64,         VIGIL_TYPE_I32),
     /* Buffer byte access */
-    F("get",        3U,  basl_unsafe_get,        2U, p_i64_i32,     BASL_TYPE_I32),
-    FV("set",       3U,  basl_unsafe_set,        3U, p_i64_i32_i32),
+    F("get",        3U,  vigil_unsafe_get,        2U, p_i64_i32,     VIGIL_TYPE_I32),
+    FV("set",       3U,  vigil_unsafe_set,        3U, p_i64_i32_i32),
     /* Buffer typed access */
-    F("get_i32",    7U,  basl_unsafe_get_i32,    2U, p_i64_i32,     BASL_TYPE_I32),
-    FV("set_i32",   7U,  basl_unsafe_set_i32,    3U, p_i64_i32_i32),
-    F("get_i64",    7U,  basl_unsafe_get_i64,    2U, p_i64_i32,     BASL_TYPE_I64),
-    FV("set_i64",   7U,  basl_unsafe_set_i64,    3U, p_i64_i32_i64),
-    F("get_f32",    7U,  basl_unsafe_get_f32,    2U, p_i64_i32,     BASL_TYPE_F64),
-    FV("set_f32",   7U,  basl_unsafe_set_f32,    3U, p_i64_i32_f64),
-    F("get_f64",    7U,  basl_unsafe_get_f64,    2U, p_i64_i32,     BASL_TYPE_F64),
-    FV("set_f64",   7U,  basl_unsafe_set_f64,    3U, p_i64_i32_f64),
-    FV("write_str", 9U,  basl_unsafe_write_str,  3U, p_i64_i32_str),
-    FV("copy",      4U,  basl_unsafe_copy,       5U, p_copy),
+    F("get_i32",    7U,  vigil_unsafe_get_i32,    2U, p_i64_i32,     VIGIL_TYPE_I32),
+    FV("set_i32",   7U,  vigil_unsafe_set_i32,    3U, p_i64_i32_i32),
+    F("get_i64",    7U,  vigil_unsafe_get_i64,    2U, p_i64_i32,     VIGIL_TYPE_I64),
+    FV("set_i64",   7U,  vigil_unsafe_set_i64,    3U, p_i64_i32_i64),
+    F("get_f32",    7U,  vigil_unsafe_get_f32,    2U, p_i64_i32,     VIGIL_TYPE_F64),
+    FV("set_f32",   7U,  vigil_unsafe_set_f32,    3U, p_i64_i32_f64),
+    F("get_f64",    7U,  vigil_unsafe_get_f64,    2U, p_i64_i32,     VIGIL_TYPE_F64),
+    FV("set_f64",   7U,  vigil_unsafe_set_f64,    3U, p_i64_i32_f64),
+    FV("write_str", 9U,  vigil_unsafe_write_str,  3U, p_i64_i32_str),
+    FV("copy",      4U,  vigil_unsafe_copy,       5U, p_copy),
     /* Raw pointer peek/poke (unchecked) */
-    F("peek_u8",    7U,  basl_unsafe_peek_u8,    2U, p_i64_i32,     BASL_TYPE_I32),
-    F("peek_i32",   8U,  basl_unsafe_peek_i32,   2U, p_i64_i32,     BASL_TYPE_I32),
-    F("peek_i64",   8U,  basl_unsafe_peek_i64,   2U, p_i64_i32,     BASL_TYPE_I64),
-    F("peek_f32",   8U,  basl_unsafe_peek_f32,   2U, p_i64_i32,     BASL_TYPE_F64),
-    F("peek_f64",   8U,  basl_unsafe_peek_f64,   2U, p_i64_i32,     BASL_TYPE_F64),
-    F("peek_ptr",   8U,  basl_unsafe_peek_ptr,   2U, p_i64_i32,     BASL_TYPE_I64),
-    FV("poke_u8",   7U,  basl_unsafe_poke_u8,    3U, p_i64_i32_i32),
-    FV("poke_i32",  8U,  basl_unsafe_poke_i32,   3U, p_i64_i32_i32),
-    FV("poke_i64",  8U,  basl_unsafe_poke_i64,   3U, p_i64_i32_i64),
-    FV("poke_f32",  8U,  basl_unsafe_poke_f32,   3U, p_i64_i32_f64),
-    FV("poke_f64",  8U,  basl_unsafe_poke_f64,   3U, p_i64_i32_f64),
-    FV("poke_ptr",  8U,  basl_unsafe_poke_ptr,   3U, p_i64_i32_i64),
+    F("peek_u8",    7U,  vigil_unsafe_peek_u8,    2U, p_i64_i32,     VIGIL_TYPE_I32),
+    F("peek_i32",   8U,  vigil_unsafe_peek_i32,   2U, p_i64_i32,     VIGIL_TYPE_I32),
+    F("peek_i64",   8U,  vigil_unsafe_peek_i64,   2U, p_i64_i32,     VIGIL_TYPE_I64),
+    F("peek_f32",   8U,  vigil_unsafe_peek_f32,   2U, p_i64_i32,     VIGIL_TYPE_F64),
+    F("peek_f64",   8U,  vigil_unsafe_peek_f64,   2U, p_i64_i32,     VIGIL_TYPE_F64),
+    F("peek_ptr",   8U,  vigil_unsafe_peek_ptr,   2U, p_i64_i32,     VIGIL_TYPE_I64),
+    FV("poke_u8",   7U,  vigil_unsafe_poke_u8,    3U, p_i64_i32_i32),
+    FV("poke_i32",  8U,  vigil_unsafe_poke_i32,   3U, p_i64_i32_i32),
+    FV("poke_i64",  8U,  vigil_unsafe_poke_i64,   3U, p_i64_i32_i64),
+    FV("poke_f32",  8U,  vigil_unsafe_poke_f32,   3U, p_i64_i32_f64),
+    FV("poke_f64",  8U,  vigil_unsafe_poke_f64,   3U, p_i64_i32_f64),
+    FV("poke_ptr",  8U,  vigil_unsafe_poke_ptr,   3U, p_i64_i32_i64),
     /* Utility */
-    F("null",        4U,  basl_unsafe_null,        0U, NULL,           BASL_TYPE_I64),
-    F("sizeof_ptr",  10U, basl_unsafe_sizeof_ptr,  0U, NULL,           BASL_TYPE_I32),
-    F("sizeof",      6U,  basl_unsafe_sizeof,      1U, p_str,         BASL_TYPE_I32),
-    F("alignof",     7U,  basl_unsafe_alignof,     1U, p_str,         BASL_TYPE_I32),
-    F("offsetof",    8U,  basl_unsafe_offsetof,    2U, p_str_i32,     BASL_TYPE_I32),
-    F("struct_size", 11U, basl_unsafe_struct_size,  1U, p_str,         BASL_TYPE_I32),
-    F("errno",       5U,  basl_unsafe_errno,       0U, NULL,           BASL_TYPE_I32),
-    FV("set_errno",  9U,  basl_unsafe_set_errno,   1U, p_i32),
-    F("str",         3U,  basl_unsafe_str,         1U, p_i64,         BASL_TYPE_STRING),
-    F("cb_alloc",    8U,  basl_unsafe_cb_alloc,    0U, NULL,           BASL_TYPE_I64),
-    FV("cb_free",    7U,  basl_unsafe_cb_free,     1U, p_i32),
+    F("null",        4U,  vigil_unsafe_null,        0U, NULL,           VIGIL_TYPE_I64),
+    F("sizeof_ptr",  10U, vigil_unsafe_sizeof_ptr,  0U, NULL,           VIGIL_TYPE_I32),
+    F("sizeof",      6U,  vigil_unsafe_sizeof,      1U, p_str,         VIGIL_TYPE_I32),
+    F("alignof",     7U,  vigil_unsafe_alignof,     1U, p_str,         VIGIL_TYPE_I32),
+    F("offsetof",    8U,  vigil_unsafe_offsetof,    2U, p_str_i32,     VIGIL_TYPE_I32),
+    F("struct_size", 11U, vigil_unsafe_struct_size,  1U, p_str,         VIGIL_TYPE_I32),
+    F("errno",       5U,  vigil_unsafe_errno,       0U, NULL,           VIGIL_TYPE_I32),
+    FV("set_errno",  9U,  vigil_unsafe_set_errno,   1U, p_i32),
+    F("str",         3U,  vigil_unsafe_str,         1U, p_i64,         VIGIL_TYPE_STRING),
+    F("cb_alloc",    8U,  vigil_unsafe_cb_alloc,    0U, NULL,           VIGIL_TYPE_I64),
+    FV("cb_free",    7U,  vigil_unsafe_cb_free,     1U, p_i32),
 };
 
 #undef F
 #undef FV
 
-BASL_API const basl_native_module_t basl_stdlib_unsafe = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_unsafe = {
     "unsafe", 6U,
-    basl_unsafe_functions,
-    sizeof(basl_unsafe_functions) / sizeof(basl_unsafe_functions[0]),
+    vigil_unsafe_functions,
+    sizeof(vigil_unsafe_functions) / sizeof(vigil_unsafe_functions[0]),
     NULL, 0U
 };

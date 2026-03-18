@@ -1,236 +1,236 @@
-/* BASL standard library: regex module
+/* VIGIL standard library: regex module
  *
  * RE2-style regular expressions with linear time guarantees.
  */
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 
 #include "regex.h"
 
 /* ── Helpers ────────────────────────────────────────────────── */
 
-static bool get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
+static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
                            const char **str, size_t *len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (!basl_nanbox_is_object(v)) return false;
-    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return false;
-    *str = basl_string_object_c_str(obj);
-    *len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (!vigil_nanbox_is_object(v)) return false;
+    vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    *str = vigil_string_object_c_str(obj);
+    *len = vigil_string_object_length(obj);
     return true;
 }
 
-static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
-                                  basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    basl_value_t val;
-    basl_value_init_object(&val, &obj);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
+                                  vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &obj);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
-static basl_status_t push_bool(basl_vm_t *vm, bool b, basl_error_t *error) {
-    basl_value_t val;
-    basl_value_init_bool(&val, b);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_bool(vigil_vm_t *vm, bool b, vigil_error_t *error) {
+    vigil_value_t val;
+    vigil_value_init_bool(&val, b);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /* ── regex.match(pattern, input) -> bool ────────────────────── */
 
-static basl_status_t basl_regex_match_fn(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_regex_match_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *pattern, *input;
     size_t pattern_len, input_len;
 
     if (!get_string_arg(vm, base, 0, &pattern, &pattern_len) ||
         !get_string_arg(vm, base, 1, &input, &input_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, false, error);
     }
 
     char err_buf[128];
-    basl_regex_t *re = basl_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, false, error);
     }
 
-    bool matched = basl_regex_match(re, input, input_len, NULL);
-    basl_regex_free(re);
+    bool matched = vigil_regex_match(re, input, input_len, NULL);
+    vigil_regex_free(re);
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_bool(vm, matched, error);
 }
 
 /* ── regex.find(pattern, input) -> (string, bool) ───────────── */
 
-static basl_status_t basl_regex_find_fn(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_regex_find_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *pattern, *input;
     size_t pattern_len, input_len;
-    basl_status_t s;
+    vigil_status_t s;
 
     if (!get_string_arg(vm, base, 0, &pattern, &pattern_len) ||
         !get_string_arg(vm, base, 1, &input, &input_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         s = push_string(vm, "", 0, error);
-        if (s == BASL_STATUS_OK) s = push_bool(vm, false, error);
+        if (s == VIGIL_STATUS_OK) s = push_bool(vm, false, error);
         return s;
     }
 
     char err_buf[128];
-    basl_regex_t *re = basl_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         s = push_string(vm, "", 0, error);
-        if (s == BASL_STATUS_OK) s = push_bool(vm, false, error);
+        if (s == VIGIL_STATUS_OK) s = push_bool(vm, false, error);
         return s;
     }
 
-    basl_regex_result_t result;
-    bool found = basl_regex_find(re, input, input_len, &result);
-    basl_regex_free(re);
+    vigil_regex_result_t result;
+    bool found = vigil_regex_find(re, input, input_len, &result);
+    vigil_regex_free(re);
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (found && result.groups[0].start != SIZE_MAX) {
         size_t start = result.groups[0].start;
         size_t end = result.groups[0].end;
         s = push_string(vm, input + start, end - start, error);
-        if (s == BASL_STATUS_OK) s = push_bool(vm, true, error);
+        if (s == VIGIL_STATUS_OK) s = push_bool(vm, true, error);
     } else {
         s = push_string(vm, "", 0, error);
-        if (s == BASL_STATUS_OK) s = push_bool(vm, false, error);
+        if (s == VIGIL_STATUS_OK) s = push_bool(vm, false, error);
     }
     return s;
 }
 
 /* ── regex.find_all(pattern, input) -> array<string> ────────── */
 
-static basl_status_t basl_regex_find_all_fn(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_regex_find_all_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *pattern, *input;
     size_t pattern_len, input_len;
-    basl_status_t s;
+    vigil_status_t s;
 
     if (!get_string_arg(vm, base, 0, &pattern, &pattern_len) ||
         !get_string_arg(vm, base, 1, &input, &input_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         /* Return empty array */
-        basl_object_t *arr = NULL;
-        s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-        if (s != BASL_STATUS_OK) return s;
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_object_t *arr = NULL;
+        s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+        if (s != VIGIL_STATUS_OK) return s;
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
 
     char err_buf[128];
-    basl_regex_t *re = basl_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re) {
-        basl_vm_stack_pop_n(vm, arg_count);
-        basl_object_t *arr = NULL;
-        s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-        if (s != BASL_STATUS_OK) return s;
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_vm_stack_pop_n(vm, arg_count);
+        vigil_object_t *arr = NULL;
+        s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+        if (s != VIGIL_STATUS_OK) return s;
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
 
-    basl_regex_result_t results[256];
-    size_t count = basl_regex_find_all(re, input, input_len, results, 256);
-    basl_regex_free(re);
+    vigil_regex_result_t results[256];
+    size_t count = vigil_regex_find_all(re, input, input_len, results, 256);
+    vigil_regex_free(re);
 
     /* Build array of match strings */
-    basl_value_t *items = NULL;
+    vigil_value_t *items = NULL;
     if (count > 0) {
-        items = malloc(count * sizeof(basl_value_t));
+        items = malloc(count * sizeof(vigil_value_t));
         if (!items) {
-            basl_vm_stack_pop_n(vm, arg_count);
-            return BASL_STATUS_OUT_OF_MEMORY;
+            vigil_vm_stack_pop_n(vm, arg_count);
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
         for (size_t i = 0; i < count; i++) {
             size_t start = results[i].groups[0].start;
             size_t end = results[i].groups[0].end;
-            basl_object_t *str_obj = NULL;
-            s = basl_string_object_new(basl_vm_runtime(vm), input + start, end - start, &str_obj, error);
-            if (s != BASL_STATUS_OK) {
-                for (size_t j = 0; j < i; j++) basl_value_release(&items[j]);
+            vigil_object_t *str_obj = NULL;
+            s = vigil_string_object_new(vigil_vm_runtime(vm), input + start, end - start, &str_obj, error);
+            if (s != VIGIL_STATUS_OK) {
+                for (size_t j = 0; j < i; j++) vigil_value_release(&items[j]);
                 free(items);
-                basl_vm_stack_pop_n(vm, arg_count);
+                vigil_vm_stack_pop_n(vm, arg_count);
                 return s;
             }
-            basl_value_init_object(&items[i], &str_obj);
+            vigil_value_init_object(&items[i], &str_obj);
         }
     }
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    basl_object_t *arr = NULL;
-    s = basl_array_object_new(basl_vm_runtime(vm), items, count, &arr, error);
-    for (size_t i = 0; i < count; i++) basl_value_release(&items[i]);
+    vigil_object_t *arr = NULL;
+    s = vigil_array_object_new(vigil_vm_runtime(vm), items, count, &arr, error);
+    for (size_t i = 0; i < count; i++) vigil_value_release(&items[i]);
     free(items);
-    if (s != BASL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK) return s;
 
-    basl_value_t val;
-    basl_value_init_object(&val, &arr);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+    vigil_value_t val;
+    vigil_value_init_object(&val, &arr);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
 /* ── regex.replace(pattern, input, replacement) -> string ───── */
 
-static basl_status_t basl_regex_replace_fn(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_regex_replace_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *pattern, *input, *replacement;
     size_t pattern_len, input_len, replacement_len;
-    basl_status_t s;
+    vigil_status_t s;
 
     if (!get_string_arg(vm, base, 0, &pattern, &pattern_len) ||
         !get_string_arg(vm, base, 1, &input, &input_len) ||
         !get_string_arg(vm, base, 2, &replacement, &replacement_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
 
     char err_buf[128];
-    basl_regex_t *re = basl_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, input, input_len, error);
     }
 
     char *output = NULL;
     size_t output_len = 0;
-    s = basl_regex_replace(re, input, input_len, replacement, replacement_len, &output, &output_len);
-    basl_regex_free(re);
+    s = vigil_regex_replace(re, input, input_len, replacement, replacement_len, &output, &output_len);
+    vigil_regex_free(re);
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (s != BASL_STATUS_OK || !output) {
+    if (s != VIGIL_STATUS_OK || !output) {
         return push_string(vm, input, input_len, error);
     }
 
@@ -241,36 +241,36 @@ static basl_status_t basl_regex_replace_fn(
 
 /* ── regex.replace_all(pattern, input, replacement) -> string ─ */
 
-static basl_status_t basl_regex_replace_all_fn(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_regex_replace_all_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *pattern, *input, *replacement;
     size_t pattern_len, input_len, replacement_len;
-    basl_status_t s;
+    vigil_status_t s;
 
     if (!get_string_arg(vm, base, 0, &pattern, &pattern_len) ||
         !get_string_arg(vm, base, 1, &input, &input_len) ||
         !get_string_arg(vm, base, 2, &replacement, &replacement_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
 
     char err_buf[128];
-    basl_regex_t *re = basl_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, input, input_len, error);
     }
 
     char *output = NULL;
     size_t output_len = 0;
-    s = basl_regex_replace_all(re, input, input_len, replacement, replacement_len, &output, &output_len);
-    basl_regex_free(re);
+    s = vigil_regex_replace_all(re, input, input_len, replacement, replacement_len, &output, &output_len);
+    vigil_regex_free(re);
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (s != BASL_STATUS_OK || !output) {
+    if (s != VIGIL_STATUS_OK || !output) {
         return push_string(vm, input, input_len, error);
     }
 
@@ -281,159 +281,159 @@ static basl_status_t basl_regex_replace_all_fn(
 
 /* ── regex.split(pattern, input) -> array<string> ───────────── */
 
-static basl_status_t basl_regex_split_fn(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_regex_split_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *pattern, *input;
     size_t pattern_len, input_len;
-    basl_status_t s;
+    vigil_status_t s;
 
     if (!get_string_arg(vm, base, 0, &pattern, &pattern_len) ||
         !get_string_arg(vm, base, 1, &input, &input_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
-        basl_object_t *arr = NULL;
-        s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-        if (s != BASL_STATUS_OK) return s;
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_vm_stack_pop_n(vm, arg_count);
+        vigil_object_t *arr = NULL;
+        s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+        if (s != VIGIL_STATUS_OK) return s;
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
 
     char err_buf[128];
-    basl_regex_t *re = basl_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         /* Return array with just the input */
-        basl_object_t *str_obj = NULL;
-        s = basl_string_object_new(basl_vm_runtime(vm), input, input_len, &str_obj, error);
-        if (s != BASL_STATUS_OK) return s;
-        basl_value_t item;
-        basl_value_init_object(&item, &str_obj);
-        basl_object_t *arr = NULL;
-        s = basl_array_object_new(basl_vm_runtime(vm), &item, 1, &arr, error);
-        basl_value_release(&item);
-        if (s != BASL_STATUS_OK) return s;
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_object_t *str_obj = NULL;
+        s = vigil_string_object_new(vigil_vm_runtime(vm), input, input_len, &str_obj, error);
+        if (s != VIGIL_STATUS_OK) return s;
+        vigil_value_t item;
+        vigil_value_init_object(&item, &str_obj);
+        vigil_object_t *arr = NULL;
+        s = vigil_array_object_new(vigil_vm_runtime(vm), &item, 1, &arr, error);
+        vigil_value_release(&item);
+        if (s != VIGIL_STATUS_OK) return s;
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
 
     char **parts = NULL;
     size_t *part_lens = NULL;
     size_t part_count = 0;
-    s = basl_regex_split(re, input, input_len, &parts, &part_lens, &part_count);
-    basl_regex_free(re);
+    s = vigil_regex_split(re, input, input_len, &parts, &part_lens, &part_count);
+    vigil_regex_free(re);
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (s != BASL_STATUS_OK) {
+    if (s != VIGIL_STATUS_OK) {
         return s;
     }
 
     /* Build array */
-    basl_value_t *items = malloc(part_count * sizeof(basl_value_t));
+    vigil_value_t *items = malloc(part_count * sizeof(vigil_value_t));
     if (!items) {
         for (size_t i = 0; i < part_count; i++) free(parts[i]);
         free(parts);
         free(part_lens);
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     for (size_t i = 0; i < part_count; i++) {
-        basl_object_t *str_obj = NULL;
-        s = basl_string_object_new(basl_vm_runtime(vm), parts[i], part_lens[i], &str_obj, error);
+        vigil_object_t *str_obj = NULL;
+        s = vigil_string_object_new(vigil_vm_runtime(vm), parts[i], part_lens[i], &str_obj, error);
         free(parts[i]);
-        if (s != BASL_STATUS_OK) {
-            for (size_t j = 0; j < i; j++) basl_value_release(&items[j]);
+        if (s != VIGIL_STATUS_OK) {
+            for (size_t j = 0; j < i; j++) vigil_value_release(&items[j]);
             for (size_t j = i + 1; j < part_count; j++) free(parts[j]);
             free(parts);
             free(part_lens);
             free(items);
             return s;
         }
-        basl_value_init_object(&items[i], &str_obj);
+        vigil_value_init_object(&items[i], &str_obj);
     }
     free(parts);
     free(part_lens);
 
-    basl_object_t *arr = NULL;
-    s = basl_array_object_new(basl_vm_runtime(vm), items, part_count, &arr, error);
-    for (size_t i = 0; i < part_count; i++) basl_value_release(&items[i]);
+    vigil_object_t *arr = NULL;
+    s = vigil_array_object_new(vigil_vm_runtime(vm), items, part_count, &arr, error);
+    for (size_t i = 0; i < part_count; i++) vigil_value_release(&items[i]);
     free(items);
-    if (s != BASL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK) return s;
 
-    basl_value_t val;
-    basl_value_init_object(&val, &arr);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+    vigil_value_t val;
+    vigil_value_init_object(&val, &arr);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
 /* ── Module Descriptor ──────────────────────────────────────── */
 
-static const int match_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int find_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int find_ret[] = { BASL_TYPE_STRING, BASL_TYPE_BOOL };
-static const int find_all_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int replace_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int split_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
+static const int match_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int find_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int find_ret[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_BOOL };
+static const int find_all_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int replace_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int split_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
 
-static const basl_native_module_function_t basl_regex_functions[] = {
+static const vigil_native_module_function_t vigil_regex_functions[] = {
     {
         "match", 5U,
-        basl_regex_match_fn,
+        vigil_regex_match_fn,
         2U, match_params,
-        BASL_TYPE_BOOL, 1U, NULL, 0,
+        VIGIL_TYPE_BOOL, 1U, NULL, 0,
         NULL, NULL
     },
     {
         "find", 4U,
-        basl_regex_find_fn,
+        vigil_regex_find_fn,
         2U, find_params,
-        BASL_TYPE_STRING, 2U, find_ret, 0,
+        VIGIL_TYPE_STRING, 2U, find_ret, 0,
         NULL, NULL
     },
     {
         "find_all", 8U,
-        basl_regex_find_all_fn,
+        vigil_regex_find_all_fn,
         2U, find_all_params,
-        BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING,
+        VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING,
         NULL, NULL
     },
     {
         "replace", 7U,
-        basl_regex_replace_fn,
+        vigil_regex_replace_fn,
         3U, replace_params,
-        BASL_TYPE_STRING, 1U, NULL, 0,
+        VIGIL_TYPE_STRING, 1U, NULL, 0,
         NULL, NULL
     },
     {
         "replace_all", 11U,
-        basl_regex_replace_all_fn,
+        vigil_regex_replace_all_fn,
         3U, replace_params,
-        BASL_TYPE_STRING, 1U, NULL, 0,
+        VIGIL_TYPE_STRING, 1U, NULL, 0,
         NULL, NULL
     },
     {
         "split", 5U,
-        basl_regex_split_fn,
+        vigil_regex_split_fn,
         2U, split_params,
-        BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING,
+        VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING,
         NULL, NULL
     },
 };
 
-#define BASL_REGEX_FUNCTION_COUNT \
-    (sizeof(basl_regex_functions) / sizeof(basl_regex_functions[0]))
+#define VIGIL_REGEX_FUNCTION_COUNT \
+    (sizeof(vigil_regex_functions) / sizeof(vigil_regex_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_regex = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_regex = {
     "regex", 5U,
-    basl_regex_functions,
-    BASL_REGEX_FUNCTION_COUNT,
+    vigil_regex_functions,
+    VIGIL_REGEX_FUNCTION_COUNT,
     NULL, 0U
 };

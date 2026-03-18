@@ -1,48 +1,48 @@
 # Unix Utilities Implementation - Language Validation
 
-This directory contains implementations of common Unix utilities in BASL to validate the language and identify gaps.
+This directory contains implementations of common Unix utilities in VIGIL to validate the language and identify gaps.
 
 ## Implemented Utilities
 
-### 1. basl-sort
+### 1. vigil-sort
 Sorts lines from stdin alphabetically.
 
-**Usage:** `cat file.txt | basl-sort`
+**Usage:** `cat file.txt | vigil-sort`
 
 **Status:** ✅ Working
 
-### 2. basl-uniq
+### 2. vigil-uniq
 Removes consecutive duplicate lines from stdin.
 
-**Usage:** `cat file.txt | basl-uniq`
+**Usage:** `cat file.txt | vigil-uniq`
 
 **Status:** ✅ Working
 
-### 3. basl-nl
+### 3. vigil-nl
 Numbers lines from stdin.
 
-**Usage:** `cat file.txt | basl-nl`
+**Usage:** `cat file.txt | vigil-nl`
 
 **Status:** ✅ Working
 
-### 4. basl-cut
+### 4. vigil-cut
 Extracts fields from delimited text.
 
-**Usage:** `cat file.txt | basl-cut --f 2 --d :`
+**Usage:** `cat file.txt | vigil-cut --f 2 --d :`
 
 **Status:** ✅ Working
 
-### 5. basl-tr
+### 5. vigil-tr
 Translates characters (character-by-character replacement).
 
-**Usage:** `echo "hello" | basl-tr aeiou 12345`
+**Usage:** `echo "hello" | vigil-tr aeiou 12345`
 
 **Status:** ✅ Working
 
-### 6. basl-paste
+### 6. vigil-paste
 Merges lines from multiple files side-by-side.
 
-**Usage:** `basl-paste file1.txt file2.txt`
+**Usage:** `vigil-paste file1.txt file2.txt`
 
 **Status:** ✅ Working
 
@@ -51,34 +51,34 @@ Merges lines from multiple files side-by-side.
 ### 1. Missing `strings.split()` function ⚠️
 **Impact:** Medium  
 **Workaround:** Use built-in `string.split()` method instead  
-**Found in:** basl-cut implementation  
+**Found in:** vigil-cut implementation  
 **Resolution:** Documentation shows `string.split()` method exists, so no stdlib function needed
 
 ### 2. No `io.read()` for chunked stdin reading ⚠️
 **Impact:** High  
 **Status:** Implemented in PR #20  
-**Found in:** basl-tr (needs to process large streams efficiently)  
+**Found in:** vigil-tr (needs to process large streams efficiently)  
 **Resolution:** Using `io.read(4096)` for chunked processing
 
 ### 3. No documented way to distinguish EOF from other errors ⚠️
 **Impact:** Medium  
 **Status:** ✅ Resolved - Typed error kinds distinguish EOF from other errors  
 **Issue:** Previously had to rely on `string(err) == "err(\"EOF\")"` to detect EOF vs I/O errors  
-**Found in:** basl-paste (needs to distinguish EOF from read failures)  
+**Found in:** vigil-paste (needs to distinguish EOF from read failures)  
 **Resolution:** Typed error kinds: `e.kind() == err.eof` distinguishes EOF from other errors  
 **Usage:** `if (e.kind() == err.eof) { /* handle EOF */ }`
 
 ### 4. Type casting verbosity
 **Impact:** Low  
 **Example:** `c >= u8(48) && c <= u8(57)` requires explicit casts  
-**Found in:** basl-cut (parsing field numbers)  
+**Found in:** vigil-cut (parsing field numbers)  
 **Note:** This is by design for type safety
 
 ### 5. No string interpolation in map access
 **Impact:** Low  
 **Example:** Cannot use `f"{opts['f']}"` directly in f-strings  
 **Workaround:** Assign to variable first: `string val = opts["f"]; fmt.println(f"{val}");`  
-**Found in:** basl-cut
+**Found in:** vigil-cut
 
 ## Language Features Validated ✅
 
@@ -123,19 +123,19 @@ Merges lines from multiple files side-by-side.
 
 ## Testing
 
-All utilities have automated test suites using the BASL test framework (`t.assert`):
+All utilities have automated test suites using the VIGIL test framework (`t.assert`):
 
 ```bash
 # Run all utility tests
-./basl test examples/basl-*/test/
+./vigil test examples/vigil-*/test/
 
 # Or test individually
-./basl test examples/basl-sort/test/
-./basl test examples/basl-uniq/test/
-./basl test examples/basl-nl/test/
-./basl test examples/basl-cut/test/
-./basl test examples/basl-tr/test/
-./basl test examples/basl-paste/test/
+./vigil test examples/vigil-sort/test/
+./vigil test examples/vigil-uniq/test/
+./vigil test examples/vigil-nl/test/
+./vigil test examples/vigil-cut/test/
+./vigil test examples/vigil-tr/test/
+./vigil test examples/vigil-paste/test/
 ```
 
 **Platform note:** Most tests require a Unix-like shell (`sh`) for stdin redirection and pipes. Windows users should run tests in WSL, Git Bash, or similar environment. The `paste` test is fully cross-platform (uses file arguments only).
@@ -149,19 +149,19 @@ All utilities have automated test suites using the BASL test framework (`t.asser
 
 **Example test assertions:**
 ```c
-// sort_test.basl
+// sort_test.vigil
 t.assert(out == "apple\nbanana\nzebra\n", "should sort lines alphabetically");
 
-// uniq_test.basl
+// uniq_test.vigil
 t.assert(out == "a\nb\nc\n", "should remove consecutive duplicates");
 
-// cut_test.basl
+// cut_test.vigil
 t.assert(out == "b\ne\n", "should extract field 2 from both lines");
 
-// tr_test.basl
+// tr_test.vigil
 t.assert(out == "h2ll4 w4rld\n", "should translate all vowels");
 
-// paste_test.basl
+// paste_test.vigil
 t.assert(out == "a\t1\nb\t2\nc\t3\n", "should merge lines with tabs");
 ```
 
@@ -169,7 +169,7 @@ All tests verify exact output, ensuring implementations are correct and complete
 
 ## Conclusion
 
-BASL successfully implements all target Unix utilities with minimal friction. The language provides:
+VIGIL successfully implements all target Unix utilities with minimal friction. The language provides:
 
 - ✅ Sufficient I/O primitives
 - ✅ Good string manipulation
