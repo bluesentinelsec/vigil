@@ -2927,7 +2927,7 @@ static int cmd_package(const char *entry_path, const char *output_path,
 
             if ((vigil_source_id_t)i == source_id) {
                 pkg_files[pkg_count].path = "entry.vigil";
-                pkg_files[pkg_count].path_length = 10;
+                pkg_files[pkg_count].path_length = 11;
             } else {
                 pkg_files[pkg_count].path = vigil_string_c_str(&src->path);
                 pkg_files[pkg_count].path_length = vigil_string_length(&src->path);
