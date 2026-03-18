@@ -794,8 +794,8 @@ static int vigil_program_path_has_vigil_extension(
     size_t length
 ) {
     return path != NULL &&
-           length >= 5U &&
-           memcmp(path + length - 5U, ".vigil", 5U) == 0;
+           length >= 6U &&
+           memcmp(path + length - 6U, ".vigil", 6U) == 0;
 }
 
 static int vigil_program_path_is_absolute(

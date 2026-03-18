@@ -107,8 +107,8 @@ static void print_error(
 /* ── Source loading ──────────────────────────────────────────────── */
 
 static int path_has_vigil_extension(const char *path, size_t length) {
-    return path != NULL && length >= 5U &&
-           memcmp(path + length - 5U, ".vigil", 5U) == 0;
+    return path != NULL && length >= 6U &&
+           memcmp(path + length - 6U, ".vigil", 6U) == 0;
 }
 
 static int path_is_absolute(const char *path, size_t length) {
@@ -1379,7 +1379,7 @@ static int cmd_doc(const char *file_path, const char *symbol) {
 
     /* If no file extension and not found in registry, error */
     if (strchr(file_path, '/') == NULL && 
-        (strlen(file_path) < 5 || strcmp(file_path + strlen(file_path) - 5, ".vigil") != 0)) {
+        (strlen(file_path) < 6 || strcmp(file_path + strlen(file_path) - 6, ".vigil") != 0)) {
         fprintf(stderr, "error: '%s' not found. Use 'vigil doc' to list available modules.\n", file_path);
         return 1;
     }
@@ -1722,7 +1722,7 @@ static void collect_test_files(str_list_t *out, const char *dir) {
             collect_test_files(out, full);
         } else {
             size_t len = strlen(dl.items[i].name);
-            if (len > 10 && strcmp(dl.items[i].name + len - 10, "_test.vigil") == 0)
+            if (len > 11 && strcmp(dl.items[i].name + len - 11, "_test.vigil") == 0)
                 sl_add(out, full);
         }
     }
@@ -2006,7 +2006,7 @@ static int cmd_test(int argc, char **argv) {
             collect_test_files(&test_files, targets.items[i]);
         } else {
             size_t len = strlen(targets.items[i]);
-            if (len > 10 && strcmp(targets.items[i] + len - 10, "_test.vigil") == 0)
+            if (len > 11 && strcmp(targets.items[i] + len - 11, "_test.vigil") == 0)
                 sl_add(&test_files, targets.items[i]);
         }
     }
@@ -2888,8 +2888,8 @@ static int cmd_package(const char *entry_path, const char *output_path,
                 if (*p == '/' || *p == '\\') base = p + 1;
             }
             blen = strlen(base);
-            if (blen > 5 && memcmp(base + blen - 5, ".vigil", 5) == 0)
-                blen -= 5;
+            if (blen > 6 && memcmp(base + blen - 6, ".vigil", 6) == 0)
+                blen -= 6;
             snprintf(out_path, sizeof(out_path), "%.*s", (int)blen, base);
         }
 
@@ -2995,7 +2995,7 @@ int main(int argc, char **argv) {
     /* Handle "vigil <file.vigil> [args...]" as shorthand for "vigil run". */
     if (argc >= 2 && argv[1][0] != '-') {
         size_t len = strlen(argv[1]);
-        if (len > 5 && strcmp(argv[1] + len - 5, ".vigil") == 0) {
+        if (len > 6 && strcmp(argv[1] + len - 6, ".vigil") == 0) {
             const char *const *script_argv = argc > 2 ? (const char *const *)&argv[2] : NULL;
             size_t script_argc = argc > 2 ? (size_t)(argc - 2) : 0;
             return cmd_run(argv[1], script_argv, script_argc);

@@ -132,8 +132,8 @@ void vigil_program_import_default_alias(
     }
 
     end = path_length;
-    if (end >= 5U && memcmp(path + end - 5U, ".vigil", 5U) == 0) {
-        end -= 5U;
+    if (end >= 6U && memcmp(path + end - 6U, ".vigil", 6U) == 0) {
+        end -= 6U;
     }
 
     if (out_alias != NULL) {
