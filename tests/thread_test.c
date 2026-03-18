@@ -1,5 +1,5 @@
 /* Tests for thread.spawn with arguments and closures. */
-#include "basl_test.h"
+#include "vigil_test.h"
 
 #ifdef _WIN32
 #include <io.h>
@@ -13,71 +13,71 @@
 
 #include <string.h>
 
-#include "basl/basl.h"
-#include "basl/stdlib.h"
-#include "internal/basl_nanbox.h"
+#include "vigil/vigil.h"
+#include "vigil/stdlib.h"
+#include "internal/vigil_nanbox.h"
 
 /* ── test harness ────────────────────────────────────────────────── */
 
 #ifndef __EMSCRIPTEN__
 
-static int64_t RunWithStdlib(int *basl_test_failed_, const char *source_text) {
-    basl_runtime_t *runtime = NULL;
-    basl_vm_t *vm = NULL;
-    basl_error_t error = {0};
-    basl_source_registry_t registry;
-    basl_native_registry_t natives;
-    basl_diagnostic_list_t diagnostics;
-    basl_object_t *function = NULL;
-    basl_value_t result;
-    basl_source_id_t source_id = 0U;
+static int64_t RunWithStdlib(int *vigil_test_failed_, const char *source_text) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_native_registry_t natives;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_value_t result;
+    vigil_source_id_t source_id = 0U;
     int64_t output = 0;
 
-    EXPECT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    EXPECT_EQ(basl_vm_open(&vm, runtime, NULL, &error), BASL_STATUS_OK);
-    basl_source_registry_init(&registry, runtime);
-    basl_diagnostic_list_init(&diagnostics, runtime);
-    basl_native_registry_init(&natives);
-    EXPECT_EQ(basl_stdlib_register_all(&natives, &error), BASL_STATUS_OK);
+    EXPECT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+    vigil_native_registry_init(&natives);
+    EXPECT_EQ(vigil_stdlib_register_all(&natives, &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(
-        basl_source_registry_register_cstr(
-            &registry, "main.basl", source_text, &source_id, &error),
-        BASL_STATUS_OK
+        vigil_source_registry_register_cstr(
+            &registry, "main.vigil", source_text, &source_id, &error),
+        VIGIL_STATUS_OK
     );
 
     EXPECT_EQ(
-        basl_compile_source_with_natives(
+        vigil_compile_source_with_natives(
             &registry, source_id, &natives, &function, &diagnostics, &error),
-        BASL_STATUS_OK
+        VIGIL_STATUS_OK
     );
     EXPECT_NE(function, NULL);
-    EXPECT_EQ(basl_diagnostic_list_count(&diagnostics), 0U);
+    EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
-    basl_value_init_nil(&result);
+    vigil_value_init_nil(&result);
     EXPECT_EQ(
-        basl_vm_execute_function(vm, function, &result, &error),
-        BASL_STATUS_OK
+        vigil_vm_execute_function(vm, function, &result, &error),
+        VIGIL_STATUS_OK
     );
 
-    if (basl_nanbox_is_int(result)) {
-        output = basl_nanbox_decode_int(result);
+    if (vigil_nanbox_is_int(result)) {
+        output = vigil_nanbox_decode_int(result);
     }
 
-    basl_value_release(&result);
-    if (function) basl_object_release(&function);
-    basl_native_registry_free(&natives);
-    basl_diagnostic_list_free(&diagnostics);
-    basl_source_registry_free(&registry);
-    basl_vm_close(&vm);
-    basl_runtime_close(&runtime);
+    vigil_value_release(&result);
+    if (function) vigil_object_release(&function);
+    vigil_native_registry_free(&natives);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
     return output;
 }
 
 /* ── Tests ───────────────────────────────────────────────────────── */
 
-TEST(BaslThreadTest, SpawnZeroArityFunction) {
-    int64_t r = RunWithStdlib(basl_test_failed_,
+TEST(VigilThreadTest, SpawnZeroArityFunction) {
+    int64_t r = RunWithStdlib(vigil_test_failed_,
         "import \"atomic\";\n"
         "import \"thread\";\n"
         "fn main() -> i32 {\n"
@@ -92,8 +92,8 @@ TEST(BaslThreadTest, SpawnZeroArityFunction) {
     EXPECT_EQ(r, 42);
 }
 
-TEST(BaslThreadTest, SpawnWithClosureCapture) {
-    int64_t r = RunWithStdlib(basl_test_failed_,
+TEST(VigilThreadTest, SpawnWithClosureCapture) {
+    int64_t r = RunWithStdlib(vigil_test_failed_,
         "import \"atomic\";\n"
         "import \"thread\";\n"
         "fn main() -> i32 {\n"
@@ -109,8 +109,8 @@ TEST(BaslThreadTest, SpawnWithClosureCapture) {
     EXPECT_EQ(r, 99);
 }
 
-TEST(BaslThreadTest, SpawnClosureWithMultipleCaptures) {
-    int64_t r = RunWithStdlib(basl_test_failed_,
+TEST(VigilThreadTest, SpawnClosureWithMultipleCaptures) {
+    int64_t r = RunWithStdlib(vigil_test_failed_,
         "import \"atomic\";\n"
         "import \"thread\";\n"
         "fn main() -> i32 {\n"
@@ -127,8 +127,8 @@ TEST(BaslThreadTest, SpawnClosureWithMultipleCaptures) {
     EXPECT_EQ(r, 42);
 }
 
-TEST(BaslThreadTest, SpawnMultipleThreadsWithClosures) {
-    int64_t r = RunWithStdlib(basl_test_failed_,
+TEST(VigilThreadTest, SpawnMultipleThreadsWithClosures) {
+    int64_t r = RunWithStdlib(vigil_test_failed_,
         "import \"atomic\";\n"
         "import \"thread\";\n"
         "fn main() -> i32 {\n"
@@ -145,8 +145,8 @@ TEST(BaslThreadTest, SpawnMultipleThreadsWithClosures) {
     EXPECT_EQ(r, 60);
 }
 
-TEST(BaslThreadTest, SpawnWithMutexCoordination) {
-    int64_t r = RunWithStdlib(basl_test_failed_,
+TEST(VigilThreadTest, SpawnWithMutexCoordination) {
+    int64_t r = RunWithStdlib(vigil_test_failed_,
         "import \"atomic\";\n"
         "import \"thread\";\n"
         "fn increment(i64 mtx, i64 counter, i64 times) -> void {\n"
@@ -176,10 +176,10 @@ TEST(BaslThreadTest, SpawnWithMutexCoordination) {
 
 void register_thread_tests(void) {
 #ifndef __EMSCRIPTEN__
-    REGISTER_TEST(BaslThreadTest, SpawnZeroArityFunction);
-    REGISTER_TEST(BaslThreadTest, SpawnWithClosureCapture);
-    REGISTER_TEST(BaslThreadTest, SpawnClosureWithMultipleCaptures);
-    REGISTER_TEST(BaslThreadTest, SpawnMultipleThreadsWithClosures);
-    REGISTER_TEST(BaslThreadTest, SpawnWithMutexCoordination);
+    REGISTER_TEST(VigilThreadTest, SpawnZeroArityFunction);
+    REGISTER_TEST(VigilThreadTest, SpawnWithClosureCapture);
+    REGISTER_TEST(VigilThreadTest, SpawnClosureWithMultipleCaptures);
+    REGISTER_TEST(VigilThreadTest, SpawnMultipleThreadsWithClosures);
+    REGISTER_TEST(VigilThreadTest, SpawnWithMutexCoordination);
 #endif
 }

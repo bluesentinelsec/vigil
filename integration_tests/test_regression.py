@@ -15,17 +15,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def resolve_basl_command() -> list[str]:
-    configured_bin = os.environ.get("BASL_BIN")
-    native_bin = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
-    wasm_bin = REPO_ROOT / "build" / "basl.js"
+def resolve_vigil_command() -> list[str]:
+    configured_bin = os.environ.get("VIGIL_BIN")
+    native_bin = REPO_ROOT / "build" / ("vigil.exe" if os.name == "nt" else "vigil")
+    wasm_bin = REPO_ROOT / "build" / "vigil.js"
     if configured_bin:
         return [configured_bin]
     if native_bin.exists():
         return [str(native_bin)]
     if wasm_bin.exists():
         return [os.environ.get("EMSDK_NODE", "node"), str(wasm_bin)]
-    raise FileNotFoundError("could not locate BASL CLI executable")
+    raise FileNotFoundError("could not locate VIGIL CLI executable")
 
 
 def write_sources(root: Path, sources: dict[str, str]) -> None:
@@ -35,23 +35,23 @@ def write_sources(root: Path, sources: dict[str, str]) -> None:
         p.write_text(textwrap.dedent(text).strip() + "\n", encoding="utf-8")
 
 
-def run_basl(root: Path, entry: str) -> subprocess.CompletedProcess[str]:
+def run_vigil(root: Path, entry: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [*resolve_basl_command(), "run", str(root / entry)],
+        [*resolve_vigil_command(), "run", str(root / entry)],
         capture_output=True, text=True, cwd=REPO_ROOT, check=False,
     )
 
 
 def run_ok(tc: unittest.TestCase, root: Path, entry: str, expected: int) -> None:
     """Helper: run and assert exit code with no stderr."""
-    r = run_basl(root, entry)
+    r = run_vigil(root, entry)
     tc.assertEqual(r.returncode, expected, msg=r.stderr)
     tc.assertEqual(r.stderr, "")
 
 
 def run_err(tc: unittest.TestCase, root: Path, entry: str, fragment: str) -> None:
     """Helper: run and assert non-zero exit with stderr containing fragment."""
-    r = run_basl(root, entry)
+    r = run_vigil(root, entry)
     tc.assertNotEqual(r.returncode, 0)
     tc.assertIn(fragment, r.stderr)
 
@@ -60,10 +60,10 @@ class BoundaryTest(unittest.TestCase):
     """Boundary conditions and edge cases."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_empty_array_pop_returns_error(self) -> None:
         self._run("""
@@ -191,10 +191,10 @@ class RecursionAndControlFlowTest(unittest.TestCase):
     """Recursion, nested loops, and complex control flow."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_recursive_fibonacci(self) -> None:
         self._run("""
@@ -307,10 +307,10 @@ class ClosureAndFunctionValueTest(unittest.TestCase):
     """Closures, function values, and higher-order patterns."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_closure_factory(self) -> None:
         self._run("""
@@ -373,10 +373,10 @@ class DeferTest(unittest.TestCase):
     """Defer ordering and interaction with control flow."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_defer_lifo_three(self) -> None:
         self._run("""
@@ -431,10 +431,10 @@ class ClassAndInterfaceTest(unittest.TestCase):
     """Classes, interfaces, and object-oriented patterns."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_class_field_compound_assignment(self) -> None:
         self._run("""
@@ -506,10 +506,10 @@ class ErrorFlowTest(unittest.TestCase):
     """Error propagation, guard, and error inspection."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_error_message_inspection(self) -> None:
         self._run("""
@@ -591,10 +591,10 @@ class MultiModuleTest(unittest.TestCase):
     """Cross-module interactions critical for refactoring safety."""
 
     def test_imported_class_with_interface(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
             write_sources(root, {
-                "lib.basl": """
+                "lib.vigil": """
                     pub interface Printable {
                         fn label() -> string;
                     }
@@ -604,7 +604,7 @@ class MultiModuleTest(unittest.TestCase):
                         fn label() -> string { return self.name; }
                     }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "lib";
                     fn get_label(lib.Printable p) -> string { return p.label(); }
                     fn main() -> i32 {
@@ -614,16 +614,16 @@ class MultiModuleTest(unittest.TestCase):
                     }
                 """,
             })
-            run_ok(self, root, "main.basl", 0)
+            run_ok(self, root, "main.vigil", 0)
 
     def test_imported_enum_in_switch(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
             write_sources(root, {
-                "defs.basl": """
+                "defs.vigil": """
                     pub enum Level { Low, Medium, High }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "defs";
                     fn main() -> i32 {
                         defs.Level lv = defs.Level.Medium;
@@ -636,17 +636,17 @@ class MultiModuleTest(unittest.TestCase):
                     }
                 """,
             })
-            run_ok(self, root, "main.basl", 2)
+            run_ok(self, root, "main.vigil", 2)
 
     def test_imported_global_mutation(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
             write_sources(root, {
-                "state.basl": """
+                "state.vigil": """
                     pub i32 counter = 0;
                     pub fn increment() -> void { counter += 1; }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "state";
                     fn main() -> i32 {
                         state.increment();
@@ -656,50 +656,50 @@ class MultiModuleTest(unittest.TestCase):
                     }
                 """,
             })
-            run_ok(self, root, "main.basl", 3)
+            run_ok(self, root, "main.vigil", 3)
 
     def test_private_access_rejected(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
             write_sources(root, {
-                "lib.basl": """
+                "lib.vigil": """
                     fn secret() -> i32 { return 42; }
                     pub fn public_fn() -> i32 { return 1; }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "lib";
                     fn main() -> i32 { return lib.secret(); }
                 """,
             })
-            run_err(self, root, "main.basl", "not public")
+            run_err(self, root, "main.vigil", "not public")
 
     def test_three_module_chain(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
             write_sources(root, {
-                "a.basl": """
+                "a.vigil": """
                     pub fn base() -> i32 { return 10; }
                 """,
-                "b.basl": """
+                "b.vigil": """
                     import "a";
                     pub fn doubled() -> i32 { return a.base() * 2; }
                 """,
-                "main.basl": """
+                "main.vigil": """
                     import "b";
                     fn main() -> i32 { return b.doubled(); }
                 """,
             })
-            run_ok(self, root, "main.basl", 20)
+            run_ok(self, root, "main.vigil", 20)
 
 
 class TypeConversionAndArithmeticTest(unittest.TestCase):
     """Type conversions, arithmetic edge cases, and numeric boundaries."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_all_integer_conversions(self) -> None:
         self._run("""
@@ -780,10 +780,10 @@ class CompileErrorTest(unittest.TestCase):
     """Compiler error detection — must survive refactoring."""
 
     def _err(self, code: str, fragment: str) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_err(self, root, "main.basl", fragment)
+            write_sources(root, {"main.vigil": code})
+            run_err(self, root, "main.vigil", fragment)
 
     def test_rejects_type_mismatch(self) -> None:
         self._err("""
@@ -846,10 +846,10 @@ class FStringAndStringTest(unittest.TestCase):
     """F-string edge cases and string operations."""
 
     def _run(self, code: str, expected: int) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_reg_") as d:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
             root = Path(d)
-            write_sources(root, {"main.basl": code})
-            run_ok(self, root, "main.basl", expected)
+            write_sources(root, {"main.vigil": code})
+            run_ok(self, root, "main.vigil", expected)
 
     def test_fstring_format_specifier(self) -> None:
         self._run("""

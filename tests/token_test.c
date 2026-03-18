@@ -1,27 +1,27 @@
-#include "basl_test.h"
+#include "vigil_test.h"
 
 
-#include "basl/basl.h"
+#include "vigil/vigil.h"
 
-TEST(BaslTokenTest, KindNamesAreStable) {
-    EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_EOF), "eof");
-    EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_FN), "fn");
-    EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_NIL), "nil");
-    EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_STRING_LITERAL), "string_literal");
-    EXPECT_STREQ(basl_token_kind_name(BASL_TOKEN_ARROW), "arrow");
-    EXPECT_STREQ(basl_token_kind_name((basl_token_kind_t)999), "unknown");
+TEST(VigilTokenTest, KindNamesAreStable) {
+    EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_EOF), "eof");
+    EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_FN), "fn");
+    EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_NIL), "nil");
+    EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_STRING_LITERAL), "string_literal");
+    EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_ARROW), "arrow");
+    EXPECT_STREQ(vigil_token_kind_name((vigil_token_kind_t)999), "unknown");
 }
 
-TEST(BaslTokenTest, ListInitAndFreeResetState) {
-    basl_token_list_t list;
+TEST(VigilTokenTest, ListInitAndFreeResetState) {
+    vigil_token_list_t list;
 
-    basl_token_list_init(&list, NULL);
+    vigil_token_list_init(&list, NULL);
     EXPECT_EQ(list.runtime, NULL);
     EXPECT_EQ(list.items, NULL);
     EXPECT_EQ(list.count, 0U);
     EXPECT_EQ(list.capacity, 0U);
 
-    basl_token_list_free(&list);
+    vigil_token_list_free(&list);
     EXPECT_EQ(list.runtime, NULL);
     EXPECT_EQ(list.items, NULL);
     EXPECT_EQ(list.count, 0U);
@@ -29,6 +29,6 @@ TEST(BaslTokenTest, ListInitAndFreeResetState) {
 }
 
 void register_token_tests(void) {
-    REGISTER_TEST(BaslTokenTest, KindNamesAreStable);
-    REGISTER_TEST(BaslTokenTest, ListInitAndFreeResetState);
+    REGISTER_TEST(VigilTokenTest, KindNamesAreStable);
+    REGISTER_TEST(VigilTokenTest, ListInitAndFreeResetState);
 }

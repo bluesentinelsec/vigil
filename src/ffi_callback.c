@@ -1,17 +1,17 @@
-/* ffi_callback.c — Callback trampoline pool for the BASL FFI.
+/* ffi_callback.c — Callback trampoline pool for the VIGIL FFI.
  *
  * Provides a fixed pool of C function pointers that dispatch through
- * a user-registered callback function.  This allows BASL closures to
+ * a user-registered callback function.  This allows VIGIL closures to
  * be passed as C function pointers to foreign code.
  */
 #include "internal/ffi_callback.h"
 
 #include <string.h>
 
-static basl_ffi_callback_dispatch_fn g_cb_dispatch;
-static int g_cb_used[BASL_FFI_MAX_CALLBACKS];
+static vigil_ffi_callback_dispatch_fn g_cb_dispatch;
+static int g_cb_used[VIGIL_FFI_MAX_CALLBACKS];
 
-void basl_ffi_callback_set_dispatch(basl_ffi_callback_dispatch_fn fn) {
+void vigil_ffi_callback_set_dispatch(vigil_ffi_callback_dispatch_fn fn) {
     g_cb_dispatch = fn;
 }
 
@@ -34,7 +34,7 @@ CB_SLOT(4) CB_SLOT(5) CB_SLOT(6) CB_SLOT(7)
 
 typedef intptr_t (*cb_fn_t)(intptr_t, intptr_t, intptr_t, intptr_t);
 
-static cb_fn_t cb_table[BASL_FFI_MAX_CALLBACKS] = {
+static cb_fn_t cb_table[VIGIL_FFI_MAX_CALLBACKS] = {
     cb_slot0, cb_slot1, cb_slot2, cb_slot3,
     cb_slot4, cb_slot5, cb_slot6, cb_slot7,
 };
@@ -49,8 +49,8 @@ static void *fnptr_to_obj(void (*f)(void)) {
     return u.obj;
 }
 
-int basl_ffi_callback_alloc(void **out_ptr) {
-    for (int i = 0; i < BASL_FFI_MAX_CALLBACKS; i++) {
+int vigil_ffi_callback_alloc(void **out_ptr) {
+    for (int i = 0; i < VIGIL_FFI_MAX_CALLBACKS; i++) {
         if (!g_cb_used[i]) {
             g_cb_used[i] = 1;
             *out_ptr = fnptr_to_obj((void (*)(void))cb_table[i]);
@@ -60,7 +60,7 @@ int basl_ffi_callback_alloc(void **out_ptr) {
     return -1;
 }
 
-void basl_ffi_callback_free(int slot) {
-    if (slot >= 0 && slot < BASL_FFI_MAX_CALLBACKS)
+void vigil_ffi_callback_free(int slot) {
+    if (slot >= 0 && slot < VIGIL_FFI_MAX_CALLBACKS)
         g_cb_used[slot] = 0;
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL math module."""
+"""Integration tests for VIGIL math module."""
 
 import os
 import subprocess
@@ -7,15 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    with tempfile.TemporaryDirectory(prefix="basl_math_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    with tempfile.TemporaryDirectory(prefix="vigil_math_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True, text=True, timeout=10,
         )
         return result.returncode, result.stdout, result.stderr
@@ -29,7 +29,7 @@ fn main() -> i32 {
     if (pi > 3.14 && pi < 3.15) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_e(self):
@@ -39,7 +39,7 @@ fn main() -> i32 {
     if (e > 2.71 && e < 2.72) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -51,7 +51,7 @@ fn main() -> i32 {
     if (r == 3.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_ceil(self):
@@ -61,7 +61,7 @@ fn main() -> i32 {
     if (r == 4.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_round(self):
@@ -71,7 +71,7 @@ fn main() -> i32 {
     if (r == 4.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_trunc(self):
@@ -81,7 +81,7 @@ fn main() -> i32 {
     if (r == -3.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -93,7 +93,7 @@ fn main() -> i32 {
     if (r == 5.5) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_sqrt(self):
@@ -103,7 +103,7 @@ fn main() -> i32 {
     if (r == 4.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_pow(self):
@@ -113,7 +113,7 @@ fn main() -> i32 {
     if (r == 8.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -125,7 +125,7 @@ fn main() -> i32 {
     if (r == 3.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_max(self):
@@ -135,7 +135,7 @@ fn main() -> i32 {
     if (r == 7.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -147,7 +147,7 @@ fn main() -> i32 {
     if (r == 0.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_cos_zero(self):
@@ -157,7 +157,7 @@ fn main() -> i32 {
     if (r == 1.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -169,7 +169,7 @@ fn main() -> i32 {
     if (r > 0.99 && r < 1.01) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_exp(self):
@@ -180,7 +180,7 @@ fn main() -> i32 {
     if (r > e - 0.01 && r < e + 0.01) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -192,7 +192,7 @@ fn main() -> i32 {
     if (r == 1.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_sign_negative(self):
@@ -202,7 +202,7 @@ fn main() -> i32 {
     if (r == -1.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_sign_zero(self):
@@ -212,7 +212,7 @@ fn main() -> i32 {
     if (r == 0.0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

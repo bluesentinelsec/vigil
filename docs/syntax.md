@@ -1,10 +1,10 @@
-# BASL Syntax Reference
+# VIGIL Syntax Reference
 
-BASL is a statically typed, C-style scripting language with explicit control flow, explicit errors, and a small set of consistent language forms.
+VIGIL is a statically typed, C-style scripting language with explicit control flow, explicit errors, and a small set of consistent language forms.
 
 ## Source Files
 
-- Source files use the `.basl` extension.
+- Source files use the `.vigil` extension.
 - Statements end with `;`.
 - Blocks use `{ }`.
 - Every runnable program must define a `main` function. It returns `i32` (the exit code):
@@ -18,7 +18,7 @@ fn main() -> i32 {
 - Library modules have no `main`. They export declarations with `pub` so other files can import them:
 
 ```
-// mylib.basl
+// mylib.vigil
 pub const string VERSION = "1.0";
 
 pub fn double(i32 x) -> i32 {
@@ -36,7 +36,7 @@ block comment
 */
 ```
 
-Comments placed directly above a declaration are extracted by `basl doc`:
+Comments placed directly above a declaration are extracted by `vigil doc`:
 
 ```
 // Compute the area of a circle with the given radius.
@@ -56,11 +56,11 @@ import "sub/deep";               // subdirectory relative to this file
 
 - `as` sets the local alias. Without it, the alias is the last path component.
 - Only `pub` declarations are visible to importers.
-- The `.basl` extension is added automatically.
+- The `.vigil` extension is added automatically.
 
 Resolution order for non-stdlib imports:
 1. Relative to the importing file's directory.
-2. In a project (directory with `basl.toml`): the `lib/` directory.
+2. In a project (directory with `vigil.toml`): the `lib/` directory.
 3. For package-style paths (e.g. `"github.com/user/repo"`): the `deps/` directory.
 
 ## Top-Level Declarations
@@ -249,7 +249,7 @@ All variables are typed and initialized at declaration:
 
 ```
 i32 x = 10;
-string name = "basl";
+string name = "vigil";
 bool ready = true;
 ```
 
@@ -341,7 +341,7 @@ i64 big = i64(x);
 i32 back = i32(big);
 ```
 
-BASL performs no implicit numeric coercion. Mixed-type operations require explicit casts:
+VIGIL performs no implicit numeric coercion. Mixed-type operations require explicit casts:
 
 ```
 i32 a = 10;
@@ -541,7 +541,7 @@ if (e != ok) {
 
 ## Errors
 
-BASL has no exceptions. Errors are values of type `err`.
+VIGIL has no exceptions. Errors are values of type `err`.
 
 ### Success and Failure
 
@@ -778,7 +778,7 @@ m["key"] = 2;
 
 ## Projects
 
-A BASL project is a directory with a `basl.toml` file:
+A VIGIL project is a directory with a `vigil.toml` file:
 
 ```
 name = "myapp"
@@ -789,31 +789,31 @@ Standard project layout:
 
 ```
 myapp/
-  basl.toml
-  main.basl
+  vigil.toml
+  main.vigil
   lib/
   test/
   deps/
 ```
 
-Create a new project with `basl new myapp`.
+Create a new project with `vigil new myapp`.
 
 ### Dependencies
 
-Dependencies are managed with `basl get`:
+Dependencies are managed with `vigil get`:
 
 ```
-basl get github.com/user/repo
-basl get github.com/user/repo@v1.0.0
-basl get                                  # sync all deps from basl.toml
-basl get -remove github.com/user/repo     # remove a dependency
+vigil get github.com/user/repo
+vigil get github.com/user/repo@v1.0.0
+vigil get                                  # sync all deps from vigil.toml
+vigil get -remove github.com/user/repo     # remove a dependency
 ```
 
 Dependencies are cloned into `deps/`.
 
 ### Testing
 
-Test files are named `*_test.basl` and use the `test` module:
+Test files are named `*_test.vigil` and use the `test` module:
 
 ```
 import "test";
@@ -831,34 +831,34 @@ fn test_failure(test.T t) -> void {
 Test functions take a `test.T` parameter and return `void`. Run tests with:
 
 ```
-basl test                     # discover and run *_test.basl files
-basl test path/to/test.basl   # run a specific test file
-basl test -v                  # verbose output
-basl test -run pattern        # filter by test name
+vigil test                     # discover and run *_test.vigil files
+vigil test path/to/test.vigil   # run a specific test file
+vigil test -v                  # verbose output
+vigil test -run pattern        # filter by test name
 ```
 
-In a project, `basl test` defaults to the `test/` directory.
+In a project, `vigil test` defaults to the `test/` directory.
 
 ## Tooling
 
 | Command | Purpose |
 |---|---|
-| `basl run file.basl` | Run a script (also: `basl file.basl`) |
-| `basl check file.basl` | Type-check without running |
-| `basl fmt file.basl` | Format source code |
-| `basl fmt -c file.basl` | Check formatting without rewriting |
-| `basl doc module` | Show stdlib module documentation |
-| `basl doc file.basl` | Show documentation for a source file |
-| `basl test` | Run tests |
-| `basl new name` | Create a new project |
-| `basl get` | Manage dependencies |
-| `basl debug file.basl` | Debug (DAP server by default) |
-| `basl debug -i file.basl` | Interactive CLI debugger |
-| `basl repl` | Start interactive REPL |
-| `basl embed file` | Embed files as BASL source |
-| `basl package file.basl` | Package as standalone binary |
-| `basl lsp` | Start Language Server Protocol server |
-| `basl version` | Print version |
+| `vigil run file.vigil` | Run a script (also: `vigil file.vigil`) |
+| `vigil check file.vigil` | Type-check without running |
+| `vigil fmt file.vigil` | Format source code |
+| `vigil fmt -c file.vigil` | Check formatting without rewriting |
+| `vigil doc module` | Show stdlib module documentation |
+| `vigil doc file.vigil` | Show documentation for a source file |
+| `vigil test` | Run tests |
+| `vigil new name` | Create a new project |
+| `vigil get` | Manage dependencies |
+| `vigil debug file.vigil` | Debug (DAP server by default) |
+| `vigil debug -i file.vigil` | Interactive CLI debugger |
+| `vigil repl` | Start interactive REPL |
+| `vigil embed file` | Embed files as VIGIL source |
+| `vigil package file.vigil` | Package as standalone binary |
+| `vigil lsp` | Start Language Server Protocol server |
+| `vigil version` | Print version |
 
 ## Language Rules
 
@@ -868,4 +868,4 @@ In a project, `basl test` defaults to the `test/` directory.
 - No `null`.
 - Errors are explicit values.
 - All variables must be initialized at declaration.
-- Use `basl fmt` for canonical formatting.
+- Use `vigil fmt` for canonical formatting.

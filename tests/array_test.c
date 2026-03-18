@@ -1,11 +1,11 @@
-#include "basl_test.h"
+#include "vigil_test.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 
-#include "basl/basl.h"
+#include "vigil/vigil.h"
 
 struct AllocatorStats {
     int allocate_calls;
@@ -35,10 +35,10 @@ static void CountedDeallocate(void *user_data, void *memory) {
 }
 
 
-TEST(BaslArrayTest, InitStartsEmpty) {
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, InitStartsEmpty) {
+    vigil_byte_buffer_t buffer;
 
-    basl_byte_buffer_init(&buffer, NULL);
+    vigil_byte_buffer_init(&buffer, NULL);
 
     EXPECT_EQ(buffer.runtime, NULL);
     EXPECT_EQ(buffer.data, NULL);
@@ -46,193 +46,193 @@ TEST(BaslArrayTest, InitStartsEmpty) {
     EXPECT_EQ(buffer.capacity, 0U);
 }
 
-TEST(BaslArrayTest, ReserveAllocatesAndPreservesLength) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, ReserveAllocatesAndPreservesLength) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
 
-    ASSERT_EQ(basl_byte_buffer_reserve(&buffer, 32U, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_byte_buffer_reserve(&buffer, 32U, &error), VIGIL_STATUS_OK);
     EXPECT_NE(buffer.data, NULL);
     EXPECT_EQ(buffer.length, 0U);
     EXPECT_GE(buffer.capacity, 32U);
 
-    basl_byte_buffer_free(&buffer);
-    basl_runtime_close(&runtime);
+    vigil_byte_buffer_free(&buffer);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslArrayTest, ResizeZeroInitializesNewBytes) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, ResizeZeroInitializesNewBytes) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
 
-    ASSERT_EQ(basl_byte_buffer_resize(&buffer, 8U, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_byte_buffer_resize(&buffer, 8U, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(buffer.length, 8U);
     EXPECT_EQ(memcmp(buffer.data, "\0\0\0\0\0\0\0\0", 8), 0);
 
     buffer.data[0] = 0xAAU;
     buffer.data[1] = 0xBBU;
-    ASSERT_EQ(basl_byte_buffer_resize(&buffer, 12U, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_byte_buffer_resize(&buffer, 12U, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(buffer.data[0], 0xAAU);
     EXPECT_EQ(buffer.data[1], 0xBBU);
     EXPECT_EQ(memcmp(buffer.data + 8, "\0\0\0\0", 4), 0);
 
-    basl_byte_buffer_free(&buffer);
-    basl_runtime_close(&runtime);
+    vigil_byte_buffer_free(&buffer);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslArrayTest, AppendAddsBytesInOrder) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, AppendAddsBytesInOrder) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
     const uint8_t prefix[] = {1U, 2U, 3U};
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
 
     ASSERT_EQ(
-        basl_byte_buffer_append(&buffer, prefix, sizeof(prefix), &error),
-        BASL_STATUS_OK
+        vigil_byte_buffer_append(&buffer, prefix, sizeof(prefix), &error),
+        VIGIL_STATUS_OK
     );
-    ASSERT_EQ(basl_byte_buffer_append_byte(&buffer, 4U, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_byte_buffer_append_byte(&buffer, 4U, &error), VIGIL_STATUS_OK);
 
     ASSERT_EQ(buffer.length, 4U);
     EXPECT_EQ(memcmp(buffer.data, "\x01\x02\x03\x04", 4), 0);
 
-    basl_byte_buffer_free(&buffer);
-    basl_runtime_close(&runtime);
+    vigil_byte_buffer_free(&buffer);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslArrayTest, ClearKeepsCapacityButResetsLength) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, ClearKeepsCapacityButResetsLength) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
     size_t capacity;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
-    ASSERT_EQ(basl_byte_buffer_resize(&buffer, 16U, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_byte_buffer_resize(&buffer, 16U, &error), VIGIL_STATUS_OK);
 
     capacity = buffer.capacity;
-    basl_byte_buffer_clear(&buffer);
+    vigil_byte_buffer_clear(&buffer);
 
     EXPECT_EQ(buffer.length, 0U);
     EXPECT_EQ(buffer.capacity, capacity);
     EXPECT_NE(buffer.data, NULL);
 
-    basl_byte_buffer_free(&buffer);
-    basl_runtime_close(&runtime);
+    vigil_byte_buffer_free(&buffer);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslArrayTest, FreeResetsWholeBuffer) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, FreeResetsWholeBuffer) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
-    ASSERT_EQ(basl_byte_buffer_resize(&buffer, 4U, &error), BASL_STATUS_OK);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_byte_buffer_resize(&buffer, 4U, &error), VIGIL_STATUS_OK);
 
-    basl_byte_buffer_free(&buffer);
+    vigil_byte_buffer_free(&buffer);
 
     EXPECT_EQ(buffer.runtime, NULL);
     EXPECT_EQ(buffer.data, NULL);
     EXPECT_EQ(buffer.length, 0U);
     EXPECT_EQ(buffer.capacity, 0U);
 
-    basl_runtime_close(&runtime);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslArrayTest, UsesRuntimeAllocatorHooks) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, UsesRuntimeAllocatorHooks) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
     struct AllocatorStats stats = {0};
-    basl_allocator_t allocator = {0};
-    basl_runtime_options_t options = {0};
+    vigil_allocator_t allocator = {0};
+    vigil_runtime_options_t options = {0};
     const uint8_t data[40] = {0U};
 
     allocator.user_data = &stats;
     allocator.allocate = CountedAllocate;
     allocator.reallocate = CountedReallocate;
     allocator.deallocate = CountedDeallocate;
-    basl_runtime_options_init(&options);
+    vigil_runtime_options_init(&options);
     options.allocator = &allocator;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, &options, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
 
     ASSERT_EQ(
-        basl_byte_buffer_append(&buffer, data, sizeof(data), &error),
-        BASL_STATUS_OK
+        vigil_byte_buffer_append(&buffer, data, sizeof(data), &error),
+        VIGIL_STATUS_OK
     );
     ASSERT_EQ(
-        basl_byte_buffer_append(&buffer, data, sizeof(data), &error),
-        BASL_STATUS_OK
+        vigil_byte_buffer_append(&buffer, data, sizeof(data), &error),
+        VIGIL_STATUS_OK
     );
 
     EXPECT_EQ(stats.allocate_calls, 2);
     EXPECT_GE(stats.reallocate_calls, 1);
 
-    basl_byte_buffer_free(&buffer);
+    vigil_byte_buffer_free(&buffer);
     EXPECT_GE(stats.deallocate_calls, 1);
-    basl_runtime_close(&runtime);
+    vigil_runtime_close(&runtime);
 }
 
-TEST(BaslArrayTest, RejectsMissingRuntime) {
-    basl_byte_buffer_t buffer;
-    basl_error_t error = {0};
+TEST(VigilArrayTest, RejectsMissingRuntime) {
+    vigil_byte_buffer_t buffer;
+    vigil_error_t error = {0};
 
-    basl_byte_buffer_init(&buffer, NULL);
+    vigil_byte_buffer_init(&buffer, NULL);
 
     EXPECT_EQ(
-        basl_byte_buffer_reserve(&buffer, 8U, &error),
-        BASL_STATUS_INVALID_ARGUMENT
+        vigil_byte_buffer_reserve(&buffer, 8U, &error),
+        VIGIL_STATUS_INVALID_ARGUMENT
     );
-    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "byte buffer runtime must not be null"), 0);
 }
 
-TEST(BaslArrayTest, DetectsAppendOverflow) {
-    basl_runtime_t *runtime = NULL;
-    basl_error_t error = {0};
-    basl_byte_buffer_t buffer;
+TEST(VigilArrayTest, DetectsAppendOverflow) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_byte_buffer_t buffer;
     uint8_t value = 0U;
 
-    ASSERT_EQ(basl_runtime_open(&runtime, NULL, &error), BASL_STATUS_OK);
-    basl_byte_buffer_init(&buffer, runtime);
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_byte_buffer_init(&buffer, runtime);
     buffer.data = (uint8_t *)(uintptr_t)1;
     buffer.length = SIZE_MAX;
     buffer.capacity = SIZE_MAX;
 
     EXPECT_EQ(
-        basl_byte_buffer_append(&buffer, &value, 1U, &error),
-        BASL_STATUS_INVALID_ARGUMENT
+        vigil_byte_buffer_append(&buffer, &value, 1U, &error),
+        VIGIL_STATUS_INVALID_ARGUMENT
     );
-    EXPECT_EQ(error.type, BASL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "byte buffer append would overflow"), 0);
 
     buffer.data = NULL;
     buffer.length = 0U;
     buffer.capacity = 0U;
-    basl_runtime_close(&runtime);
+    vigil_runtime_close(&runtime);
 }
 
 void register_array_tests(void) {
-    REGISTER_TEST(BaslArrayTest, InitStartsEmpty);
-    REGISTER_TEST(BaslArrayTest, ReserveAllocatesAndPreservesLength);
-    REGISTER_TEST(BaslArrayTest, ResizeZeroInitializesNewBytes);
-    REGISTER_TEST(BaslArrayTest, AppendAddsBytesInOrder);
-    REGISTER_TEST(BaslArrayTest, ClearKeepsCapacityButResetsLength);
-    REGISTER_TEST(BaslArrayTest, FreeResetsWholeBuffer);
-    REGISTER_TEST(BaslArrayTest, UsesRuntimeAllocatorHooks);
-    REGISTER_TEST(BaslArrayTest, RejectsMissingRuntime);
-    REGISTER_TEST(BaslArrayTest, DetectsAppendOverflow);
+    REGISTER_TEST(VigilArrayTest, InitStartsEmpty);
+    REGISTER_TEST(VigilArrayTest, ReserveAllocatesAndPreservesLength);
+    REGISTER_TEST(VigilArrayTest, ResizeZeroInitializesNewBytes);
+    REGISTER_TEST(VigilArrayTest, AppendAddsBytesInOrder);
+    REGISTER_TEST(VigilArrayTest, ClearKeepsCapacityButResetsLength);
+    REGISTER_TEST(VigilArrayTest, FreeResetsWholeBuffer);
+    REGISTER_TEST(VigilArrayTest, UsesRuntimeAllocatorHooks);
+    REGISTER_TEST(VigilArrayTest, RejectsMissingRuntime);
+    REGISTER_TEST(VigilArrayTest, DetectsAppendOverflow);
 }

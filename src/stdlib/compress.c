@@ -1,4 +1,4 @@
-/* BASL standard library: compress module.
+/* VIGIL standard library: compress module.
  *
  * Compression and decompression using deflate, zlib, gzip formats.
  * Uses miniz library (MIT license).
@@ -6,58 +6,58 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/native_module.h"
-#include "basl/stdlib.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/stdlib.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 #include "miniz.h"
 #include "lz4.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static const char *get_bytes_data(basl_value_t v, size_t *out_len) {
-    if (basl_nanbox_is_object(v)) {
-        const basl_object_t *obj = (const basl_object_t *)basl_nanbox_decode_ptr(v);
-        if (obj && basl_object_type(obj) == BASL_OBJECT_STRING) {
-            *out_len = basl_string_object_length(obj);
-            return basl_string_object_c_str(obj);
+static const char *get_bytes_data(vigil_value_t v, size_t *out_len) {
+    if (vigil_nanbox_is_object(v)) {
+        const vigil_object_t *obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(v);
+        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+            *out_len = vigil_string_object_length(obj);
+            return vigil_string_object_c_str(obj);
         }
     }
     *out_len = 0;
     return NULL;
 }
 
-static basl_status_t push_bytes(basl_vm_t *vm, const void *data, size_t len, basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), (const char *)data, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    basl_value_t val;
-    basl_value_init_object(&val, &obj);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+static vigil_status_t push_bytes(vigil_vm_t *vm, const void *data, size_t len, vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), (const char *)data, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &obj);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
-static basl_status_t push_empty_bytes(basl_vm_t *vm, basl_error_t *error) {
+static vigil_status_t push_empty_bytes(vigil_vm_t *vm, vigil_error_t *error) {
     return push_bytes(vm, "", 0, error);
 }
 
 /* ── Zlib ────────────────────────────────────────────────────────── */
 
-static basl_status_t zlib_compress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     mz_ulong dst_len;
     unsigned char *dst;
     int status;
-    basl_status_t ret;
+    vigil_status_t ret;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         return push_empty_bytes(vm, error);
@@ -80,16 +80,16 @@ static basl_status_t zlib_compress_fn(basl_vm_t *vm, size_t arg_count, basl_erro
     return ret;
 }
 
-static basl_status_t zlib_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t zlib_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     mz_ulong dst_len;
     unsigned char *dst;
     int status;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         return push_empty_bytes(vm, error);
@@ -108,7 +108,7 @@ static basl_status_t zlib_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_er
         mz_ulong try_len = dst_len;
         status = mz_uncompress(dst, &try_len, (const unsigned char *)src, (mz_ulong)src_len);
         if (status == MZ_OK) {
-            basl_status_t ret = push_bytes(vm, dst, try_len, error);
+            vigil_status_t ret = push_bytes(vm, dst, try_len, error);
             free(dst);
             return ret;
         }
@@ -132,17 +132,17 @@ static basl_status_t zlib_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_er
 
 /* ── Deflate (raw) ───────────────────────────────────────────────── */
 
-static basl_status_t deflate_compress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t deflate_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     mz_ulong dst_len;
     unsigned char *dst;
     int status;
-    basl_status_t ret;
+    vigil_status_t ret;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         return push_empty_bytes(vm, error);
@@ -171,8 +171,8 @@ static basl_status_t deflate_compress_fn(basl_vm_t *vm, size_t arg_count, basl_e
     return push_empty_bytes(vm, error);
 }
 
-static basl_status_t deflate_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     tinfl_decompressor decomp;
@@ -182,8 +182,8 @@ static basl_status_t deflate_decompress_fn(basl_vm_t *vm, size_t arg_count, basl
     tinfl_status status;
     size_t in_pos = 0;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         return push_empty_bytes(vm, error);
@@ -228,7 +228,7 @@ static basl_status_t deflate_decompress_fn(basl_vm_t *vm, size_t arg_count, basl
     }
 
     {
-        basl_status_t ret = push_bytes(vm, dst, dst_len, error);
+        vigil_status_t ret = push_bytes(vm, dst, dst_len, error);
         free(dst);
         return ret;
     }
@@ -236,8 +236,8 @@ static basl_status_t deflate_decompress_fn(basl_vm_t *vm, size_t arg_count, basl
 
 /* ── Gzip ────────────────────────────────────────────────────────── */
 
-static basl_status_t gzip_compress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     mz_ulong bound;
@@ -245,15 +245,15 @@ static basl_status_t gzip_compress_fn(basl_vm_t *vm, size_t arg_count, basl_erro
     size_t out_len;
     mz_stream stream;
     mz_uint32 crc;
-    basl_status_t ret;
+    vigil_status_t ret;
 
     /* Gzip header */
     static const unsigned char gzip_hdr[] = {
         0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03
     };
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         /* Minimal valid gzip for empty */
@@ -308,8 +308,8 @@ static basl_status_t gzip_compress_fn(basl_vm_t *vm, size_t arg_count, basl_erro
     return ret;
 }
 
-static basl_status_t gzip_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t gzip_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     size_t hdr_len = 10;
@@ -322,8 +322,8 @@ static basl_status_t gzip_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_er
     size_t in_pos = 0;
     tinfl_status status;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len < 18) {
         return push_empty_bytes(vm, error);
@@ -397,7 +397,7 @@ static basl_status_t gzip_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_er
     }
 
     {
-        basl_status_t ret = push_bytes(vm, dst, dst_len, error);
+        vigil_status_t ret = push_bytes(vm, dst, dst_len, error);
         free(dst);
         return ret;
     }
@@ -405,16 +405,16 @@ static basl_status_t gzip_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_er
 
 /* ── LZ4 ─────────────────────────────────────────────────────────── */
 
-static basl_status_t lz4_compress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t lz4_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     int dst_cap, compressed_size;
     char *dst;
-    basl_status_t ret;
+    vigil_status_t ret;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         return push_empty_bytes(vm, error);
@@ -437,15 +437,15 @@ static basl_status_t lz4_compress_fn(basl_vm_t *vm, size_t arg_count, basl_error
     return ret;
 }
 
-static basl_status_t lz4_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t lz4_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     int dst_cap, decompressed_size;
     char *dst;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!src || src_len == 0) {
         return push_empty_bytes(vm, error);
@@ -463,7 +463,7 @@ static basl_status_t lz4_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_err
     while (1) {
         decompressed_size = LZ4_decompress_safe(src, dst, (int)src_len, dst_cap);
         if (decompressed_size > 0) {
-            basl_status_t ret = push_bytes(vm, dst, (size_t)decompressed_size, error);
+            vigil_status_t ret = push_bytes(vm, dst, (size_t)decompressed_size, error);
             free(dst);
             return ret;
         }
@@ -493,20 +493,20 @@ static basl_status_t lz4_decompress_fn(basl_vm_t *vm, size_t arg_count, basl_err
 
 /* ── ZIP ─────────────────────────────────────────────────────────── */
 
-static basl_status_t zip_list_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t zip_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
     mz_zip_archive zip;
     mz_uint i, num_files;
-    basl_object_t *arr = NULL;
-    basl_status_t s;
+    vigil_object_t *arr = NULL;
+    vigil_status_t s;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-    if (s != BASL_STATUS_OK) return s;
+    s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     if (!src || src_len == 0) {
         goto done;
@@ -522,40 +522,40 @@ static basl_status_t zip_list_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *
         char filename[512];
         mz_zip_reader_get_filename(&zip, i, filename, sizeof(filename));
         
-        basl_object_t *str_obj = NULL;
-        s = basl_string_object_new(basl_vm_runtime(vm), filename, strlen(filename), &str_obj, error);
-        if (s == BASL_STATUS_OK) {
-            basl_value_t val;
-            basl_value_init_object(&val, &str_obj);
-            basl_array_object_append(arr, &val, error);
-            basl_value_release(&val);
+        vigil_object_t *str_obj = NULL;
+        s = vigil_string_object_new(vigil_vm_runtime(vm), filename, strlen(filename), &str_obj, error);
+        if (s == VIGIL_STATUS_OK) {
+            vigil_value_t val;
+            vigil_value_init_object(&val, &str_obj);
+            vigil_array_object_append(arr, &val, error);
+            vigil_value_release(&val);
         }
     }
     mz_zip_reader_end(&zip);
 
 done:
     {
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
 }
 
-static basl_status_t zip_read_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t zip_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t zip_len, name_len;
     const char *zip_data, *name;
     mz_zip_archive zip;
     int file_index;
     void *data;
     size_t data_size;
-    basl_status_t ret;
+    vigil_status_t ret;
 
-    zip_data = get_bytes_data(basl_vm_stack_get(vm, base), &zip_len);
-    name = get_bytes_data(basl_vm_stack_get(vm, base + 1), &name_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    zip_data = get_bytes_data(vigil_vm_stack_get(vm, base), &zip_len);
+    name = get_bytes_data(vigil_vm_stack_get(vm, base + 1), &name_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!zip_data || zip_len == 0 || !name || name_len == 0) {
         return push_empty_bytes(vm, error);
@@ -585,32 +585,32 @@ static basl_status_t zip_read_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *
 }
 
 /* zip_create: takes two arrays - names and contents */
-static basl_status_t zip_create_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
-    basl_value_t names_val = basl_vm_stack_get(vm, base);
-    basl_value_t contents_val = basl_vm_stack_get(vm, base + 1);
-    const basl_object_t *names_obj, *contents_obj;
+static vigil_status_t zip_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    vigil_value_t names_val = vigil_vm_stack_get(vm, base);
+    vigil_value_t contents_val = vigil_vm_stack_get(vm, base + 1);
+    const vigil_object_t *names_obj, *contents_obj;
     mz_zip_archive zip;
     void *zip_data = NULL;
     size_t zip_size = 0;
     size_t i, count;
-    basl_status_t ret;
+    vigil_status_t ret;
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!basl_nanbox_is_object(names_val) || !basl_nanbox_is_object(contents_val)) {
+    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val)) {
         return push_empty_bytes(vm, error);
     }
-    names_obj = (const basl_object_t *)basl_nanbox_decode_ptr(names_val);
-    contents_obj = (const basl_object_t *)basl_nanbox_decode_ptr(contents_val);
-    if (!names_obj || basl_object_type(names_obj) != BASL_OBJECT_ARRAY ||
-        !contents_obj || basl_object_type(contents_obj) != BASL_OBJECT_ARRAY) {
+    names_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(names_val);
+    contents_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(contents_val);
+    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY ||
+        !contents_obj || vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY) {
         return push_empty_bytes(vm, error);
     }
 
-    count = basl_array_object_length(names_obj);
-    if (basl_array_object_length(contents_obj) < count) {
-        count = basl_array_object_length(contents_obj);
+    count = vigil_array_object_length(names_obj);
+    if (vigil_array_object_length(contents_obj) < count) {
+        count = vigil_array_object_length(contents_obj);
     }
 
     mz_zip_zero_struct(&zip);
@@ -619,12 +619,12 @@ static basl_status_t zip_create_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
     }
 
     for (i = 0; i < count; i++) {
-        basl_value_t name_val, content_val;
+        vigil_value_t name_val, content_val;
         size_t name_len, data_len;
         const char *name, *data;
 
-        if (!basl_array_object_get(names_obj, i, &name_val)) continue;
-        if (!basl_array_object_get(contents_obj, i, &content_val)) continue;
+        if (!vigil_array_object_get(names_obj, i, &name_val)) continue;
+        if (!vigil_array_object_get(contents_obj, i, &content_val)) continue;
 
         name = get_bytes_data(name_val, &name_len);
         data = get_bytes_data(content_val, &data_len);
@@ -697,19 +697,19 @@ static void tar_write_octal(char *dst, size_t len, size_t val) {
     dst[0] = '0';
 }
 
-static basl_status_t tar_list_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t tar_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
-    basl_object_t *arr = NULL;
-    basl_status_t s;
+    vigil_object_t *arr = NULL;
+    vigil_status_t s;
     size_t pos = 0;
 
-    src = get_bytes_data(basl_vm_stack_get(vm, base), &src_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-    if (s != BASL_STATUS_OK) return s;
+    s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     while (pos + 512 <= src_len) {
         const tar_header_t *h = (const tar_header_t *)(src + pos);
@@ -737,13 +737,13 @@ static basl_status_t tar_list_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *
 
         /* Add to array */
         {
-            basl_object_t *str_obj = NULL;
-            s = basl_string_object_new(basl_vm_runtime(vm), name, name_len, &str_obj, error);
-            if (s == BASL_STATUS_OK) {
-                basl_value_t val;
-                basl_value_init_object(&val, &str_obj);
-                basl_array_object_append(arr, &val, error);
-                basl_value_release(&val);
+            vigil_object_t *str_obj = NULL;
+            s = vigil_string_object_new(vigil_vm_runtime(vm), name, name_len, &str_obj, error);
+            if (s == VIGIL_STATUS_OK) {
+                vigil_value_t val;
+                vigil_value_init_object(&val, &str_obj);
+                vigil_array_object_append(arr, &val, error);
+                vigil_value_release(&val);
             }
         }
 
@@ -751,23 +751,23 @@ static basl_status_t tar_list_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *
     }
 
     {
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
 }
 
-static basl_status_t tar_read_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t tar_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t tar_len, name_len;
     const char *tar_data, *name;
     size_t pos = 0;
 
-    tar_data = get_bytes_data(basl_vm_stack_get(vm, base), &tar_len);
-    name = get_bytes_data(basl_vm_stack_get(vm, base + 1), &name_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    tar_data = get_bytes_data(vigil_vm_stack_get(vm, base), &tar_len);
+    name = get_bytes_data(vigil_vm_stack_get(vm, base + 1), &name_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (!tar_data || tar_len == 0 || !name || name_len == 0) {
         return push_empty_bytes(vm, error);
@@ -809,43 +809,43 @@ static basl_status_t tar_read_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *
     return push_empty_bytes(vm, error);
 }
 
-static basl_status_t tar_create_fn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
-    basl_value_t names_val = basl_vm_stack_get(vm, base);
-    basl_value_t contents_val = basl_vm_stack_get(vm, base + 1);
-    const basl_object_t *names_obj, *contents_obj;
+static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    vigil_value_t names_val = vigil_vm_stack_get(vm, base);
+    vigil_value_t contents_val = vigil_vm_stack_get(vm, base + 1);
+    const vigil_object_t *names_obj, *contents_obj;
     size_t i, count;
     unsigned char *tar_data = NULL;
     size_t tar_size = 0, tar_cap = 0;
-    basl_status_t ret;
+    vigil_status_t ret;
 
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!basl_nanbox_is_object(names_val) || !basl_nanbox_is_object(contents_val)) {
+    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val)) {
         return push_empty_bytes(vm, error);
     }
-    names_obj = (const basl_object_t *)basl_nanbox_decode_ptr(names_val);
-    contents_obj = (const basl_object_t *)basl_nanbox_decode_ptr(contents_val);
-    if (!names_obj || basl_object_type(names_obj) != BASL_OBJECT_ARRAY ||
-        !contents_obj || basl_object_type(contents_obj) != BASL_OBJECT_ARRAY) {
+    names_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(names_val);
+    contents_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(contents_val);
+    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY ||
+        !contents_obj || vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY) {
         return push_empty_bytes(vm, error);
     }
 
-    count = basl_array_object_length(names_obj);
-    if (basl_array_object_length(contents_obj) < count) {
-        count = basl_array_object_length(contents_obj);
+    count = vigil_array_object_length(names_obj);
+    if (vigil_array_object_length(contents_obj) < count) {
+        count = vigil_array_object_length(contents_obj);
     }
 
     for (i = 0; i < count; i++) {
-        basl_value_t name_val, content_val;
+        vigil_value_t name_val, content_val;
         size_t name_len, data_len;
         const char *name, *data;
         tar_header_t h;
         size_t padded_size, needed;
         unsigned int cksum;
 
-        if (!basl_array_object_get(names_obj, i, &name_val)) continue;
-        if (!basl_array_object_get(contents_obj, i, &content_val)) continue;
+        if (!vigil_array_object_get(names_obj, i, &name_val)) continue;
+        if (!vigil_array_object_get(contents_obj, i, &content_val)) continue;
 
         name = get_bytes_data(name_val, &name_len);
         data = get_bytes_data(content_val, &data_len);
@@ -917,39 +917,39 @@ static basl_status_t tar_create_fn(basl_vm_t *vm, size_t arg_count, basl_error_t
 
 /* ── Module descriptor ───────────────────────────────────────────── */
 
-static const int bytes_param[] = { BASL_TYPE_STRING };
-static const int two_bytes_param[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int two_arrays_param[] = { BASL_TYPE_OBJECT, BASL_TYPE_OBJECT };
+static const int bytes_param[] = { VIGIL_TYPE_STRING };
+static const int two_bytes_param[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int two_arrays_param[] = { VIGIL_TYPE_OBJECT, VIGIL_TYPE_OBJECT };
 
 /* Extended type info for functions that take array<string> parameters */
-static const basl_native_type_t create_params_ext[] = {
-    BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING),
-    BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING)
+static const vigil_native_type_t create_params_ext[] = {
+    VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
+    VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING)
 };
 
 /* Extended type info for functions that return array<string> */
-static const basl_native_type_t array_string_return = BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING);
+static const vigil_native_type_t array_string_return = VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING);
 
-static const basl_native_module_function_t compress_functions[] = {
-    {"deflate_compress", 16U, deflate_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"deflate_decompress", 18U, deflate_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"zlib_compress", 13U, zlib_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"zlib_decompress", 15U, zlib_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"gzip_compress", 13U, gzip_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"gzip_decompress", 15U, gzip_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"lz4_compress", 12U, lz4_compress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"lz4_decompress", 14U, lz4_decompress_fn, 1U, bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"zip_list", 8U, zip_list_fn, 1U, bytes_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING, NULL, &array_string_return},
-    {"zip_read", 8U, zip_read_fn, 2U, two_bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"zip_create", 10U, zip_create_fn, 2U, two_arrays_param, BASL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
-    {"tar_list", 8U, tar_list_fn, 1U, bytes_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING, NULL, &array_string_return},
-    {"tar_read", 8U, tar_read_fn, 2U, two_bytes_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"tar_create", 10U, tar_create_fn, 2U, two_arrays_param, BASL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
+static const vigil_native_module_function_t compress_functions[] = {
+    {"deflate_compress", 16U, deflate_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"deflate_decompress", 18U, deflate_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zlib_compress", 13U, zlib_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zlib_decompress", 15U, zlib_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"gzip_compress", 13U, gzip_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"gzip_decompress", 15U, gzip_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"lz4_compress", 12U, lz4_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"lz4_decompress", 14U, lz4_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zip_list", 8U, zip_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, &array_string_return},
+    {"zip_read", 8U, zip_read_fn, 2U, two_bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zip_create", 10U, zip_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
+    {"tar_list", 8U, tar_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, &array_string_return},
+    {"tar_read", 8U, tar_read_fn, 2U, two_bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"tar_create", 10U, tar_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
 };
 
 #define COMPRESS_FUNCTION_COUNT (sizeof(compress_functions) / sizeof(compress_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_compress = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_compress = {
     "compress", 8U,
     compress_functions,
     COMPRESS_FUNCTION_COUNT,

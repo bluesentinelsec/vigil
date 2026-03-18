@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL atomic module."""
+"""Integration tests for VIGIL atomic module."""
 
 import os
 import subprocess
@@ -7,15 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    with tempfile.TemporaryDirectory(prefix="basl_atomic_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    with tempfile.TemporaryDirectory(prefix="vigil_atomic_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True, text=True, timeout=10,
         )
         return result.returncode, result.stdout, result.stderr
@@ -29,7 +29,7 @@ fn main() -> i32 {
     if (a >= i64(0)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_new_with_initial_value(self):
@@ -40,7 +40,7 @@ fn main() -> i32 {
     if (val == i64(42)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -54,7 +54,7 @@ fn main() -> i32 {
     if (val == i64(100)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -68,7 +68,7 @@ fn main() -> i32 {
     if (old == i64(10) && new_val == i64(15)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_sub(self):
@@ -80,7 +80,7 @@ fn main() -> i32 {
     if (old == i64(20) && new_val == i64(13)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -94,7 +94,7 @@ fn main() -> i32 {
     if (ok && val == i64(60)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_cas_failure(self):
@@ -106,7 +106,7 @@ fn main() -> i32 {
     if (!ok && val == i64(50)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -120,7 +120,7 @@ fn main() -> i32 {
     if (old == i64(5) && new_val == i64(6)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_dec(self):
@@ -132,7 +132,7 @@ fn main() -> i32 {
     if (old == i64(5) && new_val == i64(4)) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

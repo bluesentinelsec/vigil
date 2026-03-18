@@ -1,19 +1,19 @@
-#include "basl/doc_registry.h"
+#include "vigil/doc_registry.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "internal/basl_internal.h"
+#include "internal/vigil_internal.h"
 
 /* ── Builtin Function Docs ────────────────────────────────── */
 
-static const basl_doc_entry_t builtin_docs[] = {
+static const vigil_doc_entry_t builtin_docs[] = {
     {
         "builtins",
         NULL,
         "Built-in functions available without import.",
-        "These functions are always available in BASL programs.",
+        "These functions are always available in VIGIL programs.",
         NULL
     },
     {
@@ -71,7 +71,7 @@ static const basl_doc_entry_t builtin_docs[] = {
 
 /* ── fmt Module Docs ──────────────────────────────────────── */
 
-static const basl_doc_entry_t fmt_docs[] = {
+static const vigil_doc_entry_t fmt_docs[] = {
     {
         "fmt",
         NULL,
@@ -106,7 +106,7 @@ static const basl_doc_entry_t fmt_docs[] = {
 
 /* ── math Module Docs ─────────────────────────────────────── */
 
-static const basl_doc_entry_t math_docs[] = {
+static const vigil_doc_entry_t math_docs[] = {
     {
         "math",
         NULL,
@@ -232,7 +232,7 @@ static const basl_doc_entry_t math_docs[] = {
 
 /* ── args Module Docs ─────────────────────────────────────── */
 
-static const basl_doc_entry_t args_docs[] = {
+static const vigil_doc_entry_t args_docs[] = {
     {
         "args",
         NULL,
@@ -253,7 +253,7 @@ static const basl_doc_entry_t args_docs[] = {
 
 /* ── test Module Docs ─────────────────────────────────────── */
 
-static const basl_doc_entry_t test_docs[] = {
+static const vigil_doc_entry_t test_docs[] = {
     {
         "test",
         NULL,
@@ -281,7 +281,7 @@ static const basl_doc_entry_t test_docs[] = {
 
 /* ── strings Module Docs ──────────────────────────────────── */
 
-static const basl_doc_entry_t strings_docs[] = {
+static const vigil_doc_entry_t strings_docs[] = {
     {
         "strings",
         NULL,
@@ -484,7 +484,7 @@ static const basl_doc_entry_t strings_docs[] = {
 
 /* ── regex Module Docs ────────────────────────────────────── */
 
-static const basl_doc_entry_t regex_docs[] = {
+static const vigil_doc_entry_t regex_docs[] = {
     {
         "regex",
         NULL,
@@ -542,7 +542,7 @@ static const basl_doc_entry_t regex_docs[] = {
 
 /* ── random Module Docs ───────────────────────────────────── */
 
-static const basl_doc_entry_t random_docs[] = {
+static const vigil_doc_entry_t random_docs[] = {
     {
         "random",
         NULL,
@@ -599,7 +599,7 @@ static const basl_doc_entry_t random_docs[] = {
 
 /* ── url Module Docs ──────────────────────────────────────── */
 
-static const basl_doc_entry_t url_docs[] = {
+static const vigil_doc_entry_t url_docs[] = {
     {
         "url",
         NULL,
@@ -678,7 +678,7 @@ static const basl_doc_entry_t url_docs[] = {
 
 /* ── yaml module ──────────────────────────────────────────── */
 
-static const basl_doc_entry_t yaml_docs[] = {
+static const vigil_doc_entry_t yaml_docs[] = {
     {
         "yaml",
         NULL,
@@ -708,7 +708,7 @@ static const basl_doc_entry_t yaml_docs[] = {
 
 /* ── fs module ────────────────────────────────────────────── */
 
-static const basl_doc_entry_t fs_docs[] = {
+static const vigil_doc_entry_t fs_docs[] = {
     {
         "fs",
         NULL,
@@ -751,7 +751,7 @@ static const basl_doc_entry_t fs_docs[] = {
 
 /* ── log module ───────────────────────────────────────────── */
 
-static const basl_doc_entry_t log_docs[] = {
+static const vigil_doc_entry_t log_docs[] = {
     {
         "log",
         NULL,
@@ -780,7 +780,7 @@ static const basl_doc_entry_t log_docs[] = {
 
 /* ── thread module ────────────────────────────────────────── */
 
-static const basl_doc_entry_t thread_docs[] = {
+static const vigil_doc_entry_t thread_docs[] = {
     {
         "thread",
         NULL,
@@ -812,7 +812,7 @@ static const basl_doc_entry_t thread_docs[] = {
 
 /* ── atomic module ────────────────────────────────────────── */
 
-static const basl_doc_entry_t atomic_docs[] = {
+static const vigil_doc_entry_t atomic_docs[] = {
     {
         "atomic",
         NULL,
@@ -835,7 +835,7 @@ static const basl_doc_entry_t atomic_docs[] = {
 
 /* ── compress module ──────────────────────────────────────── */
 
-static const basl_doc_entry_t compress_docs[] = {
+static const vigil_doc_entry_t compress_docs[] = {
     {
         "compress",
         NULL,
@@ -864,7 +864,7 @@ static const basl_doc_entry_t compress_docs[] = {
 
 /* ── csv Module Docs ──────────────────────────────────────── */
 
-static const basl_doc_entry_t csv_docs[] = {
+static const vigil_doc_entry_t csv_docs[] = {
     {
         "csv",
         NULL,
@@ -883,7 +883,7 @@ static const basl_doc_entry_t csv_docs[] = {
 
 /* ── net Module Docs ──────────────────────────────────────── */
 
-static const basl_doc_entry_t net_docs[] = {
+static const vigil_doc_entry_t net_docs[] = {
     {
         "net",
         NULL,
@@ -909,7 +909,7 @@ static const basl_doc_entry_t net_docs[] = {
 
 /* ── time Module Docs ─────────────────────────────────────── */
 
-static const basl_doc_entry_t time_docs[] = {
+static const vigil_doc_entry_t time_docs[] = {
     {
         "time",
         NULL,
@@ -922,7 +922,7 @@ static const basl_doc_entry_t time_docs[] = {
     },
     {"time.now", "time.now() -> i64", "Get current Unix timestamp.", "Returns seconds since 1970-01-01 UTC.", "i64 ts = time.now()"},
     {"time.now_ms", "time.now_ms() -> i64", "Get current time in milliseconds.", "Returns milliseconds since Unix epoch.", "i64 ms = time.now_ms()"},
-    {"time.now_ns", "time.now_ns() -> i64", "Get current time in nanoseconds.", "Returns nanoseconds since Unix epoch. Note: values may overflow\nBASL's 48-bit integer limit for dates after ~1970.", "i64 ns = time.now_ns()"},
+    {"time.now_ns", "time.now_ns() -> i64", "Get current time in nanoseconds.", "Returns nanoseconds since Unix epoch. Note: values may overflow\nVIGIL's 48-bit integer limit for dates after ~1970.", "i64 ns = time.now_ns()"},
     {"time.sleep", "time.sleep(ms: i64)", "Sleep for milliseconds.", "Pauses execution for the specified duration.", "time.sleep(i64(1000))  // sleep 1 second"},
     {"time.year", "time.year(ts: i64) -> i32", "Get year from timestamp.", "Returns the year (e.g. 2024).", "time.year(time.now())"},
     {"time.month", "time.month(ts: i64) -> i32", "Get month from timestamp.", "Returns month 1-12.", "time.month(time.now())"},
@@ -948,7 +948,7 @@ static const basl_doc_entry_t time_docs[] = {
 
 /* ── crypto Module Docs ───────────────────────────────────── */
 
-static const basl_doc_entry_t crypto_docs[] = {
+static const vigil_doc_entry_t crypto_docs[] = {
     {
         "crypto",
         NULL,
@@ -979,7 +979,7 @@ static const basl_doc_entry_t crypto_docs[] = {
 
 /* ── http module ─────────────────────────────────────────────────── */
 
-static const basl_doc_entry_t http_docs[] = {
+static const vigil_doc_entry_t http_docs[] = {
     {"http", NULL, "HTTP client and server.", "Client functions use native HTTPS (WinHTTP/libcurl) with plain HTTP fallback. Server functions provide a simple HTTP/1.1 listener.", NULL},
     {"http.get", "http.get(url: string) -> (i32, string, string)", "HTTP GET request.", "Returns (status_code, body, headers). Uses WinHTTP/libcurl for HTTPS.", "i32 status, string body, string hdrs = http.get(\"https://example.com\")"},
     {"http.post", "http.post(url: string, body: string, content_type?: string) -> (i32, string, string)", "HTTP POST request.", "Returns (status_code, response_body, headers).", "i32 status, string resp, string hdrs = http.post(url, data, \"application/json\")"},
@@ -1039,7 +1039,7 @@ static const char *module_names[] = {
 
 /* ── Lookup Implementation ────────────────────────────────── */
 
-const basl_doc_entry_t *basl_doc_lookup(const char *name) {
+const vigil_doc_entry_t *vigil_doc_lookup(const char *name) {
     size_t i, len;
 
     if (name == NULL) return NULL;
@@ -1189,14 +1189,14 @@ const basl_doc_entry_t *basl_doc_lookup(const char *name) {
     return NULL;
 }
 
-const char **basl_doc_list_modules(size_t *count) {
+const char **vigil_doc_list_modules(size_t *count) {
     if (count != NULL) {
         *count = MODULE_COUNT;
     }
     return module_names;
 }
 
-const basl_doc_entry_t *basl_doc_list_module(
+const vigil_doc_entry_t *vigil_doc_list_module(
     const char *module_name,
     size_t *count
 ) {
@@ -1286,26 +1286,26 @@ const basl_doc_entry_t *basl_doc_list_module(
     return NULL;
 }
 
-basl_status_t basl_doc_entry_render(
-    const basl_doc_entry_t *entry,
+vigil_status_t vigil_doc_entry_render(
+    const vigil_doc_entry_t *entry,
     char **out_text,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     char *buf;
     size_t len = 0;
     size_t cap = 1024;
 
     if (entry == NULL || out_text == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "doc: invalid arguments");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     buf = malloc(cap);
     if (buf == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "out of memory");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY, "out of memory");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     /* Name/signature */
@@ -1333,5 +1333,5 @@ basl_status_t basl_doc_entry_render(
 
     *out_text = buf;
     if (out_length) *out_length = len;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }

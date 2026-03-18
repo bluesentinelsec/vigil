@@ -1,0 +1,43 @@
+import "os";
+import "file";
+import "io";
+import "fmt";
+
+fn main() -> i32 {
+    array<string> args = os.args();
+    
+    // No args: read from stdin (classic cat behavior)
+    if (args.len() == 0) {
+        string content, err e = io.read_all();
+        if (e != ok) {
+            fmt.eprintln(f"vigil-cat: stdin: {e.message()}");
+            return 1;
+        }
+        fmt.print(content);
+        return 0;
+    }
+    
+    // Process each file
+    for (i32 i = 0; i < args.len(); i++) {
+        string path = args[i];
+        
+        // Support "-" for stdin
+        if (path == "-") {
+            string content, err e = io.read_all();
+            if (e != ok) {
+                fmt.eprintln(f"vigil-cat: stdin: {e.message()}");
+                return 1;
+            }
+            fmt.print(content);
+        } else {
+            string content, err e = file.read_all(path);
+            if (e != ok) {
+                fmt.eprintln(f"vigil-cat: {path}: {e.message()}");
+                return 1;
+            }
+            fmt.print(content);
+        }
+    }
+    
+    return 0;
+}

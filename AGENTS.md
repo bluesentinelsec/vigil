@@ -1,10 +1,10 @@
-# BASL Agent Guidance
+# VIGIL Agent Guidance
 
 ## Project Intent
 
-- BASL is the "Blazingly Awesome Scripting Language", implemented as a bytecode interpreter and scripting language runtime.
+- VIGIL is the "Blazingly Awesome Scripting Language", implemented as a bytecode interpreter and scripting language runtime.
 - Optimize for explicitness, predictability, portability, batteries-included tooling, and easy distribution of CLI apps, graphical programs, and libraries.
-- BASL should stay easy to build on modern systems with a C compiler. Avoid casual dependency growth.
+- VIGIL should stay easy to build on modern systems with a C compiler. Avoid casual dependency growth.
 
 ## Engineering Rules
 
@@ -13,7 +13,7 @@
 - Use centralized cleanup with `goto` in C functions that acquire multiple resources.
 - Fail fast with clear diagnostics instead of hidden fallback behavior.
 - Preserve explicit APIs and ownership. Match existing allocator and runtime conventions.
-- If BASL needs a reusable capability, consider whether it belongs as a generalized stdlib or platform-layer building block.
+- If VIGIL needs a reusable capability, consider whether it belongs as a generalized stdlib or platform-layer building block.
 
 ## Testing And Validation
 
@@ -23,16 +23,16 @@
   - `make build`
   - `make test`
   - `ctest --test-dir build --output-on-failure`
-- Integration tests depend on `BASL_BIN`; the CMake test targets already wire that up.
+- Integration tests depend on `VIGIL_BIN`; the CMake test targets already wire that up.
 
 ## Repository Map
 
-- `include/basl/`: public C API
+- `include/vigil/`: public C API
 - `src/`: interpreter, compiler, checker, runtime, CLI, stdlib, and platform code
 - `src/internal/`: private internal headers
-- `tests/`: C unit tests using the local `basl_test.h` harness
+- `tests/`: C unit tests using the local `vigil_test.h` harness
 - `integration_tests/`: Python integration coverage for CLI behavior
-- `examples/`: BASL programs and package-layout examples
+- `examples/`: VIGIL programs and package-layout examples
 - `docs/`: language, structure, and portability references
 
 ## Documentation

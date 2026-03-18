@@ -1,4 +1,4 @@
-/* BASL standard library: crypto module.
+/* VIGIL standard library: crypto module.
  *
  * Provides cryptographic operations:
  * - Hashing: SHA-256, SHA-384, SHA-512
@@ -15,48 +15,48 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
-#include "basl_crypto.h"
+#include "internal/vigil_nanbox.h"
+#include "vigil_crypto.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static bool get_bytes_arg(basl_vm_t *vm, size_t base, size_t idx,
+static bool get_bytes_arg(vigil_vm_t *vm, size_t base, size_t idx,
                           const uint8_t **out, size_t *out_len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (!basl_nanbox_is_object(v)) return false;
-    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return false;
-    *out = (const uint8_t *)basl_string_object_c_str(obj);
-    *out_len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (!vigil_nanbox_is_object(v)) return false;
+    vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    *out = (const uint8_t *)vigil_string_object_c_str(obj);
+    *out_len = vigil_string_object_length(obj);
     return true;
 }
 
-static int32_t get_i32_arg(basl_vm_t *vm, size_t base, size_t idx) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    return basl_nanbox_decode_i32(v);
+static int32_t get_i32_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    return vigil_nanbox_decode_i32(v);
 }
 
-static basl_status_t push_bytes(basl_vm_t *vm, const uint8_t *data, size_t len,
-                                 basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), (const char *)data, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    basl_value_t val;
-    basl_value_init_object(&val, &obj);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+static vigil_status_t push_bytes(vigil_vm_t *vm, const uint8_t *data, size_t len,
+                                 vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), (const char *)data, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &obj);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
-static basl_status_t push_bool(basl_vm_t *vm, int val, basl_error_t *error) {
-    basl_value_t v;
-    basl_value_init_bool(&v, val);
-    return basl_vm_stack_push(vm, &v, error);
+static vigil_status_t push_bool(vigil_vm_t *vm, int val, vigil_error_t *error) {
+    vigil_value_t v;
+    vigil_value_init_bool(&v, val);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
 /* ── Hex encoding ────────────────────────────────────────────────── */
@@ -151,65 +151,65 @@ static size_t base64_decode(const char *data, size_t len, uint8_t *out) {
 
 /* ── crypto.sha256(data: string) -> string ───────────────────────── */
 
-static basl_status_t crypto_sha256(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_sha256(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *data; size_t len;
     uint8_t hash[32];
     char hex[64];
 
     if (!get_bytes_arg(vm, base, 0, &data, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    basl_sha256(data, len, hash);
+    vigil_sha256(data, len, hash);
     bytes_to_hex(hash, 32, hex);
     return push_bytes(vm, (uint8_t *)hex, 64, error);
 }
 
 /* ── crypto.sha384(data: string) -> string ───────────────────────── */
 
-static basl_status_t crypto_sha384(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_sha384(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *data; size_t len;
     uint8_t hash[48];
     char hex[96];
 
     if (!get_bytes_arg(vm, base, 0, &data, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    basl_sha384(data, len, hash);
+    vigil_sha384(data, len, hash);
     bytes_to_hex(hash, 48, hex);
     return push_bytes(vm, (uint8_t *)hex, 96, error);
 }
 
 /* ── crypto.sha512(data: string) -> string ───────────────────────── */
 
-static basl_status_t crypto_sha512(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_sha512(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *data; size_t len;
     uint8_t hash[64];
     char hex[128];
 
     if (!get_bytes_arg(vm, base, 0, &data, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    basl_sha512(data, len, hash);
+    vigil_sha512(data, len, hash);
     bytes_to_hex(hash, 64, hex);
     return push_bytes(vm, (uint8_t *)hex, 128, error);
 }
 
 /* ── crypto.hmac_sha256(key: string, data: string) -> string ─────── */
 
-static basl_status_t crypto_hmac_sha256(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_hmac_sha256(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *key, *data;
     size_t key_len, data_len;
     uint8_t mac[32];
@@ -217,32 +217,32 @@ static basl_status_t crypto_hmac_sha256(basl_vm_t *vm, size_t arg_count, basl_er
 
     if (!get_bytes_arg(vm, base, 0, &key, &key_len) ||
         !get_bytes_arg(vm, base, 1, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    basl_hmac_sha256(key, key_len, data, data_len, mac);
+    vigil_hmac_sha256(key, key_len, data, data_len, mac);
     bytes_to_hex(mac, 32, hex);
     return push_bytes(vm, (uint8_t *)hex, 64, error);
 }
 
 /* ── crypto.pbkdf2(password, salt, iterations, key_len) -> string ── */
 
-static basl_status_t crypto_pbkdf2(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_pbkdf2(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *password, *salt;
     size_t pass_len, salt_len;
     int32_t iterations, key_len;
 
     if (!get_bytes_arg(vm, base, 0, &password, &pass_len) ||
         !get_bytes_arg(vm, base, 1, &salt, &salt_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     iterations = get_i32_arg(vm, base, 2);
     key_len = get_i32_arg(vm, base, 3);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (iterations < 1 || key_len < 1 || key_len > 1024) {
         return push_bytes(vm, (uint8_t *)"", 0, error);
@@ -251,13 +251,13 @@ static basl_status_t crypto_pbkdf2(basl_vm_t *vm, size_t arg_count, basl_error_t
     uint8_t *key = (uint8_t *)malloc((size_t)key_len);
     if (!key) return push_bytes(vm, (uint8_t *)"", 0, error);
 
-    basl_pbkdf2_sha256(password, pass_len, salt, salt_len, (uint32_t)iterations, key, (size_t)key_len);
+    vigil_pbkdf2_sha256(password, pass_len, salt, salt_len, (uint32_t)iterations, key, (size_t)key_len);
 
     char *hex = (char *)malloc((size_t)key_len * 2);
     if (!hex) { free(key); return push_bytes(vm, (uint8_t *)"", 0, error); }
     bytes_to_hex(key, (size_t)key_len, hex);
 
-    basl_status_t s = push_bytes(vm, (uint8_t *)hex, (size_t)key_len * 2, error);
+    vigil_status_t s = push_bytes(vm, (uint8_t *)hex, (size_t)key_len * 2, error);
     free(key);
     free(hex);
     return s;
@@ -265,10 +265,10 @@ static basl_status_t crypto_pbkdf2(basl_vm_t *vm, size_t arg_count, basl_error_t
 
 /* ── crypto.random_bytes(len: i32) -> string ─────────────────────── */
 
-static basl_status_t crypto_random_bytes(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_random_bytes(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int32_t len = get_i32_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (len < 0 || len > 65536) {
         return push_bytes(vm, (uint8_t *)"", 0, error);
@@ -277,46 +277,46 @@ static basl_status_t crypto_random_bytes(basl_vm_t *vm, size_t arg_count, basl_e
     uint8_t *buf = (uint8_t *)malloc((size_t)len);
     if (!buf) return push_bytes(vm, (uint8_t *)"", 0, error);
 
-    basl_crypto_random_bytes(buf, (size_t)len);
-    basl_status_t s = push_bytes(vm, buf, (size_t)len, error);
+    vigil_crypto_random_bytes(buf, (size_t)len);
+    vigil_status_t s = push_bytes(vm, buf, (size_t)len, error);
     free(buf);
     return s;
 }
 
 /* ── crypto.constant_time_eq(a, b) -> bool ───────────────────────── */
 
-static basl_status_t crypto_constant_time_eq(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_constant_time_eq(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *a, *b;
     size_t a_len, b_len;
 
     if (!get_bytes_arg(vm, base, 0, &a, &a_len) ||
         !get_bytes_arg(vm, base, 1, &b, &b_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (a_len != b_len) return push_bool(vm, 0, error);
-    return push_bool(vm, basl_crypto_constant_time_compare(a, b, a_len), error);
+    return push_bool(vm, vigil_crypto_constant_time_compare(a, b, a_len), error);
 }
 
 
 /* ── crypto.encrypt(key, nonce, plaintext, aad?) -> string ───────── */
 
-static basl_status_t crypto_encrypt(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *key, *nonce, *plaintext, *aad = NULL;
     size_t key_len, nonce_len, pt_len, aad_len = 0;
 
     if (!get_bytes_arg(vm, base, 0, &key, &key_len) ||
         !get_bytes_arg(vm, base, 1, &nonce, &nonce_len) ||
         !get_bytes_arg(vm, base, 2, &plaintext, &pt_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     if (arg_count > 3) get_bytes_arg(vm, base, 3, &aad, &aad_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (key_len != 32) return push_bytes(vm, (uint8_t *)"", 0, error);
 
@@ -326,28 +326,28 @@ static basl_status_t crypto_encrypt(basl_vm_t *vm, size_t arg_count, basl_error_
     if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
 
     memcpy(out, nonce, nonce_len);
-    basl_aes256_gcm_encrypt(key, nonce, nonce_len, plaintext, pt_len,
+    vigil_aes256_gcm_encrypt(key, nonce, nonce_len, plaintext, pt_len,
                             aad, aad_len, out + nonce_len, out + nonce_len + pt_len);
 
-    basl_status_t s = push_bytes(vm, out, out_len, error);
+    vigil_status_t s = push_bytes(vm, out, out_len, error);
     free(out);
     return s;
 }
 
 /* ── crypto.decrypt(key, ciphertext, aad?) -> string ─────────────── */
 
-static basl_status_t crypto_decrypt(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *key, *ciphertext, *aad = NULL;
     size_t key_len, ct_len, aad_len = 0;
 
     if (!get_bytes_arg(vm, base, 0, &key, &key_len) ||
         !get_bytes_arg(vm, base, 1, &ciphertext, &ct_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     if (arg_count > 2) get_bytes_arg(vm, base, 2, &aad, &aad_len);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (key_len != 32 || ct_len < 12 + 16) {
         return push_bytes(vm, (uint8_t *)"", 0, error);
@@ -363,49 +363,49 @@ static basl_status_t crypto_decrypt(basl_vm_t *vm, size_t arg_count, basl_error_
     uint8_t *plaintext = (uint8_t *)malloc(pt_len > 0 ? pt_len : 1);
     if (!plaintext) return push_bytes(vm, (uint8_t *)"", 0, error);
 
-    int result = basl_aes256_gcm_decrypt(key, nonce, nonce_len, ct, pt_len,
+    int result = vigil_aes256_gcm_decrypt(key, nonce, nonce_len, ct, pt_len,
                                           aad, aad_len, tag, plaintext);
     if (result != 0) {
         free(plaintext);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
 
-    basl_status_t s = push_bytes(vm, plaintext, pt_len, error);
+    vigil_status_t s = push_bytes(vm, plaintext, pt_len, error);
     free(plaintext);
     return s;
 }
 
 /* ── crypto.hex_encode(data) -> string ───────────────────────────── */
 
-static basl_status_t crypto_hex_encode(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_hex_encode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *data; size_t len;
 
     if (!get_bytes_arg(vm, base, 0, &data, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     char *hex = (char *)malloc(len * 2);
     if (!hex) return push_bytes(vm, (uint8_t *)"", 0, error);
     bytes_to_hex(data, len, hex);
-    basl_status_t s = push_bytes(vm, (uint8_t *)hex, len * 2, error);
+    vigil_status_t s = push_bytes(vm, (uint8_t *)hex, len * 2, error);
     free(hex);
     return s;
 }
 
 /* ── crypto.hex_decode(hex) -> string ────────────────────────────── */
 
-static basl_status_t crypto_hex_decode(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_hex_decode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *hex; size_t len;
 
     if (!get_bytes_arg(vm, base, 0, &hex, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (len % 2 != 0) return push_bytes(vm, (uint8_t *)"", 0, error);
 
@@ -415,107 +415,107 @@ static basl_status_t crypto_hex_decode(basl_vm_t *vm, size_t arg_count, basl_err
         free(out);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_status_t s = push_bytes(vm, out, len / 2, error);
+    vigil_status_t s = push_bytes(vm, out, len / 2, error);
     free(out);
     return s;
 }
 
 /* ── crypto.base64_encode(data) -> string ────────────────────────── */
 
-static basl_status_t crypto_base64_encode(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_base64_encode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *data; size_t len;
 
     if (!get_bytes_arg(vm, base, 0, &data, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     size_t out_len = ((len + 2) / 3) * 4;
     char *out = (char *)malloc(out_len);
     if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
     size_t actual = base64_encode(data, len, out);
-    basl_status_t s = push_bytes(vm, (uint8_t *)out, actual, error);
+    vigil_status_t s = push_bytes(vm, (uint8_t *)out, actual, error);
     free(out);
     return s;
 }
 
 /* ── crypto.base64_decode(data) -> string ────────────────────────── */
 
-static basl_status_t crypto_base64_decode(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_base64_decode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *data; size_t len;
 
     if (!get_bytes_arg(vm, base, 0, &data, &len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     size_t out_len = (len / 4) * 3;
     uint8_t *out = (uint8_t *)malloc(out_len > 0 ? out_len : 1);
     if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
     size_t actual = base64_decode((const char *)data, len, out);
-    basl_status_t s = push_bytes(vm, out, actual, error);
+    vigil_status_t s = push_bytes(vm, out, actual, error);
     free(out);
     return s;
 }
 
 /* ── crypto.password_encrypt(password, plaintext) -> string ──────── */
 
-static basl_status_t crypto_password_encrypt(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_password_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *password, *plaintext;
     size_t pass_len, pt_len;
 
     if (!get_bytes_arg(vm, base, 0, &password, &pass_len) ||
         !get_bytes_arg(vm, base, 1, &plaintext, &pt_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     uint8_t *out = (uint8_t *)malloc(pt_len + 44);
     if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
 
-    size_t out_len = basl_password_encrypt(password, pass_len, plaintext, pt_len, out);
+    size_t out_len = vigil_password_encrypt(password, pass_len, plaintext, pt_len, out);
     if (out_len == 0) {
         free(out);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
 
-    basl_status_t s = push_bytes(vm, out, out_len, error);
+    vigil_status_t s = push_bytes(vm, out, out_len, error);
     free(out);
     return s;
 }
 
 /* ── crypto.password_decrypt(password, ciphertext) -> string ─────── */
 
-static basl_status_t crypto_password_decrypt(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t crypto_password_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *password, *ciphertext;
     size_t pass_len, ct_len;
 
     if (!get_bytes_arg(vm, base, 0, &password, &pass_len) ||
         !get_bytes_arg(vm, base, 1, &ciphertext, &ct_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (ct_len < 44) return push_bytes(vm, (uint8_t *)"", 0, error);
 
     uint8_t *out = (uint8_t *)malloc(ct_len);
     if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
 
-    size_t pt_len = basl_password_decrypt(password, pass_len, ciphertext, ct_len, out);
+    size_t pt_len = vigil_password_decrypt(password, pass_len, ciphertext, ct_len, out);
     if (pt_len == 0) {
         free(out);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
 
-    basl_status_t s = push_bytes(vm, out, pt_len, error);
+    vigil_status_t s = push_bytes(vm, out, pt_len, error);
     free(out);
     return s;
 }
@@ -523,31 +523,31 @@ static basl_status_t crypto_password_decrypt(basl_vm_t *vm, size_t arg_count, ba
 
 /* ── Module descriptor ───────────────────────────────────────────── */
 
-static const int crypto_string_params[] = { BASL_TYPE_STRING };
-static const int crypto_2string_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int crypto_3string_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int crypto_pbkdf2_params[] = { BASL_TYPE_STRING, BASL_TYPE_STRING, BASL_TYPE_I32, BASL_TYPE_I32 };
-static const int crypto_i32_params[] = { BASL_TYPE_I32 };
+static const int crypto_string_params[] = { VIGIL_TYPE_STRING };
+static const int crypto_2string_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int crypto_3string_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int crypto_pbkdf2_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_I32, VIGIL_TYPE_I32 };
+static const int crypto_i32_params[] = { VIGIL_TYPE_I32 };
 
-static const basl_native_module_function_t crypto_functions[] = {
-    { "sha256", 6, crypto_sha256, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "sha384", 6, crypto_sha384, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "sha512", 6, crypto_sha512, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "hmac_sha256", 11, crypto_hmac_sha256, 2, crypto_2string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "pbkdf2", 6, crypto_pbkdf2, 4, crypto_pbkdf2_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "random_bytes", 12, crypto_random_bytes, 1, crypto_i32_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "constant_time_eq", 16, crypto_constant_time_eq, 2, crypto_2string_params, BASL_TYPE_BOOL, 1, NULL, 0, NULL, NULL },
-    { "encrypt", 7, crypto_encrypt, 3, crypto_3string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "decrypt", 7, crypto_decrypt, 2, crypto_2string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "password_encrypt", 16, crypto_password_encrypt, 2, crypto_2string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "password_decrypt", 16, crypto_password_decrypt, 2, crypto_2string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "hex_encode", 10, crypto_hex_encode, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "hex_decode", 10, crypto_hex_decode, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "base64_encode", 13, crypto_base64_encode, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "base64_decode", 13, crypto_base64_decode, 1, crypto_string_params, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+static const vigil_native_module_function_t crypto_functions[] = {
+    { "sha256", 6, crypto_sha256, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "sha384", 6, crypto_sha384, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "sha512", 6, crypto_sha512, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "hmac_sha256", 11, crypto_hmac_sha256, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "pbkdf2", 6, crypto_pbkdf2, 4, crypto_pbkdf2_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "random_bytes", 12, crypto_random_bytes, 1, crypto_i32_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "constant_time_eq", 16, crypto_constant_time_eq, 2, crypto_2string_params, VIGIL_TYPE_BOOL, 1, NULL, 0, NULL, NULL },
+    { "encrypt", 7, crypto_encrypt, 3, crypto_3string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "decrypt", 7, crypto_decrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "password_encrypt", 16, crypto_password_encrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "password_decrypt", 16, crypto_password_decrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "hex_encode", 10, crypto_hex_encode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "hex_decode", 10, crypto_hex_decode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "base64_encode", 13, crypto_base64_encode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "base64_decode", 13, crypto_base64_decode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
 };
 
-BASL_API const basl_native_module_t basl_stdlib_crypto = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_crypto = {
     "crypto", 6,
     crypto_functions,
     sizeof(crypto_functions) / sizeof(crypto_functions[0]),

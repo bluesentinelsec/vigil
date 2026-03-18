@@ -1,6 +1,6 @@
 # Binary
-/basl
-/basl.exe
+/vigil
+/vigil.exe
 /build/
 /build-emscripten/
 /compile_commands.json

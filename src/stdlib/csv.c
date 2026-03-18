@@ -1,4 +1,4 @@
-/* BASL standard library: csv module.
+/* VIGIL standard library: csv module.
  *
  * RFC 4180 compliant CSV parsing and generation.
  */
@@ -11,35 +11,35 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static bool get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
+static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
                            const char **out, size_t *out_len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (!basl_nanbox_is_object(v)) return false;
-    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return false;
-    *out = basl_string_object_c_str(obj);
-    *out_len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (!vigil_nanbox_is_object(v)) return false;
+    vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    *out = vigil_string_object_c_str(obj);
+    *out_len = vigil_string_object_length(obj);
     return true;
 }
 
-static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
-                                  basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    basl_value_t v;
-    basl_value_init_object(&v, &obj);
-    s = basl_vm_stack_push(vm, &v, error);
-    basl_value_release(&v);
+static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
+                                  vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    vigil_value_t v;
+    vigil_value_init_object(&v, &obj);
+    s = vigil_vm_stack_push(vm, &v, error);
+    vigil_value_release(&v);
     return s;
 }
 
@@ -116,34 +116,34 @@ static char *csv_parse_field(csv_reader_t *r, size_t *out_len) {
 
 /* ── csv.parse(data: string) -> array<array<string>> ─────────────── */
 
-static basl_status_t csv_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t csv_parse(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *data;
     size_t data_len;
-    basl_status_t s;
-    basl_object_t *rows_arr = NULL;
-    basl_value_t rows_val;
+    vigil_status_t s;
+    vigil_object_t *rows_arr = NULL;
+    vigil_value_t rows_val;
 
     if (!get_string_arg(vm, base, 0, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
-        s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &rows_arr, error);
-        if (s != BASL_STATUS_OK) return s;
-        rows_val = basl_nanbox_encode_object(rows_arr);
-        return basl_vm_stack_push(vm, &rows_val, error);
+        vigil_vm_stack_pop_n(vm, arg_count);
+        s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &rows_arr, error);
+        if (s != VIGIL_STATUS_OK) return s;
+        rows_val = vigil_nanbox_encode_object(rows_arr);
+        return vigil_vm_stack_push(vm, &rows_val, error);
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     csv_reader_t reader = {data, data_len, 0};
 
     /* Create outer array */
-    s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &rows_arr, error);
-    if (s != BASL_STATUS_OK) return s;
+    s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &rows_arr, error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     while (csv_peek(&reader) != -1) {
         /* Create row array */
-        basl_object_t *row_arr = NULL;
-        s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &row_arr, error);
-        if (s != BASL_STATUS_OK) return s;
+        vigil_object_t *row_arr = NULL;
+        s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &row_arr, error);
+        if (s != VIGIL_STATUS_OK) return s;
 
         /* Parse fields in row */
         int first = 1;
@@ -156,56 +156,56 @@ static basl_status_t csv_parse(basl_vm_t *vm, size_t arg_count, basl_error_t *er
             size_t field_len;
             char *field = csv_parse_field(&reader, &field_len);
             if (!field) {
-                return BASL_STATUS_INTERNAL;
+                return VIGIL_STATUS_INTERNAL;
             }
 
-            basl_object_t *str_obj = NULL;
-            s = basl_string_object_new(basl_vm_runtime(vm), field, field_len, &str_obj, error);
+            vigil_object_t *str_obj = NULL;
+            s = vigil_string_object_new(vigil_vm_runtime(vm), field, field_len, &str_obj, error);
             free(field);
-            if (s != BASL_STATUS_OK) return s;
+            if (s != VIGIL_STATUS_OK) return s;
 
-            basl_value_t str_val = basl_nanbox_encode_object(str_obj);
-            s = basl_array_object_append(row_arr, &str_val, error);
-            if (s != BASL_STATUS_OK) return s;
+            vigil_value_t str_val = vigil_nanbox_encode_object(str_obj);
+            s = vigil_array_object_append(row_arr, &str_val, error);
+            if (s != VIGIL_STATUS_OK) return s;
         }
 
         /* Add row to rows */
-        basl_value_t row_val = basl_nanbox_encode_object(row_arr);
-        s = basl_array_object_append(rows_arr, &row_val, error);
-        if (s != BASL_STATUS_OK) return s;
+        vigil_value_t row_val = vigil_nanbox_encode_object(row_arr);
+        s = vigil_array_object_append(rows_arr, &row_val, error);
+        if (s != VIGIL_STATUS_OK) return s;
 
         csv_skip_crlf(&reader);
     }
 
-    rows_val = basl_nanbox_encode_object(rows_arr);
-    return basl_vm_stack_push(vm, &rows_val, error);
+    rows_val = vigil_nanbox_encode_object(rows_arr);
+    return vigil_vm_stack_push(vm, &rows_val, error);
 }
 
 /* ── csv.parse_row(data: string) -> array<string> ────────────────── */
 
-static basl_status_t csv_parse_row(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t csv_parse_row(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *data;
     size_t data_len;
-    basl_status_t s;
-    basl_object_t *row_arr = NULL;
-    basl_value_t row_val;
+    vigil_status_t s;
+    vigil_object_t *row_arr = NULL;
+    vigil_value_t row_val;
 
     if (!get_string_arg(vm, base, 0, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
-        s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &row_arr, error);
-        if (s != BASL_STATUS_OK) return s;
-        basl_value_init_object(&row_val, &row_arr);
-        s = basl_vm_stack_push(vm, &row_val, error);
-        basl_value_release(&row_val);
+        vigil_vm_stack_pop_n(vm, arg_count);
+        s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &row_arr, error);
+        if (s != VIGIL_STATUS_OK) return s;
+        vigil_value_init_object(&row_val, &row_arr);
+        s = vigil_vm_stack_push(vm, &row_val, error);
+        vigil_value_release(&row_val);
         return s;
     }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     csv_reader_t reader = {data, data_len, 0};
 
-    s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &row_arr, error);
-    if (s != BASL_STATUS_OK) return s;
+    s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &row_arr, error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     int first = 1;
     while (csv_peek(&reader) != -1 && csv_peek(&reader) != '\r' && csv_peek(&reader) != '\n') {
@@ -217,24 +217,24 @@ static basl_status_t csv_parse_row(basl_vm_t *vm, size_t arg_count, basl_error_t
         size_t field_len;
         char *field = csv_parse_field(&reader, &field_len);
         if (!field) {
-            return BASL_STATUS_INTERNAL;
+            return VIGIL_STATUS_INTERNAL;
         }
 
-        basl_object_t *str_obj = NULL;
-        s = basl_string_object_new(basl_vm_runtime(vm), field, field_len, &str_obj, error);
+        vigil_object_t *str_obj = NULL;
+        s = vigil_string_object_new(vigil_vm_runtime(vm), field, field_len, &str_obj, error);
         free(field);
-        if (s != BASL_STATUS_OK) return s;
+        if (s != VIGIL_STATUS_OK) return s;
 
-        basl_value_t str_val;
-        basl_value_init_object(&str_val, &str_obj);
-        s = basl_array_object_append(row_arr, &str_val, error);
-        basl_value_release(&str_val);
-        if (s != BASL_STATUS_OK) return s;
+        vigil_value_t str_val;
+        vigil_value_init_object(&str_val, &str_obj);
+        s = vigil_array_object_append(row_arr, &str_val, error);
+        vigil_value_release(&str_val);
+        if (s != VIGIL_STATUS_OK) return s;
     }
 
-    basl_value_init_object(&row_val, &row_arr);
-    s = basl_vm_stack_push(vm, &row_val, error);
-    basl_value_release(&row_val);
+    vigil_value_init_object(&row_val, &row_arr);
+    s = vigil_vm_stack_push(vm, &row_val, error);
+    vigil_value_release(&row_val);
     return s;
 }
 
@@ -276,33 +276,33 @@ static void csv_write_field(char **buf, size_t *cap, size_t *len, const char *fi
 
 /* ── csv.stringify(rows: array<array<string>>) -> string ─────────── */
 
-static basl_status_t csv_stringify(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
-    basl_value_t rows_val = basl_vm_stack_get(vm, base);
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t csv_stringify(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    vigil_value_t rows_val = vigil_vm_stack_get(vm, base);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!basl_nanbox_is_object(rows_val)) {
+    if (!vigil_nanbox_is_object(rows_val)) {
         return push_string(vm, "", 0, error);
     }
 
-    basl_object_t *rows_arr = (basl_object_t *)basl_nanbox_decode_ptr(rows_val);
-    if (!rows_arr || basl_object_type(rows_arr) != BASL_OBJECT_ARRAY) {
+    vigil_object_t *rows_arr = (vigil_object_t *)vigil_nanbox_decode_ptr(rows_val);
+    if (!rows_arr || vigil_object_type(rows_arr) != VIGIL_OBJECT_ARRAY) {
         return push_string(vm, "", 0, error);
     }
 
     char *buf = NULL;
     size_t cap = 0, len = 0;
-    size_t row_count = basl_array_object_length(rows_arr);
+    size_t row_count = vigil_array_object_length(rows_arr);
 
     for (size_t r = 0; r < row_count; r++) {
-        basl_value_t row_val;
-        if (!basl_array_object_get(rows_arr, r, &row_val)) continue;
-        if (!basl_nanbox_is_object(row_val)) continue;
+        vigil_value_t row_val;
+        if (!vigil_array_object_get(rows_arr, r, &row_val)) continue;
+        if (!vigil_nanbox_is_object(row_val)) continue;
 
-        basl_object_t *row_arr = (basl_object_t *)basl_nanbox_decode_ptr(row_val);
-        if (!row_arr || basl_object_type(row_arr) != BASL_OBJECT_ARRAY) continue;
+        vigil_object_t *row_arr = (vigil_object_t *)vigil_nanbox_decode_ptr(row_val);
+        if (!row_arr || vigil_object_type(row_arr) != VIGIL_OBJECT_ARRAY) continue;
 
-        size_t col_count = basl_array_object_length(row_arr);
+        size_t col_count = vigil_array_object_length(row_arr);
         for (size_t c = 0; c < col_count; c++) {
             if (c > 0) {
                 if (len + 1 >= cap) {
@@ -312,13 +312,13 @@ static basl_status_t csv_stringify(basl_vm_t *vm, size_t arg_count, basl_error_t
                 buf[len++] = ',';
             }
 
-            basl_value_t cell_val;
-            if (!basl_array_object_get(row_arr, c, &cell_val)) continue;
-            if (basl_nanbox_is_object(cell_val)) {
-                basl_object_t *str_obj = (basl_object_t *)basl_nanbox_decode_ptr(cell_val);
-                if (str_obj && basl_object_type(str_obj) == BASL_OBJECT_STRING) {
-                    const char *s = basl_string_object_c_str(str_obj);
-                    size_t slen = basl_string_object_length(str_obj);
+            vigil_value_t cell_val;
+            if (!vigil_array_object_get(row_arr, c, &cell_val)) continue;
+            if (vigil_nanbox_is_object(cell_val)) {
+                vigil_object_t *str_obj = (vigil_object_t *)vigil_nanbox_decode_ptr(cell_val);
+                if (str_obj && vigil_object_type(str_obj) == VIGIL_OBJECT_STRING) {
+                    const char *s = vigil_string_object_c_str(str_obj);
+                    size_t slen = vigil_string_object_length(str_obj);
                     csv_write_field(&buf, &cap, &len, s, slen);
                 }
             }
@@ -333,30 +333,30 @@ static basl_status_t csv_stringify(basl_vm_t *vm, size_t arg_count, basl_error_t
         buf[len++] = '\n';
     }
 
-    basl_status_t s = push_string(vm, buf ? buf : "", len, error);
+    vigil_status_t s = push_string(vm, buf ? buf : "", len, error);
     free(buf);
     return s;
 }
 
 /* ── csv.stringify_row(row: array<string>) -> string ─────────────── */
 
-static basl_status_t csv_stringify_row(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
-    basl_value_t row_val = basl_vm_stack_get(vm, base);
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t csv_stringify_row(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    vigil_value_t row_val = vigil_vm_stack_get(vm, base);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!basl_nanbox_is_object(row_val)) {
+    if (!vigil_nanbox_is_object(row_val)) {
         return push_string(vm, "", 0, error);
     }
 
-    basl_object_t *row_arr = (basl_object_t *)basl_nanbox_decode_ptr(row_val);
-    if (!row_arr || basl_object_type(row_arr) != BASL_OBJECT_ARRAY) {
+    vigil_object_t *row_arr = (vigil_object_t *)vigil_nanbox_decode_ptr(row_val);
+    if (!row_arr || vigil_object_type(row_arr) != VIGIL_OBJECT_ARRAY) {
         return push_string(vm, "", 0, error);
     }
 
     char *buf = NULL;
     size_t cap = 0, len = 0;
-    size_t col_count = basl_array_object_length(row_arr);
+    size_t col_count = vigil_array_object_length(row_arr);
 
     for (size_t c = 0; c < col_count; c++) {
         if (c > 0) {
@@ -367,43 +367,43 @@ static basl_status_t csv_stringify_row(basl_vm_t *vm, size_t arg_count, basl_err
             buf[len++] = ',';
         }
 
-        basl_value_t cell_val;
-        if (!basl_array_object_get(row_arr, c, &cell_val)) continue;
-        if (basl_nanbox_is_object(cell_val)) {
-            basl_object_t *str_obj = (basl_object_t *)basl_nanbox_decode_ptr(cell_val);
-            if (str_obj && basl_object_type(str_obj) == BASL_OBJECT_STRING) {
-                const char *s = basl_string_object_c_str(str_obj);
-                size_t slen = basl_string_object_length(str_obj);
+        vigil_value_t cell_val;
+        if (!vigil_array_object_get(row_arr, c, &cell_val)) continue;
+        if (vigil_nanbox_is_object(cell_val)) {
+            vigil_object_t *str_obj = (vigil_object_t *)vigil_nanbox_decode_ptr(cell_val);
+            if (str_obj && vigil_object_type(str_obj) == VIGIL_OBJECT_STRING) {
+                const char *s = vigil_string_object_c_str(str_obj);
+                size_t slen = vigil_string_object_length(str_obj);
                 csv_write_field(&buf, &cap, &len, s, slen);
             }
         }
     }
 
-    basl_status_t s = push_string(vm, buf ? buf : "", len, error);
+    vigil_status_t s = push_string(vm, buf ? buf : "", len, error);
     free(buf);
     return s;
 }
 
 /* ── Module definition ───────────────────────────────────────────── */
 
-static const int str_param[] = {BASL_TYPE_STRING};
-static const int arr_param[] = {BASL_TYPE_OBJECT};
+static const int str_param[] = {VIGIL_TYPE_STRING};
+static const int arr_param[] = {VIGIL_TYPE_OBJECT};
 
-static const basl_native_type_t array_array_string_ret = BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_OBJECT);
-static const basl_native_type_t array_string_ret = BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING);
-static const basl_native_type_t array_array_string_param = BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_OBJECT);
-static const basl_native_type_t array_string_param = BASL_NATIVE_TYPE_ARRAY(BASL_TYPE_STRING);
+static const vigil_native_type_t array_array_string_ret = VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_OBJECT);
+static const vigil_native_type_t array_string_ret = VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING);
+static const vigil_native_type_t array_array_string_param = VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_OBJECT);
+static const vigil_native_type_t array_string_param = VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING);
 
-static const basl_native_module_function_t csv_functions[] = {
-    {"parse", 5U, csv_parse, 1U, str_param, BASL_TYPE_OBJECT, 1U, NULL, 0, NULL, &array_array_string_ret},
-    {"parse_row", 9U, csv_parse_row, 1U, str_param, BASL_TYPE_OBJECT, 1U, NULL, 0, NULL, &array_string_ret},
-    {"stringify", 9U, csv_stringify, 1U, arr_param, BASL_TYPE_STRING, 1U, NULL, 0, &array_array_string_param, NULL},
-    {"stringify_row", 13U, csv_stringify_row, 1U, arr_param, BASL_TYPE_STRING, 1U, NULL, 0, &array_string_param, NULL},
+static const vigil_native_module_function_t csv_functions[] = {
+    {"parse", 5U, csv_parse, 1U, str_param, VIGIL_TYPE_OBJECT, 1U, NULL, 0, NULL, &array_array_string_ret},
+    {"parse_row", 9U, csv_parse_row, 1U, str_param, VIGIL_TYPE_OBJECT, 1U, NULL, 0, NULL, &array_string_ret},
+    {"stringify", 9U, csv_stringify, 1U, arr_param, VIGIL_TYPE_STRING, 1U, NULL, 0, &array_array_string_param, NULL},
+    {"stringify_row", 13U, csv_stringify_row, 1U, arr_param, VIGIL_TYPE_STRING, 1U, NULL, 0, &array_string_param, NULL},
 };
 
 #define CSV_FUNCTION_COUNT (sizeof(csv_functions) / sizeof(csv_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_csv = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_csv = {
     "csv", 3U,
     csv_functions, CSV_FUNCTION_COUNT,
     NULL, 0U

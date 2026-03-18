@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL url module."""
+"""Integration tests for VIGIL url module."""
 
 import os
 import subprocess
@@ -7,16 +7,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    """Run BASL code and return (exit_code, stdout, stderr)."""
-    with tempfile.TemporaryDirectory(prefix="basl_url_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    """Run VIGIL code and return (exit_code, stdout, stderr)."""
+    with tempfile.TemporaryDirectory(prefix="vigil_url_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True,
             text=True,
             timeout=10,
@@ -33,7 +33,7 @@ fn main() -> i32 {
     if (url.scheme("https://example.com") == "https") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_scheme_http(self):
@@ -42,7 +42,7 @@ fn main() -> i32 {
     if (url.scheme("http://example.com") == "http") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -55,7 +55,7 @@ fn main() -> i32 {
     if (url.host("https://example.com/path") == "example.com") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_host_with_port(self):
@@ -64,7 +64,7 @@ fn main() -> i32 {
     if (url.host("https://example.com:8080/path") == "example.com") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -77,7 +77,7 @@ fn main() -> i32 {
     if (url.port("https://example.com:8080") == "8080") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_port_absent(self):
@@ -86,7 +86,7 @@ fn main() -> i32 {
     if (url.port("https://example.com") == "") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -99,7 +99,7 @@ fn main() -> i32 {
     if (url.path("https://example.com/foo/bar") == "/foo/bar") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -112,7 +112,7 @@ fn main() -> i32 {
     if (url.query("https://example.com?a=1&b=2") == "a=1&b=2") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -125,7 +125,7 @@ fn main() -> i32 {
     if (url.encode("hello world") == "hello+world") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_decode_percent(self):
@@ -134,7 +134,7 @@ fn main() -> i32 {
     if (url.decode("hello%20world") == "hello world") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_decode_plus(self):
@@ -143,7 +143,7 @@ fn main() -> i32 {
     if (url.decode("hello+world") == "hello world") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

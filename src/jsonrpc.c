@@ -2,14 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/jsonrpc.h"
-#include "internal/basl_internal.h"
+#include "vigil/jsonrpc.h"
+#include "internal/vigil_internal.h"
 
-void basl_jsonrpc_transport_init(
-    basl_jsonrpc_transport_t *transport,
+void vigil_jsonrpc_transport_init(
+    vigil_jsonrpc_transport_t *transport,
     FILE *in,
     FILE *out,
-    const basl_allocator_t *allocator
+    const vigil_allocator_t *allocator
 ) {
     if (transport == NULL) return;
     transport->in = in;
@@ -33,15 +33,15 @@ static int read_header_line(FILE *f, char *buf, size_t cap) {
     }
 }
 
-basl_status_t basl_jsonrpc_read(
-    basl_jsonrpc_transport_t *transport,
-    basl_json_value_t **out,
-    basl_error_t *error
+vigil_status_t vigil_jsonrpc_read(
+    vigil_jsonrpc_transport_t *transport,
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (transport == NULL || transport->in == NULL || out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "jsonrpc: invalid arguments");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     /* Read headers until empty line. */
@@ -52,9 +52,9 @@ basl_status_t basl_jsonrpc_read(
     for (;;) {
         int n = read_header_line(transport->in, line, sizeof(line));
         if (n < 0) {
-            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                    "jsonrpc: failed to read header");
-            return BASL_STATUS_INTERNAL;
+            return VIGIL_STATUS_INTERNAL;
         }
         /* Empty line (just \r\n) terminates headers. */
         if (n == 2 && line[0] == '\r' && line[1] == '\n') break;
@@ -70,22 +70,22 @@ basl_status_t basl_jsonrpc_read(
     }
 
     if (!found_length || content_length == 0) {
-        basl_error_set_literal(error, BASL_STATUS_SYNTAX_ERROR,
+        vigil_error_set_literal(error, VIGIL_STATUS_SYNTAX_ERROR,
                                "jsonrpc: missing Content-Length");
-        return BASL_STATUS_SYNTAX_ERROR;
+        return VIGIL_STATUS_SYNTAX_ERROR;
     }
 
     /* Read body. */
-    basl_allocator_t a = transport->allocator != NULL &&
-                         basl_allocator_is_valid(transport->allocator)
+    vigil_allocator_t a = transport->allocator != NULL &&
+                         vigil_allocator_is_valid(transport->allocator)
                              ? *transport->allocator
-                             : basl_default_allocator();
+                             : vigil_default_allocator();
 
     char *body = (char *)a.allocate(a.user_data, content_length + 1);
     if (body == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY,
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
                                "jsonrpc: allocation failed");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     size_t total = 0;
@@ -93,15 +93,15 @@ basl_status_t basl_jsonrpc_read(
         size_t n = fread(body + total, 1, content_length - total, transport->in);
         if (n == 0) {
             a.deallocate(a.user_data, body);
-            basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                    "jsonrpc: unexpected EOF reading body");
-            return BASL_STATUS_INTERNAL;
+            return VIGIL_STATUS_INTERNAL;
         }
         total += n;
     }
     body[content_length] = '\0';
 
-    basl_status_t s = basl_json_parse(
+    vigil_status_t s = vigil_json_parse(
         transport->allocator, body, content_length, out, error);
     a.deallocate(a.user_data, body);
     return s;
@@ -109,27 +109,27 @@ basl_status_t basl_jsonrpc_read(
 
 /* ── Write ───────────────────────────────────────────────────────── */
 
-basl_status_t basl_jsonrpc_write(
-    basl_jsonrpc_transport_t *transport,
-    const basl_json_value_t *message,
-    basl_error_t *error
+vigil_status_t vigil_jsonrpc_write(
+    vigil_jsonrpc_transport_t *transport,
+    const vigil_json_value_t *message,
+    vigil_error_t *error
 ) {
     if (transport == NULL || transport->out == NULL || message == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "jsonrpc: invalid arguments");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     char *json_str = NULL;
     size_t json_len = 0;
-    basl_status_t s = basl_json_emit(message, &json_str, &json_len, error);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_status_t s = vigil_json_emit(message, &json_str, &json_len, error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     /* Determine which allocator was used for the emitted string. */
-    basl_allocator_t a = transport->allocator != NULL &&
-                         basl_allocator_is_valid(transport->allocator)
+    vigil_allocator_t a = transport->allocator != NULL &&
+                         vigil_allocator_is_valid(transport->allocator)
                              ? *transport->allocator
-                             : basl_default_allocator();
+                             : vigil_default_allocator();
 
     fprintf(transport->out, "Content-Length: %zu\r\n\r\n", json_len);
     size_t written = fwrite(json_str, 1, json_len, transport->out);
@@ -138,9 +138,9 @@ basl_status_t basl_jsonrpc_write(
     a.deallocate(a.user_data, json_str);
 
     if (written != json_len) {
-        basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "jsonrpc: write failed");
-        return BASL_STATUS_INTERNAL;
+        return VIGIL_STATUS_INTERNAL;
     }
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }

@@ -1,4 +1,4 @@
-/* BASL standard library: http module.
+/* VIGIL standard library: http module.
  *
  * HTTP/S client using OS-native libraries loaded at runtime:
  *   - WinHTTP via LoadLibrary() on Windows
@@ -13,55 +13,55 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 #include "platform/platform.h"
 
 /* ── Test visibility ─────────────────────────────────────────────── */
 
-#ifdef BASL_HTTP_TESTING
-#define HTTP_STATIC BASL_API
+#ifdef VIGIL_HTTP_TESTING
+#define HTTP_STATIC VIGIL_API
 #else
 #define HTTP_STATIC static
 #endif
 
 /* ── VM helpers ──────────────────────────────────────────────────── */
 
-static basl_status_t push_string(basl_vm_t *vm, const char *s, size_t len,
-                                  basl_error_t *error) {
-    basl_runtime_t *rt = basl_vm_runtime(vm);
-    basl_object_t *obj = NULL;
-    basl_status_t st = basl_string_object_new(rt, s, len, &obj, error);
-    if (st != BASL_STATUS_OK) return st;
-    basl_value_t val;
-    basl_value_init_object(&val, &obj);
-    st = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+static vigil_status_t push_string(vigil_vm_t *vm, const char *s, size_t len,
+                                  vigil_error_t *error) {
+    vigil_runtime_t *rt = vigil_vm_runtime(vm);
+    vigil_object_t *obj = NULL;
+    vigil_status_t st = vigil_string_object_new(rt, s, len, &obj, error);
+    if (st != VIGIL_STATUS_OK) return st;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &obj);
+    st = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return st;
 }
 
-static basl_status_t push_i64(basl_vm_t *vm, int64_t v, basl_error_t *error) {
-    basl_value_t val = basl_nanbox_encode_int(v);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_i64(vigil_vm_t *vm, int64_t v, vigil_error_t *error) {
+    vigil_value_t val = vigil_nanbox_encode_int(v);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
-static int get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
+static int get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
                           const char **out, size_t *out_len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    const basl_object_t *obj = (const basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return 0;
-    *out = basl_string_object_c_str(obj);
-    *out_len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    const vigil_object_t *obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return 0;
+    *out = vigil_string_object_c_str(obj);
+    *out_len = vigil_string_object_length(obj);
     return 1;
 }
 
-static int64_t get_i64_arg(basl_vm_t *vm, size_t base, size_t idx) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (basl_nanbox_is_int(v)) return basl_nanbox_decode_int(v);
+static int64_t get_i64_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (vigil_nanbox_is_int(v)) return vigil_nanbox_decode_int(v);
     return 0;
 }
 
@@ -134,10 +134,10 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
                           const char *headers, const char *body, size_t body_len,
                           http_response_t *resp) {
     memset(resp, 0, sizeof(*resp));
-    basl_platform_net_init(NULL);
+    vigil_platform_net_init(NULL);
 
-    basl_socket_t sock = BASL_INVALID_SOCKET;
-    if (basl_platform_tcp_connect(url->host, url->port, &sock, NULL) != BASL_STATUS_OK)
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_connect(url->host, url->port, &sock, NULL) != VIGIL_STATUS_OK)
         return -1;
 
     char req_buf[4096];
@@ -152,28 +152,28 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
         headers ? headers : "",
         body_len);
 
-    basl_platform_tcp_send(sock, req_buf, (size_t)req_len, NULL, NULL);
+    vigil_platform_tcp_send(sock, req_buf, (size_t)req_len, NULL, NULL);
     if (body && body_len > 0)
-        basl_platform_tcp_send(sock, body, body_len, NULL, NULL);
+        vigil_platform_tcp_send(sock, body, body_len, NULL, NULL);
 
     size_t cap = 8192, len = 0;
     char *buf = (char *)malloc(cap);
-    if (!buf) { basl_platform_tcp_close(sock, NULL); return -1; }
+    if (!buf) { vigil_platform_tcp_close(sock, NULL); return -1; }
 
     for (;;) {
         size_t n = 0;
-        basl_status_t st = basl_platform_tcp_recv(sock, buf + len, cap - len - 1, &n, NULL);
-        if (st != BASL_STATUS_OK || n == 0) break;
+        vigil_status_t st = vigil_platform_tcp_recv(sock, buf + len, cap - len - 1, &n, NULL);
+        if (st != VIGIL_STATUS_OK || n == 0) break;
         len += n;
         if (len + 1 >= cap) {
             cap *= 2;
             char *nb = (char *)realloc(buf, cap);
-            if (!nb) { free(buf); basl_platform_tcp_close(sock, NULL); return -1; }
+            if (!nb) { free(buf); vigil_platform_tcp_close(sock, NULL); return -1; }
             buf = nb;
         }
     }
     buf[len] = '\0';
-    basl_platform_tcp_close(sock, NULL);
+    vigil_platform_tcp_close(sock, NULL);
 
     char *header_end = strstr(buf, "\r\n\r\n");
     if (!header_end) { free(buf); return -1; }
@@ -208,11 +208,11 @@ HTTP_STATIC int do_request_once(const char *method, const char *url_str,
     memset(resp, 0, sizeof(*resp));
 
     /* Try native HTTP library first (supports HTTPS). */
-    basl_http_response_t native_resp;
-    basl_status_t st = basl_platform_http_request(
+    vigil_http_response_t native_resp;
+    vigil_status_t st = vigil_platform_http_request(
         method, url_str, headers, body, body_len, &native_resp, NULL);
 
-    if (st == BASL_STATUS_OK) {
+    if (st == VIGIL_STATUS_OK) {
         resp->status_code = native_resp.status_code;
         resp->headers = native_resp.headers;
         resp->body = native_resp.body;
@@ -301,11 +301,11 @@ HTTP_STATIC int do_request(const char *method, const char *url_str,
 
 typedef struct {
     char *pattern;
-    basl_object_t *handler; /* zero-arity function */
+    vigil_object_t *handler; /* zero-arity function */
 } http_route_t;
 
 typedef struct {
-    basl_socket_t listener;
+    vigil_socket_t listener;
     int in_use;
     http_route_t routes[HTTP_MAX_ROUTES];
     int route_count;
@@ -315,7 +315,7 @@ typedef struct {
 } http_server_t;
 
 typedef struct {
-    basl_socket_t sock;
+    vigil_socket_t sock;
     int in_use;
     char *method;
     char *path;
@@ -332,19 +332,19 @@ static int g_inited = 0;
 
 static void http_tables_init(void) {
     if (g_inited) return;
-    basl_platform_net_init(NULL);
+    vigil_platform_net_init(NULL);
     for (int i = 0; i < HTTP_MAX_SERVERS; i++) {
-        g_servers[i].listener = BASL_INVALID_SOCKET;
+        g_servers[i].listener = VIGIL_INVALID_SOCKET;
         g_servers[i].in_use = 0;
     }
     for (int i = 0; i < HTTP_MAX_CLIENTS; i++) {
-        g_clients[i].sock = BASL_INVALID_SOCKET;
+        g_clients[i].sock = VIGIL_INVALID_SOCKET;
         g_clients[i].in_use = 0;
     }
     g_inited = 1;
 }
 
-static int64_t alloc_server(basl_socket_t s) {
+static int64_t alloc_server(vigil_socket_t s) {
     for (int i = 0; i < HTTP_MAX_SERVERS; i++) {
         if (!g_servers[i].in_use) {
             g_servers[i].listener = s; g_servers[i].in_use = 1;
@@ -364,7 +364,7 @@ static void client_free_fields(http_conn_t *c) {
     c->cookies_len = 0;
 }
 
-static int64_t alloc_client(basl_socket_t s) {
+static int64_t alloc_client(vigil_socket_t s) {
     for (int i = 0; i < HTTP_MAX_CLIENTS; i++) {
         if (!g_clients[i].in_use) {
             memset(&g_clients[i], 0, sizeof(g_clients[i]));
@@ -388,8 +388,8 @@ static int parse_incoming_request(http_conn_t *conn) {
 
     for (;;) {
         size_t n = 0;
-        basl_status_t st = basl_platform_tcp_recv(conn->sock, buf + len, cap - len - 1, &n, NULL);
-        if (st != BASL_STATUS_OK || n == 0) { free(buf); return -1; }
+        vigil_status_t st = vigil_platform_tcp_recv(conn->sock, buf + len, cap - len - 1, &n, NULL);
+        if (st != VIGIL_STATUS_OK || n == 0) { free(buf); return -1; }
         len += n;
         buf[len] = '\0';
         if (strstr(buf, "\r\n\r\n")) break;
@@ -438,7 +438,7 @@ static int parse_incoming_request(http_conn_t *conn) {
         size_t got = already;
         while (got < content_length) {
             size_t n = 0;
-            if (basl_platform_tcp_recv(conn->sock, full + got, content_length - got, &n, NULL) != BASL_STATUS_OK || n == 0) break;
+            if (vigil_platform_tcp_recv(conn->sock, full + got, content_length - got, &n, NULL) != VIGIL_STATUS_OK || n == 0) break;
             got += n;
         }
         full[got] = '\0';
@@ -455,101 +455,101 @@ static int parse_incoming_request(http_conn_t *conn) {
     return 0;
 }
 
-/* ── Server BASL functions ───────────────────────────────────────── */
+/* ── Server VIGIL functions ───────────────────────────────────────── */
 
-static basl_status_t http_listen(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_listen(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *host = NULL; size_t host_len = 0;
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
     int64_t port = get_i64_arg(vm, base, 1);
     char host_buf[256];
     if (host_len >= sizeof(host_buf)) host_len = sizeof(host_buf) - 1;
     memcpy(host_buf, host, host_len); host_buf[host_len] = '\0';
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_tables_init();
-    basl_socket_t sock = BASL_INVALID_SOCKET;
-    if (basl_platform_tcp_listen(host_buf, (int)port, &sock, error) != BASL_STATUS_OK)
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_listen(host_buf, (int)port, &sock, error) != VIGIL_STATUS_OK)
         return push_i64(vm, -1, error);
 
     int64_t handle = alloc_server(sock);
-    if (handle < 0) { basl_platform_tcp_close(sock, NULL); }
+    if (handle < 0) { vigil_platform_tcp_close(sock, NULL); }
     return push_i64(vm, handle, error);
 }
 
-static basl_status_t http_accept(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_accept(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t srv = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (srv < 0 || srv >= HTTP_MAX_SERVERS || !g_servers[srv].in_use)
         return push_i64(vm, -1, error);
 
-    basl_socket_t client = BASL_INVALID_SOCKET;
-    if (basl_platform_tcp_accept(g_servers[srv].listener, &client, NULL) != BASL_STATUS_OK)
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(g_servers[srv].listener, &client, NULL) != VIGIL_STATUS_OK)
         return push_i64(vm, -1, error);
 
     int64_t ch = alloc_client(client);
-    if (ch < 0) { basl_platform_tcp_close(client, NULL); return push_i64(vm, -1, error); }
+    if (ch < 0) { vigil_platform_tcp_close(client, NULL); return push_i64(vm, -1, error); }
 
     http_conn_t *conn = get_client(ch);
     if (parse_incoming_request(conn) != 0) {
         client_free_fields(conn);
-        basl_platform_tcp_close(conn->sock, NULL);
-        conn->sock = BASL_INVALID_SOCKET; conn->in_use = 0;
+        vigil_platform_tcp_close(conn->sock, NULL);
+        conn->sock = VIGIL_INVALID_SOCKET; conn->in_use = 0;
         return push_i64(vm, -1, error);
     }
     return push_i64(vm, ch, error);
 }
 
-static basl_status_t http_req_method(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_method(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     http_conn_t *c = get_client(ch);
     const char *m = (c && c->method) ? c->method : "";
     return push_string(vm, m, strlen(m), error);
 }
 
-static basl_status_t http_req_path(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_path(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     http_conn_t *c = get_client(ch);
     const char *p = (c && c->path) ? c->path : "";
     return push_string(vm, p, strlen(p), error);
 }
 
-static basl_status_t http_req_body(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_body(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     http_conn_t *c = get_client(ch);
     const char *b = (c && c->body) ? c->body : "";
     return push_string(vm, b, c ? c->body_len : 0, error);
 }
 
-static basl_status_t http_req_headers(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_headers(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     http_conn_t *c = get_client(ch);
     const char *h = (c && c->headers) ? c->headers : "";
     return push_string(vm, h, strlen(h), error);
 }
 
-static basl_status_t http_req_header(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_header(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
     const char *name = NULL; size_t name_len = 0;
     get_string_arg(vm, base, 1, &name, &name_len);
     char nbuf[256];
     if (name_len >= sizeof(nbuf)) name_len = sizeof(nbuf) - 1;
     memcpy(nbuf, name, name_len); nbuf[name_len] = '\0';
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
     if (!c || !c->headers) return push_string(vm, "", 0, error);
@@ -583,10 +583,10 @@ static basl_status_t http_req_header(basl_vm_t *vm, size_t arg_count, basl_error
     return push_string(vm, "", 0, error);
 }
 
-static basl_status_t http_req_query(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_query(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     http_conn_t *c = get_client(ch);
     if (!c || !c->path) return push_string(vm, "", 0, error);
     const char *q = strchr(c->path, '?');
@@ -594,8 +594,8 @@ static basl_status_t http_req_query(basl_vm_t *vm, size_t arg_count, basl_error_
     return push_string(vm, "", 0, error);
 }
 
-static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_respond(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
     int64_t status_code = get_i64_arg(vm, base, 1);
     const char *hdrs = NULL, *body = NULL;
@@ -606,10 +606,10 @@ static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t 
     char *hc = NULL, *bc = NULL;
     if (hdrs_len > 0) { hc = (char *)malloc(hdrs_len + 1); memcpy(hc, hdrs, hdrs_len); hc[hdrs_len] = '\0'; }
     if (body_len > 0) { bc = (char *)malloc(body_len + 1); memcpy(bc, body, body_len); bc[body_len] = '\0'; }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
-    if (!c || c->sock == BASL_INVALID_SOCKET) { free(hc); free(bc); return push_i64(vm, -1, error); }
+    if (!c || c->sock == VIGIL_INVALID_SOCKET) { free(hc); free(bc); return push_i64(vm, -1, error); }
 
     const char *reason = "OK";
     switch ((int)status_code) {
@@ -637,14 +637,14 @@ static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t 
         c->pending_cookies ? c->pending_cookies : "", body_len);
 
     int rc = 0;
-    if (basl_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    if (vigil_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
     if (rc == 0 && bc && body_len > 0) {
-        if (basl_platform_tcp_send(c->sock, bc, body_len, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+        if (vigil_platform_tcp_send(c->sock, bc, body_len, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
     }
     free(hc); free(bc);
 
-    basl_platform_tcp_close(c->sock, NULL);
-    c->sock = BASL_INVALID_SOCKET;
+    vigil_platform_tcp_close(c->sock, NULL);
+    c->sock = VIGIL_INVALID_SOCKET;
     client_free_fields(c); c->in_use = 0;
     return push_i64(vm, rc, error);
 }
@@ -652,49 +652,49 @@ static basl_status_t http_respond(basl_vm_t *vm, size_t arg_count, basl_error_t 
 static void server_free_routes(http_server_t *srv) {
     for (int i = 0; i < srv->route_count; i++) {
         free(srv->routes[i].pattern);
-        if (srv->routes[i].handler) basl_object_release(&srv->routes[i].handler);
+        if (srv->routes[i].handler) vigil_object_release(&srv->routes[i].handler);
     }
     srv->route_count = 0;
 }
 
-static basl_status_t http_server_close(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_server_close(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t h = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use) {
-        basl_platform_tcp_close(g_servers[h].listener, NULL);
+        vigil_platform_tcp_close(g_servers[h].listener, NULL);
         server_free_routes(&g_servers[h]);
-        g_servers[h].listener = BASL_INVALID_SOCKET; g_servers[h].in_use = 0;
+        g_servers[h].listener = VIGIL_INVALID_SOCKET; g_servers[h].in_use = 0;
     }
-    basl_value_t nil = basl_nanbox_encode_int(0);
-    return basl_vm_stack_push(vm, &nil, error);
+    vigil_value_t nil = vigil_nanbox_encode_int(0);
+    return vigil_vm_stack_push(vm, &nil, error);
 }
 
-static basl_status_t http_set_read_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_set_read_timeout(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t h = get_i64_arg(vm, base, 0);
     int64_t ms = get_i64_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use)
         g_servers[h].read_timeout_ms = (int)ms;
     return push_i64(vm, 0, error);
 }
 
-static basl_status_t http_set_write_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_set_write_timeout(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t h = get_i64_arg(vm, base, 0);
     int64_t ms = get_i64_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use)
         g_servers[h].write_timeout_ms = (int)ms;
     return push_i64(vm, 0, error);
 }
 
-static basl_status_t http_set_idle_timeout(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_set_idle_timeout(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t h = get_i64_arg(vm, base, 0);
     int64_t ms = get_i64_arg(vm, base, 1);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (h >= 0 && h < HTTP_MAX_SERVERS && g_servers[h].in_use)
         g_servers[h].idle_timeout_ms = (int)ms;
     return push_i64(vm, 0, error);
@@ -707,8 +707,8 @@ static basl_status_t http_set_idle_timeout(basl_vm_t *vm, size_t arg_count, basl
 static volatile int64_t g_current_conn = -1;
 
 typedef struct {
-    basl_runtime_t *runtime;
-    basl_object_t *handler;
+    vigil_runtime_t *runtime;
+    vigil_object_t *handler;
     int64_t conn_handle;
     int read_timeout_ms;
     int write_timeout_ms;
@@ -716,49 +716,49 @@ typedef struct {
 
 static void serve_thread_entry(void *arg) {
     serve_thread_ctx_t *ctx = (serve_thread_ctx_t *)arg;
-    basl_vm_t *vm = NULL;
-    basl_error_t error = {0};
+    vigil_vm_t *vm = NULL;
+    vigil_error_t error = {0};
 
     g_current_conn = ctx->conn_handle;
 
     /* Apply timeouts to the connection socket */
     http_conn_t *c = get_client(ctx->conn_handle);
-    if (c && c->sock != BASL_INVALID_SOCKET) {
+    if (c && c->sock != VIGIL_INVALID_SOCKET) {
         int timeout = ctx->read_timeout_ms > ctx->write_timeout_ms
                       ? ctx->read_timeout_ms : ctx->write_timeout_ms;
         if (timeout > 0)
-            basl_platform_tcp_set_timeout(c->sock, timeout, NULL);
+            vigil_platform_tcp_set_timeout(c->sock, timeout, NULL);
     }
 
-    if (basl_vm_open(&vm, ctx->runtime, NULL, &error) == BASL_STATUS_OK) {
-        basl_value_t out = {0};
-        basl_vm_execute_function(vm, ctx->handler, &out, &error);
-        basl_vm_close(&vm);
+    if (vigil_vm_open(&vm, ctx->runtime, NULL, &error) == VIGIL_STATUS_OK) {
+        vigil_value_t out = {0};
+        vigil_vm_execute_function(vm, ctx->handler, &out, &error);
+        vigil_vm_close(&vm);
     }
 
     /* Clean up if handler didn't call respond */
     http_conn_t *conn = get_client(ctx->conn_handle);
-    if (conn && conn->sock != BASL_INVALID_SOCKET) {
-        basl_platform_tcp_close(conn->sock, NULL);
-        conn->sock = BASL_INVALID_SOCKET;
+    if (conn && conn->sock != VIGIL_INVALID_SOCKET) {
+        vigil_platform_tcp_close(conn->sock, NULL);
+        conn->sock = VIGIL_INVALID_SOCKET;
     }
     if (conn) { client_free_fields(conn); conn->in_use = 0; }
 
-    basl_object_release(&ctx->handler);
+    vigil_object_release(&ctx->handler);
     free(ctx);
 }
 
-static basl_status_t http_handle(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_handle(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t srv_h = get_i64_arg(vm, base, 0);
     const char *pattern = NULL; size_t plen = 0;
     get_string_arg(vm, base, 1, &pattern, &plen);
-    basl_value_t fn_val = basl_vm_stack_get(vm, base + 2);
-    basl_object_t *fn = basl_value_as_object(&fn_val);
+    vigil_value_t fn_val = vigil_vm_stack_get(vm, base + 2);
+    vigil_object_t *fn = vigil_value_as_object(&fn_val);
 
     char *pcopy = NULL;
     if (plen > 0) { pcopy = (char *)malloc(plen + 1); memcpy(pcopy, pattern, plen); pcopy[plen] = '\0'; }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (srv_h < 0 || srv_h >= HTTP_MAX_SERVERS || !g_servers[srv_h].in_use ||
         !fn || g_servers[srv_h].route_count >= HTTP_MAX_ROUTES) {
@@ -766,7 +766,7 @@ static basl_status_t http_handle(basl_vm_t *vm, size_t arg_count, basl_error_t *
         return push_i64(vm, -1, error);
     }
 
-    basl_object_retain(fn);
+    vigil_object_retain(fn);
     http_route_t *r = &g_servers[srv_h].routes[g_servers[srv_h].route_count++];
     r->pattern = pcopy;
     r->handler = fn;
@@ -789,35 +789,35 @@ static int route_matches(const char *pattern, const char *path) {
     return 0;
 }
 
-static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_serve(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t srv_h = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     if (srv_h < 0 || srv_h >= HTTP_MAX_SERVERS || !g_servers[srv_h].in_use)
         return push_i64(vm, -1, error);
 
     http_server_t *srv = &g_servers[srv_h];
-    basl_runtime_t *runtime = basl_vm_runtime(vm);
+    vigil_runtime_t *runtime = vigil_vm_runtime(vm);
 
     for (;;) {
-        basl_socket_t client = BASL_INVALID_SOCKET;
-        if (basl_platform_tcp_accept(srv->listener, &client, NULL) != BASL_STATUS_OK)
+        vigil_socket_t client = VIGIL_INVALID_SOCKET;
+        if (vigil_platform_tcp_accept(srv->listener, &client, NULL) != VIGIL_STATUS_OK)
             break;
 
         int64_t ch = alloc_client(client);
-        if (ch < 0) { basl_platform_tcp_close(client, NULL); continue; }
+        if (ch < 0) { vigil_platform_tcp_close(client, NULL); continue; }
 
         http_conn_t *conn = get_client(ch);
         if (parse_incoming_request(conn) != 0) {
             client_free_fields(conn);
-            basl_platform_tcp_close(conn->sock, NULL);
-            conn->sock = BASL_INVALID_SOCKET; conn->in_use = 0;
+            vigil_platform_tcp_close(conn->sock, NULL);
+            conn->sock = VIGIL_INVALID_SOCKET; conn->in_use = 0;
             continue;
         }
 
         /* Find matching route */
-        basl_object_t *handler = NULL;
+        vigil_object_t *handler = NULL;
         for (int i = 0; i < srv->route_count; i++) {
             if (route_matches(srv->routes[i].pattern, conn->path)) {
                 handler = srv->routes[i].handler;
@@ -832,17 +832,17 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
             ctx->conn_handle = ch;
             ctx->read_timeout_ms = srv->read_timeout_ms;
             ctx->write_timeout_ms = srv->write_timeout_ms;
-            basl_object_retain(handler);
+            vigil_object_retain(handler);
 
-            basl_platform_thread_t *t = NULL;
-            if (basl_platform_thread_create(&t, serve_thread_entry, ctx, NULL) == BASL_STATUS_OK) {
+            vigil_platform_thread_t *t = NULL;
+            if (vigil_platform_thread_create(&t, serve_thread_entry, ctx, NULL) == VIGIL_STATUS_OK) {
                 /* Detach — thread cleans up after itself */
                 (void)t;
             } else {
-                basl_object_release(&ctx->handler);
+                vigil_object_release(&ctx->handler);
                 free(ctx);
-                basl_platform_tcp_close(conn->sock, NULL);
-                conn->sock = BASL_INVALID_SOCKET;
+                vigil_platform_tcp_close(conn->sock, NULL);
+                conn->sock = VIGIL_INVALID_SOCKET;
                 client_free_fields(conn); conn->in_use = 0;
             }
         } else {
@@ -852,10 +852,10 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
             int hlen = snprintf(hdr, sizeof(hdr),
                 "HTTP/1.1 404 Not Found\r\nContent-Length: %zu\r\nConnection: close\r\n\r\n",
                 strlen(body_404));
-            basl_platform_tcp_send(conn->sock, hdr, (size_t)hlen, NULL, NULL);
-            basl_platform_tcp_send(conn->sock, body_404, strlen(body_404), NULL, NULL);
-            basl_platform_tcp_close(conn->sock, NULL);
-            conn->sock = BASL_INVALID_SOCKET;
+            vigil_platform_tcp_send(conn->sock, hdr, (size_t)hlen, NULL, NULL);
+            vigil_platform_tcp_send(conn->sock, body_404, strlen(body_404), NULL, NULL);
+            vigil_platform_tcp_close(conn->sock, NULL);
+            conn->sock = VIGIL_INVALID_SOCKET;
             client_free_fields(conn); conn->in_use = 0;
         }
     }
@@ -863,15 +863,15 @@ static basl_status_t http_serve(basl_vm_t *vm, size_t arg_count, basl_error_t *e
     return push_i64(vm, 0, error);
 }
 
-static basl_status_t http_current_conn(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t http_current_conn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, g_current_conn, error);
 }
 
 /* ── Streaming response ──────────────────────────────────────────── */
 
-static basl_status_t http_write_header(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_write_header(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
     int64_t status_code = get_i64_arg(vm, base, 1);
     const char *hdrs = NULL; size_t hdrs_len = 0;
@@ -879,10 +879,10 @@ static basl_status_t http_write_header(basl_vm_t *vm, size_t arg_count, basl_err
 
     char *hc = NULL;
     if (hdrs_len > 0) { hc = (char *)malloc(hdrs_len + 1); memcpy(hc, hdrs, hdrs_len); hc[hdrs_len] = '\0'; }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
-    if (!c || c->sock == BASL_INVALID_SOCKET) { free(hc); return push_i64(vm, -1, error); }
+    if (!c || c->sock == VIGIL_INVALID_SOCKET) { free(hc); return push_i64(vm, -1, error); }
 
     const char *reason = "OK";
     switch ((int)status_code) {
@@ -903,52 +903,52 @@ static basl_status_t http_write_header(basl_vm_t *vm, size_t arg_count, basl_err
     free(hc);
 
     int rc = 0;
-    if (basl_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    if (vigil_platform_tcp_send(c->sock, resp_hdr, (size_t)hlen, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
     return push_i64(vm, rc, error);
 }
 
-static basl_status_t http_write(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_write(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
     const char *data = NULL; size_t dlen = 0;
     get_string_arg(vm, base, 1, &data, &dlen);
     char *dc = NULL;
     if (dlen > 0) { dc = (char *)malloc(dlen); memcpy(dc, data, dlen); }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
-    if (!c || c->sock == BASL_INVALID_SOCKET || dlen == 0) { free(dc); return push_i64(vm, dlen == 0 ? 0 : -1, error); }
+    if (!c || c->sock == VIGIL_INVALID_SOCKET || dlen == 0) { free(dc); return push_i64(vm, dlen == 0 ? 0 : -1, error); }
 
     /* Send as HTTP chunked encoding */
     char chunk_hdr[32];
     int chlen = snprintf(chunk_hdr, sizeof(chunk_hdr), "%zx\r\n", dlen);
     int rc = 0;
-    if (basl_platform_tcp_send(c->sock, chunk_hdr, (size_t)chlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
-    if (rc == 0 && basl_platform_tcp_send(c->sock, dc, dlen, NULL, NULL) != BASL_STATUS_OK) rc = -1;
-    if (rc == 0 && basl_platform_tcp_send(c->sock, "\r\n", 2, NULL, NULL) != BASL_STATUS_OK) rc = -1;
+    if (vigil_platform_tcp_send(c->sock, chunk_hdr, (size_t)chlen, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
+    if (rc == 0 && vigil_platform_tcp_send(c->sock, dc, dlen, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
+    if (rc == 0 && vigil_platform_tcp_send(c->sock, "\r\n", 2, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
     free(dc);
     return push_i64(vm, rc, error);
 }
 
-static basl_status_t http_flush(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_flush(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
-    if (!c || c->sock == BASL_INVALID_SOCKET) return push_i64(vm, -1, error);
+    if (!c || c->sock == VIGIL_INVALID_SOCKET) return push_i64(vm, -1, error);
 
     /* Send final chunk (zero-length) to end chunked transfer */
     int rc = 0;
-    if (basl_platform_tcp_send(c->sock, "0\r\n\r\n", 5, NULL, NULL) != BASL_STATUS_OK) rc = -1;
-    basl_platform_tcp_close(c->sock, NULL);
-    c->sock = BASL_INVALID_SOCKET;
+    if (vigil_platform_tcp_send(c->sock, "0\r\n\r\n", 5, NULL, NULL) != VIGIL_STATUS_OK) rc = -1;
+    vigil_platform_tcp_close(c->sock, NULL);
+    c->sock = VIGIL_INVALID_SOCKET;
     client_free_fields(c); c->in_use = 0;
     return push_i64(vm, rc, error);
 }
 
-static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_redirect(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
     const char *url = NULL; size_t url_len = 0;
     get_string_arg(vm, base, 1, &url, &url_len);
@@ -957,10 +957,10 @@ static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t
     char ubuf[2048];
     if (url_len >= sizeof(ubuf)) url_len = sizeof(ubuf) - 1;
     memcpy(ubuf, url, url_len); ubuf[url_len] = '\0';
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
-    if (!c || c->sock == BASL_INVALID_SOCKET) return push_i64(vm, -1, error);
+    if (!c || c->sock == VIGIL_INVALID_SOCKET) return push_i64(vm, -1, error);
 
     const char *reason = "Found";
     if (status_code == 301) reason = "Moved Permanently";
@@ -971,9 +971,9 @@ static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t
     int hlen = snprintf(hdr, sizeof(hdr),
         "HTTP/1.1 %d %s\r\nLocation: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         (int)status_code, reason, ubuf);
-    basl_platform_tcp_send(c->sock, hdr, (size_t)hlen, NULL, NULL);
-    basl_platform_tcp_close(c->sock, NULL);
-    c->sock = BASL_INVALID_SOCKET;
+    vigil_platform_tcp_send(c->sock, hdr, (size_t)hlen, NULL, NULL);
+    vigil_platform_tcp_close(c->sock, NULL);
+    c->sock = VIGIL_INVALID_SOCKET;
     client_free_fields(c); c->in_use = 0;
     return push_i64(vm, 0, error);
 }
@@ -982,8 +982,8 @@ static basl_status_t http_redirect(basl_vm_t *vm, size_t arg_count, basl_error_t
 
 /* ── Cookie helpers ──────────────────────────────────────────────── */
 
-static basl_status_t http_set_cookie(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_set_cookie(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
     const char *name = NULL, *value = NULL;
     size_t nlen = 0, vlen = 0;
@@ -1000,7 +1000,7 @@ static basl_status_t http_set_cookie(basl_vm_t *vm, size_t arg_count, basl_error
     else
         clen = snprintf(cookie, sizeof(cookie), "Set-Cookie: %.*s=%.*s\r\n",
                         (int)nlen, name, (int)vlen, value);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_conn_t *c = get_client(ch);
     if (!c) return push_i64(vm, -1, error);
@@ -1016,10 +1016,10 @@ static basl_status_t http_set_cookie(basl_vm_t *vm, size_t arg_count, basl_error
     return push_i64(vm, 0, error);
 }
 
-static basl_status_t http_req_cookies(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_req_cookies(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t ch = get_i64_arg(vm, base, 0);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     http_conn_t *c = get_client(ch);
     if (!c || !c->headers) return push_string(vm, "", 0, error);
 
@@ -1042,18 +1042,18 @@ static basl_status_t http_req_cookies(basl_vm_t *vm, size_t arg_count, basl_erro
     return push_string(vm, "", 0, error);
 }
 
-/* ── Client BASL functions ───────────────────────────────────────── */
+/* ── Client VIGIL functions ───────────────────────────────────────── */
 
-static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_get(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *url = NULL; size_t url_len = 0;
     if (!get_string_arg(vm, base, 0, &url, &url_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         push_string(vm, "", 0, error); push_string(vm, "", 0, error);
         return push_i64(vm, -1, error);
     }
     char *uc = (char *)malloc(url_len + 1); memcpy(uc, url, url_len); uc[url_len] = '\0';
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_response_t resp;
     int rc = do_request("GET", uc, NULL, NULL, 0, &resp);
@@ -1061,18 +1061,18 @@ static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *err
     if (rc != 0) { push_string(vm, "", 0, error); push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
     int status = resp.status_code;
     push_string(vm, resp.headers ? resp.headers : "", resp.headers ? strlen(resp.headers) : 0, error);
-    basl_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
+    vigil_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
     response_free(&resp);
-    return st != BASL_STATUS_OK ? st : push_i64(vm, status, error);
+    return st != VIGIL_STATUS_OK ? st : push_i64(vm, status, error);
 }
 
-static basl_status_t http_post(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_post(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *url, *body, *ct = NULL;
     size_t url_len, body_len, ct_len = 0;
     if (!get_string_arg(vm, base, 0, &url, &url_len) ||
         !get_string_arg(vm, base, 1, &body, &body_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         push_string(vm, "", 0, error); push_string(vm, "", 0, error);
         return push_i64(vm, -1, error);
     }
@@ -1081,7 +1081,7 @@ static basl_status_t http_post(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     char *bc = (char *)malloc(body_len + 1); memcpy(bc, body, body_len); bc[body_len] = '\0';
     char hdrs[512] = "";
     if (ct && ct_len > 0) snprintf(hdrs, sizeof(hdrs), "Content-Type: %.*s\r\n", (int)ct_len, ct);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_response_t resp;
     int rc = do_request("POST", uc, hdrs, bc, body_len, &resp);
@@ -1089,18 +1089,18 @@ static basl_status_t http_post(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     if (rc != 0) { push_string(vm, "", 0, error); push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
     int status = resp.status_code;
     push_string(vm, resp.headers ? resp.headers : "", resp.headers ? strlen(resp.headers) : 0, error);
-    basl_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
+    vigil_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
     response_free(&resp);
-    return st != BASL_STATUS_OK ? st : push_i64(vm, status, error);
+    return st != VIGIL_STATUS_OK ? st : push_i64(vm, status, error);
 }
 
-static basl_status_t http_request(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t http_request(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *method, *url, *headers = NULL, *body = NULL;
     size_t ml, ul, hl = 0, bl = 0;
     if (!get_string_arg(vm, base, 0, &method, &ml) ||
         !get_string_arg(vm, base, 1, &url, &ul)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         push_string(vm, "", 0, error); push_string(vm, "", 0, error);
         return push_i64(vm, -1, error);
     }
@@ -1112,7 +1112,7 @@ static basl_status_t http_request(basl_vm_t *vm, size_t arg_count, basl_error_t 
     char *bc = bl ? (char *)malloc(bl + 1) : NULL;
     if (hc) { memcpy(hc, headers, hl); hc[hl] = '\0'; }
     if (bc) { memcpy(bc, body, bl); bc[bl] = '\0'; }
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 
     http_response_t resp;
     int rc = do_request(mc, uc, hc, bc, bl, &resp);
@@ -1120,53 +1120,53 @@ static basl_status_t http_request(basl_vm_t *vm, size_t arg_count, basl_error_t 
     if (rc != 0) { push_string(vm, "", 0, error); push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
     int status = resp.status_code;
     push_string(vm, resp.headers ? resp.headers : "", resp.headers ? strlen(resp.headers) : 0, error);
-    basl_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
+    vigil_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
     response_free(&resp);
-    return st != BASL_STATUS_OK ? st : push_i64(vm, status, error);
+    return st != VIGIL_STATUS_OK ? st : push_i64(vm, status, error);
 }
 
 /* ── Module descriptor ───────────────────────────────────────────── */
 
-static const int http_1str[] = { BASL_TYPE_STRING };
-static const int http_2str[] = { BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int http_str_i32[] = { BASL_TYPE_STRING, BASL_TYPE_I32 };
-static const int http_i64[] = { BASL_TYPE_I64 };
-static const int http_respond_p[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_STRING, BASL_TYPE_STRING };
+static const int http_1str[] = { VIGIL_TYPE_STRING };
+static const int http_2str[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int http_str_i32[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_I32 };
+static const int http_i64[] = { VIGIL_TYPE_I64 };
+static const int http_respond_p[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I32, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
 
-static const int http_i64_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
-static const int http_i64_str_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_STRING };
-static const int http_i64_i64[] = { BASL_TYPE_I64, BASL_TYPE_I64 };
-static const int http_handle_p[] = { BASL_TYPE_I64, BASL_TYPE_STRING, BASL_TYPE_OBJECT };
+static const int http_i64_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING };
+static const int http_i64_str_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
+static const int http_i64_i64[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I64 };
+static const int http_handle_p[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING, VIGIL_TYPE_OBJECT };
 
-static const basl_native_module_function_t http_functions[] = {
-    { "get", 3, http_get, 1, http_1str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
-    { "post", 4, http_post, 2, http_2str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
-    { "request", 7, http_request, 2, http_2str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
-    { "listen", 6, http_listen, 2, http_str_i32, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
-    { "accept", 6, http_accept, 1, http_i64, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
-    { "handle", 6, http_handle, 3, http_handle_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "serve", 5, http_serve, 1, http_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "current_conn", 12, http_current_conn, 0, NULL, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
-    { "write_header", 12, http_write_header, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "write", 5, http_write, 2, http_i64_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "flush", 5, http_flush, 1, http_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "req_method", 10, http_req_method, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "req_path", 8, http_req_path, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "req_body", 8, http_req_body, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "req_headers", 11, http_req_headers, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "req_header", 10, http_req_header, 2, http_i64_str, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "req_query", 9, http_req_query, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "respond", 7, http_respond, 4, http_respond_p, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "redirect", 8, http_redirect, 2, http_i64_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "set_cookie", 10, http_set_cookie, 3, http_i64_str_str, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "req_cookies", 11, http_req_cookies, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "close", 5, http_server_close, 1, http_i64, BASL_TYPE_VOID, 0, NULL, 0, NULL, NULL },
-    { "set_read_timeout", 16, http_set_read_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "set_write_timeout", 17, http_set_write_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
-    { "set_idle_timeout", 16, http_set_idle_timeout, 2, http_i64_i64, BASL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+static const vigil_native_module_function_t http_functions[] = {
+    { "get", 3, http_get, 1, http_1str, VIGIL_TYPE_I32, 3, NULL, 0, NULL, NULL },
+    { "post", 4, http_post, 2, http_2str, VIGIL_TYPE_I32, 3, NULL, 0, NULL, NULL },
+    { "request", 7, http_request, 2, http_2str, VIGIL_TYPE_I32, 3, NULL, 0, NULL, NULL },
+    { "listen", 6, http_listen, 2, http_str_i32, VIGIL_TYPE_I64, 1, NULL, 0, NULL, NULL },
+    { "accept", 6, http_accept, 1, http_i64, VIGIL_TYPE_I64, 1, NULL, 0, NULL, NULL },
+    { "handle", 6, http_handle, 3, http_handle_p, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "serve", 5, http_serve, 1, http_i64, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "current_conn", 12, http_current_conn, 0, NULL, VIGIL_TYPE_I64, 1, NULL, 0, NULL, NULL },
+    { "write_header", 12, http_write_header, 2, http_i64_i64, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "write", 5, http_write, 2, http_i64_str, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "flush", 5, http_flush, 1, http_i64, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "req_method", 10, http_req_method, 1, http_i64, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_path", 8, http_req_path, 1, http_i64, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_body", 8, http_req_body, 1, http_i64, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_headers", 11, http_req_headers, 1, http_i64, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_header", 10, http_req_header, 2, http_i64_str, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "req_query", 9, http_req_query, 1, http_i64, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "respond", 7, http_respond, 4, http_respond_p, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "redirect", 8, http_redirect, 2, http_i64_str, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "set_cookie", 10, http_set_cookie, 3, http_i64_str_str, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "req_cookies", 11, http_req_cookies, 1, http_i64, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    { "close", 5, http_server_close, 1, http_i64, VIGIL_TYPE_VOID, 0, NULL, 0, NULL, NULL },
+    { "set_read_timeout", 16, http_set_read_timeout, 2, http_i64_i64, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "set_write_timeout", 17, http_set_write_timeout, 2, http_i64_i64, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
+    { "set_idle_timeout", 16, http_set_idle_timeout, 2, http_i64_i64, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
 };
 
-BASL_API const basl_native_module_t basl_stdlib_http = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_http = {
     "http", 4,
     http_functions,
     sizeof(http_functions) / sizeof(http_functions[0]),

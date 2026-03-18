@@ -1,16 +1,16 @@
-/* BASL standard library: random module.
+/* VIGIL standard library: random module.
  *
  * Provides random number generation using xorshift128+ for quality
  * and portability. Seeded from time by default.
  */
 #include <stdint.h>
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 
 /* ── xorshift128+ state ──────────────────────────────────────────── */
 
@@ -28,17 +28,17 @@ static uint64_t xorshift128plus(void) {
 
 /* ── random.seed(n: i32) ─────────────────────────────────────────── */
 
-static basl_status_t basl_random_seed(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_random_seed(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_value_t v;
+    vigil_value_t v;
     int32_t seed;
     (void)arg_count;
     (void)error;
 
-    v = basl_vm_stack_get(vm, basl_vm_stack_depth(vm) - 1U);
-    basl_vm_stack_pop_n(vm, 1U);
-    seed = basl_nanbox_decode_i32(v);
+    v = vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1U);
+    vigil_vm_stack_pop_n(vm, 1U);
+    seed = vigil_nanbox_decode_i32(v);
 
     rng_state[0] = (uint64_t)(uint32_t)seed;
     rng_state[1] = (uint64_t)(uint32_t)seed ^ 0x6a09e667bb67ae85ULL;
@@ -46,64 +46,64 @@ static basl_status_t basl_random_seed(
     (void)xorshift128plus();
     (void)xorshift128plus();
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── random.i64() -> i64 ─────────────────────────────────────────── */
 
-static basl_status_t basl_random_i64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_random_i64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_value_t val;
+    vigil_value_t val;
     (void)arg_count;
 
-    val = basl_nanbox_encode_int((int64_t)xorshift128plus());
-    return basl_vm_stack_push(vm, &val, error);
+    val = vigil_nanbox_encode_int((int64_t)xorshift128plus());
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /* ── random.i32() -> i32 ─────────────────────────────────────────── */
 
-static basl_status_t basl_random_i32(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_random_i32(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_value_t val;
+    vigil_value_t val;
     (void)arg_count;
 
-    val = basl_nanbox_encode_i32((int32_t)(xorshift128plus() >> 32));
-    return basl_vm_stack_push(vm, &val, error);
+    val = vigil_nanbox_encode_i32((int32_t)(xorshift128plus() >> 32));
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /* ── random.f64() -> f64 in [0, 1) ───────────────────────────────── */
 
-static basl_status_t basl_random_f64(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_random_f64(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_value_t val;
+    vigil_value_t val;
     double d;
     (void)arg_count;
 
     /* Use upper 53 bits for full double precision */
     d = (double)(xorshift128plus() >> 11) * (1.0 / 9007199254740992.0);
-    val = basl_nanbox_encode_double(d);
-    return basl_vm_stack_push(vm, &val, error);
+    val = vigil_nanbox_encode_double(d);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /* ── random.range(min: i32, max: i32) -> i32 ─────────────────────── */
 
-static basl_status_t basl_random_range(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_random_range(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_value_t v;
+    vigil_value_t v;
     int32_t min_val, max_val, result;
     uint32_t range;
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     (void)arg_count;
 
-    v = basl_vm_stack_get(vm, base);
-    min_val = basl_nanbox_decode_i32(v);
-    v = basl_vm_stack_get(vm, base + 1);
-    max_val = basl_nanbox_decode_i32(v);
-    basl_vm_stack_pop_n(vm, 2U);
+    v = vigil_vm_stack_get(vm, base);
+    min_val = vigil_nanbox_decode_i32(v);
+    v = vigil_vm_stack_get(vm, base + 1);
+    max_val = vigil_nanbox_decode_i32(v);
+    vigil_vm_stack_pop_n(vm, 2U);
 
     if (max_val <= min_val) {
         result = min_val;
@@ -112,8 +112,8 @@ static basl_status_t basl_random_range(
         result = min_val + (int32_t)((uint32_t)(xorshift128plus() >> 32) % range);
     }
 
-    v = basl_nanbox_encode_i32(result);
-    return basl_vm_stack_push(vm, &v, error);
+    v = vigil_nanbox_encode_i32(result);
+    return vigil_vm_stack_push(vm, &v, error);
 }
 
 /* ── random.gaussian() -> f64 (Box-Muller, mean=0, stddev=1) ─────── */
@@ -124,10 +124,10 @@ static basl_status_t basl_random_range(
 static double gaussian_spare;
 static int gaussian_has_spare = 0;
 
-static basl_status_t basl_random_gaussian(
-    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+static vigil_status_t vigil_random_gaussian(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
-    basl_value_t val;
+    vigil_value_t val;
     double result;
     (void)arg_count;
 
@@ -146,30 +146,30 @@ static basl_status_t basl_random_gaussian(
         gaussian_has_spare = 1;
     }
 
-    val = basl_nanbox_encode_double(result);
-    return basl_vm_stack_push(vm, &val, error);
+    val = vigil_nanbox_encode_double(result);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /* ── Module definition ───────────────────────────────────────────── */
 
-static const int seed_params[] = {BASL_TYPE_I32};
-static const int range_params[] = {BASL_TYPE_I32, BASL_TYPE_I32};
+static const int seed_params[] = {VIGIL_TYPE_I32};
+static const int range_params[] = {VIGIL_TYPE_I32, VIGIL_TYPE_I32};
 
-static const basl_native_module_function_t basl_random_functions[] = {
-    {"seed", 4U, basl_random_seed, 1U, seed_params, BASL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
-    {"i64", 3U, basl_random_i64, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"i32", 3U, basl_random_i32, 0U, NULL, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
-    {"f64", 3U, basl_random_f64, 0U, NULL, BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
-    {"gaussian", 8U, basl_random_gaussian, 0U, NULL, BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
-    {"range", 5U, basl_random_range, 2U, range_params, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+static const vigil_native_module_function_t vigil_random_functions[] = {
+    {"seed", 4U, vigil_random_seed, 1U, seed_params, VIGIL_TYPE_VOID, 0U, NULL, 0, NULL, NULL},
+    {"i64", 3U, vigil_random_i64, 0U, NULL, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"i32", 3U, vigil_random_i32, 0U, NULL, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
+    {"f64", 3U, vigil_random_f64, 0U, NULL, VIGIL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
+    {"gaussian", 8U, vigil_random_gaussian, 0U, NULL, VIGIL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
+    {"range", 5U, vigil_random_range, 2U, range_params, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
 };
 
 #define RANDOM_FUNCTION_COUNT \
-    (sizeof(basl_random_functions) / sizeof(basl_random_functions[0]))
+    (sizeof(vigil_random_functions) / sizeof(vigil_random_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_random = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_random = {
     "random", 6U,
-    basl_random_functions,
+    vigil_random_functions,
     RANDOM_FUNCTION_COUNT,
     NULL, 0U
 };

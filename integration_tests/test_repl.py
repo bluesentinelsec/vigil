@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for the BASL REPL with readline functionality.
+"""Integration tests for the VIGIL REPL with readline functionality.
 
 Uses pexpect (or wexpect on Windows) to test interactive features.
 """
@@ -27,18 +27,18 @@ else:
 HAS_EXPECT = pexpect is not None
 
 
-def get_basl_bin() -> str:
-    """Get path to the BASL binary."""
-    configured = os.environ.get("BASL_BIN")
+def get_vigil_bin() -> str:
+    """Get path to the VIGIL binary."""
+    configured = os.environ.get("VIGIL_BIN")
     if configured:
         return configured
     if os.name == "nt":
-        native = REPO_ROOT / "build" / "Release" / "basl.exe"
+        native = REPO_ROOT / "build" / "Release" / "vigil.exe"
     else:
-        native = REPO_ROOT / "build" / "basl"
+        native = REPO_ROOT / "build" / "vigil"
     if native.exists():
         return str(native)
-    raise FileNotFoundError("BASL binary not found")
+    raise FileNotFoundError("VIGIL binary not found")
 
 
 @unittest.skipUnless(HAS_EXPECT, "pexpect/wexpect not available")
@@ -46,11 +46,11 @@ class TestReplInteractive(unittest.TestCase):
     """Test REPL interactive features using pexpect."""
 
     def setUp(self):
-        self.basl = get_basl_bin()
+        self.vigil = get_vigil_bin()
 
     def spawn_repl(self, timeout=10):
         """Spawn a REPL process."""
-        child = pexpect.spawn(self.basl, ["repl"], timeout=timeout, encoding="utf-8")
+        child = pexpect.spawn(self.vigil, ["repl"], timeout=timeout, encoding="utf-8")
         child.expect(">>>")  # Wait for first prompt
         return child
 

@@ -109,7 +109,7 @@ This document tracks the stdlib function additions required for implementing Uni
 9. **chmod** - Change permissions (file.chmod)
 
 ### Remaining Limitations
-- **Recursive operations** still need manual implementation in BASL
+- **Recursive operations** still need manual implementation in VIGIL
   - `cp -r` (recursive copy)
   - `rm -r` (recursive remove)
   - `ls -R` (recursive listing)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL log module."""
+"""Integration tests for VIGIL log module."""
 
 import os
 import subprocess
@@ -7,15 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    with tempfile.TemporaryDirectory(prefix="basl_log_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    with tempfile.TemporaryDirectory(prefix="vigil_log_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True, text=True, timeout=10,
         )
         return result.returncode, result.stdout, result.stderr
@@ -28,7 +28,7 @@ fn main() -> i32 {
     log.set_level("info");
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -40,7 +40,7 @@ fn main() -> i32 {
     log.info("test message");
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
         self.assertIn("test message", err)
 
@@ -51,7 +51,7 @@ fn main() -> i32 {
     log.warn("warning message");
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
         self.assertIn("warning message", err)
 
@@ -62,7 +62,7 @@ fn main() -> i32 {
     log.error("error message");
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
         self.assertIn("error message", err)
 
@@ -73,7 +73,7 @@ fn main() -> i32 {
     log.debug("debug message");
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
         self.assertNotIn("debug message", err)
 
@@ -84,7 +84,7 @@ fn main() -> i32 {
     log.debug("debug message");
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
         self.assertIn("debug message", err)
 

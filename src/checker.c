@@ -1,18 +1,18 @@
-#include "basl/checker.h"
+#include "vigil/checker.h"
 
-#include "internal/basl_compiler_internal.h"
+#include "internal/vigil_compiler_internal.h"
 
-basl_status_t basl_check_source(
-    const basl_source_registry_t *registry,
-    basl_source_id_t source_id,
-    const basl_native_registry_t *natives,
-    basl_diagnostic_list_t *diagnostics,
-    basl_error_t *error
+vigil_status_t vigil_check_source(
+    const vigil_source_registry_t *registry,
+    vigil_source_id_t source_id,
+    const vigil_native_registry_t *natives,
+    vigil_diagnostic_list_t *diagnostics,
+    vigil_error_t *error
 ) {
-    return basl_compile_source_internal(
+    return vigil_compile_source_internal(
         registry,
         source_id,
-        BASL_COMPILE_MODE_CHECK_ONLY,
+        VIGIL_COMPILE_MODE_CHECK_ONLY,
         natives,
         NULL,
         NULL,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration tests for BASL regex module."""
+"""Integration tests for VIGIL regex module."""
 
 import os
 import subprocess
@@ -7,16 +7,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-BASL_BIN = os.environ.get("BASL_BIN", "./build/basl")
+VIGIL_BIN = os.environ.get("VIGIL_BIN", "./build/vigil")
 
 
-def run_basl(code: str) -> tuple[int, str, str]:
-    """Run BASL code and return (exit_code, stdout, stderr)."""
-    with tempfile.TemporaryDirectory(prefix="basl_regex_") as tmpdir:
-        path = Path(tmpdir) / "test.basl"
+def run_vigil(code: str) -> tuple[int, str, str]:
+    """Run VIGIL code and return (exit_code, stdout, stderr)."""
+    with tempfile.TemporaryDirectory(prefix="vigil_regex_") as tmpdir:
+        path = Path(tmpdir) / "test.vigil"
         path.write_text(code)
         result = subprocess.run(
-            [BASL_BIN, "run", str(path)],
+            [VIGIL_BIN, "run", str(path)],
             capture_output=True,
             text=True,
             timeout=10,
@@ -33,7 +33,7 @@ fn main() -> i32 {
     if (regex.match("hello", "hello")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_literal_no_match(self):
@@ -42,7 +42,7 @@ fn main() -> i32 {
     if (regex.match("hello", "world")) { return 1; }
     return 0;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_dot(self):
@@ -51,7 +51,7 @@ fn main() -> i32 {
     if (regex.match("h.llo", "hello")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_star(self):
@@ -60,7 +60,7 @@ fn main() -> i32 {
     if (regex.match("hel*o", "heo") && regex.match("hel*o", "hello")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_plus(self):
@@ -69,7 +69,7 @@ fn main() -> i32 {
     if (!regex.match("hel+o", "heo") && regex.match("hel+o", "hello")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_question(self):
@@ -78,7 +78,7 @@ fn main() -> i32 {
     if (regex.match("hel?o", "heo") && regex.match("hel?o", "helo")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_char_class(self):
@@ -87,7 +87,7 @@ fn main() -> i32 {
     if (regex.match("[abc]", "a") && !regex.match("[abc]", "d")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_char_class_range(self):
@@ -96,7 +96,7 @@ fn main() -> i32 {
     if (regex.match("[a-z]+", "hello") && !regex.match("[a-z]+", "HELLO")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_negated_class(self):
@@ -105,7 +105,7 @@ fn main() -> i32 {
     if (regex.match("[^0-9]+", "hello") && !regex.match("[^0-9]+", "123")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_alternation(self):
@@ -114,7 +114,7 @@ fn main() -> i32 {
     if (regex.match("cat|dog", "cat") && regex.match("cat|dog", "dog")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_digit(self):
@@ -123,7 +123,7 @@ fn main() -> i32 {
     if (regex.match("\\d+", "123") && !regex.match("\\d+", "abc")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_word(self):
@@ -132,7 +132,7 @@ fn main() -> i32 {
     if (regex.match("\\w+", "hello_123")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_match_whitespace(self):
@@ -141,7 +141,7 @@ fn main() -> i32 {
     if (regex.match("\\s+", "   ") && !regex.match("\\s+", "abc")) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -156,7 +156,7 @@ fn main() -> i32 {
     if (found && match == "123") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_find_not_found(self):
@@ -166,7 +166,7 @@ fn main() -> i32 {
     if (!found) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -180,7 +180,7 @@ fn main() -> i32 {
     if (matches.len() == 3) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_find_all_no_matches(self):
@@ -190,7 +190,7 @@ fn main() -> i32 {
     if (matches.len() == 0) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -204,7 +204,7 @@ fn main() -> i32 {
     if (result == "aXb2c3") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_replace_all(self):
@@ -214,7 +214,7 @@ fn main() -> i32 {
     if (result == "aXbXcX") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_replace_no_match(self):
@@ -224,7 +224,7 @@ fn main() -> i32 {
     if (result == "abc") { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
@@ -238,7 +238,7 @@ fn main() -> i32 {
     if (parts.len() == 3) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_split_regex(self):
@@ -248,7 +248,7 @@ fn main() -> i32 {
     if (parts.len() == 3) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
     def test_split_no_match(self):
@@ -258,7 +258,7 @@ fn main() -> i32 {
     if (parts.len() == 1) { return 0; }
     return 1;
 }'''
-        rc, out, err = run_basl(code)
+        rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 

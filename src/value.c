@@ -2,183 +2,183 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/chunk.h"
-#include "internal/basl_internal.h"
-#include "internal/basl_nanbox.h"
-#include "basl/map.h"
-#include "basl/string.h"
-#include "basl/value.h"
+#include "vigil/chunk.h"
+#include "internal/vigil_internal.h"
+#include "internal/vigil_nanbox.h"
+#include "vigil/map.h"
+#include "vigil/string.h"
+#include "vigil/value.h"
 #include "platform/platform.h"  /* For atomic operations */
 
-struct basl_object {
-    basl_runtime_t *runtime;
-    basl_object_type_t type;
+struct vigil_object {
+    vigil_runtime_t *runtime;
+    vigil_object_type_t type;
     volatile int64_t ref_count;  /* Atomic for thread safety */
 };
 
-typedef struct basl_string_object {
-    basl_object_t base;
-    basl_string_t value;
-} basl_string_object_t;
+typedef struct vigil_string_object {
+    vigil_object_t base;
+    vigil_string_t value;
+} vigil_string_object_t;
 
-typedef struct basl_error_object {
-    basl_object_t base;
-    basl_string_t message;
+typedef struct vigil_error_object {
+    vigil_object_t base;
+    vigil_string_t message;
     int64_t kind;
-} basl_error_object_t;
+} vigil_error_object_t;
 
-typedef struct basl_function_object {
-    basl_object_t base;
-    basl_string_t name;
+typedef struct vigil_function_object {
+    vigil_object_t base;
+    vigil_string_t name;
     size_t arity;
     size_t return_count;
-    basl_chunk_t chunk;
-    basl_object_t **functions;
+    vigil_chunk_t chunk;
+    vigil_object_t **functions;
     size_t function_count;
     size_t function_index;
     int owns_function_table;
-    basl_value_t *globals;
+    vigil_value_t *globals;
     size_t global_count;
     int owns_global_table;
-    struct basl_runtime_class *classes;
+    struct vigil_runtime_class *classes;
     size_t class_count;
     int owns_class_table;
-} basl_function_object_t;
+} vigil_function_object_t;
 
-typedef struct basl_closure_object {
-    basl_object_t base;
-    basl_object_t *function;
-    basl_value_t *captures;
+typedef struct vigil_closure_object {
+    vigil_object_t base;
+    vigil_object_t *function;
+    vigil_value_t *captures;
     size_t capture_count;
-} basl_closure_object_t;
+} vigil_closure_object_t;
 
-typedef struct basl_runtime_interface_impl {
+typedef struct vigil_runtime_interface_impl {
     size_t interface_index;
     size_t *function_indices;
     size_t function_count;
-} basl_runtime_interface_impl_t;
+} vigil_runtime_interface_impl_t;
 
-typedef struct basl_runtime_class {
-    basl_runtime_interface_impl_t *interface_impls;
+typedef struct vigil_runtime_class {
+    vigil_runtime_interface_impl_t *interface_impls;
     size_t interface_impl_count;
-} basl_runtime_class_t;
+} vigil_runtime_class_t;
 
-typedef struct basl_instance_object {
-    basl_object_t base;
+typedef struct vigil_instance_object {
+    vigil_object_t base;
     size_t class_index;
-    basl_value_t *fields;
+    vigil_value_t *fields;
     size_t field_count;
-} basl_instance_object_t;
+} vigil_instance_object_t;
 
-typedef struct basl_array_object {
-    basl_object_t base;
-    basl_value_t *items;
+typedef struct vigil_array_object {
+    vigil_object_t base;
+    vigil_value_t *items;
     size_t item_count;
-} basl_array_object_t;
+} vigil_array_object_t;
 
-typedef struct basl_map_object {
-    basl_object_t base;
-    basl_map_t entries;
-} basl_map_object_t;
+typedef struct vigil_map_object {
+    vigil_object_t base;
+    vigil_map_t entries;
+} vigil_map_object_t;
 
 /* Bigint object — heap-boxed 64-bit integer for values outside
    the 48-bit inline range. */
-#define BASL_BIGINT_MAGIC UINT32_C(0xB161B161)
-typedef struct basl_bigint_object {
-    basl_object_t base;
+#define VIGIL_BIGINT_MAGIC UINT32_C(0xB161B161)
+typedef struct vigil_bigint_object {
+    vigil_object_t base;
     uint32_t magic;
     int is_unsigned;
     union {
         int64_t signed_value;
         uint64_t unsigned_value;
     } as;
-} basl_bigint_object_t;
+} vigil_bigint_object_t;
 
-typedef struct basl_native_function_object {
-    basl_object_t base;
-    basl_string_t name;
+typedef struct vigil_native_function_object {
+    vigil_object_t base;
+    vigil_string_t name;
     size_t arity;
-    basl_native_fn_t function;
-} basl_native_function_object_t;
+    vigil_native_fn_t function;
+} vigil_native_function_object_t;
 
-static const basl_string_object_t *basl_string_object_cast(
-    const basl_object_t *object
+static const vigil_string_object_t *vigil_string_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_STRING) {
+    if (object == NULL || object->type != VIGIL_OBJECT_STRING) {
         return NULL;
     }
 
-    return (const basl_string_object_t *)object;
+    return (const vigil_string_object_t *)object;
 }
 
-static const basl_function_object_t *basl_function_object_cast(
-    const basl_object_t *object
+static const vigil_function_object_t *vigil_function_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_FUNCTION) {
+    if (object == NULL || object->type != VIGIL_OBJECT_FUNCTION) {
         return NULL;
     }
 
-    return (const basl_function_object_t *)object;
+    return (const vigil_function_object_t *)object;
 }
 
-static const basl_closure_object_t *basl_closure_object_cast(
-    const basl_object_t *object
+static const vigil_closure_object_t *vigil_closure_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_CLOSURE) {
+    if (object == NULL || object->type != VIGIL_OBJECT_CLOSURE) {
         return NULL;
     }
 
-    return (const basl_closure_object_t *)object;
+    return (const vigil_closure_object_t *)object;
 }
 
-static const basl_error_object_t *basl_error_object_cast(
-    const basl_object_t *object
+static const vigil_error_object_t *vigil_error_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_ERROR) {
+    if (object == NULL || object->type != VIGIL_OBJECT_ERROR) {
         return NULL;
     }
 
-    return (const basl_error_object_t *)object;
+    return (const vigil_error_object_t *)object;
 }
 
-static const basl_instance_object_t *basl_instance_object_cast(
-    const basl_object_t *object
+static const vigil_instance_object_t *vigil_instance_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_INSTANCE) {
+    if (object == NULL || object->type != VIGIL_OBJECT_INSTANCE) {
         return NULL;
     }
 
-    return (const basl_instance_object_t *)object;
+    return (const vigil_instance_object_t *)object;
 }
 
-static const basl_array_object_t *basl_array_object_cast(
-    const basl_object_t *object
+static const vigil_array_object_t *vigil_array_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_ARRAY) {
+    if (object == NULL || object->type != VIGIL_OBJECT_ARRAY) {
         return NULL;
     }
 
-    return (const basl_array_object_t *)object;
+    return (const vigil_array_object_t *)object;
 }
 
-static const basl_map_object_t *basl_map_object_cast(
-    const basl_object_t *object
+static const vigil_map_object_t *vigil_map_object_cast(
+    const vigil_object_t *object
 ) {
-    if (object == NULL || object->type != BASL_OBJECT_MAP) {
+    if (object == NULL || object->type != VIGIL_OBJECT_MAP) {
         return NULL;
     }
 
-    return (const basl_map_object_t *)object;
+    return (const vigil_map_object_t *)object;
 }
 
-static void basl_object_destroy(basl_object_t *object) {
-    basl_runtime_t *runtime;
+static void vigil_object_destroy(vigil_object_t *object) {
+    vigil_runtime_t *runtime;
     void *memory;
-    basl_string_object_t *string_object;
-    basl_function_object_t *function_object;
-    basl_closure_object_t *closure_object;
-    basl_instance_object_t *instance_object;
-    basl_array_object_t *array_object;
+    vigil_string_object_t *string_object;
+    vigil_function_object_t *function_object;
+    vigil_closure_object_t *closure_object;
+    vigil_instance_object_t *instance_object;
+    vigil_array_object_t *array_object;
 
     if (object == NULL) {
         return;
@@ -186,17 +186,17 @@ static void basl_object_destroy(basl_object_t *object) {
 
     runtime = object->runtime;
     switch (object->type) {
-        case BASL_OBJECT_STRING:
-            string_object = (basl_string_object_t *)object;
-            basl_string_free(&string_object->value);
+        case VIGIL_OBJECT_STRING:
+            string_object = (vigil_string_object_t *)object;
+            vigil_string_free(&string_object->value);
             break;
-        case BASL_OBJECT_ERROR:
-            basl_string_free(&((basl_error_object_t *)object)->message);
+        case VIGIL_OBJECT_ERROR:
+            vigil_string_free(&((vigil_error_object_t *)object)->message);
             break;
-        case BASL_OBJECT_FUNCTION:
-            function_object = (basl_function_object_t *)object;
-            basl_string_free(&function_object->name);
-            basl_chunk_free(&function_object->chunk);
+        case VIGIL_OBJECT_FUNCTION:
+            function_object = (vigil_function_object_t *)object;
+            vigil_string_free(&function_object->name);
+            vigil_chunk_free(&function_object->chunk);
             if (function_object->owns_class_table && function_object->classes != NULL) {
                 size_t class_index;
 
@@ -212,15 +212,15 @@ static void basl_object_destroy(basl_object_t *object) {
                             function_object->classes[class_index]
                                 .interface_impls[impl_index]
                                 .function_indices;
-                        basl_runtime_free(runtime, &memory);
+                        vigil_runtime_free(runtime, &memory);
                     }
 
                     memory = function_object->classes[class_index].interface_impls;
-                    basl_runtime_free(runtime, &memory);
+                    vigil_runtime_free(runtime, &memory);
                 }
 
                 memory = function_object->classes;
-                basl_runtime_free(runtime, &memory);
+                vigil_runtime_free(runtime, &memory);
             }
             if (function_object->owns_function_table && function_object->functions != NULL) {
                 size_t i;
@@ -231,92 +231,92 @@ static void basl_object_destroy(basl_object_t *object) {
                         continue;
                     }
 
-                    basl_object_release(&function_object->functions[i]);
+                    vigil_object_release(&function_object->functions[i]);
                 }
 
                 table_memory = function_object->functions;
-                basl_runtime_free(runtime, &table_memory);
+                vigil_runtime_free(runtime, &table_memory);
             }
             if (function_object->owns_global_table && function_object->globals != NULL) {
                 size_t global_index;
 
                 for (global_index = 0U; global_index < function_object->global_count; ++global_index) {
-                    basl_value_release(&function_object->globals[global_index]);
+                    vigil_value_release(&function_object->globals[global_index]);
                 }
 
                 memory = function_object->globals;
-                basl_runtime_free(runtime, &memory);
+                vigil_runtime_free(runtime, &memory);
             }
             break;
-        case BASL_OBJECT_CLOSURE:
-            closure_object = (basl_closure_object_t *)object;
+        case VIGIL_OBJECT_CLOSURE:
+            closure_object = (vigil_closure_object_t *)object;
             if (closure_object->function != NULL) {
-                basl_object_release(&closure_object->function);
+                vigil_object_release(&closure_object->function);
             }
             if (closure_object->captures != NULL) {
                 size_t capture_index;
 
                 for (capture_index = 0U; capture_index < closure_object->capture_count; ++capture_index) {
-                    basl_value_release(&closure_object->captures[capture_index]);
+                    vigil_value_release(&closure_object->captures[capture_index]);
                 }
 
                 memory = closure_object->captures;
-                basl_runtime_free(runtime, &memory);
+                vigil_runtime_free(runtime, &memory);
             }
             break;
-        case BASL_OBJECT_INSTANCE:
-            instance_object = (basl_instance_object_t *)object;
+        case VIGIL_OBJECT_INSTANCE:
+            instance_object = (vigil_instance_object_t *)object;
             if (instance_object->fields != NULL) {
                 size_t i;
 
                 for (i = 0U; i < instance_object->field_count; ++i) {
-                    basl_value_release(&instance_object->fields[i]);
+                    vigil_value_release(&instance_object->fields[i]);
                 }
 
                 memory = instance_object->fields;
-                basl_runtime_free(runtime, &memory);
+                vigil_runtime_free(runtime, &memory);
             }
             break;
-        case BASL_OBJECT_ARRAY:
-            array_object = (basl_array_object_t *)object;
+        case VIGIL_OBJECT_ARRAY:
+            array_object = (vigil_array_object_t *)object;
             if (array_object->items != NULL) {
                 size_t i;
 
                 for (i = 0U; i < array_object->item_count; ++i) {
-                    basl_value_release(&array_object->items[i]);
+                    vigil_value_release(&array_object->items[i]);
                 }
 
                 memory = array_object->items;
-                basl_runtime_free(runtime, &memory);
+                vigil_runtime_free(runtime, &memory);
             }
             break;
-        case BASL_OBJECT_MAP:
-            basl_map_free(&((basl_map_object_t *)object)->entries);
+        case VIGIL_OBJECT_MAP:
+            vigil_map_free(&((vigil_map_object_t *)object)->entries);
             break;
-        case BASL_OBJECT_BIGINT:
+        case VIGIL_OBJECT_BIGINT:
             break;
-        case BASL_OBJECT_NATIVE_FUNCTION:
-            basl_string_free(
-                &((basl_native_function_object_t *)object)->name
+        case VIGIL_OBJECT_NATIVE_FUNCTION:
+            vigil_string_free(
+                &((vigil_native_function_object_t *)object)->name
             );
             break;
-        case BASL_OBJECT_INVALID:
+        case VIGIL_OBJECT_INVALID:
         default:
             break;
     }
 
     memory = object;
     if (runtime != NULL) {
-        basl_runtime_free(runtime, &memory);
+        vigil_runtime_free(runtime, &memory);
     } else {
         free(memory);
     }
 }
 
-static void basl_object_init(
-    basl_object_t *object,
-    basl_runtime_t *runtime,
-    basl_object_type_t type
+static void vigil_object_init(
+    vigil_object_t *object,
+    vigil_runtime_t *runtime,
+    vigil_object_type_t type
 ) {
     if (object == NULL) {
         return;
@@ -327,84 +327,84 @@ static void basl_object_init(
     object->ref_count = 1U;
 }
 
-void basl_value_init_nil(basl_value_t *value) {
+void vigil_value_init_nil(vigil_value_t *value) {
     if (value == NULL) {
         return;
     }
 
-    *value = BASL_NANBOX_NIL;
+    *value = VIGIL_NANBOX_NIL;
 }
 
-void basl_value_init_bool(basl_value_t *value, bool boolean) {
+void vigil_value_init_bool(vigil_value_t *value, bool boolean) {
     if (value == NULL) {
         return;
     }
 
-    *value = boolean ? BASL_NANBOX_TRUE : BASL_NANBOX_FALSE;
+    *value = boolean ? VIGIL_NANBOX_TRUE : VIGIL_NANBOX_FALSE;
 }
 
-void basl_value_init_int(basl_value_t *value, int64_t integer) {
+void vigil_value_init_int(vigil_value_t *value, int64_t integer) {
     if (value == NULL) {
         return;
     }
 
-    if (basl_nanbox_int_fits_inline(integer)) {
-        *value = basl_nanbox_encode_int(integer);
+    if (vigil_nanbox_int_fits_inline(integer)) {
+        *value = vigil_nanbox_encode_int(integer);
     } else {
         /* Box using malloc (no runtime available). */
-        basl_bigint_object_t *obj =
-            (basl_bigint_object_t *)malloc(sizeof(basl_bigint_object_t));
+        vigil_bigint_object_t *obj =
+            (vigil_bigint_object_t *)malloc(sizeof(vigil_bigint_object_t));
         if (obj == NULL) {
-            *value = BASL_NANBOX_NIL;
+            *value = VIGIL_NANBOX_NIL;
             return;
         }
-        basl_object_init(&obj->base, NULL, BASL_OBJECT_BIGINT);
-        obj->magic = BASL_BIGINT_MAGIC; obj->is_unsigned = 0;
+        vigil_object_init(&obj->base, NULL, VIGIL_OBJECT_BIGINT);
+        obj->magic = VIGIL_BIGINT_MAGIC; obj->is_unsigned = 0;
         obj->as.signed_value = integer;
-        *value = basl_nanbox_encode_bigint(&obj->base);
+        *value = vigil_nanbox_encode_bigint(&obj->base);
     }
 }
 
-void basl_value_init_uint(basl_value_t *value, uint64_t integer) {
+void vigil_value_init_uint(vigil_value_t *value, uint64_t integer) {
     if (value == NULL) {
         return;
     }
 
-    if (basl_nanbox_uint_fits_inline(integer)) {
-        *value = basl_nanbox_encode_uint(integer);
+    if (vigil_nanbox_uint_fits_inline(integer)) {
+        *value = vigil_nanbox_encode_uint(integer);
     } else {
-        basl_bigint_object_t *obj =
-            (basl_bigint_object_t *)malloc(sizeof(basl_bigint_object_t));
+        vigil_bigint_object_t *obj =
+            (vigil_bigint_object_t *)malloc(sizeof(vigil_bigint_object_t));
         if (obj == NULL) {
-            *value = BASL_NANBOX_NIL;
+            *value = VIGIL_NANBOX_NIL;
             return;
         }
-        basl_object_init(&obj->base, NULL, BASL_OBJECT_BIGINT);
-        obj->magic = BASL_BIGINT_MAGIC; obj->is_unsigned = 1;
+        vigil_object_init(&obj->base, NULL, VIGIL_OBJECT_BIGINT);
+        obj->magic = VIGIL_BIGINT_MAGIC; obj->is_unsigned = 1;
         obj->as.unsigned_value = integer;
-        *value = basl_nanbox_encode_biguint(&obj->base);
+        *value = vigil_nanbox_encode_biguint(&obj->base);
     }
 }
 
-void basl_value_init_float(basl_value_t *value, double number) {
+void vigil_value_init_float(vigil_value_t *value, double number) {
     if (value == NULL) {
         return;
     }
 
-    *value = basl_nanbox_encode_double(number);
+    *value = vigil_nanbox_encode_double(number);
 }
 
-void basl_value_init_object(
-    basl_value_t *value,
-    basl_object_t **object
+void vigil_value_init_object(
+    vigil_value_t *value,
+    vigil_object_t **object
 ) {
-    basl_object_t *resolved_object;
+    vigil_object_t *resolved_object;
 
     if (value == NULL) {
         return;
     }
 
-    *value = BASL_NANBOX_NIL;
+    *value = VIGIL_NANBOX_NIL;
 
     if (object == NULL || *object == NULL) {
         return;
@@ -412,78 +412,78 @@ void basl_value_init_object(
 
     resolved_object = *object;
     *object = NULL;
-    *value = basl_nanbox_encode_object(resolved_object);
+    *value = vigil_nanbox_encode_object(resolved_object);
 }
 
-basl_value_t basl_value_copy(const basl_value_t *value) {
-    basl_value_t copy;
+vigil_value_t vigil_value_copy(const vigil_value_t *value) {
+    vigil_value_t copy;
 
     if (value == NULL) {
-        return BASL_NANBOX_NIL;
+        return VIGIL_NANBOX_NIL;
     }
 
     copy = *value;
-    if (basl_nanbox_has_object(copy)) {
-        basl_object_retain((basl_object_t *)basl_nanbox_decode_ptr(copy));
+    if (vigil_nanbox_has_object(copy)) {
+        vigil_object_retain((vigil_object_t *)vigil_nanbox_decode_ptr(copy));
     }
 
     return copy;
 }
 
-void basl_value_release(basl_value_t *value) {
-    basl_object_t *object;
+void vigil_value_release(vigil_value_t *value) {
+    vigil_object_t *object;
 
     if (value == NULL) {
         return;
     }
 
-    if (basl_nanbox_has_object(*value)) {
-        object = (basl_object_t *)basl_nanbox_decode_ptr(*value);
-        basl_object_release(&object);
+    if (vigil_nanbox_has_object(*value)) {
+        object = (vigil_object_t *)vigil_nanbox_decode_ptr(*value);
+        vigil_object_release(&object);
     }
 
-    *value = BASL_NANBOX_NIL;
+    *value = VIGIL_NANBOX_NIL;
 }
 
-basl_value_kind_t basl_value_kind(const basl_value_t *value) {
+vigil_value_kind_t vigil_value_kind(const vigil_value_t *value) {
     uint64_t v;
 
     if (value == NULL) {
-        return BASL_VALUE_NIL;
+        return VIGIL_VALUE_NIL;
     }
 
     v = *value;
-    if (basl_nanbox_is_double(v)) {
-        return BASL_VALUE_FLOAT;
+    if (vigil_nanbox_is_double(v)) {
+        return VIGIL_VALUE_FLOAT;
     }
-    if (basl_nanbox_is_nil(v)) {
-        return BASL_VALUE_NIL;
+    if (vigil_nanbox_is_nil(v)) {
+        return VIGIL_VALUE_NIL;
     }
-    if (basl_nanbox_is_bool(v)) {
-        return BASL_VALUE_BOOL;
+    if (vigil_nanbox_is_bool(v)) {
+        return VIGIL_VALUE_BOOL;
     }
-    if (basl_nanbox_is_int(v)) {
-        return BASL_VALUE_INT;
+    if (vigil_nanbox_is_int(v)) {
+        return VIGIL_VALUE_INT;
     }
-    if (basl_nanbox_is_uint(v)) {
-        return BASL_VALUE_UINT;
+    if (vigil_nanbox_is_uint(v)) {
+        return VIGIL_VALUE_UINT;
     }
     /* object, bigint ptr, biguint ptr all have sign bit set */
-    if (basl_nanbox_is_object(v)) {
-        return BASL_VALUE_OBJECT;
+    if (vigil_nanbox_is_object(v)) {
+        return VIGIL_VALUE_OBJECT;
     }
-    return BASL_VALUE_NIL;
+    return VIGIL_VALUE_NIL;
 }
 
-bool basl_value_as_bool(const basl_value_t *value) {
+bool vigil_value_as_bool(const vigil_value_t *value) {
     if (value == NULL) {
         return false;
     }
 
-    return basl_nanbox_decode_bool(*value);
+    return vigil_nanbox_decode_bool(*value);
 }
 
-int64_t basl_value_as_int(const basl_value_t *value) {
+int64_t vigil_value_as_int(const vigil_value_t *value) {
     uint64_t v;
 
     if (value == NULL) {
@@ -491,18 +491,18 @@ int64_t basl_value_as_int(const basl_value_t *value) {
     }
 
     v = *value;
-    if (basl_nanbox_is_int_inline(v)) {
-        return basl_nanbox_decode_int(v);
+    if (vigil_nanbox_is_int_inline(v)) {
+        return vigil_nanbox_decode_int(v);
     }
-    if (basl_nanbox_is_bigint(v)) {
-        const basl_bigint_object_t *bi =
-            (const basl_bigint_object_t *)basl_nanbox_decode_ptr(v);
+    if (vigil_nanbox_is_bigint(v)) {
+        const vigil_bigint_object_t *bi =
+            (const vigil_bigint_object_t *)vigil_nanbox_decode_ptr(v);
         return bi->as.signed_value;
     }
     return 0;
 }
 
-uint64_t basl_value_as_uint(const basl_value_t *value) {
+uint64_t vigil_value_as_uint(const vigil_value_t *value) {
     uint64_t v;
 
     if (value == NULL) {
@@ -510,68 +510,68 @@ uint64_t basl_value_as_uint(const basl_value_t *value) {
     }
 
     v = *value;
-    if (basl_nanbox_is_uint_inline(v)) {
-        return basl_nanbox_decode_uint(v);
+    if (vigil_nanbox_is_uint_inline(v)) {
+        return vigil_nanbox_decode_uint(v);
     }
-    if (basl_nanbox_is_biguint(v)) {
-        const basl_bigint_object_t *bi =
-            (const basl_bigint_object_t *)basl_nanbox_decode_ptr(v);
+    if (vigil_nanbox_is_biguint(v)) {
+        const vigil_bigint_object_t *bi =
+            (const vigil_bigint_object_t *)vigil_nanbox_decode_ptr(v);
         return bi->as.unsigned_value;
     }
     return 0U;
 }
 
-double basl_value_as_float(const basl_value_t *value) {
+double vigil_value_as_float(const vigil_value_t *value) {
     if (value == NULL) {
         return 0.0;
     }
 
-    if (basl_nanbox_is_double(*value)) {
-        return basl_nanbox_decode_double(*value);
+    if (vigil_nanbox_is_double(*value)) {
+        return vigil_nanbox_decode_double(*value);
     }
     return 0.0;
 }
 
-basl_object_t *basl_value_as_object(const basl_value_t *value) {
+vigil_object_t *vigil_value_as_object(const vigil_value_t *value) {
     if (value == NULL) {
         return NULL;
     }
 
-    if (basl_nanbox_is_object(*value)) {
-        return (basl_object_t *)basl_nanbox_decode_ptr(*value);
+    if (vigil_nanbox_is_object(*value)) {
+        return (vigil_object_t *)vigil_nanbox_decode_ptr(*value);
     }
     return NULL;
 }
 
-basl_object_type_t basl_object_type(const basl_object_t *object) {
+vigil_object_type_t vigil_object_type(const vigil_object_t *object) {
     if (object == NULL) {
-        return BASL_OBJECT_INVALID;
+        return VIGIL_OBJECT_INVALID;
     }
 
     return object->type;
 }
 
-size_t basl_object_ref_count(const basl_object_t *object) {
+size_t vigil_object_ref_count(const vigil_object_t *object) {
     if (object == NULL) {
         return 0U;
     }
 
-    return (size_t)basl_atomic_load(&object->ref_count);
+    return (size_t)vigil_atomic_load(&object->ref_count);
 }
 
-void basl_object_retain(basl_object_t *object) {
+void vigil_object_retain(vigil_object_t *object) {
     if (object == NULL) {
         return;
     }
 
-    int64_t old = basl_atomic_add(&object->ref_count, 1);
+    int64_t old = vigil_atomic_add(&object->ref_count, 1);
     if (old == INT64_MAX) {
         abort();
     }
 }
 
-void basl_object_release(basl_object_t **object) {
-    basl_object_t *resolved_object;
+void vigil_object_release(vigil_object_t **object) {
+    vigil_object_t *resolved_object;
 
     if (object == NULL || *object == NULL) {
         return;
@@ -580,275 +580,275 @@ void basl_object_release(basl_object_t **object) {
     resolved_object = *object;
     *object = NULL;
 
-    int64_t old = basl_atomic_sub(&resolved_object->ref_count, 1);
+    int64_t old = vigil_atomic_sub(&resolved_object->ref_count, 1);
     if (old > 1) {
         return;
     }
 
-    basl_object_destroy(resolved_object);
+    vigil_object_destroy(resolved_object);
 }
 
 /* ── Bigint object creation (internal) ───────────────────────────── */
 
-static basl_status_t basl_bigint_object_new_signed(
-    basl_runtime_t *runtime,
+static vigil_status_t vigil_bigint_object_new_signed(
+    vigil_runtime_t *runtime,
     int64_t value,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_bigint_object_t *object;
+    vigil_status_t status;
+    vigil_bigint_object_t *object;
     void *memory;
 
-    basl_error_clear(error);
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    vigil_error_clear(error);
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_bigint_object_t *)memory;
-    basl_object_init(&object->base, runtime, BASL_OBJECT_BIGINT);
-    object->magic = BASL_BIGINT_MAGIC; object->is_unsigned = 0;
+    object = (vigil_bigint_object_t *)memory;
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_BIGINT);
+    object->magic = VIGIL_BIGINT_MAGIC; object->is_unsigned = 0;
     object->as.signed_value = value;
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t basl_bigint_object_new_unsigned(
-    basl_runtime_t *runtime,
+static vigil_status_t vigil_bigint_object_new_unsigned(
+    vigil_runtime_t *runtime,
     uint64_t value,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_bigint_object_t *object;
+    vigil_status_t status;
+    vigil_bigint_object_t *object;
     void *memory;
 
-    basl_error_clear(error);
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    vigil_error_clear(error);
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_bigint_object_t *)memory;
-    basl_object_init(&object->base, runtime, BASL_OBJECT_BIGINT);
-    object->magic = BASL_BIGINT_MAGIC; object->is_unsigned = 1;
+    object = (vigil_bigint_object_t *)memory;
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_BIGINT);
+    object->magic = VIGIL_BIGINT_MAGIC; object->is_unsigned = 1;
     object->as.unsigned_value = value;
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_value_init_int_rt(
-    basl_value_t *value,
+vigil_status_t vigil_value_init_int_rt(
+    vigil_value_t *value,
     int64_t integer,
-    basl_runtime_t *runtime,
-    basl_error_t *error
+    vigil_runtime_t *runtime,
+    vigil_error_t *error
 ) {
-    basl_object_t *obj;
-    basl_status_t status;
+    vigil_object_t *obj;
+    vigil_status_t status;
 
     if (value == NULL) {
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
-    if (basl_nanbox_int_fits_inline(integer)) {
-        *value = basl_nanbox_encode_int(integer);
-        return BASL_STATUS_OK;
+    if (vigil_nanbox_int_fits_inline(integer)) {
+        *value = vigil_nanbox_encode_int(integer);
+        return VIGIL_STATUS_OK;
     }
 
-    status = basl_bigint_object_new_signed(runtime, integer, &obj, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_bigint_object_new_signed(runtime, integer, &obj, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    *value = basl_nanbox_encode_bigint(obj);
-    return BASL_STATUS_OK;
+    *value = vigil_nanbox_encode_bigint(obj);
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_value_init_uint_rt(
-    basl_value_t *value,
+vigil_status_t vigil_value_init_uint_rt(
+    vigil_value_t *value,
     uint64_t integer,
-    basl_runtime_t *runtime,
-    basl_error_t *error
+    vigil_runtime_t *runtime,
+    vigil_error_t *error
 ) {
-    basl_object_t *obj;
-    basl_status_t status;
+    vigil_object_t *obj;
+    vigil_status_t status;
 
     if (value == NULL) {
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
-    if (basl_nanbox_uint_fits_inline(integer)) {
-        *value = basl_nanbox_encode_uint(integer);
-        return BASL_STATUS_OK;
+    if (vigil_nanbox_uint_fits_inline(integer)) {
+        *value = vigil_nanbox_encode_uint(integer);
+        return VIGIL_STATUS_OK;
     }
 
-    status = basl_bigint_object_new_unsigned(runtime, integer, &obj, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_bigint_object_new_unsigned(runtime, integer, &obj, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    *value = basl_nanbox_encode_biguint(obj);
-    return BASL_STATUS_OK;
+    *value = vigil_nanbox_encode_biguint(obj);
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_string_object_new(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_string_object_new(
+    vigil_runtime_t *runtime,
     const char *value,
     size_t length,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_string_object_t *object;
+    vigil_status_t status;
+    vigil_string_object_t *object;
     void *memory;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (value == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "string object value must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (out_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "out_object must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_string_object_t *)memory;
-    basl_object_init(&object->base, runtime, BASL_OBJECT_STRING);
-    basl_string_init(&object->value, runtime);
-    status = basl_string_assign(&object->value, value, length, error);
-    if (status != BASL_STATUS_OK) {
-        basl_object_destroy(&object->base);
+    object = (vigil_string_object_t *)memory;
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_STRING);
+    vigil_string_init(&object->value, runtime);
+    status = vigil_string_assign(&object->value, value, length, error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_object_destroy(&object->base);
         return status;
     }
 
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_error_object_new(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_error_object_new(
+    vigil_runtime_t *runtime,
     const char *message,
     size_t length,
     int64_t kind,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_error_object_t *object;
+    vigil_status_t status;
+    vigil_error_object_t *object;
     void *memory;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (message == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "error object message must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (out_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "out_object must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_error_object_t *)memory;
+    object = (vigil_error_object_t *)memory;
     memset(object, 0, sizeof(*object));
-    basl_object_init(&object->base, runtime, BASL_OBJECT_ERROR);
-    basl_string_init(&object->message, runtime);
-    status = basl_string_assign(&object->message, message, length, error);
-    if (status != BASL_STATUS_OK) {
-        basl_object_t *base = &object->base;
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_ERROR);
+    vigil_string_init(&object->message, runtime);
+    status = vigil_string_assign(&object->message, message, length, error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_object_t *base = &object->base;
 
-        basl_object_release(&base);
+        vigil_object_release(&base);
         return status;
     }
     object->kind = kind;
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_error_object_new_cstr(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_error_object_new_cstr(
+    vigil_runtime_t *runtime,
     const char *message,
     int64_t kind,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
     if (message == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "error object message must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_error_object_new(runtime, message, strlen(message), kind, out_object, error);
+    return vigil_error_object_new(runtime, message, strlen(message), kind, out_object, error);
 }
 
-basl_status_t basl_string_object_new_cstr(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_string_object_new_cstr(
+    vigil_runtime_t *runtime,
     const char *value,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
     if (value == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "string object value must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_string_object_new(
+    return vigil_string_object_new(
         runtime,
         value,
         strlen(value),
@@ -857,50 +857,50 @@ basl_status_t basl_string_object_new_cstr(
     );
 }
 
-const char *basl_string_object_c_str(const basl_object_t *object) {
-    const basl_string_object_t *string_object;
+const char *vigil_string_object_c_str(const vigil_object_t *object) {
+    const vigil_string_object_t *string_object;
 
-    string_object = basl_string_object_cast(object);
+    string_object = vigil_string_object_cast(object);
     if (string_object == NULL) {
         return "";
     }
 
-    return basl_string_c_str(&string_object->value);
+    return vigil_string_c_str(&string_object->value);
 }
 
-size_t basl_string_object_length(const basl_object_t *object) {
-    const basl_string_object_t *string_object;
+size_t vigil_string_object_length(const vigil_object_t *object) {
+    const vigil_string_object_t *string_object;
 
-    string_object = basl_string_object_cast(object);
+    string_object = vigil_string_object_cast(object);
     if (string_object == NULL) {
         return 0U;
     }
 
-    return basl_string_length(&string_object->value);
+    return vigil_string_length(&string_object->value);
 }
 
-const char *basl_error_object_message(const basl_object_t *object) {
-    const basl_error_object_t *error_object = basl_error_object_cast(object);
+const char *vigil_error_object_message(const vigil_object_t *object) {
+    const vigil_error_object_t *error_object = vigil_error_object_cast(object);
 
     if (error_object == NULL) {
         return NULL;
     }
 
-    return basl_string_c_str(&error_object->message);
+    return vigil_string_c_str(&error_object->message);
 }
 
-size_t basl_error_object_message_length(const basl_object_t *object) {
-    const basl_error_object_t *error_object = basl_error_object_cast(object);
+size_t vigil_error_object_message_length(const vigil_object_t *object) {
+    const vigil_error_object_t *error_object = vigil_error_object_cast(object);
 
     if (error_object == NULL) {
         return 0U;
     }
 
-    return basl_string_length(&error_object->message);
+    return vigil_string_length(&error_object->message);
 }
 
-int64_t basl_error_object_kind(const basl_object_t *object) {
-    const basl_error_object_t *error_object = basl_error_object_cast(object);
+int64_t vigil_error_object_kind(const vigil_object_t *object) {
+    const vigil_error_object_t *error_object = vigil_error_object_cast(object);
 
     if (error_object == NULL) {
         return 0;
@@ -909,77 +909,77 @@ int64_t basl_error_object_kind(const basl_object_t *object) {
     return error_object->kind;
 }
 
-basl_status_t basl_function_object_new(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_function_object_new(
+    vigil_runtime_t *runtime,
     const char *name,
     size_t name_length,
     size_t arity,
     size_t return_count,
-    basl_chunk_t *chunk,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_chunk_t *chunk,
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_function_object_t *object;
+    vigil_status_t status;
+    vigil_function_object_t *object;
     void *memory;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (name == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function object name must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (chunk == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function object chunk must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (chunk->runtime != runtime) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function object chunk runtime must match runtime"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (out_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "out_object must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_function_object_t *)memory;
-    basl_object_init(&object->base, runtime, BASL_OBJECT_FUNCTION);
-    basl_string_init(&object->name, runtime);
+    object = (vigil_function_object_t *)memory;
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_FUNCTION);
+    vigil_string_init(&object->name, runtime);
     object->arity = arity;
     object->return_count = return_count;
     object->functions = NULL;
@@ -992,37 +992,37 @@ basl_status_t basl_function_object_new(
     object->classes = NULL;
     object->class_count = 0U;
     object->owns_class_table = 0;
-    status = basl_string_assign(&object->name, name, name_length, error);
-    if (status != BASL_STATUS_OK) {
-        basl_object_destroy(&object->base);
+    status = vigil_string_assign(&object->name, name, name_length, error);
+    if (status != VIGIL_STATUS_OK) {
+        vigil_object_destroy(&object->base);
         return status;
     }
 
     object->chunk = *chunk;
     memset(chunk, 0, sizeof(*chunk));
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_function_object_new_cstr(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_function_object_new_cstr(
+    vigil_runtime_t *runtime,
     const char *name,
     size_t arity,
     size_t return_count,
-    basl_chunk_t *chunk,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_chunk_t *chunk,
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
     if (name == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function object name must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_function_object_new(
+    return vigil_function_object_new(
         runtime,
         name,
         strlen(name),
@@ -1034,21 +1034,21 @@ basl_status_t basl_function_object_new_cstr(
     );
 }
 
-const char *basl_function_object_name(const basl_object_t *object) {
-    const basl_function_object_t *function_object;
+const char *vigil_function_object_name(const vigil_object_t *object) {
+    const vigil_function_object_t *function_object;
 
-    function_object = basl_function_object_cast(object);
+    function_object = vigil_function_object_cast(object);
     if (function_object == NULL) {
         return "";
     }
 
-    return basl_string_c_str(&function_object->name);
+    return vigil_string_c_str(&function_object->name);
 }
 
-size_t basl_function_object_arity(const basl_object_t *object) {
-    const basl_function_object_t *function_object;
+size_t vigil_function_object_arity(const vigil_object_t *object) {
+    const vigil_function_object_t *function_object;
 
-    function_object = basl_function_object_cast(object);
+    function_object = vigil_function_object_cast(object);
     if (function_object == NULL) {
         return 0U;
     }
@@ -1056,10 +1056,10 @@ size_t basl_function_object_arity(const basl_object_t *object) {
     return function_object->arity;
 }
 
-size_t basl_function_object_return_count(const basl_object_t *object) {
-    const basl_function_object_t *function_object;
+size_t vigil_function_object_return_count(const vigil_object_t *object) {
+    const vigil_function_object_t *function_object;
 
-    function_object = basl_function_object_cast(object);
+    function_object = vigil_function_object_cast(object);
     if (function_object == NULL) {
         return 0U;
     }
@@ -1067,10 +1067,10 @@ size_t basl_function_object_return_count(const basl_object_t *object) {
     return function_object->return_count;
 }
 
-const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
-    const basl_function_object_t *function_object;
+const vigil_chunk_t *vigil_function_object_chunk(const vigil_object_t *object) {
+    const vigil_function_object_t *function_object;
 
-    function_object = basl_function_object_cast(object);
+    function_object = vigil_function_object_cast(object);
     if (function_object == NULL) {
         return NULL;
     }
@@ -1078,81 +1078,81 @@ const basl_chunk_t *basl_function_object_chunk(const basl_object_t *object) {
     return &function_object->chunk;
 }
 
-basl_status_t basl_closure_object_new(
-    basl_runtime_t *runtime,
-    basl_object_t *function,
-    const basl_value_t *captures,
+vigil_status_t vigil_closure_object_new(
+    vigil_runtime_t *runtime,
+    vigil_object_t *function,
+    const vigil_value_t *captures,
     size_t capture_count,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_closure_object_t *object;
+    vigil_status_t status;
+    vigil_closure_object_t *object;
     void *memory;
     size_t capture_index;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
     if (runtime == NULL || function == NULL || out_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "closure object arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    if (basl_object_type(function) != BASL_OBJECT_FUNCTION) {
-        basl_error_set_literal(
+    if (vigil_object_type(function) != VIGIL_OBJECT_FUNCTION) {
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "closure function must be a function object"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (capture_count != 0U && captures == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "closure captures must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_closure_object_t *)memory;
+    object = (vigil_closure_object_t *)memory;
     memset(object, 0, sizeof(*object));
-    basl_object_init(&object->base, runtime, BASL_OBJECT_CLOSURE);
-    basl_object_retain(function);
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_CLOSURE);
+    vigil_object_retain(function);
     object->function = function;
     object->capture_count = capture_count;
 
     if (capture_count != 0U) {
         memory = NULL;
-        status = basl_runtime_alloc(runtime, capture_count * sizeof(*object->captures), &memory, error);
-        if (status != BASL_STATUS_OK) {
-            basl_object_t *base = &object->base;
+        status = vigil_runtime_alloc(runtime, capture_count * sizeof(*object->captures), &memory, error);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_object_t *base = &object->base;
 
-            basl_object_release(&base);
+            vigil_object_release(&base);
             return status;
         }
 
-        object->captures = (basl_value_t *)memory;
+        object->captures = (vigil_value_t *)memory;
         for (capture_index = 0U; capture_index < capture_count; ++capture_index) {
-            object->captures[capture_index] = basl_value_copy(&captures[capture_index]);
+            object->captures[capture_index] = vigil_value_copy(&captures[capture_index]);
         }
     }
 
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-const basl_object_t *basl_closure_object_function(const basl_object_t *object) {
-    const basl_closure_object_t *closure_object = basl_closure_object_cast(object);
+const vigil_object_t *vigil_closure_object_function(const vigil_object_t *object) {
+    const vigil_closure_object_t *closure_object = vigil_closure_object_cast(object);
 
     if (closure_object == NULL) {
         return NULL;
@@ -1161,8 +1161,8 @@ const basl_object_t *basl_closure_object_function(const basl_object_t *object) {
     return closure_object->function;
 }
 
-size_t basl_closure_object_capture_count(const basl_object_t *object) {
-    const basl_closure_object_t *closure_object = basl_closure_object_cast(object);
+size_t vigil_closure_object_capture_count(const vigil_object_t *object) {
+    const vigil_closure_object_t *closure_object = vigil_closure_object_cast(object);
 
     if (closure_object == NULL) {
         return 0U;
@@ -1171,132 +1171,132 @@ size_t basl_closure_object_capture_count(const basl_object_t *object) {
     return closure_object->capture_count;
 }
 
-int basl_closure_object_get_capture(
-    const basl_object_t *object,
+int vigil_closure_object_get_capture(
+    const vigil_object_t *object,
     size_t index,
-    basl_value_t *out_value
+    vigil_value_t *out_value
 ) {
-    const basl_closure_object_t *closure_object = basl_closure_object_cast(object);
+    const vigil_closure_object_t *closure_object = vigil_closure_object_cast(object);
 
     if (closure_object == NULL || out_value == NULL || index >= closure_object->capture_count) {
         return 0;
     }
 
-    *out_value = basl_value_copy(&closure_object->captures[index]);
+    *out_value = vigil_value_copy(&closure_object->captures[index]);
     return 1;
 }
 
-basl_status_t basl_closure_object_set_capture(
-    basl_object_t *object,
+vigil_status_t vigil_closure_object_set_capture(
+    vigil_object_t *object,
     size_t index,
-    const basl_value_t *value,
-    basl_error_t *error
+    const vigil_value_t *value,
+    vigil_error_t *error
 ) {
-    basl_closure_object_t *closure_object = (basl_closure_object_t *)object;
-    basl_value_t copy;
+    vigil_closure_object_t *closure_object = (vigil_closure_object_t *)object;
+    vigil_value_t copy;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
     if (
         closure_object == NULL ||
-        closure_object->base.type != BASL_OBJECT_CLOSURE ||
+        closure_object->base.type != VIGIL_OBJECT_CLOSURE ||
         value == NULL ||
         index >= closure_object->capture_count
     ) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "closure capture arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    copy = basl_value_copy(value);
-    basl_value_release(&closure_object->captures[index]);
+    copy = vigil_value_copy(value);
+    vigil_value_release(&closure_object->captures[index]);
     closure_object->captures[index] = copy;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_instance_object_new(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_instance_object_new(
+    vigil_runtime_t *runtime,
     size_t class_index,
-    const basl_value_t *fields,
+    const vigil_value_t *fields,
     size_t field_count,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_instance_object_t *object;
+    vigil_status_t status;
+    vigil_instance_object_t *object;
     void *memory;
     size_t i;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     if (runtime == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "runtime must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (field_count != 0U && fields == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "instance object fields must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (out_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "out_object must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_instance_object_t *)memory;
-    basl_object_init(&object->base, runtime, BASL_OBJECT_INSTANCE);
+    object = (vigil_instance_object_t *)memory;
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_INSTANCE);
     object->class_index = class_index;
     object->fields = NULL;
     object->field_count = field_count;
     if (field_count != 0U) {
         memory = NULL;
-        status = basl_runtime_alloc(
+        status = vigil_runtime_alloc(
             runtime,
             field_count * sizeof(*object->fields),
             &memory,
             error
         );
-        if (status != BASL_STATUS_OK) {
-            basl_object_destroy(&object->base);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_object_destroy(&object->base);
             return status;
         }
 
-        object->fields = (basl_value_t *)memory;
+        object->fields = (vigil_value_t *)memory;
         for (i = 0U; i < field_count; ++i) {
-            object->fields[i] = basl_value_copy(&fields[i]);
+            object->fields[i] = vigil_value_copy(&fields[i]);
         }
     }
 
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-size_t basl_instance_object_class_index(const basl_object_t *object) {
-    const basl_instance_object_t *instance_object;
+size_t vigil_instance_object_class_index(const vigil_object_t *object) {
+    const vigil_instance_object_t *instance_object;
 
-    instance_object = basl_instance_object_cast(object);
+    instance_object = vigil_instance_object_cast(object);
     if (instance_object == NULL) {
         return 0U;
     }
@@ -1304,10 +1304,10 @@ size_t basl_instance_object_class_index(const basl_object_t *object) {
     return instance_object->class_index;
 }
 
-size_t basl_instance_object_field_count(const basl_object_t *object) {
-    const basl_instance_object_t *instance_object;
+size_t vigil_instance_object_field_count(const vigil_object_t *object) {
+    const vigil_instance_object_t *instance_object;
 
-    instance_object = basl_instance_object_cast(object);
+    instance_object = vigil_instance_object_cast(object);
     if (instance_object == NULL) {
         return 0U;
     }
@@ -1315,124 +1315,124 @@ size_t basl_instance_object_field_count(const basl_object_t *object) {
     return instance_object->field_count;
 }
 
-int basl_instance_object_get_field(
-    const basl_object_t *object,
+int vigil_instance_object_get_field(
+    const vigil_object_t *object,
     size_t index,
-    basl_value_t *out_value
+    vigil_value_t *out_value
 ) {
-    const basl_instance_object_t *instance_object;
+    const vigil_instance_object_t *instance_object;
 
-    instance_object = basl_instance_object_cast(object);
+    instance_object = vigil_instance_object_cast(object);
     if (instance_object == NULL || out_value == NULL || index >= instance_object->field_count) {
         return 0;
     }
 
-    *out_value = basl_value_copy(&instance_object->fields[index]);
+    *out_value = vigil_value_copy(&instance_object->fields[index]);
     return 1;
 }
 
-basl_status_t basl_instance_object_set_field(
-    basl_object_t *object,
+vigil_status_t vigil_instance_object_set_field(
+    vigil_object_t *object,
     size_t index,
-    const basl_value_t *value,
-    basl_error_t *error
+    const vigil_value_t *value,
+    vigil_error_t *error
 ) {
-    const basl_instance_object_t *instance_object;
-    basl_value_t copy;
+    const vigil_instance_object_t *instance_object;
+    vigil_value_t copy;
 
-    basl_error_clear(error);
-    instance_object = basl_instance_object_cast(object);
+    vigil_error_clear(error);
+    instance_object = vigil_instance_object_cast(object);
     if (instance_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "object must be an instance object"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (value == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "field value must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (index >= instance_object->field_count) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "field index is out of range"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    copy = basl_value_copy(value);
-    basl_value_release(&((basl_instance_object_t *)object)->fields[index]);
-    ((basl_instance_object_t *)object)->fields[index] = copy;
-    return BASL_STATUS_OK;
+    copy = vigil_value_copy(value);
+    vigil_value_release(&((vigil_instance_object_t *)object)->fields[index]);
+    ((vigil_instance_object_t *)object)->fields[index] = copy;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_array_object_new(
-    basl_runtime_t *runtime,
-    const basl_value_t *items,
+vigil_status_t vigil_array_object_new(
+    vigil_runtime_t *runtime,
+    const vigil_value_t *items,
     size_t item_count,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_array_object_t *object;
+    vigil_status_t status;
+    vigil_array_object_t *object;
     void *memory;
     size_t index;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
     if (runtime == NULL || out_object == NULL || (item_count != 0U && items == NULL)) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "array object arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_array_object_t *)memory;
+    object = (vigil_array_object_t *)memory;
     memset(object, 0, sizeof(*object));
-    basl_object_init(&object->base, runtime, BASL_OBJECT_ARRAY);
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_ARRAY);
     if (item_count != 0U) {
         memory = NULL;
-        status = basl_runtime_alloc(
+        status = vigil_runtime_alloc(
             runtime,
             item_count * sizeof(*object->items),
             &memory,
             error
         );
-        if (status != BASL_STATUS_OK) {
-            basl_object_destroy(&object->base);
+        if (status != VIGIL_STATUS_OK) {
+            vigil_object_destroy(&object->base);
             return status;
         }
 
-        object->items = (basl_value_t *)memory;
+        object->items = (vigil_value_t *)memory;
         object->item_count = item_count;
         for (index = 0U; index < item_count; ++index) {
-            object->items[index] = basl_value_copy(&items[index]);
+            object->items[index] = vigil_value_copy(&items[index]);
         }
     }
 
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-size_t basl_array_object_length(const basl_object_t *object) {
-    const basl_array_object_t *array_object;
+size_t vigil_array_object_length(const vigil_object_t *object) {
+    const vigil_array_object_t *array_object;
 
-    array_object = basl_array_object_cast(object);
+    array_object = vigil_array_object_cast(object);
     if (array_object == NULL) {
         return 0U;
     }
@@ -1440,88 +1440,88 @@ size_t basl_array_object_length(const basl_object_t *object) {
     return array_object->item_count;
 }
 
-int basl_array_object_get(
-    const basl_object_t *object,
+int vigil_array_object_get(
+    const vigil_object_t *object,
     size_t index,
-    basl_value_t *out_value
+    vigil_value_t *out_value
 ) {
-    const basl_array_object_t *array_object;
+    const vigil_array_object_t *array_object;
 
-    array_object = basl_array_object_cast(object);
+    array_object = vigil_array_object_cast(object);
     if (array_object == NULL || out_value == NULL || index >= array_object->item_count) {
         return 0;
     }
 
-    *out_value = basl_value_copy(&array_object->items[index]);
+    *out_value = vigil_value_copy(&array_object->items[index]);
     return 1;
 }
 
-basl_status_t basl_array_object_append(
-    basl_object_t *object,
-    const basl_value_t *value,
-    basl_error_t *error
+vigil_status_t vigil_array_object_append(
+    vigil_object_t *object,
+    const vigil_value_t *value,
+    vigil_error_t *error
 ) {
-    basl_array_object_t *array_object;
-    basl_value_t copy;
+    vigil_array_object_t *array_object;
+    vigil_value_t copy;
     void *memory;
-    basl_status_t status;
+    vigil_status_t status;
 
-    basl_error_clear(error);
-    array_object = (basl_array_object_t *)object;
-    if (array_object == NULL || array_object->base.type != BASL_OBJECT_ARRAY || value == NULL) {
-        basl_error_set_literal(
+    vigil_error_clear(error);
+    array_object = (vigil_array_object_t *)object;
+    if (array_object == NULL || array_object->base.type != VIGIL_OBJECT_ARRAY || value == NULL) {
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "array object append arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     memory = array_object->items;
     if (array_object->item_count == 0U) {
-        status = basl_runtime_alloc(
+        status = vigil_runtime_alloc(
             array_object->base.runtime,
             sizeof(*array_object->items),
             &memory,
             error
         );
     } else {
-        status = basl_runtime_realloc(
+        status = vigil_runtime_realloc(
             array_object->base.runtime,
             &memory,
             (array_object->item_count + 1U) * sizeof(*array_object->items),
             error
         );
     }
-    if (status != BASL_STATUS_OK) {
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    array_object->items = (basl_value_t *)memory;
-    copy = basl_value_copy(value);
+    array_object->items = (vigil_value_t *)memory;
+    copy = vigil_value_copy(value);
     array_object->items[array_object->item_count] = copy;
     array_object->item_count += 1U;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-int basl_array_object_pop(
-    basl_object_t *object,
-    basl_value_t *out_value
+int vigil_array_object_pop(
+    vigil_object_t *object,
+    vigil_value_t *out_value
 ) {
-    basl_array_object_t *array_object;
-    basl_error_t error;
+    vigil_array_object_t *array_object;
+    vigil_error_t error;
     size_t index;
     void *memory;
-    basl_status_t status;
+    vigil_status_t status;
 
     if (out_value == NULL) {
         return 0;
     }
-    basl_value_init_nil(out_value);
-    array_object = (basl_array_object_t *)object;
+    vigil_value_init_nil(out_value);
+    array_object = (vigil_array_object_t *)object;
     if (
         array_object == NULL ||
-        array_object->base.type != BASL_OBJECT_ARRAY ||
+        array_object->base.type != VIGIL_OBJECT_ARRAY ||
         array_object->item_count == 0U
     ) {
         return 0;
@@ -1529,84 +1529,84 @@ int basl_array_object_pop(
 
     index = array_object->item_count - 1U;
     *out_value = array_object->items[index];
-    basl_value_init_nil(&array_object->items[index]);
+    vigil_value_init_nil(&array_object->items[index]);
     array_object->item_count = index;
     if (index == 0U) {
         memory = array_object->items;
-        basl_runtime_free(array_object->base.runtime, &memory);
+        vigil_runtime_free(array_object->base.runtime, &memory);
         array_object->items = NULL;
         return 1;
     }
 
     memory = array_object->items;
-    basl_error_clear(&error);
-    status = basl_runtime_realloc(
+    vigil_error_clear(&error);
+    status = vigil_runtime_realloc(
         array_object->base.runtime,
         &memory,
         index * sizeof(*array_object->items),
         &error
     );
-    if (status == BASL_STATUS_OK) {
-        array_object->items = (basl_value_t *)memory;
+    if (status == VIGIL_STATUS_OK) {
+        array_object->items = (vigil_value_t *)memory;
     }
     return 1;
 }
 
-basl_status_t basl_array_object_set(
-    basl_object_t *object,
+vigil_status_t vigil_array_object_set(
+    vigil_object_t *object,
     size_t index,
-    const basl_value_t *value,
-    basl_error_t *error
+    const vigil_value_t *value,
+    vigil_error_t *error
 ) {
-    basl_array_object_t *array_object;
-    basl_value_t copy;
+    vigil_array_object_t *array_object;
+    vigil_value_t copy;
 
-    basl_error_clear(error);
-    array_object = (basl_array_object_t *)object;
-    if (array_object == NULL || array_object->base.type != BASL_OBJECT_ARRAY || value == NULL) {
-        basl_error_set_literal(
+    vigil_error_clear(error);
+    array_object = (vigil_array_object_t *)object;
+    if (array_object == NULL || array_object->base.type != VIGIL_OBJECT_ARRAY || value == NULL) {
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "array object set arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (index >= array_object->item_count) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "array index is out of range"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    copy = basl_value_copy(value);
-    basl_value_release(&array_object->items[index]);
+    copy = vigil_value_copy(value);
+    vigil_value_release(&array_object->items[index]);
     array_object->items[index] = copy;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_array_object_slice(
-    const basl_object_t *object,
+vigil_status_t vigil_array_object_slice(
+    const vigil_object_t *object,
     size_t start,
     size_t end,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    const basl_array_object_t *array_object;
+    const vigil_array_object_t *array_object;
 
-    basl_error_clear(error);
-    array_object = basl_array_object_cast(object);
+    vigil_error_clear(error);
+    array_object = vigil_array_object_cast(object);
     if (array_object == NULL || out_object == NULL || start > end || end > array_object->item_count) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "array slice arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_array_object_new(
+    return vigil_array_object_new(
         array_object->base.runtime,
         array_object->items + start,
         end - start,
@@ -1615,238 +1615,238 @@ basl_status_t basl_array_object_slice(
     );
 }
 
-basl_status_t basl_map_object_new(
-    basl_runtime_t *runtime,
-    basl_object_t **out_object,
-    basl_error_t *error
+vigil_status_t vigil_map_object_new(
+    vigil_runtime_t *runtime,
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_map_object_t *object;
+    vigil_status_t status;
+    vigil_map_object_t *object;
     void *memory;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
     if (runtime == NULL || out_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "map object arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*object), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
 
-    object = (basl_map_object_t *)memory;
+    object = (vigil_map_object_t *)memory;
     memset(object, 0, sizeof(*object));
-    basl_object_init(&object->base, runtime, BASL_OBJECT_MAP);
-    basl_map_init(&object->entries, runtime);
+    vigil_object_init(&object->base, runtime, VIGIL_OBJECT_MAP);
+    vigil_map_init(&object->entries, runtime);
     *out_object = &object->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-size_t basl_map_object_count(const basl_object_t *object) {
-    const basl_map_object_t *map_object;
+size_t vigil_map_object_count(const vigil_object_t *object) {
+    const vigil_map_object_t *map_object;
 
-    map_object = basl_map_object_cast(object);
+    map_object = vigil_map_object_cast(object);
     if (map_object == NULL) {
         return 0U;
     }
 
-    return basl_map_count(&map_object->entries);
+    return vigil_map_count(&map_object->entries);
 }
 
-int basl_map_object_get(
-    const basl_object_t *object,
-    const basl_value_t *key,
-    basl_value_t *out_value
+int vigil_map_object_get(
+    const vigil_object_t *object,
+    const vigil_value_t *key,
+    vigil_value_t *out_value
 ) {
-    const basl_map_object_t *map_object;
-    const basl_value_t *stored;
+    const vigil_map_object_t *map_object;
+    const vigil_value_t *stored;
 
-    map_object = basl_map_object_cast(object);
+    map_object = vigil_map_object_cast(object);
     if (map_object == NULL || key == NULL || out_value == NULL) {
         return 0;
     }
 
-    stored = basl_map_get_value(&map_object->entries, key);
+    stored = vigil_map_get_value(&map_object->entries, key);
     if (stored == NULL) {
         return 0;
     }
 
-    *out_value = basl_value_copy(stored);
+    *out_value = vigil_value_copy(stored);
     return 1;
 }
 
-int basl_map_object_key_at(
-    const basl_object_t *object,
+int vigil_map_object_key_at(
+    const vigil_object_t *object,
     size_t index,
-    basl_value_t *out_key
+    vigil_value_t *out_key
 ) {
-    const basl_map_object_t *map_object;
-    const basl_value_t *stored_key;
-    const basl_value_t *stored_value;
+    const vigil_map_object_t *map_object;
+    const vigil_value_t *stored_key;
+    const vigil_value_t *stored_value;
 
     if (out_key == NULL) {
         return 0;
     }
-    basl_value_init_nil(out_key);
-    map_object = basl_map_object_cast(object);
+    vigil_value_init_nil(out_key);
+    map_object = vigil_map_object_cast(object);
     if (map_object == NULL) {
         return 0;
     }
 
     stored_key = NULL;
     stored_value = NULL;
-    if (!basl_map_entry_value_at(&map_object->entries, index, &stored_key, &stored_value)) {
+    if (!vigil_map_entry_value_at(&map_object->entries, index, &stored_key, &stored_value)) {
         return 0;
     }
 
-    *out_key = basl_value_copy(stored_key);
+    *out_key = vigil_value_copy(stored_key);
     return 1;
 }
 
-int basl_map_object_value_at(
-    const basl_object_t *object,
+int vigil_map_object_value_at(
+    const vigil_object_t *object,
     size_t index,
-    basl_value_t *out_value
+    vigil_value_t *out_value
 ) {
-    const basl_map_object_t *map_object;
-    const basl_value_t *stored_key;
-    const basl_value_t *stored_value;
+    const vigil_map_object_t *map_object;
+    const vigil_value_t *stored_key;
+    const vigil_value_t *stored_value;
 
-    map_object = basl_map_object_cast(object);
+    map_object = vigil_map_object_cast(object);
     if (map_object == NULL || out_value == NULL) {
         return 0;
     }
 
     stored_key = NULL;
     stored_value = NULL;
-    if (!basl_map_entry_value_at(&map_object->entries, index, &stored_key, &stored_value)) {
+    if (!vigil_map_entry_value_at(&map_object->entries, index, &stored_key, &stored_value)) {
         return 0;
     }
 
-    *out_value = basl_value_copy(stored_value);
+    *out_value = vigil_value_copy(stored_value);
     return 1;
 }
 
-basl_status_t basl_map_object_set(
-    basl_object_t *object,
-    const basl_value_t *key,
-    const basl_value_t *value,
-    basl_error_t *error
+vigil_status_t vigil_map_object_set(
+    vigil_object_t *object,
+    const vigil_value_t *key,
+    const vigil_value_t *value,
+    vigil_error_t *error
 ) {
-    basl_map_object_t *map_object;
+    vigil_map_object_t *map_object;
 
-    basl_error_clear(error);
-    map_object = (basl_map_object_t *)object;
-    if (map_object == NULL || map_object->base.type != BASL_OBJECT_MAP || key == NULL || value == NULL) {
-        basl_error_set_literal(
+    vigil_error_clear(error);
+    map_object = (vigil_map_object_t *)object;
+    if (map_object == NULL || map_object->base.type != VIGIL_OBJECT_MAP || key == NULL || value == NULL) {
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "map object set arguments are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    return basl_map_set_value(&map_object->entries, key, value, error);
+    return vigil_map_set_value(&map_object->entries, key, value, error);
 }
 
-int basl_map_object_remove(
-    basl_object_t *object,
-    const basl_value_t *key,
-    basl_value_t *out_value,
-    basl_error_t *error
+int vigil_map_object_remove(
+    vigil_object_t *object,
+    const vigil_value_t *key,
+    vigil_value_t *out_value,
+    vigil_error_t *error
 ) {
-    basl_map_object_t *map_object;
-    const basl_value_t *stored;
+    vigil_map_object_t *map_object;
+    const vigil_value_t *stored;
     int removed;
-    basl_status_t status;
+    vigil_status_t status;
 
-    basl_error_clear(error);
+    vigil_error_clear(error);
     if (out_value != NULL) {
-        basl_value_init_nil(out_value);
+        vigil_value_init_nil(out_value);
     }
-    map_object = (basl_map_object_t *)object;
-    if (map_object == NULL || map_object->base.type != BASL_OBJECT_MAP || key == NULL) {
-        basl_error_set_literal(
+    map_object = (vigil_map_object_t *)object;
+    if (map_object == NULL || map_object->base.type != VIGIL_OBJECT_MAP || key == NULL) {
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "map object remove arguments are invalid"
         );
         return 0;
     }
 
-    stored = basl_map_get_value(&map_object->entries, key);
+    stored = vigil_map_get_value(&map_object->entries, key);
     if (stored == NULL) {
         return 0;
     }
     if (out_value != NULL) {
-        *out_value = basl_value_copy(stored);
+        *out_value = vigil_value_copy(stored);
     }
 
     removed = 0;
-    status = basl_map_remove_value(&map_object->entries, key, &removed, error);
-    if (status != BASL_STATUS_OK || !removed) {
+    status = vigil_map_remove_value(&map_object->entries, key, &removed, error);
+    if (status != VIGIL_STATUS_OK || !removed) {
         if (out_value != NULL) {
-            basl_value_release(out_value);
+            vigil_value_release(out_value);
         }
         return 0;
     }
     return 1;
 }
 
-basl_status_t basl_function_object_attach_siblings(
-    basl_object_t *owner_function,
-    basl_object_t **functions,
+vigil_status_t vigil_function_object_attach_siblings(
+    vigil_object_t *owner_function,
+    vigil_object_t **functions,
     size_t function_count,
     size_t owner_index,
-    const basl_value_t *initial_globals,
+    const vigil_value_t *initial_globals,
     size_t global_count,
-    const basl_runtime_class_init_t *classes_init,
+    const vigil_runtime_class_init_t *classes_init,
     size_t class_count,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     size_t i;
-    basl_function_object_t *owner;
-    basl_function_object_t *function_object;
-    basl_runtime_t *runtime;
-    basl_runtime_class_t *classes;
-    basl_value_t *globals;
+    vigil_function_object_t *owner;
+    vigil_function_object_t *function_object;
+    vigil_runtime_t *runtime;
+    vigil_runtime_class_t *classes;
+    vigil_value_t *globals;
     void *memory;
     int invalid_function_table;
 
-    basl_error_clear(error);
-    owner = (basl_function_object_t *)owner_function;
-    if (owner == NULL || owner->base.type != BASL_OBJECT_FUNCTION) {
-        basl_error_set_literal(
+    vigil_error_clear(error);
+    owner = (vigil_function_object_t *)owner_function;
+    if (owner == NULL || owner->base.type != VIGIL_OBJECT_FUNCTION) {
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "owner_function must be a function object"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (functions == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function table must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (function_count == 0U || owner_index >= function_count) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function table bounds are invalid"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     runtime = owner->base.runtime;
@@ -1854,12 +1854,12 @@ basl_status_t basl_function_object_attach_siblings(
     globals = NULL;
     invalid_function_table = 0;
     if (class_count != 0U && classes_init == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "class metadata must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     if (global_count != 0U) {
@@ -1867,17 +1867,17 @@ basl_status_t basl_function_object_attach_siblings(
 
         memory = NULL;
         if (
-            basl_runtime_alloc(runtime, global_count * sizeof(*globals), &memory, error) !=
-            BASL_STATUS_OK
+            vigil_runtime_alloc(runtime, global_count * sizeof(*globals), &memory, error) !=
+            VIGIL_STATUS_OK
         ) {
-            return BASL_STATUS_OUT_OF_MEMORY;
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
-        globals = (basl_value_t *)memory;
+        globals = (vigil_value_t *)memory;
         for (global_index = 0U; global_index < global_count; ++global_index) {
             if (initial_globals != NULL) {
-                globals[global_index] = basl_value_copy(&initial_globals[global_index]);
+                globals[global_index] = vigil_value_copy(&initial_globals[global_index]);
             } else {
-                basl_value_init_nil(&globals[global_index]);
+                vigil_value_init_nil(&globals[global_index]);
             }
         }
     }
@@ -1886,11 +1886,11 @@ basl_status_t basl_function_object_attach_siblings(
         size_t class_index;
 
         memory = NULL;
-        if (basl_runtime_alloc(runtime, class_count * sizeof(*classes), &memory, error) !=
-            BASL_STATUS_OK) {
-            return BASL_STATUS_OUT_OF_MEMORY;
+        if (vigil_runtime_alloc(runtime, class_count * sizeof(*classes), &memory, error) !=
+            VIGIL_STATUS_OK) {
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
-        classes = (basl_runtime_class_t *)memory;
+        classes = (vigil_runtime_class_t *)memory;
         memset(classes, 0, class_count * sizeof(*classes));
 
         for (class_index = 0U; class_index < class_count; ++class_index) {
@@ -1903,16 +1903,16 @@ basl_status_t basl_function_object_attach_siblings(
 
             memory = NULL;
             if (
-                basl_runtime_alloc(
+                vigil_runtime_alloc(
                     runtime,
                     interface_count * sizeof(*classes[class_index].interface_impls),
                     &memory,
                     error
-                ) != BASL_STATUS_OK
+                ) != VIGIL_STATUS_OK
             ) {
                 goto cleanup_classes;
             }
-            classes[class_index].interface_impls = (basl_runtime_interface_impl_t *)memory;
+            classes[class_index].interface_impls = (vigil_runtime_interface_impl_t *)memory;
             memset(
                 classes[class_index].interface_impls,
                 0,
@@ -1931,13 +1931,13 @@ basl_status_t basl_function_object_attach_siblings(
 
                 memory = NULL;
                 if (
-                    basl_runtime_alloc(
+                    vigil_runtime_alloc(
                         runtime,
                         method_count *
                             sizeof(*classes[class_index].interface_impls[i].function_indices),
                         &memory,
                         error
-                    ) != BASL_STATUS_OK
+                    ) != VIGIL_STATUS_OK
                 ) {
                     goto cleanup_classes;
                 }
@@ -1953,8 +1953,8 @@ basl_status_t basl_function_object_attach_siblings(
     }
 
     for (i = 0U; i < function_count; ++i) {
-        function_object = (basl_function_object_t *)functions[i];
-        if (function_object == NULL || function_object->base.type != BASL_OBJECT_FUNCTION) {
+        function_object = (vigil_function_object_t *)functions[i];
+        if (function_object == NULL || function_object->base.type != VIGIL_OBJECT_FUNCTION) {
             invalid_function_table = 1;
             goto cleanup_classes;
         }
@@ -1974,18 +1974,18 @@ basl_status_t basl_function_object_attach_siblings(
     owner->owns_function_table = 1;
     owner->owns_global_table = 1;
     owner->owns_class_table = 1;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 
 cleanup_classes:
     if (globals != NULL) {
         size_t global_index;
 
         for (global_index = 0U; global_index < global_count; ++global_index) {
-            basl_value_release(&globals[global_index]);
+            vigil_value_release(&globals[global_index]);
         }
 
         memory = globals;
-        basl_runtime_free(runtime, &memory);
+        vigil_runtime_free(runtime, &memory);
     }
     if (classes != NULL) {
         size_t class_index;
@@ -1999,35 +1999,35 @@ cleanup_classes:
                 ++impl_index
             ) {
                 memory = classes[class_index].interface_impls[impl_index].function_indices;
-                basl_runtime_free(runtime, &memory);
+                vigil_runtime_free(runtime, &memory);
             }
 
             memory = classes[class_index].interface_impls;
-            basl_runtime_free(runtime, &memory);
+            vigil_runtime_free(runtime, &memory);
         }
 
         memory = classes;
-        basl_runtime_free(runtime, &memory);
+        vigil_runtime_free(runtime, &memory);
     }
 
     if (invalid_function_table) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function table entries must all be function objects"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    return BASL_STATUS_OUT_OF_MEMORY;
+    return VIGIL_STATUS_OUT_OF_MEMORY;
 }
 
-const basl_object_t *basl_function_object_sibling(
-    const basl_object_t *function,
+const vigil_object_t *vigil_function_object_sibling(
+    const vigil_object_t *function,
     size_t index
 ) {
-    const basl_function_object_t *function_object;
+    const vigil_function_object_t *function_object;
 
-    function_object = basl_function_object_cast(function);
+    function_object = vigil_function_object_cast(function);
     if (function_object == NULL || function_object->functions == NULL) {
         return NULL;
     }
@@ -2038,18 +2038,18 @@ const basl_object_t *basl_function_object_sibling(
     return function_object->functions[index];
 }
 
-const basl_object_t *basl_function_object_resolve_interface_method(
-    const basl_object_t *function,
+const vigil_object_t *vigil_function_object_resolve_interface_method(
+    const vigil_object_t *function,
     size_t class_index,
     size_t interface_index,
     size_t method_index
 ) {
-    const basl_function_object_t *function_object;
-    const basl_runtime_class_t *class_metadata;
+    const vigil_function_object_t *function_object;
+    const vigil_runtime_class_t *class_metadata;
     size_t impl_index;
     size_t function_index;
 
-    function_object = basl_function_object_cast(function);
+    function_object = vigil_function_object_cast(function);
     if (function_object == NULL || function_object->classes == NULL) {
         return NULL;
     }
@@ -2067,20 +2067,20 @@ const basl_object_t *basl_function_object_resolve_interface_method(
         }
 
         function_index = class_metadata->interface_impls[impl_index].function_indices[method_index];
-        return basl_function_object_sibling(function, function_index);
+        return vigil_function_object_sibling(function, function_index);
     }
 
     return NULL;
 }
 
-int basl_function_object_get_global(
-    const basl_object_t *function,
+int vigil_function_object_get_global(
+    const vigil_object_t *function,
     size_t index,
-    basl_value_t *out_value
+    vigil_value_t *out_value
 ) {
-    const basl_function_object_t *function_object;
+    const vigil_function_object_t *function_object;
 
-    function_object = basl_function_object_cast(function);
+    function_object = vigil_function_object_cast(function);
     if (
         function_object == NULL ||
         out_value == NULL ||
@@ -2090,131 +2090,131 @@ int basl_function_object_get_global(
         return 0;
     }
 
-    *out_value = basl_value_copy(&function_object->globals[index]);
+    *out_value = vigil_value_copy(&function_object->globals[index]);
     return 1;
 }
 
-basl_status_t basl_function_object_set_global(
-    const basl_object_t *function,
+vigil_status_t vigil_function_object_set_global(
+    const vigil_object_t *function,
     size_t index,
-    const basl_value_t *value,
-    basl_error_t *error
+    const vigil_value_t *value,
+    vigil_error_t *error
 ) {
-    const basl_function_object_t *function_object;
-    basl_value_t copy;
+    const vigil_function_object_t *function_object;
+    vigil_value_t copy;
 
-    basl_error_clear(error);
-    function_object = basl_function_object_cast(function);
+    vigil_error_clear(error);
+    function_object = vigil_function_object_cast(function);
     if (function_object == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "function must be a function object"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (value == NULL) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "global value must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (function_object->globals == NULL || index >= function_object->global_count) {
-        basl_error_set_literal(
+        vigil_error_set_literal(
             error,
-            BASL_STATUS_INVALID_ARGUMENT,
+            VIGIL_STATUS_INVALID_ARGUMENT,
             "global index is out of range"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    copy = basl_value_copy(value);
-    basl_value_release(&((basl_function_object_t *)function)->globals[index]);
-    ((basl_function_object_t *)function)->globals[index] = copy;
-    return BASL_STATUS_OK;
+    copy = vigil_value_copy(value);
+    vigil_value_release(&((vigil_function_object_t *)function)->globals[index]);
+    ((vigil_function_object_t *)function)->globals[index] = copy;
+    return VIGIL_STATUS_OK;
 }
 
-const basl_object_t *basl_callable_object_function(const basl_object_t *callable) {
+const vigil_object_t *vigil_callable_object_function(const vigil_object_t *callable) {
     if (callable == NULL) {
         return NULL;
     }
-    if (basl_object_type(callable) == BASL_OBJECT_FUNCTION) {
+    if (vigil_object_type(callable) == VIGIL_OBJECT_FUNCTION) {
         return callable;
     }
-    if (basl_object_type(callable) == BASL_OBJECT_CLOSURE) {
-        return basl_closure_object_function(callable);
+    if (vigil_object_type(callable) == VIGIL_OBJECT_CLOSURE) {
+        return vigil_closure_object_function(callable);
     }
 
     return NULL;
 }
 
-size_t basl_callable_object_arity(const basl_object_t *callable) {
-    const basl_object_t *function = basl_callable_object_function(callable);
+size_t vigil_callable_object_arity(const vigil_object_t *callable) {
+    const vigil_object_t *function = vigil_callable_object_function(callable);
 
-    return basl_function_object_arity(function);
+    return vigil_function_object_arity(function);
 }
 
-size_t basl_callable_object_return_count(const basl_object_t *callable) {
-    const basl_object_t *function = basl_callable_object_function(callable);
+size_t vigil_callable_object_return_count(const vigil_object_t *callable) {
+    const vigil_object_t *function = vigil_callable_object_function(callable);
 
-    return basl_function_object_return_count(function);
+    return vigil_function_object_return_count(function);
 }
 
-const basl_chunk_t *basl_callable_object_chunk(const basl_object_t *callable) {
-    const basl_object_t *function = basl_callable_object_function(callable);
+const vigil_chunk_t *vigil_callable_object_chunk(const vigil_object_t *callable) {
+    const vigil_object_t *function = vigil_callable_object_function(callable);
 
-    return basl_function_object_chunk(function);
+    return vigil_function_object_chunk(function);
 }
 
-basl_status_t basl_native_function_object_create(
-    basl_runtime_t *runtime,
+vigil_status_t vigil_native_function_object_create(
+    vigil_runtime_t *runtime,
     const char *name,
     size_t name_length,
     size_t arity,
-    basl_native_fn_t function,
-    basl_object_t **out_object,
-    basl_error_t *error
+    vigil_native_fn_t function,
+    vigil_object_t **out_object,
+    vigil_error_t *error
 ) {
-    basl_status_t status;
-    basl_native_function_object_t *obj;
+    vigil_status_t status;
+    vigil_native_function_object_t *obj;
     void *memory;
 
     if (out_object == NULL || function == NULL) {
-        basl_error_set_literal(
-            error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(
+            error, VIGIL_STATUS_INVALID_ARGUMENT,
             "native function arguments must not be null"
         );
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     *out_object = NULL;
     memory = NULL;
-    status = basl_runtime_alloc(runtime, sizeof(*obj), &memory, error);
-    if (status != BASL_STATUS_OK) {
+    status = vigil_runtime_alloc(runtime, sizeof(*obj), &memory, error);
+    if (status != VIGIL_STATUS_OK) {
         return status;
     }
-    obj = (basl_native_function_object_t *)memory;
+    obj = (vigil_native_function_object_t *)memory;
     memset(obj, 0, sizeof(*obj));
     obj->base.runtime = runtime;
-    obj->base.type = BASL_OBJECT_NATIVE_FUNCTION;
+    obj->base.type = VIGIL_OBJECT_NATIVE_FUNCTION;
     obj->base.ref_count = 1U;
-    basl_string_init(&obj->name, runtime);
+    vigil_string_init(&obj->name, runtime);
     if (name != NULL && name_length > 0U) {
-        basl_string_assign(&obj->name, name, name_length, error);
+        vigil_string_assign(&obj->name, name, name_length, error);
     }
     obj->arity = arity;
     obj->function = function;
     *out_object = &obj->base;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_native_fn_t basl_native_function_get(const basl_object_t *object) {
-    const basl_native_function_object_t *native;
+vigil_native_fn_t vigil_native_function_get(const vigil_object_t *object) {
+    const vigil_native_function_object_t *native;
 
-    if (object == NULL || object->type != BASL_OBJECT_NATIVE_FUNCTION) {
+    if (object == NULL || object->type != VIGIL_OBJECT_NATIVE_FUNCTION) {
         return NULL;
     }
-    native = (const basl_native_function_object_t *)object;
+    native = (const vigil_native_function_object_t *)object;
     return native->function;
 }

@@ -4,20 +4,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/json.h"
-#include "internal/basl_internal.h"
+#include "vigil/json.h"
+#include "internal/vigil_internal.h"
 
 /* ── Internal types ──────────────────────────────────────────────── */
 
-typedef struct basl_json_member {
+typedef struct vigil_json_member {
     char *key;
     size_t key_length;
-    basl_json_value_t *value;
-} basl_json_member_t;
+    vigil_json_value_t *value;
+} vigil_json_member_t;
 
-struct basl_json_value {
-    basl_json_type_t type;
-    basl_allocator_t allocator;
+struct vigil_json_value {
+    vigil_json_type_t type;
+    vigil_allocator_t allocator;
     union {
         int boolean;
         double number;
@@ -26,12 +26,12 @@ struct basl_json_value {
             size_t length;
         } string;
         struct {
-            basl_json_value_t **items;
+            vigil_json_value_t **items;
             size_t count;
             size_t capacity;
         } array;
         struct {
-            basl_json_member_t *members;
+            vigil_json_member_t *members;
             size_t count;
             size_t capacity;
         } object;
@@ -40,169 +40,169 @@ struct basl_json_value {
 
 /* ── Allocator helpers ───────────────────────────────────────────── */
 
-static void *json_alloc(const basl_allocator_t *a, size_t size) {
+static void *json_alloc(const vigil_allocator_t *a, size_t size) {
     return a->allocate(a->user_data, size);
 }
 
-static void *json_realloc(const basl_allocator_t *a, void *p, size_t size) {
+static void *json_realloc(const vigil_allocator_t *a, void *p, size_t size) {
     return a->reallocate(a->user_data, p, size);
 }
 
-static void json_dealloc(const basl_allocator_t *a, void *p) {
+static void json_dealloc(const vigil_allocator_t *a, void *p) {
     a->deallocate(a->user_data, p);
 }
 
-static basl_allocator_t resolve_allocator(const basl_allocator_t *allocator) {
-    if (allocator != NULL && basl_allocator_is_valid(allocator)) {
+static vigil_allocator_t resolve_allocator(const vigil_allocator_t *allocator) {
+    if (allocator != NULL && vigil_allocator_is_valid(allocator)) {
         return *allocator;
     }
-    return basl_default_allocator();
+    return vigil_default_allocator();
 }
 
-static basl_status_t alloc_value(
-    const basl_allocator_t *allocator,
-    basl_json_type_t type,
-    basl_json_value_t **out,
-    basl_error_t *error
+static vigil_status_t alloc_value(
+    const vigil_allocator_t *allocator,
+    vigil_json_type_t type,
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
-    basl_allocator_t a = resolve_allocator(allocator);
-    basl_json_value_t *v = (basl_json_value_t *)json_alloc(&a, sizeof(*v));
+    vigil_allocator_t a = resolve_allocator(allocator);
+    vigil_json_value_t *v = (vigil_json_value_t *)json_alloc(&a, sizeof(*v));
     if (v == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY,
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
                                "json: allocation failed");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     memset(v, 0, sizeof(*v));
     v->type = type;
     v->allocator = a;
     *out = v;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Constructors ────────────────────────────────────────────────── */
 
-basl_status_t basl_json_null_new(
-    const basl_allocator_t *allocator,
-    basl_json_value_t **out,
-    basl_error_t *error
+vigil_status_t vigil_json_null_new(
+    const vigil_allocator_t *allocator,
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: out is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    return alloc_value(allocator, BASL_JSON_NULL, out, error);
+    return alloc_value(allocator, VIGIL_JSON_NULL, out, error);
 }
 
-basl_status_t basl_json_bool_new(
-    const basl_allocator_t *allocator,
+vigil_status_t vigil_json_bool_new(
+    const vigil_allocator_t *allocator,
     int value,
-    basl_json_value_t **out,
-    basl_error_t *error
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: out is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    basl_status_t s = alloc_value(allocator, BASL_JSON_BOOL, out, error);
-    if (s == BASL_STATUS_OK) (*out)->as.boolean = (value != 0);
+    vigil_status_t s = alloc_value(allocator, VIGIL_JSON_BOOL, out, error);
+    if (s == VIGIL_STATUS_OK) (*out)->as.boolean = (value != 0);
     return s;
 }
 
-basl_status_t basl_json_number_new(
-    const basl_allocator_t *allocator,
+vigil_status_t vigil_json_number_new(
+    const vigil_allocator_t *allocator,
     double value,
-    basl_json_value_t **out,
-    basl_error_t *error
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: out is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    basl_status_t s = alloc_value(allocator, BASL_JSON_NUMBER, out, error);
-    if (s == BASL_STATUS_OK) (*out)->as.number = value;
+    vigil_status_t s = alloc_value(allocator, VIGIL_JSON_NUMBER, out, error);
+    if (s == VIGIL_STATUS_OK) (*out)->as.number = value;
     return s;
 }
 
-basl_status_t basl_json_string_new(
-    const basl_allocator_t *allocator,
+vigil_status_t vigil_json_string_new(
+    const vigil_allocator_t *allocator,
     const char *value,
     size_t length,
-    basl_json_value_t **out,
-    basl_error_t *error
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (out == NULL || value == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: out or value is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    basl_status_t s = alloc_value(allocator, BASL_JSON_STRING, out, error);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_status_t s = alloc_value(allocator, VIGIL_JSON_STRING, out, error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     char *buf = (char *)json_alloc(&(*out)->allocator, length + 1);
     if (buf == NULL) {
         json_dealloc(&(*out)->allocator, *out);
         *out = NULL;
-        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY,
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
                                "json: allocation failed");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     memcpy(buf, value, length);
     buf[length] = '\0';
     (*out)->as.string.data = buf;
     (*out)->as.string.length = length;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_json_array_new(
-    const basl_allocator_t *allocator,
-    basl_json_value_t **out,
-    basl_error_t *error
+vigil_status_t vigil_json_array_new(
+    const vigil_allocator_t *allocator,
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: out is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    return alloc_value(allocator, BASL_JSON_ARRAY, out, error);
+    return alloc_value(allocator, VIGIL_JSON_ARRAY, out, error);
 }
 
-basl_status_t basl_json_object_new(
-    const basl_allocator_t *allocator,
-    basl_json_value_t **out,
-    basl_error_t *error
+vigil_status_t vigil_json_object_new(
+    const vigil_allocator_t *allocator,
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: out is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    return alloc_value(allocator, BASL_JSON_OBJECT, out, error);
+    return alloc_value(allocator, VIGIL_JSON_OBJECT, out, error);
 }
 
 /* ── Destructor ──────────────────────────────────────────────────── */
 
-void basl_json_free(basl_json_value_t **value) {
+void vigil_json_free(vigil_json_value_t **value) {
     if (value == NULL || *value == NULL) return;
-    basl_json_value_t *v = *value;
-    basl_allocator_t a = v->allocator;
+    vigil_json_value_t *v = *value;
+    vigil_allocator_t a = v->allocator;
 
     switch (v->type) {
-    case BASL_JSON_STRING:
+    case VIGIL_JSON_STRING:
         json_dealloc(&a, v->as.string.data);
         break;
-    case BASL_JSON_ARRAY:
+    case VIGIL_JSON_ARRAY:
         for (size_t i = 0; i < v->as.array.count; i++) {
-            basl_json_free(&v->as.array.items[i]);
+            vigil_json_free(&v->as.array.items[i]);
         }
         json_dealloc(&a, v->as.array.items);
         break;
-    case BASL_JSON_OBJECT:
+    case VIGIL_JSON_OBJECT:
         for (size_t i = 0; i < v->as.object.count; i++) {
             json_dealloc(&a, v->as.object.members[i].key);
-            basl_json_free(&v->as.object.members[i].value);
+            vigil_json_free(&v->as.object.members[i].value);
         }
         json_dealloc(&a, v->as.object.members);
         break;
@@ -215,81 +215,81 @@ void basl_json_free(basl_json_value_t **value) {
 
 /* ── Type inspection ─────────────────────────────────────────────── */
 
-basl_json_type_t basl_json_type(const basl_json_value_t *value) {
-    return value != NULL ? value->type : BASL_JSON_NULL;
+vigil_json_type_t vigil_json_type(const vigil_json_value_t *value) {
+    return value != NULL ? value->type : VIGIL_JSON_NULL;
 }
 
 /* ── Scalar accessors ────────────────────────────────────────────── */
 
-int basl_json_bool_value(const basl_json_value_t *value) {
-    return (value != NULL && value->type == BASL_JSON_BOOL) ? value->as.boolean : 0;
+int vigil_json_bool_value(const vigil_json_value_t *value) {
+    return (value != NULL && value->type == VIGIL_JSON_BOOL) ? value->as.boolean : 0;
 }
 
-double basl_json_number_value(const basl_json_value_t *value) {
-    return (value != NULL && value->type == BASL_JSON_NUMBER) ? value->as.number : 0.0;
+double vigil_json_number_value(const vigil_json_value_t *value) {
+    return (value != NULL && value->type == VIGIL_JSON_NUMBER) ? value->as.number : 0.0;
 }
 
-const char *basl_json_string_value(const basl_json_value_t *value) {
-    return (value != NULL && value->type == BASL_JSON_STRING) ? value->as.string.data : "";
+const char *vigil_json_string_value(const vigil_json_value_t *value) {
+    return (value != NULL && value->type == VIGIL_JSON_STRING) ? value->as.string.data : "";
 }
 
-size_t basl_json_string_length(const basl_json_value_t *value) {
-    return (value != NULL && value->type == BASL_JSON_STRING) ? value->as.string.length : 0;
+size_t vigil_json_string_length(const vigil_json_value_t *value) {
+    return (value != NULL && value->type == VIGIL_JSON_STRING) ? value->as.string.length : 0;
 }
 
 /* ── Array operations ────────────────────────────────────────────── */
 
-size_t basl_json_array_count(const basl_json_value_t *array) {
-    return (array != NULL && array->type == BASL_JSON_ARRAY) ? array->as.array.count : 0;
+size_t vigil_json_array_count(const vigil_json_value_t *array) {
+    return (array != NULL && array->type == VIGIL_JSON_ARRAY) ? array->as.array.count : 0;
 }
 
-const basl_json_value_t *basl_json_array_get(
-    const basl_json_value_t *array,
+const vigil_json_value_t *vigil_json_array_get(
+    const vigil_json_value_t *array,
     size_t index
 ) {
-    if (array == NULL || array->type != BASL_JSON_ARRAY) return NULL;
+    if (array == NULL || array->type != VIGIL_JSON_ARRAY) return NULL;
     if (index >= array->as.array.count) return NULL;
     return array->as.array.items[index];
 }
 
-basl_status_t basl_json_array_push(
-    basl_json_value_t *array,
-    basl_json_value_t *element,
-    basl_error_t *error
+vigil_status_t vigil_json_array_push(
+    vigil_json_value_t *array,
+    vigil_json_value_t *element,
+    vigil_error_t *error
 ) {
-    if (array == NULL || array->type != BASL_JSON_ARRAY || element == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+    if (array == NULL || array->type != VIGIL_JSON_ARRAY || element == NULL) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: invalid array push");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     if (array->as.array.count >= array->as.array.capacity) {
         size_t new_cap = array->as.array.capacity < 8 ? 8 : array->as.array.capacity * 2;
-        basl_json_value_t **new_items = (basl_json_value_t **)json_realloc(
+        vigil_json_value_t **new_items = (vigil_json_value_t **)json_realloc(
             &array->allocator, array->as.array.items,
-            new_cap * sizeof(basl_json_value_t *));
+            new_cap * sizeof(vigil_json_value_t *));
         if (new_items == NULL) {
-            basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY,
+            vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
                                    "json: allocation failed");
-            return BASL_STATUS_OUT_OF_MEMORY;
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
         array->as.array.items = new_items;
         array->as.array.capacity = new_cap;
     }
     array->as.array.items[array->as.array.count++] = element;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Object operations ───────────────────────────────────────────── */
 
-size_t basl_json_object_count(const basl_json_value_t *object) {
-    return (object != NULL && object->type == BASL_JSON_OBJECT) ? object->as.object.count : 0;
+size_t vigil_json_object_count(const vigil_json_value_t *object) {
+    return (object != NULL && object->type == VIGIL_JSON_OBJECT) ? object->as.object.count : 0;
 }
 
-const basl_json_value_t *basl_json_object_get(
-    const basl_json_value_t *object,
+const vigil_json_value_t *vigil_json_object_get(
+    const vigil_json_value_t *object,
     const char *key
 ) {
-    if (object == NULL || object->type != BASL_JSON_OBJECT || key == NULL) return NULL;
+    if (object == NULL || object->type != VIGIL_JSON_OBJECT || key == NULL) return NULL;
     size_t key_len = strlen(key);
     for (size_t i = 0; i < object->as.object.count; i++) {
         if (object->as.object.members[i].key_length == key_len &&
@@ -300,40 +300,40 @@ const basl_json_value_t *basl_json_object_get(
     return NULL;
 }
 
-basl_status_t basl_json_object_set(
-    basl_json_value_t *object,
+vigil_status_t vigil_json_object_set(
+    vigil_json_value_t *object,
     const char *key,
     size_t key_length,
-    basl_json_value_t *value,
-    basl_error_t *error
+    vigil_json_value_t *value,
+    vigil_error_t *error
 ) {
-    if (object == NULL || object->type != BASL_JSON_OBJECT ||
+    if (object == NULL || object->type != VIGIL_JSON_OBJECT ||
         key == NULL || value == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: invalid object set");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     /* Replace existing key. */
     for (size_t i = 0; i < object->as.object.count; i++) {
         if (object->as.object.members[i].key_length == key_length &&
             memcmp(object->as.object.members[i].key, key, key_length) == 0) {
-            basl_json_free(&object->as.object.members[i].value);
+            vigil_json_free(&object->as.object.members[i].value);
             object->as.object.members[i].value = value;
-            return BASL_STATUS_OK;
+            return VIGIL_STATUS_OK;
         }
     }
 
     /* Grow if needed. */
     if (object->as.object.count >= object->as.object.capacity) {
         size_t new_cap = object->as.object.capacity < 8 ? 8 : object->as.object.capacity * 2;
-        basl_json_member_t *new_members = (basl_json_member_t *)json_realloc(
+        vigil_json_member_t *new_members = (vigil_json_member_t *)json_realloc(
             &object->allocator, object->as.object.members,
-            new_cap * sizeof(basl_json_member_t));
+            new_cap * sizeof(vigil_json_member_t));
         if (new_members == NULL) {
-            basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY,
+            vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
                                    "json: allocation failed");
-            return BASL_STATUS_OUT_OF_MEMORY;
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
         object->as.object.members = new_members;
         object->as.object.capacity = new_cap;
@@ -342,36 +342,36 @@ basl_status_t basl_json_object_set(
     /* Copy key. */
     char *key_copy = (char *)json_alloc(&object->allocator, key_length + 1);
     if (key_copy == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY,
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
                                "json: allocation failed");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     memcpy(key_copy, key, key_length);
     key_copy[key_length] = '\0';
 
-    basl_json_member_t *m = &object->as.object.members[object->as.object.count++];
+    vigil_json_member_t *m = &object->as.object.members[object->as.object.count++];
     m->key = key_copy;
     m->key_length = key_length;
     m->value = value;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_json_object_entry(
-    const basl_json_value_t *object,
+vigil_status_t vigil_json_object_entry(
+    const vigil_json_value_t *object,
     size_t index,
     const char **out_key,
     size_t *out_key_length,
-    const basl_json_value_t **out_value
+    const vigil_json_value_t **out_value
 ) {
-    if (object == NULL || object->type != BASL_JSON_OBJECT ||
+    if (object == NULL || object->type != VIGIL_JSON_OBJECT ||
         index >= object->as.object.count) {
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    const basl_json_member_t *m = &object->as.object.members[index];
+    const vigil_json_member_t *m = &object->as.object.members[index];
     if (out_key != NULL) *out_key = m->key;
     if (out_key_length != NULL) *out_key_length = m->key_length;
     if (out_value != NULL) *out_value = m->value;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Parser ──────────────────────────────────────────────────────── */
@@ -380,8 +380,8 @@ typedef struct json_parser {
     const char *input;
     size_t length;
     size_t pos;
-    const basl_allocator_t *allocator;
-    basl_error_t *error;
+    const vigil_allocator_t *allocator;
+    vigil_error_t *error;
 } json_parser_t;
 
 static void parser_skip_whitespace(json_parser_t *p) {
@@ -395,9 +395,9 @@ static void parser_skip_whitespace(json_parser_t *p) {
     }
 }
 
-static basl_status_t parser_error(json_parser_t *p, const char *msg) {
-    basl_error_set_literal(p->error, BASL_STATUS_SYNTAX_ERROR, msg);
-    return BASL_STATUS_SYNTAX_ERROR;
+static vigil_status_t parser_error(json_parser_t *p, const char *msg) {
+    vigil_error_set_literal(p->error, VIGIL_STATUS_SYNTAX_ERROR, msg);
+    return VIGIL_STATUS_SYNTAX_ERROR;
 }
 
 static int parser_peek(json_parser_t *p) {
@@ -417,16 +417,16 @@ static int parser_expect(json_parser_t *p, char c) {
     return 0;
 }
 
-static basl_status_t parser_match_literal(json_parser_t *p, const char *lit, size_t len) {
+static vigil_status_t parser_match_literal(json_parser_t *p, const char *lit, size_t len) {
     if (p->pos + len > p->length || memcmp(p->input + p->pos, lit, len) != 0) {
         return parser_error(p, "json: unexpected token");
     }
     p->pos += len;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* Forward declaration. */
-static basl_status_t parse_value(json_parser_t *p, basl_json_value_t **out);
+static vigil_status_t parse_value(json_parser_t *p, vigil_json_value_t **out);
 
 static int hex_digit(int c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -435,15 +435,15 @@ static int hex_digit(int c) {
     return -1;
 }
 
-static basl_status_t parse_string_content(json_parser_t *p, char **out, size_t *out_len) {
+static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t *out_len) {
     /* Opening quote already consumed by caller. */
-    basl_allocator_t a = resolve_allocator(p->allocator);
+    vigil_allocator_t a = resolve_allocator(p->allocator);
     size_t cap = 32;
     char *buf = (char *)json_alloc(&a, cap);
     if (buf == NULL) {
-        basl_error_set_literal(p->error, BASL_STATUS_OUT_OF_MEMORY,
+        vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY,
                                "json: allocation failed");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     size_t len = 0;
 
@@ -453,9 +453,9 @@ static basl_status_t parse_string_content(json_parser_t *p, char **out, size_t *
         char *nb = (char *)json_realloc(&a, buf, nc); \
         if (nb == NULL) { \
             json_dealloc(&a, buf); \
-            basl_error_set_literal(p->error, BASL_STATUS_OUT_OF_MEMORY, \
+            vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, \
                                    "json: allocation failed"); \
-            return BASL_STATUS_OUT_OF_MEMORY; \
+            return VIGIL_STATUS_OUT_OF_MEMORY; \
         } \
         buf = nb; cap = nc; \
     } \
@@ -554,31 +554,31 @@ static basl_status_t parse_string_content(json_parser_t *p, char **out, size_t *
         char *nb = (char *)json_realloc(&a, buf, len + 1);
         if (nb == NULL) {
             json_dealloc(&a, buf);
-            basl_error_set_literal(p->error, BASL_STATUS_OUT_OF_MEMORY,
+            vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY,
                                    "json: allocation failed");
-            return BASL_STATUS_OUT_OF_MEMORY;
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
         buf = nb;
     }
     buf[len] = '\0';
     *out = buf;
     *out_len = len;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t parse_string(json_parser_t *p, basl_json_value_t **out) {
+static vigil_status_t parse_string(json_parser_t *p, vigil_json_value_t **out) {
     char *str = NULL;
     size_t len = 0;
-    basl_status_t s = parse_string_content(p, &str, &len);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_status_t s = parse_string_content(p, &str, &len);
+    if (s != VIGIL_STATUS_OK) return s;
 
-    s = basl_json_string_new(p->allocator, str, len, out, p->error);
-    basl_allocator_t a = resolve_allocator(p->allocator);
+    s = vigil_json_string_new(p->allocator, str, len, out, p->error);
+    vigil_allocator_t a = resolve_allocator(p->allocator);
     json_dealloc(&a, str);
     return s;
 }
 
-static basl_status_t parse_number(json_parser_t *p, basl_json_value_t **out) {
+static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out) {
     size_t start = p->pos;
 
     /* Optional minus. */
@@ -636,30 +636,30 @@ static basl_status_t parse_number(json_parser_t *p, basl_json_value_t **out) {
         return parser_error(p, "json: invalid number");
     }
 
-    return basl_json_number_new(p->allocator, value, out, p->error);
+    return vigil_json_number_new(p->allocator, value, out, p->error);
 }
 
-static basl_status_t parse_array(json_parser_t *p, basl_json_value_t **out) {
-    basl_status_t s = basl_json_array_new(p->allocator, out, p->error);
-    if (s != BASL_STATUS_OK) return s;
+static vigil_status_t parse_array(json_parser_t *p, vigil_json_value_t **out) {
+    vigil_status_t s = vigil_json_array_new(p->allocator, out, p->error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     parser_skip_whitespace(p);
     if (parser_peek(p) == ']') {
         parser_advance(p);
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     for (;;) {
-        basl_json_value_t *elem = NULL;
+        vigil_json_value_t *elem = NULL;
         s = parse_value(p, &elem);
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(out);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(out);
             return s;
         }
-        s = basl_json_array_push(*out, elem, p->error);
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(&elem);
-            basl_json_free(out);
+        s = vigil_json_array_push(*out, elem, p->error);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(&elem);
+            vigil_json_free(out);
             return s;
         }
         parser_skip_whitespace(p);
@@ -668,72 +668,72 @@ static basl_status_t parse_array(json_parser_t *p, basl_json_value_t **out) {
             continue;
         }
         if (parser_expect(p, ']')) break;
-        basl_json_free(out);
+        vigil_json_free(out);
         return parser_error(p, "json: expected ',' or ']'");
     }
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t parse_object(json_parser_t *p, basl_json_value_t **out) {
-    basl_status_t s = basl_json_object_new(p->allocator, out, p->error);
-    if (s != BASL_STATUS_OK) return s;
+static vigil_status_t parse_object(json_parser_t *p, vigil_json_value_t **out) {
+    vigil_status_t s = vigil_json_object_new(p->allocator, out, p->error);
+    if (s != VIGIL_STATUS_OK) return s;
 
     parser_skip_whitespace(p);
     if (parser_peek(p) == '}') {
         parser_advance(p);
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     for (;;) {
         parser_skip_whitespace(p);
         if (!parser_expect(p, '"')) {
-            basl_json_free(out);
+            vigil_json_free(out);
             return parser_error(p, "json: expected string key");
         }
         char *key = NULL;
         size_t key_len = 0;
         s = parse_string_content(p, &key, &key_len);
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(out);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(out);
             return s;
         }
 
         parser_skip_whitespace(p);
         if (!parser_expect(p, ':')) {
-            basl_allocator_t a = resolve_allocator(p->allocator);
+            vigil_allocator_t a = resolve_allocator(p->allocator);
             json_dealloc(&a, key);
-            basl_json_free(out);
+            vigil_json_free(out);
             return parser_error(p, "json: expected ':'");
         }
 
-        basl_json_value_t *val = NULL;
+        vigil_json_value_t *val = NULL;
         s = parse_value(p, &val);
-        if (s != BASL_STATUS_OK) {
-            basl_allocator_t a = resolve_allocator(p->allocator);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_allocator_t a = resolve_allocator(p->allocator);
             json_dealloc(&a, key);
-            basl_json_free(out);
+            vigil_json_free(out);
             return s;
         }
 
-        s = basl_json_object_set(*out, key, key_len, val, p->error);
-        basl_allocator_t a = resolve_allocator(p->allocator);
+        s = vigil_json_object_set(*out, key, key_len, val, p->error);
+        vigil_allocator_t a = resolve_allocator(p->allocator);
         json_dealloc(&a, key);
-        if (s != BASL_STATUS_OK) {
-            basl_json_free(&val);
-            basl_json_free(out);
+        if (s != VIGIL_STATUS_OK) {
+            vigil_json_free(&val);
+            vigil_json_free(out);
             return s;
         }
 
         parser_skip_whitespace(p);
         if (parser_expect(p, ',')) continue;
         if (parser_expect(p, '}')) break;
-        basl_json_free(out);
+        vigil_json_free(out);
         return parser_error(p, "json: expected ',' or '}'");
     }
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t parse_value(json_parser_t *p, basl_json_value_t **out) {
+static vigil_status_t parse_value(json_parser_t *p, vigil_json_value_t **out) {
     parser_skip_whitespace(p);
     int c = parser_peek(p);
     switch (c) {
@@ -747,17 +747,17 @@ static basl_status_t parse_value(json_parser_t *p, basl_json_value_t **out) {
         parser_advance(p);
         return parse_array(p, out);
     case 't':
-        { basl_status_t s = parser_match_literal(p, "true", 4);
-          if (s != BASL_STATUS_OK) return s;
-          return basl_json_bool_new(p->allocator, 1, out, p->error); }
+        { vigil_status_t s = parser_match_literal(p, "true", 4);
+          if (s != VIGIL_STATUS_OK) return s;
+          return vigil_json_bool_new(p->allocator, 1, out, p->error); }
     case 'f':
-        { basl_status_t s = parser_match_literal(p, "false", 5);
-          if (s != BASL_STATUS_OK) return s;
-          return basl_json_bool_new(p->allocator, 0, out, p->error); }
+        { vigil_status_t s = parser_match_literal(p, "false", 5);
+          if (s != VIGIL_STATUS_OK) return s;
+          return vigil_json_bool_new(p->allocator, 0, out, p->error); }
     case 'n':
-        { basl_status_t s = parser_match_literal(p, "null", 4);
-          if (s != BASL_STATUS_OK) return s;
-          return basl_json_null_new(p->allocator, out, p->error); }
+        { vigil_status_t s = parser_match_literal(p, "null", 4);
+          if (s != VIGIL_STATUS_OK) return s;
+          return vigil_json_null_new(p->allocator, out, p->error); }
     case '-': case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
         return parse_number(p, out);
@@ -766,19 +766,19 @@ static basl_status_t parse_value(json_parser_t *p, basl_json_value_t **out) {
     }
 }
 
-basl_status_t basl_json_parse(
-    const basl_allocator_t *allocator,
+vigil_status_t vigil_json_parse(
+    const vigil_allocator_t *allocator,
     const char *input,
     size_t length,
-    basl_json_value_t **out,
-    basl_error_t *error
+    vigil_json_value_t **out,
+    vigil_error_t *error
 ) {
     if (input == NULL || out == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: input or out is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     json_parser_t p;
     p.input = input;
@@ -787,15 +787,15 @@ basl_status_t basl_json_parse(
     p.allocator = allocator;
     p.error = error;
 
-    basl_status_t s = parse_value(&p, out);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_status_t s = parse_value(&p, out);
+    if (s != VIGIL_STATUS_OK) return s;
 
     parser_skip_whitespace(&p);
     if (p.pos != p.length) {
-        basl_json_free(out);
+        vigil_json_free(out);
         return parser_error(&p, "json: trailing content after value");
     }
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Emitter ─────────────────────────────────────────────────────── */
@@ -804,20 +804,20 @@ typedef struct json_emitter {
     char *buf;
     size_t len;
     size_t cap;
-    basl_allocator_t allocator;
-    basl_status_t status;
-    basl_error_t *error;
+    vigil_allocator_t allocator;
+    vigil_status_t status;
+    vigil_error_t *error;
 } json_emitter_t;
 
 static void emit_grow(json_emitter_t *e, size_t need) {
-    if (e->status != BASL_STATUS_OK) return;
+    if (e->status != VIGIL_STATUS_OK) return;
     if (e->len + need <= e->cap) return;
     size_t new_cap = e->cap < 64 ? 64 : e->cap;
     while (new_cap < e->len + need) new_cap *= 2;
     char *nb = (char *)json_realloc(&e->allocator, e->buf, new_cap);
     if (nb == NULL) {
-        e->status = BASL_STATUS_OUT_OF_MEMORY;
-        basl_error_set_literal(e->error, BASL_STATUS_OUT_OF_MEMORY,
+        e->status = VIGIL_STATUS_OUT_OF_MEMORY;
+        vigil_error_set_literal(e->error, VIGIL_STATUS_OUT_OF_MEMORY,
                                "json: allocation failed");
         return;
     }
@@ -827,7 +827,7 @@ static void emit_grow(json_emitter_t *e, size_t need) {
 
 static void emit_raw(json_emitter_t *e, const char *s, size_t n) {
     emit_grow(e, n);
-    if (e->status != BASL_STATUS_OK) return;
+    if (e->status != VIGIL_STATUS_OK) return;
     memcpy(e->buf + e->len, s, n);
     e->len += n;
 }
@@ -838,7 +838,7 @@ static void emit_char(json_emitter_t *e, char c) {
 
 static void emit_string(json_emitter_t *e, const char *s, size_t len) {
     emit_char(e, '"');
-    for (size_t i = 0; i < len && e->status == BASL_STATUS_OK; i++) {
+    for (size_t i = 0; i < len && e->status == VIGIL_STATUS_OK; i++) {
         unsigned char c = (unsigned char)s[i];
         switch (c) {
         case '"':  emit_raw(e, "\\\"", 2); break;
@@ -862,21 +862,21 @@ static void emit_string(json_emitter_t *e, const char *s, size_t len) {
     emit_char(e, '"');
 }
 
-static void emit_value(json_emitter_t *e, const basl_json_value_t *v);
+static void emit_value(json_emitter_t *e, const vigil_json_value_t *v);
 
-static void emit_value(json_emitter_t *e, const basl_json_value_t *v) {
-    if (e->status != BASL_STATUS_OK) return;
+static void emit_value(json_emitter_t *e, const vigil_json_value_t *v) {
+    if (e->status != VIGIL_STATUS_OK) return;
     if (v == NULL) { emit_raw(e, "null", 4); return; }
 
     switch (v->type) {
-    case BASL_JSON_NULL:
+    case VIGIL_JSON_NULL:
         emit_raw(e, "null", 4);
         break;
-    case BASL_JSON_BOOL:
+    case VIGIL_JSON_BOOL:
         if (v->as.boolean) emit_raw(e, "true", 4);
         else emit_raw(e, "false", 5);
         break;
-    case BASL_JSON_NUMBER: {
+    case VIGIL_JSON_NUMBER: {
         char tmp[64];
         int n;
         double val = v->as.number;
@@ -889,10 +889,10 @@ static void emit_value(json_emitter_t *e, const basl_json_value_t *v) {
         if (n > 0) emit_raw(e, tmp, (size_t)n);
         break;
     }
-    case BASL_JSON_STRING:
+    case VIGIL_JSON_STRING:
         emit_string(e, v->as.string.data, v->as.string.length);
         break;
-    case BASL_JSON_ARRAY:
+    case VIGIL_JSON_ARRAY:
         emit_char(e, '[');
         for (size_t i = 0; i < v->as.array.count; i++) {
             if (i > 0) emit_char(e, ',');
@@ -900,7 +900,7 @@ static void emit_value(json_emitter_t *e, const basl_json_value_t *v) {
         }
         emit_char(e, ']');
         break;
-    case BASL_JSON_OBJECT:
+    case VIGIL_JSON_OBJECT:
         emit_char(e, '{');
         for (size_t i = 0; i < v->as.object.count; i++) {
             if (i > 0) emit_char(e, ',');
@@ -914,35 +914,35 @@ static void emit_value(json_emitter_t *e, const basl_json_value_t *v) {
     }
 }
 
-basl_status_t basl_json_emit(
-    const basl_json_value_t *value,
+vigil_status_t vigil_json_emit(
+    const vigil_json_value_t *value,
     char **out_string,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     if (value == NULL || out_string == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "json: value or out_string is NULL");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    basl_error_clear(error);
+    vigil_error_clear(error);
 
     json_emitter_t e;
     memset(&e, 0, sizeof(e));
     e.allocator = value->allocator;
     e.error = error;
-    e.status = BASL_STATUS_OK;
+    e.status = VIGIL_STATUS_OK;
 
     emit_value(&e, value);
 
-    if (e.status != BASL_STATUS_OK) {
+    if (e.status != VIGIL_STATUS_OK) {
         if (e.buf != NULL) json_dealloc(&e.allocator, e.buf);
         return e.status;
     }
 
     /* NUL-terminate. */
     emit_char(&e, '\0');
-    if (e.status != BASL_STATUS_OK) {
+    if (e.status != VIGIL_STATUS_OK) {
         if (e.buf != NULL) json_dealloc(&e.allocator, e.buf);
         return e.status;
     }
@@ -950,5 +950,5 @@ basl_status_t basl_json_emit(
 
     *out_string = e.buf;
     if (out_length != NULL) *out_length = e.len;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }

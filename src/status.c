@@ -1,8 +1,8 @@
 #include <string.h>
 
-#include "internal/basl_internal.h"
+#include "internal/vigil_internal.h"
 
-void basl_source_location_clear(basl_source_location_t *location) {
+void vigil_source_location_clear(vigil_source_location_t *location) {
     if (location == NULL) {
         return;
     }
@@ -13,9 +13,9 @@ void basl_source_location_clear(basl_source_location_t *location) {
     location->column = 0U;
 }
 
-void basl_error_set_literal(
-    basl_error_t *error,
-    basl_status_t type,
+void vigil_error_set_literal(
+    vigil_error_t *error,
+    vigil_status_t type,
     const char *value
 ) {
     if (error == NULL) {
@@ -25,21 +25,21 @@ void basl_error_set_literal(
     error->type = type;
     error->value = value;
     error->length = value == NULL ? 0U : strlen(value);
-    basl_source_location_clear(&error->location);
+    vigil_source_location_clear(&error->location);
 }
 
-void basl_error_clear(basl_error_t *error) {
+void vigil_error_clear(vigil_error_t *error) {
     if (error == NULL) {
         return;
     }
 
-    error->type = BASL_STATUS_OK;
+    error->type = VIGIL_STATUS_OK;
     error->value = NULL;
     error->length = 0U;
-    basl_source_location_clear(&error->location);
+    vigil_source_location_clear(&error->location);
 }
 
-const char *basl_error_message(const basl_error_t *error) {
+const char *vigil_error_message(const vigil_error_t *error) {
     if (error == NULL || error->value == NULL) {
         return "unknown error";
     }
@@ -47,19 +47,19 @@ const char *basl_error_message(const basl_error_t *error) {
     return error->value;
 }
 
-const char *basl_status_name(basl_status_t status) {
+const char *vigil_status_name(vigil_status_t status) {
     switch (status) {
-        case BASL_STATUS_OK:
+        case VIGIL_STATUS_OK:
             return "ok";
-        case BASL_STATUS_INVALID_ARGUMENT:
+        case VIGIL_STATUS_INVALID_ARGUMENT:
             return "invalid_argument";
-        case BASL_STATUS_OUT_OF_MEMORY:
+        case VIGIL_STATUS_OUT_OF_MEMORY:
             return "out_of_memory";
-        case BASL_STATUS_INTERNAL:
+        case VIGIL_STATUS_INTERNAL:
             return "internal";
-        case BASL_STATUS_UNSUPPORTED:
+        case VIGIL_STATUS_UNSUPPORTED:
             return "unsupported";
-        case BASL_STATUS_SYNTAX_ERROR:
+        case VIGIL_STATUS_SYNTAX_ERROR:
             return "syntax_error";
         default:
             return "unknown";

@@ -1,15 +1,15 @@
-/* BASL URL parsing library implementation.
+/* VIGIL URL parsing library implementation.
  *
  * Implements RFC 3986 URI parsing.
  */
-#include "basl/url.h"
+#include "vigil/url.h"
 
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "internal/basl_internal.h"
+#include "internal/vigil_internal.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
@@ -35,25 +35,25 @@ static int is_unreserved(char c) {
 
 /* ── Percent Encoding/Decoding ───────────────────────────────────── */
 
-basl_status_t basl_url_unescape(
+vigil_status_t vigil_url_unescape(
     const char *input,
     size_t input_length,
     char **out_decoded,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     char *result;
     size_t i, j;
 
     if (!input || !out_decoded) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "null argument");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "null argument");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     result = malloc(input_length + 1);
     if (!result) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "out of memory");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY, "out of memory");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     for (i = 0, j = 0; i < input_length; i++) {
@@ -76,25 +76,25 @@ basl_status_t basl_url_unescape(
 
     *out_decoded = result;
     if (out_length) *out_length = j;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t percent_encode(
+static vigil_status_t percent_encode(
     const char *input,
     size_t input_length,
     int encode_slash,
     int encode_plus,
     char **out_escaped,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     static const char hex[] = "0123456789ABCDEF";
     char *result;
     size_t i, j, needed;
 
     if (!input || !out_escaped) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "null argument");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "null argument");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     /* Calculate needed size */
@@ -110,8 +110,8 @@ static basl_status_t percent_encode(
 
     result = malloc(needed + 1);
     if (!result) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "out of memory");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY, "out of memory");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
 
     for (i = 0, j = 0; i < input_length; i++) {
@@ -130,36 +130,36 @@ static basl_status_t percent_encode(
 
     *out_escaped = result;
     if (out_length) *out_length = j;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-basl_status_t basl_url_path_escape(
+vigil_status_t vigil_url_path_escape(
     const char *input,
     size_t input_length,
     char **out_escaped,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     return percent_encode(input, input_length, 1, 1, out_escaped, out_length, error);
 }
 
-basl_status_t basl_url_query_escape(
+vigil_status_t vigil_url_query_escape(
     const char *input,
     size_t input_length,
     char **out_escaped,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     return percent_encode(input, input_length, 1, 0, out_escaped, out_length, error);
 }
 
 /* ── URL Parsing ─────────────────────────────────────────────────── */
 
-basl_status_t basl_url_parse(
+vigil_status_t vigil_url_parse(
     const char *url_string,
     size_t url_length,
-    basl_url_t *out_url,
-    basl_error_t *error
+    vigil_url_t *out_url,
+    vigil_error_t *error
 ) {
     const char *p, *end, *scheme_end, *authority_start, *authority_end;
     const char *userinfo_end, *host_start, *host_end, *port_start;
@@ -167,8 +167,8 @@ basl_status_t basl_url_parse(
     const char *fragment_start;
 
     if (!url_string || !out_url) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "null argument");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "null argument");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     memset(out_url, 0, sizeof(*out_url));
@@ -223,13 +223,13 @@ basl_status_t basl_url_parse(
             }
             if (colon) {
                 char *decoded;
-                basl_url_unescape(authority_start, (size_t)(colon - authority_start), &decoded, NULL, NULL);
+                vigil_url_unescape(authority_start, (size_t)(colon - authority_start), &decoded, NULL, NULL);
                 out_url->username = decoded;
-                basl_url_unescape(colon + 1, (size_t)(userinfo_end - colon - 1), &decoded, NULL, NULL);
+                vigil_url_unescape(colon + 1, (size_t)(userinfo_end - colon - 1), &decoded, NULL, NULL);
                 out_url->password = decoded;
             } else {
                 char *decoded;
-                basl_url_unescape(authority_start, (size_t)(userinfo_end - authority_start), &decoded, NULL, NULL);
+                vigil_url_unescape(authority_start, (size_t)(userinfo_end - authority_start), &decoded, NULL, NULL);
                 out_url->username = decoded;
             }
             host_start = userinfo_end + 1;
@@ -267,7 +267,7 @@ basl_status_t basl_url_parse(
                 out_url->host = str_ndup(host_start + 1, (size_t)(host_end - host_start - 2));
             } else {
                 char *decoded;
-                basl_url_unescape(host_start, (size_t)(host_end - host_start), &decoded, NULL, NULL);
+                vigil_url_unescape(host_start, (size_t)(host_end - host_start), &decoded, NULL, NULL);
                 out_url->host = decoded;
             }
         }
@@ -287,7 +287,7 @@ basl_status_t basl_url_parse(
     }
     if (path_start < path_end) {
         char *decoded;
-        basl_url_unescape(path_start, (size_t)(path_end - path_start), &decoded, NULL, NULL);
+        vigil_url_unescape(path_start, (size_t)(path_end - path_start), &decoded, NULL, NULL);
         out_url->path = decoded;
     }
     p = path_end;
@@ -310,14 +310,14 @@ basl_status_t basl_url_parse(
         p++;
         fragment_start = p;
         char *decoded;
-        basl_url_unescape(fragment_start, (size_t)(end - fragment_start), &decoded, NULL, NULL);
+        vigil_url_unescape(fragment_start, (size_t)(end - fragment_start), &decoded, NULL, NULL);
         out_url->fragment = decoded;
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-void basl_url_free(basl_url_t *url) {
+void vigil_url_free(vigil_url_t *url) {
     if (!url) return;
     free(url->scheme);
     free(url->username);
@@ -332,25 +332,25 @@ void basl_url_free(basl_url_t *url) {
 
 /* ── URL String Building ─────────────────────────────────────────── */
 
-basl_status_t basl_url_string(
-    const basl_url_t *url,
+vigil_status_t vigil_url_string(
+    const vigil_url_t *url,
     char **out_string,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     char *result;
     size_t len, cap;
 
     if (!url || !out_string) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT, "null argument");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "null argument");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     cap = 256;
     result = malloc(cap);
     if (!result) {
-        if (error) basl_error_set_literal(error, BASL_STATUS_OUT_OF_MEMORY, "out of memory");
-        return BASL_STATUS_OUT_OF_MEMORY;
+        if (error) vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY, "out of memory");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     len = 0;
 
@@ -366,11 +366,11 @@ basl_status_t basl_url_string(
         /* Userinfo */
         if (url->username && url->username[0]) {
             char *escaped;
-            basl_url_path_escape(url->username, strlen(url->username), &escaped, NULL, NULL);
+            vigil_url_path_escape(url->username, strlen(url->username), &escaped, NULL, NULL);
             len += (size_t)snprintf(result + len, cap - len, "%s", escaped);
             free(escaped);
             if (url->password) {
-                basl_url_path_escape(url->password, strlen(url->password), &escaped, NULL, NULL);
+                vigil_url_path_escape(url->password, strlen(url->password), &escaped, NULL, NULL);
                 len += (size_t)snprintf(result + len, cap - len, ":%s", escaped);
                 free(escaped);
             }
@@ -393,7 +393,7 @@ basl_status_t basl_url_string(
     /* Path */
     if (url->path && url->path[0]) {
         char *escaped;
-        basl_url_path_escape(url->path, strlen(url->path), &escaped, NULL, NULL);
+        vigil_url_path_escape(url->path, strlen(url->path), &escaped, NULL, NULL);
         /* Ensure path starts with / if we have authority */
         if (url->host && url->host[0] && escaped[0] != '/') {
             len += (size_t)snprintf(result + len, cap - len, "/");
@@ -410,20 +410,20 @@ basl_status_t basl_url_string(
     /* Fragment */
     if (url->fragment && url->fragment[0]) {
         char *escaped;
-        basl_url_path_escape(url->fragment, strlen(url->fragment), &escaped, NULL, NULL);
+        vigil_url_path_escape(url->fragment, strlen(url->fragment), &escaped, NULL, NULL);
         len += (size_t)snprintf(result + len, cap - len, "#%s", escaped);
         free(escaped);
     }
 
     *out_string = result;
     if (out_length) *out_length = len;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-const char *basl_url_hostname(const basl_url_t *url) {
+const char *vigil_url_hostname(const vigil_url_t *url) {
     return url ? url->host : NULL;
 }
 
-int basl_url_is_absolute(const basl_url_t *url) {
+int vigil_url_is_absolute(const vigil_url_t *url) {
     return url && url->scheme && url->scheme[0];
 }

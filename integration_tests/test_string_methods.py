@@ -12,10 +12,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def resolve_basl_command() -> list[str]:
-    configured_bin = os.environ.get("BASL_BIN")
-    native_bin = REPO_ROOT / "build" / ("basl.exe" if os.name == "nt" else "basl")
-    wasm_bin = REPO_ROOT / "build" / "basl.js"
+def resolve_vigil_command() -> list[str]:
+    configured_bin = os.environ.get("VIGIL_BIN")
+    native_bin = REPO_ROOT / "build" / ("vigil.exe" if os.name == "nt" else "vigil")
+    wasm_bin = REPO_ROOT / "build" / "vigil.js"
 
     if configured_bin:
         return [configured_bin]
@@ -24,7 +24,7 @@ def resolve_basl_command() -> list[str]:
     if wasm_bin.exists():
         return [os.environ.get("EMSDK_NODE", "node"), str(wasm_bin)]
 
-    raise FileNotFoundError("could not locate BASL CLI executable in build output")
+    raise FileNotFoundError("could not locate VIGIL CLI executable in build output")
 
 
 def write_sources(root: Path, sources: dict[str, str]) -> None:
@@ -34,9 +34,9 @@ def write_sources(root: Path, sources: dict[str, str]) -> None:
         path.write_text(textwrap.dedent(text).strip() + "\n", encoding="utf-8")
 
 
-def run_basl(root: Path, entrypoint: str) -> subprocess.CompletedProcess[str]:
+def run_vigil(root: Path, entrypoint: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [*resolve_basl_command(), "run", str(root / entrypoint)],
+        [*resolve_vigil_command(), "run", str(root / entrypoint)],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
@@ -48,10 +48,10 @@ class StringMethodsTest(unittest.TestCase):
     """Tests for new string methods: fields, join, cut, equal_fold."""
 
     def test_fields_splits_on_whitespace(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     import "fmt";
                     fn main() -> i32 {
                         string s = "  hello   world  ";
@@ -63,14 +63,14 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_fields_empty_string(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     fn main() -> i32 {
                         string s = "";
                         array<string> parts = s.fields();
@@ -78,14 +78,14 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_join_array_of_strings(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     import "fmt";
                     fn main() -> i32 {
                         array<string> parts = ["a", "b", "c"];
@@ -99,14 +99,14 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_join_empty_array(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     fn main() -> i32 {
                         array<string> empty = [];
                         string joined = ",".join(empty);
@@ -115,14 +115,14 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_cut_found(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     fn main() -> i32 {
                         string s = "key=value";
                         string before, string after, bool found = s.cut("=");
@@ -133,14 +133,14 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_cut_not_found(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     fn main() -> i32 {
                         string s = "no separator here";
                         string before, string after, bool found = s.cut("=");
@@ -151,14 +151,14 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
     def test_equal_fold_case_insensitive(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="basl_str_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="vigil_str_") as tmpdir:
             root = Path(tmpdir)
             write_sources(root, {
-                "main.basl": """
+                "main.vigil": """
                     fn main() -> i32 {
                         if (!"Go".equal_fold("go")) { return 1; }
                         if (!"HELLO".equal_fold("hello")) { return 2; }
@@ -170,7 +170,7 @@ class StringMethodsTest(unittest.TestCase):
                     }
                 """,
             })
-            result = run_basl(root, "main.basl")
+            result = run_vigil(root, "main.vigil")
             self.assertEqual(result.returncode, 0, msg=result.stderr)
 
 

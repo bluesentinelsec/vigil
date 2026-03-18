@@ -2,47 +2,47 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/cli_lib.h"
-#include "internal/basl_internal.h"
+#include "vigil/cli_lib.h"
+#include "internal/vigil_internal.h"
 
 /* ── Allocator helpers ───────────────────────────────────────────── */
 
-static void *cli_realloc(const basl_allocator_t *a, void *p, size_t size) {
+static void *cli_realloc(const vigil_allocator_t *a, void *p, size_t size) {
     return a->reallocate(a->user_data, p, size);
 }
 
-static void cli_dealloc(const basl_allocator_t *a, void *p) {
+static void cli_dealloc(const vigil_allocator_t *a, void *p) {
     a->deallocate(a->user_data, p);
 }
 
 /* ── Lifecycle ───────────────────────────────────────────────────── */
 
-void basl_cli_init_with_allocator(
-    basl_cli_t *cli,
+void vigil_cli_init_with_allocator(
+    vigil_cli_t *cli,
     const char *program_name,
     const char *description,
-    const basl_allocator_t *allocator
+    const vigil_allocator_t *allocator
 ) {
     if (cli == NULL) return;
     memset(cli, 0, sizeof(*cli));
     cli->program_name = program_name;
     cli->description = description;
-    cli->allocator = (allocator != NULL && basl_allocator_is_valid(allocator))
+    cli->allocator = (allocator != NULL && vigil_allocator_is_valid(allocator))
                          ? *allocator
-                         : basl_default_allocator();
+                         : vigil_default_allocator();
 }
 
-void basl_cli_init(
-    basl_cli_t *cli,
+void vigil_cli_init(
+    vigil_cli_t *cli,
     const char *program_name,
     const char *description
 ) {
-    basl_cli_init_with_allocator(cli, program_name, description, NULL);
+    vigil_cli_init_with_allocator(cli, program_name, description, NULL);
 }
 
-void basl_cli_free(basl_cli_t *cli) {
+void vigil_cli_free(vigil_cli_t *cli) {
     if (cli == NULL) return;
-    const basl_allocator_t *a = &cli->allocator;
+    const vigil_allocator_t *a = &cli->allocator;
     for (size_t i = 0; i < cli->command_count; i++) {
         cli_dealloc(a, cli->commands[i].flags);
         cli_dealloc(a, cli->commands[i].positionals);
@@ -55,51 +55,51 @@ void basl_cli_free(basl_cli_t *cli) {
 
 /* ── Commands ────────────────────────────────────────────────────── */
 
-basl_cli_command_t *basl_cli_add_command(
-    basl_cli_t *cli,
+vigil_cli_command_t *vigil_cli_add_command(
+    vigil_cli_t *cli,
     const char *name,
     const char *help
 ) {
     if (cli == NULL) return NULL;
-    const basl_allocator_t *a = &cli->allocator;
+    const vigil_allocator_t *a = &cli->allocator;
 
     if (cli->command_count >= cli->command_capacity) {
         size_t new_cap = cli->command_capacity < 4 ? 4 : cli->command_capacity * 2;
-        basl_cli_command_t *new_cmds = (basl_cli_command_t *)cli_realloc(
-            a, cli->commands, new_cap * sizeof(basl_cli_command_t));
+        vigil_cli_command_t *new_cmds = (vigil_cli_command_t *)cli_realloc(
+            a, cli->commands, new_cap * sizeof(vigil_cli_command_t));
         if (new_cmds == NULL) return NULL;
         cli->commands = new_cmds;
         cli->command_capacity = new_cap;
     }
 
-    basl_cli_command_t *cmd = &cli->commands[cli->command_count++];
+    vigil_cli_command_t *cmd = &cli->commands[cli->command_count++];
     memset(cmd, 0, sizeof(*cmd));
     cmd->name = name;
     cmd->help = help;
     return cmd;
 }
 
-const basl_cli_command_t *basl_cli_matched_command(const basl_cli_t *cli) {
+const vigil_cli_command_t *vigil_cli_matched_command(const vigil_cli_t *cli) {
     return cli != NULL ? cli->matched_command : NULL;
 }
 
 /* ── Flag/positional helpers ─────────────────────────────────────── */
 
 static void add_flag(
-    const basl_allocator_t *a,
-    basl_cli_flag_t **flags, size_t *count, size_t *capacity,
+    const vigil_allocator_t *a,
+    vigil_cli_flag_t **flags, size_t *count, size_t *capacity,
     const char *name, char short_name, const char *help,
     int is_bool, const char **out_string, int *out_bool
 ) {
     if (*count >= *capacity) {
         size_t new_cap = *capacity < 8 ? 8 : *capacity * 2;
-        basl_cli_flag_t *nf = (basl_cli_flag_t *)cli_realloc(
-            a, *flags, new_cap * sizeof(basl_cli_flag_t));
+        vigil_cli_flag_t *nf = (vigil_cli_flag_t *)cli_realloc(
+            a, *flags, new_cap * sizeof(vigil_cli_flag_t));
         if (nf == NULL) return;
         *flags = nf;
         *capacity = new_cap;
     }
-    basl_cli_flag_t *f = &(*flags)[(*count)++];
+    vigil_cli_flag_t *f = &(*flags)[(*count)++];
     f->name = name;
     f->short_name = short_name;
     f->help = help;
@@ -109,19 +109,19 @@ static void add_flag(
 }
 
 static void add_positional(
-    const basl_allocator_t *a,
-    basl_cli_positional_t **positionals, size_t *count, size_t *capacity,
+    const vigil_allocator_t *a,
+    vigil_cli_positional_t **positionals, size_t *count, size_t *capacity,
     const char *name, const char *help, const char **out_value
 ) {
     if (*count >= *capacity) {
         size_t new_cap = *capacity < 4 ? 4 : *capacity * 2;
-        basl_cli_positional_t *np = (basl_cli_positional_t *)cli_realloc(
-            a, *positionals, new_cap * sizeof(basl_cli_positional_t));
+        vigil_cli_positional_t *np = (vigil_cli_positional_t *)cli_realloc(
+            a, *positionals, new_cap * sizeof(vigil_cli_positional_t));
         if (np == NULL) return;
         *positionals = np;
         *capacity = new_cap;
     }
-    basl_cli_positional_t *p = &(*positionals)[(*count)++];
+    vigil_cli_positional_t *p = &(*positionals)[(*count)++];
     p->name = name;
     p->help = help;
     p->out_value = out_value;
@@ -129,30 +129,30 @@ static void add_positional(
 
 /* ── Public flag/positional API ──────────────────────────────────── */
 
-void basl_cli_add_string_flag(
-    basl_cli_command_t *cmd, const char *name, char short_name,
+void vigil_cli_add_string_flag(
+    vigil_cli_command_t *cmd, const char *name, char short_name,
     const char *help, const char **out_value
 ) {
     if (cmd == NULL) return;
     /* Commands don't own an allocator — use default. Caller must keep
        the cli alive.  We store into the command's own arrays. */
-    basl_allocator_t a = basl_default_allocator();
+    vigil_allocator_t a = vigil_default_allocator();
     add_flag(&a, &cmd->flags, &cmd->flag_count, &cmd->flag_capacity,
              name, short_name, help, 0, out_value, NULL);
 }
 
-void basl_cli_add_bool_flag(
-    basl_cli_command_t *cmd, const char *name, char short_name,
+void vigil_cli_add_bool_flag(
+    vigil_cli_command_t *cmd, const char *name, char short_name,
     const char *help, int *out_value
 ) {
     if (cmd == NULL) return;
-    basl_allocator_t a = basl_default_allocator();
+    vigil_allocator_t a = vigil_default_allocator();
     add_flag(&a, &cmd->flags, &cmd->flag_count, &cmd->flag_capacity,
              name, short_name, help, 1, NULL, out_value);
 }
 
-void basl_cli_add_global_string_flag(
-    basl_cli_t *cli, const char *name, char short_name,
+void vigil_cli_add_global_string_flag(
+    vigil_cli_t *cli, const char *name, char short_name,
     const char *help, const char **out_value
 ) {
     if (cli == NULL) return;
@@ -160,8 +160,8 @@ void basl_cli_add_global_string_flag(
              name, short_name, help, 0, out_value, NULL);
 }
 
-void basl_cli_add_global_bool_flag(
-    basl_cli_t *cli, const char *name, char short_name,
+void vigil_cli_add_global_bool_flag(
+    vigil_cli_t *cli, const char *name, char short_name,
     const char *help, int *out_value
 ) {
     if (cli == NULL) return;
@@ -169,18 +169,18 @@ void basl_cli_add_global_bool_flag(
              name, short_name, help, 1, NULL, out_value);
 }
 
-void basl_cli_add_positional(
-    basl_cli_command_t *cmd, const char *name, const char *help,
+void vigil_cli_add_positional(
+    vigil_cli_command_t *cmd, const char *name, const char *help,
     const char **out_value
 ) {
     if (cmd == NULL) return;
-    basl_allocator_t a = basl_default_allocator();
+    vigil_allocator_t a = vigil_default_allocator();
     add_positional(&a, &cmd->positionals, &cmd->positional_count,
                    &cmd->positional_capacity, name, help, out_value);
 }
 
-void basl_cli_add_global_positional(
-    basl_cli_t *cli, const char *name, const char *help,
+void vigil_cli_add_global_positional(
+    vigil_cli_t *cli, const char *name, const char *help,
     const char **out_value
 ) {
     if (cli == NULL) return;
@@ -190,9 +190,9 @@ void basl_cli_add_global_positional(
 
 /* ── Help printing ───────────────────────────────────────────────── */
 
-static void print_flags(const basl_cli_flag_t *flags, size_t count) {
+static void print_flags(const vigil_cli_flag_t *flags, size_t count) {
     for (size_t i = 0; i < count; i++) {
-        const basl_cli_flag_t *f = &flags[i];
+        const vigil_cli_flag_t *f = &flags[i];
         if (f->short_name != 0) {
             fprintf(stderr, "  -%c, --%-16s %s\n",
                     f->short_name, f->name, f->help ? f->help : "");
@@ -203,7 +203,7 @@ static void print_flags(const basl_cli_flag_t *flags, size_t count) {
     }
 }
 
-void basl_cli_print_help(const basl_cli_t *cli) {
+void vigil_cli_print_help(const vigil_cli_t *cli) {
     if (cli == NULL) return;
     fprintf(stderr, "%s", cli->program_name ? cli->program_name : "program");
     if (cli->description != NULL) {
@@ -235,9 +235,9 @@ void basl_cli_print_help(const basl_cli_t *cli) {
     }
 }
 
-void basl_cli_print_command_help(
-    const basl_cli_t *cli,
-    const basl_cli_command_t *cmd
+void vigil_cli_print_command_help(
+    const vigil_cli_t *cli,
+    const vigil_cli_command_t *cmd
 ) {
     if (cli == NULL || cmd == NULL) return;
     fprintf(stderr, "Usage: %s %s [options]",
@@ -262,8 +262,8 @@ void basl_cli_print_command_help(
 
 /* ── Parsing ─────────────────────────────────────────────────────── */
 
-static basl_cli_flag_t *find_long_flag(
-    basl_cli_flag_t *flags, size_t count,
+static vigil_cli_flag_t *find_long_flag(
+    vigil_cli_flag_t *flags, size_t count,
     const char *name, size_t name_len
 ) {
     for (size_t i = 0; i < count; i++) {
@@ -275,8 +275,8 @@ static basl_cli_flag_t *find_long_flag(
     return NULL;
 }
 
-static basl_cli_flag_t *find_short_flag(
-    basl_cli_flag_t *flags, size_t count, char c
+static vigil_cli_flag_t *find_short_flag(
+    vigil_cli_flag_t *flags, size_t count, char c
 ) {
     for (size_t i = 0; i < count; i++) {
         if (flags[i].short_name == c) return &flags[i];
@@ -284,7 +284,7 @@ static basl_cli_flag_t *find_short_flag(
     return NULL;
 }
 
-static void set_flag_value(basl_cli_flag_t *f, const char *value) {
+static void set_flag_value(vigil_cli_flag_t *f, const char *value) {
     if (f->is_bool && f->out_bool != NULL) {
         *f->out_bool = 1;
     } else if (!f->is_bool && f->out_string != NULL) {
@@ -292,29 +292,29 @@ static void set_flag_value(basl_cli_flag_t *f, const char *value) {
     }
 }
 
-basl_status_t basl_cli_parse(
-    basl_cli_t *cli,
+vigil_status_t vigil_cli_parse(
+    vigil_cli_t *cli,
     int argc,
     char **argv,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     if (cli == NULL || argv == NULL) {
-        basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                "cli: invalid arguments");
-        return BASL_STATUS_INVALID_ARGUMENT;
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     cli->matched_command = NULL;
     int arg_start = 1; /* skip program name */
 
     /* Try to match a subcommand. */
-    basl_cli_command_t *cmd = NULL;
+    vigil_cli_command_t *cmd = NULL;
     if (cli->command_count > 0 && argc > 1) {
         /* Check if first arg is --help before command matching. */
         if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
-            basl_cli_print_help(cli);
+            vigil_cli_print_help(cli);
             cli->help_shown = 1;
-            return BASL_STATUS_OK;
+            return VIGIL_STATUS_OK;
         }
         for (size_t i = 0; i < cli->command_count; i++) {
             if (strcmp(argv[1], cli->commands[i].name) == 0) {
@@ -328,17 +328,17 @@ basl_status_t basl_cli_parse(
         if (cmd == NULL) {
             /* Not a known command — could be a global positional or error. */
             if (cli->positional_count == 0 && argv[1][0] != '-') {
-                basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                        "cli: unknown command");
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
         }
     }
 
     /* Determine which flags and positionals to use. */
-    basl_cli_flag_t *cmd_flags = cmd ? cmd->flags : NULL;
+    vigil_cli_flag_t *cmd_flags = cmd ? cmd->flags : NULL;
     size_t cmd_flag_count = cmd ? cmd->flag_count : 0;
-    basl_cli_positional_t *pos = cmd ? cmd->positionals : cli->positionals;
+    vigil_cli_positional_t *pos = cmd ? cmd->positionals : cli->positionals;
     size_t pos_count = cmd ? cmd->positional_count : cli->positional_count;
     size_t pos_idx = 0;
 
@@ -348,13 +348,13 @@ basl_status_t basl_cli_parse(
         /* --help / -h */
         if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
             if (cmd != NULL) {
-                basl_cli_print_command_help(cli, cmd);
+                vigil_cli_print_command_help(cli, cmd);
             } else {
-                basl_cli_print_help(cli);
+                vigil_cli_print_help(cli);
             }
             cli->matched_command = NULL;
             cli->help_shown = 1;
-            return BASL_STATUS_OK;
+            return VIGIL_STATUS_OK;
         }
 
         /* -- stops flag parsing */
@@ -371,14 +371,14 @@ basl_status_t basl_cli_parse(
             const char *eq = strchr(name, '=');
             size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
 
-            basl_cli_flag_t *f = find_long_flag(cmd_flags, cmd_flag_count, name, name_len);
+            vigil_cli_flag_t *f = find_long_flag(cmd_flags, cmd_flag_count, name, name_len);
             if (f == NULL) {
                 f = find_long_flag(cli->flags, cli->flag_count, name, name_len);
             }
             if (f == NULL) {
-                basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                        "cli: unknown flag");
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
             if (f->is_bool) {
                 set_flag_value(f, NULL);
@@ -387,9 +387,9 @@ basl_status_t basl_cli_parse(
             } else if (i + 1 < argc) {
                 set_flag_value(f, argv[++i]);
             } else {
-                basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                        "cli: flag requires a value");
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
             continue;
         }
@@ -397,14 +397,14 @@ basl_status_t basl_cli_parse(
         /* Short flag: -v or -o value */
         if (arg[0] == '-' && arg[1] != '\0') {
             char c = arg[1];
-            basl_cli_flag_t *f = find_short_flag(cmd_flags, cmd_flag_count, c);
+            vigil_cli_flag_t *f = find_short_flag(cmd_flags, cmd_flag_count, c);
             if (f == NULL) {
                 f = find_short_flag(cli->flags, cli->flag_count, c);
             }
             if (f == NULL) {
-                basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                        "cli: unknown flag");
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
             if (f->is_bool) {
                 set_flag_value(f, NULL);
@@ -414,9 +414,9 @@ basl_status_t basl_cli_parse(
             } else if (i + 1 < argc) {
                 set_flag_value(f, argv[++i]);
             } else {
-                basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                        "cli: flag requires a value");
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
             continue;
         }
@@ -425,11 +425,11 @@ basl_status_t basl_cli_parse(
         if (pos_idx < pos_count) {
             *pos[pos_idx++].out_value = arg;
         } else {
-            basl_error_set_literal(error, BASL_STATUS_INVALID_ARGUMENT,
+            vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                    "cli: unexpected argument");
-            return BASL_STATUS_INVALID_ARGUMENT;
+            return VIGIL_STATUS_INVALID_ARGUMENT;
         }
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }

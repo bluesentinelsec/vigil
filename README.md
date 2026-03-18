@@ -1,10 +1,10 @@
-# BASL
+# VIGIL
 
 **Blazingly Awesome Scripting Language**
 
-BASL is a statically typed, bytecode-compiled scripting language designed for building CLI tools, graphical programs, and libraries. It favors explicit behavior, batteries-included tooling, and easy distribution.
+VIGIL is a statically typed, bytecode-compiled scripting language designed for building CLI tools, graphical programs, and libraries. It favors explicit behavior, batteries-included tooling, and easy distribution.
 
-```basl
+```vigil
 import "fmt";
 
 fn main() -> i32 {
@@ -23,32 +23,32 @@ make test
 Run a program:
 
 ```bash
-basl run hello.basl
+vigil run hello.vigil
 ```
 
 Create a new project:
 
 ```bash
-basl new myapp
+vigil new myapp
 cd myapp
-basl run main.basl
+vigil run main.vigil
 ```
 
 ## Tooling
 
 | Command         | Description                                    |
 |-----------------|------------------------------------------------|
-| `basl run`      | Run a BASL script                              |
-| `basl check`    | Type-check without running                     |
-| `basl test`     | Run tests                                      |
-| `basl fmt`      | Format source files                            |
-| `basl doc`      | Show documentation for modules or source files |
-| `basl debug`    | Debug a script                                 |
-| `basl new`      | Create a new project                           |
-| `basl package`  | Package a program as a standalone binary       |
-| `basl repl`     | Start interactive REPL                         |
-| `basl lsp`      | Start Language Server Protocol server          |
-| `basl embed`    | Embed files as BASL source code                |
+| `vigil run`      | Run a VIGIL script                              |
+| `vigil check`    | Type-check without running                     |
+| `vigil test`     | Run tests                                      |
+| `vigil fmt`      | Format source files                            |
+| `vigil doc`      | Show documentation for modules or source files |
+| `vigil debug`    | Debug a script                                 |
+| `vigil new`      | Create a new project                           |
+| `vigil package`  | Package a program as a standalone binary       |
+| `vigil repl`     | Start interactive REPL                         |
+| `vigil lsp`      | Start Language Server Protocol server          |
+| `vigil embed`    | Embed files as VIGIL source code                |
 
 ## Language Highlights
 
@@ -64,7 +64,7 @@ basl run main.basl
 ## Repository Layout
 
 ```
-include/basl/       Public C API headers
+include/vigil/       Public C API headers
 src/                Compiler, VM, runtime, CLI, stdlib, platform layer
 tests/              Unit tests
 integration_tests/  CLI integration tests

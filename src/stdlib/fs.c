@@ -1,4 +1,4 @@
-/* BASL standard library: fs module.
+/* VIGIL standard library: fs module.
  *
  * Provides filesystem operations: path manipulation, file I/O,
  * directory operations, and standard locations.
@@ -11,56 +11,56 @@
 #define strtok_r strtok_s
 #endif
 
-#include "basl/native_module.h"
-#include "basl/type.h"
-#include "basl/value.h"
-#include "basl/vm.h"
-#include "basl/runtime.h"
+#include "vigil/native_module.h"
+#include "vigil/type.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
+#include "vigil/runtime.h"
 #include "platform/platform.h"
 
-#include "internal/basl_nanbox.h"
+#include "internal/vigil_nanbox.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static bool get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
+static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
                            const char **str, size_t *len) {
-    basl_value_t v = basl_vm_stack_get(vm, base + idx);
-    if (!basl_nanbox_is_object(v)) return false;
-    basl_object_t *obj = (basl_object_t *)basl_nanbox_decode_ptr(v);
-    if (!obj || basl_object_type(obj) != BASL_OBJECT_STRING) return false;
-    *str = basl_string_object_c_str(obj);
-    *len = basl_string_object_length(obj);
+    vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
+    if (!vigil_nanbox_is_object(v)) return false;
+    vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    *str = vigil_string_object_c_str(obj);
+    *len = vigil_string_object_length(obj);
     return true;
 }
 
-static basl_status_t push_string(basl_vm_t *vm, const char *str, size_t len,
-                                  basl_error_t *error) {
-    basl_object_t *obj = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(vm), str, len, &obj, error);
-    if (s != BASL_STATUS_OK) return s;
-    basl_value_t val;
-    basl_value_init_object(&val, &obj);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
+                                  vigil_error_t *error) {
+    vigil_object_t *obj = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
+    if (s != VIGIL_STATUS_OK) return s;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &obj);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
-static basl_status_t push_bool(basl_vm_t *vm, int b, basl_error_t *error) {
-    basl_value_t val;
-    basl_value_init_bool(&val, b);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_bool(vigil_vm_t *vm, int b, vigil_error_t *error) {
+    vigil_value_t val;
+    vigil_value_init_bool(&val, b);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
-static basl_status_t push_i64(basl_vm_t *vm, int64_t n, basl_error_t *error) {
-    basl_value_t val;
-    basl_value_init_int(&val, n);
-    return basl_vm_stack_push(vm, &val, error);
+static vigil_status_t push_i64(vigil_vm_t *vm, int64_t n, vigil_error_t *error) {
+    vigil_value_t val;
+    vigil_value_init_int(&val, n);
+    return vigil_vm_stack_push(vm, &val, error);
 }
 
 /* ── Path operations ─────────────────────────────────────────────── */
 
-static basl_status_t fs_join(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_join(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     char result[4096] = "";
     
     for (size_t i = 0; i < arg_count; i++) {
@@ -86,17 +86,17 @@ static basl_status_t fs_join(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
         result[rlen + plen] = '\0';
     }
     
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_string(vm, result, strlen(result), error);
 }
 
-static basl_status_t fs_clean(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_clean(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, ".", 1, error);
     }
     
@@ -108,7 +108,7 @@ static basl_status_t fs_clean(basl_vm_t *vm, size_t arg_count, basl_error_t *err
     /* Copy and split by / */
     char *copy = malloc(path_len + 1);
     if (!copy) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, path, path_len, error);
     }
     memcpy(copy, path, path_len);
@@ -158,17 +158,17 @@ static basl_status_t fs_clean(basl_vm_t *vm, size_t arg_count, basl_error_t *err
     if (is_abs && result[1] == '/') memmove(result + 1, result + 2, strlen(result + 1));
     
     free(copy);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_string(vm, result, strlen(result), error);
 }
 
-static basl_status_t fs_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, ".", 1, error);
     }
     
@@ -178,19 +178,19 @@ static basl_status_t fs_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error
         if (path[i] == '/') last_sep = path + i;
     }
     
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (!last_sep) return push_string(vm, ".", 1, error);
     if (last_sep == path) return push_string(vm, "/", 1, error);
     return push_string(vm, path, (size_t)(last_sep - path), error);
 }
 
-static basl_status_t fs_base(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_base(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
     
@@ -200,18 +200,18 @@ static basl_status_t fs_base(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
         if (path[i] == '/') last_sep = path + i;
     }
     
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (!last_sep) return push_string(vm, path, path_len, error);
     return push_string(vm, last_sep + 1, path_len - (size_t)(last_sep - path) - 1, error);
 }
 
-static basl_status_t fs_ext(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_ext(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
     
@@ -223,24 +223,24 @@ static basl_status_t fs_ext(basl_vm_t *vm, size_t arg_count, basl_error_t *error
         if (path[i] == '.') last_dot = path + i;
     }
     
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     if (!last_dot || (last_sep && last_dot < last_sep)) {
         return push_string(vm, "", 0, error);
     }
     return push_string(vm, last_dot, path_len - (size_t)(last_dot - path), error);
 }
 
-static basl_status_t fs_is_abs(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_is_abs(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
 #ifdef _WIN32
     int is_abs = (path_len >= 3 && path[1] == ':' && (path[2] == '/' || path[2] == '\\')) ||
                  (path_len > 0 && (path[0] == '/' || path[0] == '\\'));
@@ -253,13 +253,13 @@ static basl_status_t fs_is_abs(basl_vm_t *vm, size_t arg_count, basl_error_t *er
 
 /* ── File operations ─────────────────────────────────────────────── */
 
-static basl_status_t fs_read(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_read(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
     
@@ -268,61 +268,61 @@ static basl_status_t fs_read(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
     
     char *data = NULL;
     size_t data_len = 0;
-    basl_status_t s = basl_platform_read_file(NULL, pathbuf, &data, &data_len, error);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_status_t s = vigil_platform_read_file(NULL, pathbuf, &data, &data_len, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
     
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     s = push_string(vm, data, data_len, error);
     free(data);
     return s;
 }
 
-static basl_status_t fs_write(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_write(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path, *data;
     size_t path_len, data_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len) ||
         !get_string_arg(vm, base, 1, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_status_t s = basl_platform_write_file(pathbuf, data, data_len, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_write_file(pathbuf, data, data_len, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
-static basl_status_t fs_append(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_append(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path, *data;
     size_t path_len, data_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len) ||
         !get_string_arg(vm, base, 1, &data, &data_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_status_t s = basl_platform_append_file(pathbuf, data, data_len, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_append_file(pathbuf, data, data_len, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
-static basl_status_t fs_copy(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_copy(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *src, *dst;
     size_t src_len, dst_len;
     
     if (!get_string_arg(vm, base, 0, &src, &src_len) ||
         !get_string_arg(vm, base, 1, &dst, &dst_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
@@ -330,19 +330,19 @@ static basl_status_t fs_copy(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
     snprintf(srcbuf, sizeof(srcbuf), "%.*s", (int)src_len, src);
     snprintf(dstbuf, sizeof(dstbuf), "%.*s", (int)dst_len, dst);
     
-    basl_status_t s = basl_platform_copy_file(srcbuf, dstbuf, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_copy_file(srcbuf, dstbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
-static basl_status_t fs_move(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_move(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *src, *dst;
     size_t src_len, dst_len;
     
     if (!get_string_arg(vm, base, 0, &src, &src_len) ||
         !get_string_arg(vm, base, 1, &dst, &dst_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
@@ -350,36 +350,36 @@ static basl_status_t fs_move(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
     snprintf(srcbuf, sizeof(srcbuf), "%.*s", (int)src_len, src);
     snprintf(dstbuf, sizeof(dstbuf), "%.*s", (int)dst_len, dst);
     
-    basl_status_t s = basl_platform_rename(srcbuf, dstbuf, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_rename(srcbuf, dstbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
-static basl_status_t fs_remove(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_remove(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_status_t s = basl_platform_remove(pathbuf, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_remove(pathbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
-static basl_status_t fs_exists(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_exists(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
@@ -387,18 +387,18 @@ static basl_status_t fs_exists(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
     int exists = 0;
-    basl_platform_file_exists(pathbuf, &exists);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_platform_file_exists(pathbuf, &exists);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_bool(vm, exists, error);
 }
 
-static basl_status_t fs_is_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_is_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
@@ -406,18 +406,18 @@ static basl_status_t fs_is_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
     int is_dir = 0;
-    basl_platform_is_directory(pathbuf, &is_dir);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_platform_is_directory(pathbuf, &is_dir);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_bool(vm, is_dir, error);
 }
 
-static basl_status_t fs_is_file(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_is_file(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
@@ -425,142 +425,142 @@ static basl_status_t fs_is_file(basl_vm_t *vm, size_t arg_count, basl_error_t *e
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
     int is_file = 0;
-    basl_platform_is_file(pathbuf, &is_file);
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_platform_is_file(pathbuf, &is_file);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_bool(vm, is_file, error);
 }
 
 
 /* ── Directory operations ────────────────────────────────────────── */
 
-static basl_status_t fs_mkdir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_mkdir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_status_t s = basl_platform_mkdir(pathbuf, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_mkdir(pathbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
-static basl_status_t fs_mkdir_all(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_mkdir_all(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_status_t s = basl_platform_mkdir_p(pathbuf, error);
-    basl_vm_stack_pop_n(vm, arg_count);
-    return push_bool(vm, s == BASL_STATUS_OK, error);
+    vigil_status_t s = vigil_platform_mkdir_p(pathbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
 }
 
 /* Callback data for list_dir */
 typedef struct {
-    basl_vm_t *vm;
-    basl_object_t *array;
-    basl_error_t *error;
+    vigil_vm_t *vm;
+    vigil_object_t *array;
+    vigil_error_t *error;
 } list_ctx_t;
 
-static basl_status_t list_callback(const char *name, int is_dir, void *user_data) {
+static vigil_status_t list_callback(const char *name, int is_dir, void *user_data) {
     (void)is_dir;
     list_ctx_t *ctx = (list_ctx_t *)user_data;
     
-    basl_object_t *str = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(ctx->vm), name, strlen(name), &str, ctx->error);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_object_t *str = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(ctx->vm), name, strlen(name), &str, ctx->error);
+    if (s != VIGIL_STATUS_OK) return s;
     
-    basl_value_t val;
-    basl_value_init_object(&val, &str);
-    s = basl_array_object_append(ctx->array, &val, ctx->error);
-    basl_value_release(&val);
+    vigil_value_t val;
+    vigil_value_init_object(&val, &str);
+    s = vigil_array_object_append(ctx->array, &val, ctx->error);
+    vigil_value_release(&val);
     return s;
 }
 
-static basl_status_t fs_list(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_list(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         /* Return empty array */
-        basl_object_t *arr = NULL;
-        basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        basl_status_t s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_object_t *arr = NULL;
+        vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        vigil_status_t s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_object_t *arr = NULL;
-    basl_status_t s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-    if (s != BASL_STATUS_OK) {
-        basl_vm_stack_pop_n(vm, arg_count);
+    vigil_object_t *arr = NULL;
+    vigil_status_t s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+    if (s != VIGIL_STATUS_OK) {
+        vigil_vm_stack_pop_n(vm, arg_count);
         return s;
     }
     
     list_ctx_t ctx = { vm, arr, error };
-    basl_platform_list_dir(pathbuf, list_callback, &ctx, error);
+    vigil_platform_list_dir(pathbuf, list_callback, &ctx, error);
     
-    basl_vm_stack_pop_n(vm, arg_count);
-    basl_value_t val;
-    basl_value_init_object(&val, &arr);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    vigil_value_t val;
+    vigil_value_init_object(&val, &arr);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
 /* Recursive walk helper */
 typedef struct {
-    basl_vm_t *vm;
-    basl_object_t *array;
-    basl_error_t *error;
+    vigil_vm_t *vm;
+    vigil_object_t *array;
+    vigil_error_t *error;
     char base_path[4096];
 } walk_ctx_t;
 
-static basl_status_t walk_dir(walk_ctx_t *ctx, const char *dir);
+static vigil_status_t walk_dir(walk_ctx_t *ctx, const char *dir);
 
-static basl_status_t walk_callback(const char *name, int is_dir, void *user_data) {
+static vigil_status_t walk_callback(const char *name, int is_dir, void *user_data) {
     walk_ctx_t *ctx = (walk_ctx_t *)user_data;
     
     char full_path[4096];
     size_t base_len = strlen(ctx->base_path);
     size_t name_len = strlen(name);
     if (base_len + 1 + name_len >= sizeof(full_path)) {
-        return BASL_STATUS_OK; /* Skip paths that are too long */
+        return VIGIL_STATUS_OK; /* Skip paths that are too long */
     }
     memcpy(full_path, ctx->base_path, base_len);
     full_path[base_len] = '/';
     memcpy(full_path + base_len + 1, name, name_len + 1);
     
-    basl_object_t *str = NULL;
-    basl_status_t s = basl_string_object_new(basl_vm_runtime(ctx->vm), full_path, strlen(full_path), &str, ctx->error);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_object_t *str = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(ctx->vm), full_path, strlen(full_path), &str, ctx->error);
+    if (s != VIGIL_STATUS_OK) return s;
     
-    basl_value_t val;
-    basl_value_init_object(&val, &str);
-    s = basl_array_object_append(ctx->array, &val, ctx->error);
-    basl_value_release(&val);
-    if (s != BASL_STATUS_OK) return s;
+    vigil_value_t val;
+    vigil_value_init_object(&val, &str);
+    s = vigil_array_object_append(ctx->array, &val, ctx->error);
+    vigil_value_release(&val);
+    if (s != VIGIL_STATUS_OK) return s;
     
     if (is_dir) {
         char saved[4096];
@@ -573,36 +573,36 @@ static basl_status_t walk_callback(const char *name, int is_dir, void *user_data
         memcpy(ctx->base_path, saved, base_len + 1);
     }
     
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
-static basl_status_t walk_dir(walk_ctx_t *ctx, const char *dir) {
-    return basl_platform_list_dir(dir, walk_callback, ctx, ctx->error);
+static vigil_status_t walk_dir(walk_ctx_t *ctx, const char *dir) {
+    return vigil_platform_list_dir(dir, walk_callback, ctx, ctx->error);
 }
 
-static basl_status_t fs_walk(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_walk(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
-        basl_object_t *arr = NULL;
-        basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-        basl_value_t val;
-        basl_value_init_object(&val, &arr);
-        basl_status_t s = basl_vm_stack_push(vm, &val, error);
-        basl_value_release(&val);
+        vigil_vm_stack_pop_n(vm, arg_count);
+        vigil_object_t *arr = NULL;
+        vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        vigil_status_t s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
         return s;
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    basl_object_t *arr = NULL;
-    basl_status_t s = basl_array_object_new(basl_vm_runtime(vm), NULL, 0, &arr, error);
-    if (s != BASL_STATUS_OK) {
-        basl_vm_stack_pop_n(vm, arg_count);
+    vigil_object_t *arr = NULL;
+    vigil_status_t s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+    if (s != VIGIL_STATUS_OK) {
+        vigil_vm_stack_pop_n(vm, arg_count);
         return s;
     }
     
@@ -612,67 +612,67 @@ static basl_status_t fs_walk(basl_vm_t *vm, size_t arg_count, basl_error_t *erro
     ctx.base_path[copy_len] = '\0';
     walk_dir(&ctx, pathbuf);
     
-    basl_vm_stack_pop_n(vm, arg_count);
-    basl_value_t val;
-    basl_value_init_object(&val, &arr);
-    s = basl_vm_stack_push(vm, &val, error);
-    basl_value_release(&val);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    vigil_value_t val;
+    vigil_value_init_object(&val, &arr);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
     return s;
 }
 
 
 /* ── Metadata and locations ──────────────────────────────────────── */
 
-static basl_status_t fs_size(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_size(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    int64_t size = basl_platform_file_size(pathbuf);
-    basl_vm_stack_pop_n(vm, arg_count);
+    int64_t size = vigil_platform_file_size(pathbuf);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, size, error);
 }
 
-static basl_status_t fs_mtime(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_mtime(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
-        basl_vm_stack_pop_n(vm, arg_count);
+        vigil_vm_stack_pop_n(vm, arg_count);
         return push_i64(vm, -1, error);
     }
     
     char pathbuf[4096];
     snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
     
-    int64_t mtime = basl_platform_file_mtime(pathbuf);
-    basl_vm_stack_pop_n(vm, arg_count);
+    int64_t mtime = vigil_platform_file_mtime(pathbuf);
+    vigil_vm_stack_pop_n(vm, arg_count);
     return push_i64(vm, mtime, error);
 }
 
-static basl_status_t fs_temp_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t fs_temp_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_temp_dir(&path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_temp_dir(&path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
     return s;
 }
 
-static basl_status_t fs_temp_file(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    size_t base = basl_vm_stack_depth(vm) - arg_count;
+static vigil_status_t fs_temp_file(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *prefix = "tmp";
     size_t prefix_len = 3;
     
@@ -683,71 +683,71 @@ static basl_status_t fs_temp_file(basl_vm_t *vm, size_t arg_count, basl_error_t 
     char prefixbuf[64];
     snprintf(prefixbuf, sizeof(prefixbuf), "%.*s", (int)prefix_len, prefix);
     
-    basl_vm_stack_pop_n(vm, arg_count);
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_temp_file(prefixbuf, &path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_temp_file(prefixbuf, &path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
     return s;
 }
 
-static basl_status_t fs_home_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t fs_home_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_home_dir(&path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_home_dir(&path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
     return s;
 }
 
-static basl_status_t fs_config_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t fs_config_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_config_dir(&path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_config_dir(&path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
     return s;
 }
 
-static basl_status_t fs_cache_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t fs_cache_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_cache_dir(&path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_cache_dir(&path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
     return s;
 }
 
-static basl_status_t fs_data_dir(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t fs_data_dir(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_data_dir(&path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_data_dir(&path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
     return s;
 }
 
-static basl_status_t fs_cwd(basl_vm_t *vm, size_t arg_count, basl_error_t *error) {
-    basl_vm_stack_pop_n(vm, arg_count);
+static vigil_status_t fs_cwd(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    vigil_vm_stack_pop_n(vm, arg_count);
     
     char *path = NULL;
-    basl_status_t s = basl_platform_getcwd(&path, error);
-    if (s != BASL_STATUS_OK) return push_string(vm, "", 0, error);
+    vigil_status_t s = vigil_platform_getcwd(&path, error);
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     
     s = push_string(vm, path, strlen(path), error);
     free(path);
@@ -756,51 +756,51 @@ static basl_status_t fs_cwd(basl_vm_t *vm, size_t arg_count, basl_error_t *error
 
 /* ── Module definition ───────────────────────────────────────────── */
 
-static const int str_param[] = {BASL_TYPE_STRING};
-static const int str_str_params[] = {BASL_TYPE_STRING, BASL_TYPE_STRING};
+static const int str_param[] = {VIGIL_TYPE_STRING};
+static const int str_str_params[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_STRING};
 
-static const basl_native_module_function_t basl_fs_functions[] = {
+static const vigil_native_module_function_t vigil_fs_functions[] = {
     /* Path operations */
-    {"join", 4U, fs_join, 2U, str_str_params, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"clean", 5U, fs_clean, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"dir", 3U, fs_dir, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"base", 4U, fs_base, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"ext", 3U, fs_ext, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"is_abs", 6U, fs_is_abs, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"join", 4U, fs_join, 2U, str_str_params, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"clean", 5U, fs_clean, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"dir", 3U, fs_dir, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"base", 4U, fs_base, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"ext", 3U, fs_ext, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"is_abs", 6U, fs_is_abs, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     /* File operations */
-    {"read", 4U, fs_read, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"write", 5U, fs_write, 2U, str_str_params, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"append", 6U, fs_append, 2U, str_str_params, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"copy", 4U, fs_copy, 2U, str_str_params, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"move", 4U, fs_move, 2U, str_str_params, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"remove", 6U, fs_remove, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"exists", 6U, fs_exists, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"is_dir", 6U, fs_is_dir, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"is_file", 7U, fs_is_file, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"read", 4U, fs_read, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"write", 5U, fs_write, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"append", 6U, fs_append, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"copy", 4U, fs_copy, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"move", 4U, fs_move, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"remove", 6U, fs_remove, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"exists", 6U, fs_exists, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"is_dir", 6U, fs_is_dir, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"is_file", 7U, fs_is_file, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     /* Directory operations */
-    {"mkdir", 5U, fs_mkdir, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"mkdir_all", 9U, fs_mkdir_all, 1U, str_param, BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
-    {"list", 4U, fs_list, 1U, str_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING, NULL, NULL},
-    {"walk", 4U, fs_walk, 1U, str_param, BASL_TYPE_OBJECT, 1U, NULL, BASL_TYPE_STRING, NULL, NULL},
+    {"mkdir", 5U, fs_mkdir, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"mkdir_all", 9U, fs_mkdir_all, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"list", 4U, fs_list, 1U, str_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, NULL},
+    {"walk", 4U, fs_walk, 1U, str_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, NULL},
     /* Metadata */
-    {"size", 4U, fs_size, 1U, str_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"mtime", 5U, fs_mtime, 1U, str_param, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"size", 4U, fs_size, 1U, str_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"mtime", 5U, fs_mtime, 1U, str_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
     /* Locations */
-    {"temp_dir", 8U, fs_temp_dir, 0U, NULL, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"temp_file", 9U, fs_temp_file, 1U, str_param, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"home_dir", 8U, fs_home_dir, 0U, NULL, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"config_dir", 10U, fs_config_dir, 0U, NULL, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"cache_dir", 9U, fs_cache_dir, 0U, NULL, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"data_dir", 8U, fs_data_dir, 0U, NULL, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"cwd", 3U, fs_cwd, 0U, NULL, BASL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"temp_dir", 8U, fs_temp_dir, 0U, NULL, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"temp_file", 9U, fs_temp_file, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"home_dir", 8U, fs_home_dir, 0U, NULL, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"config_dir", 10U, fs_config_dir, 0U, NULL, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"cache_dir", 9U, fs_cache_dir, 0U, NULL, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"data_dir", 8U, fs_data_dir, 0U, NULL, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"cwd", 3U, fs_cwd, 0U, NULL, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
 };
 
 #define FS_FUNCTION_COUNT \
-    (sizeof(basl_fs_functions) / sizeof(basl_fs_functions[0]))
+    (sizeof(vigil_fs_functions) / sizeof(vigil_fs_functions[0]))
 
-BASL_API const basl_native_module_t basl_stdlib_fs = {
+VIGIL_API const vigil_native_module_t vigil_stdlib_fs = {
     "fs", 2U,
-    basl_fs_functions,
+    vigil_fs_functions,
     FS_FUNCTION_COUNT,
     NULL, 0U
 };

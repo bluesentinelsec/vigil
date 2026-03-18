@@ -1,4 +1,4 @@
-#include "basl/doc.h"
+#include "vigil/doc.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -6,19 +6,19 @@
 
 /* ── Allocation helpers ──────────────────────────────────────────── */
 
-static void *doc_alloc(const basl_allocator_t *a, size_t size) {
+static void *doc_alloc(const vigil_allocator_t *a, size_t size) {
     if (a != NULL && a->allocate != NULL)
         return a->allocate(a->user_data, size);
     return malloc(size);
 }
 
-static void *doc_realloc(const basl_allocator_t *a, void *p, size_t size) {
+static void *doc_realloc(const vigil_allocator_t *a, void *p, size_t size) {
     if (a != NULL && a->reallocate != NULL)
         return a->reallocate(a->user_data, p, size);
     return realloc(p, size);
 }
 
-static void doc_free_ptr(const basl_allocator_t *a, void *p) {
+static void doc_free_ptr(const vigil_allocator_t *a, void *p) {
     if (p == NULL) return;
     if (a != NULL && a->deallocate != NULL) {
         a->deallocate(a->user_data, p);
@@ -27,7 +27,7 @@ static void doc_free_ptr(const basl_allocator_t *a, void *p) {
     free(p);
 }
 
-static char *doc_strdup(const basl_allocator_t *a, const char *s, size_t len) {
+static char *doc_strdup(const vigil_allocator_t *a, const char *s, size_t len) {
     char *out;
     if (s == NULL || len == 0) return NULL;
     out = (char *)doc_alloc(a, len + 1);
@@ -40,13 +40,13 @@ static char *doc_strdup(const basl_allocator_t *a, const char *s, size_t len) {
 /* ── String builder ──────────────────────────────────────────────── */
 
 typedef struct doc_buf {
-    const basl_allocator_t *allocator;
+    const vigil_allocator_t *allocator;
     char *data;
     size_t length;
     size_t capacity;
 } doc_buf_t;
 
-static void buf_init(doc_buf_t *b, const basl_allocator_t *a) {
+static void buf_init(doc_buf_t *b, const vigil_allocator_t *a) {
     b->allocator = a;
     b->data = NULL;
     b->length = 0;
@@ -96,11 +96,11 @@ static void buf_free(doc_buf_t *b) {
 
 /* ── Token helpers ───────────────────────────────────────────────── */
 
-static const basl_token_t *tok_at(const basl_token_list_t *tokens, size_t i) {
-    return basl_token_list_get(tokens, i);
+static const vigil_token_t *tok_at(const vigil_token_list_t *tokens, size_t i) {
+    return vigil_token_list_get(tokens, i);
 }
 
-static const char *tok_text(const char *src, const basl_token_t *t, size_t *out_len) {
+static const char *tok_text(const char *src, const vigil_token_t *t, size_t *out_len) {
     size_t len;
     if (t == NULL) { if (out_len) *out_len = 0; return NULL; }
     len = t->span.end_offset - t->span.start_offset;
@@ -108,26 +108,26 @@ static const char *tok_text(const char *src, const basl_token_t *t, size_t *out_
     return src + t->span.start_offset;
 }
 
-static int tok_is_ident_text(const char *src, const basl_token_t *t,
+static int tok_is_ident_text(const char *src, const vigil_token_t *t,
                               const char *text, size_t text_len) {
     size_t len;
     const char *s;
-    if (t == NULL || t->kind != BASL_TOKEN_IDENTIFIER) return 0;
+    if (t == NULL || t->kind != VIGIL_TOKEN_IDENTIFIER) return 0;
     s = tok_text(src, t, &len);
     return len == text_len && memcmp(s, text, len) == 0;
 }
 
-static int tok_is_type_start(const basl_token_t *t) {
+static int tok_is_type_start(const vigil_token_t *t) {
     if (t == NULL) return 0;
-    return t->kind == BASL_TOKEN_IDENTIFIER || t->kind == BASL_TOKEN_FN;
+    return t->kind == VIGIL_TOKEN_IDENTIFIER || t->kind == VIGIL_TOKEN_FN;
 }
 
 /* ── Comment extraction ──────────────────────────────────────────── */
 
-static void extract_comment_before(const basl_allocator_t *a,
+static void extract_comment_before(const vigil_allocator_t *a,
                                     const char *src, size_t src_len,
                                     size_t decl_offset,
-                                    basl_doc_comment_t *out) {
+                                    vigil_doc_comment_t *out) {
     size_t end;
     doc_buf_t buf;
     int first;
@@ -210,10 +210,10 @@ static void extract_comment_before(const basl_allocator_t *a,
     }
 }
 
-static void extract_module_summary(const basl_allocator_t *a,
+static void extract_module_summary(const vigil_allocator_t *a,
                                     const char *src, size_t src_len,
                                     size_t first_decl_offset,
-                                    basl_doc_comment_t *out) {
+                                    vigil_doc_comment_t *out) {
     /* Module summary = leading // comments before any declaration. */
     size_t pos = 0;
     doc_buf_t buf;
@@ -282,10 +282,10 @@ static void extract_module_summary(const basl_allocator_t *a,
 
 /* ── Type text extraction from tokens ────────────────────────────── */
 
-static void extract_type_text(const char *src, const basl_token_list_t *tokens,
+static void extract_type_text(const char *src, const vigil_token_list_t *tokens,
                                size_t *cursor, doc_buf_t *buf) {
     /* Extracts a type expression: identifier, module.Type, array<T>, map<K,V>, fn(...) -> R */
-    const basl_token_t *t = tok_at(tokens, *cursor);
+    const vigil_token_t *t = tok_at(tokens, *cursor);
     size_t len;
     const char *text;
     int angle_depth;
@@ -298,7 +298,7 @@ static void extract_type_text(const char *src, const basl_token_list_t *tokens,
 
     /* Handle dot-qualified types: math.Vec3, module.Type */
     t = tok_at(tokens, *cursor);
-    if (t != NULL && t->kind == BASL_TOKEN_DOT) {
+    if (t != NULL && t->kind == VIGIL_TOKEN_DOT) {
         buf_append_char(buf, '.');
         (*cursor)++;
         t = tok_at(tokens, *cursor);
@@ -311,27 +311,27 @@ static void extract_type_text(const char *src, const basl_token_list_t *tokens,
     }
 
     /* Handle generic types: array<T>, map<K,V> */
-    if (t != NULL && t->kind == BASL_TOKEN_LESS) {
+    if (t != NULL && t->kind == VIGIL_TOKEN_LESS) {
         buf_append_char(buf, '<');
         (*cursor)++;
         angle_depth = 1;
         while (angle_depth > 0) {
             t = tok_at(tokens, *cursor);
-            if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
-            if (t->kind == BASL_TOKEN_LESS) {
+            if (t == NULL || t->kind == VIGIL_TOKEN_EOF) break;
+            if (t->kind == VIGIL_TOKEN_LESS) {
                 angle_depth++;
                 buf_append_char(buf, '<');
                 (*cursor)++;
-            } else if (t->kind == BASL_TOKEN_GREATER) {
+            } else if (t->kind == VIGIL_TOKEN_GREATER) {
                 angle_depth--;
                 buf_append_char(buf, '>');
                 (*cursor)++;
-            } else if (t->kind == BASL_TOKEN_SHIFT_RIGHT) {
+            } else if (t->kind == VIGIL_TOKEN_SHIFT_RIGHT) {
                 /* >> token closes two levels of nested generics */
                 angle_depth -= 2;
                 buf_append_cstr(buf, ">>");
                 (*cursor)++;
-            } else if (t->kind == BASL_TOKEN_COMMA) {
+            } else if (t->kind == VIGIL_TOKEN_COMMA) {
                 buf_append_cstr(buf, ", ");
                 (*cursor)++;
             } else {
@@ -345,25 +345,25 @@ static void extract_type_text(const char *src, const basl_token_list_t *tokens,
 
 /* ── Parameter list extraction ───────────────────────────────────── */
 
-static basl_status_t extract_params(const basl_allocator_t *a,
+static vigil_status_t extract_params(const vigil_allocator_t *a,
                                      const char *src,
-                                     const basl_token_list_t *tokens,
+                                     const vigil_token_list_t *tokens,
                                      size_t *cursor,
-                                     basl_doc_param_t **out_params,
+                                     vigil_doc_param_t **out_params,
                                      size_t *out_count) {
-    const basl_token_t *t;
+    const vigil_token_t *t;
     size_t cap = 4, count = 0;
-    basl_doc_param_t *params;
+    vigil_doc_param_t *params;
 
     *out_params = NULL;
     *out_count = 0;
 
     t = tok_at(tokens, *cursor);
-    if (t == NULL || t->kind != BASL_TOKEN_LPAREN) return BASL_STATUS_OK;
+    if (t == NULL || t->kind != VIGIL_TOKEN_LPAREN) return VIGIL_STATUS_OK;
     (*cursor)++;
 
-    params = (basl_doc_param_t *)doc_alloc(a, cap * sizeof(basl_doc_param_t));
-    if (params == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+    params = (vigil_doc_param_t *)doc_alloc(a, cap * sizeof(vigil_doc_param_t));
+    if (params == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
 
     while (1) {
         doc_buf_t type_buf;
@@ -371,7 +371,7 @@ static basl_status_t extract_params(const basl_allocator_t *a,
         const char *name_text;
 
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_RPAREN) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RPAREN) break;
 
         /* Type */
         buf_init(&type_buf, a);
@@ -384,8 +384,8 @@ static basl_status_t extract_params(const basl_allocator_t *a,
 
         if (count >= cap) {
             cap *= 2;
-            params = (basl_doc_param_t *)doc_realloc(a, params, cap * sizeof(basl_doc_param_t));
-            if (params == NULL) { buf_free(&type_buf); return BASL_STATUS_OUT_OF_MEMORY; }
+            params = (vigil_doc_param_t *)doc_realloc(a, params, cap * sizeof(vigil_doc_param_t));
+            if (params == NULL) { buf_free(&type_buf); return VIGIL_STATUS_OUT_OF_MEMORY; }
         }
 
         params[count].type_text = type_buf.data;
@@ -395,55 +395,55 @@ static basl_status_t extract_params(const basl_allocator_t *a,
         count++;
 
         t = tok_at(tokens, *cursor);
-        if (t != NULL && t->kind == BASL_TOKEN_COMMA) (*cursor)++;
+        if (t != NULL && t->kind == VIGIL_TOKEN_COMMA) (*cursor)++;
     }
 
     /* Skip ) */
     t = tok_at(tokens, *cursor);
-    if (t != NULL && t->kind == BASL_TOKEN_RPAREN) (*cursor)++;
+    if (t != NULL && t->kind == VIGIL_TOKEN_RPAREN) (*cursor)++;
 
     *out_params = params;
     *out_count = count;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Return type extraction ──────────────────────────────────────── */
 
-static void extract_return_type(const basl_allocator_t *a,
+static void extract_return_type(const vigil_allocator_t *a,
                                  const char *src,
-                                 const basl_token_list_t *tokens,
+                                 const vigil_token_list_t *tokens,
                                  size_t *cursor,
                                  char **out_text, size_t *out_len) {
-    const basl_token_t *t;
+    const vigil_token_t *t;
     doc_buf_t buf;
 
     *out_text = NULL;
     *out_len = 0;
 
     t = tok_at(tokens, *cursor);
-    if (t == NULL || t->kind != BASL_TOKEN_ARROW) return;
+    if (t == NULL || t->kind != VIGIL_TOKEN_ARROW) return;
     (*cursor)++;
 
     buf_init(&buf, a);
 
     t = tok_at(tokens, *cursor);
-    if (t != NULL && t->kind == BASL_TOKEN_LPAREN) {
+    if (t != NULL && t->kind == VIGIL_TOKEN_LPAREN) {
         /* Tuple return: (i32, err) */
         int first = 1;
         buf_append_char(&buf, '(');
         (*cursor)++;
         while (1) {
             t = tok_at(tokens, *cursor);
-            if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_RPAREN) break;
+            if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RPAREN) break;
             if (!first) buf_append_cstr(&buf, ", ");
             first = 0;
             extract_type_text(src, tokens, cursor, &buf);
             t = tok_at(tokens, *cursor);
-            if (t != NULL && t->kind == BASL_TOKEN_COMMA) (*cursor)++;
+            if (t != NULL && t->kind == VIGIL_TOKEN_COMMA) (*cursor)++;
         }
         buf_append_char(&buf, ')');
         t = tok_at(tokens, *cursor);
-        if (t != NULL && t->kind == BASL_TOKEN_RPAREN) (*cursor)++;
+        if (t != NULL && t->kind == VIGIL_TOKEN_RPAREN) (*cursor)++;
     } else {
         extract_type_text(src, tokens, cursor, &buf);
     }
@@ -454,27 +454,27 @@ static void extract_return_type(const basl_allocator_t *a,
 
 /* ── Skip brace-delimited body ───────────────────────────────────── */
 
-static void skip_brace_body(const basl_token_list_t *tokens, size_t *cursor) {
-    const basl_token_t *t;
+static void skip_brace_body(const vigil_token_list_t *tokens, size_t *cursor) {
+    const vigil_token_t *t;
     int depth = 0;
 
     t = tok_at(tokens, *cursor);
-    if (t == NULL || t->kind != BASL_TOKEN_LBRACE) return;
+    if (t == NULL || t->kind != VIGIL_TOKEN_LBRACE) return;
     depth = 1;
     (*cursor)++;
 
     while (depth > 0) {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
-        if (t->kind == BASL_TOKEN_LBRACE) depth++;
-        else if (t->kind == BASL_TOKEN_RBRACE) depth--;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF) break;
+        if (t->kind == VIGIL_TOKEN_LBRACE) depth++;
+        else if (t->kind == VIGIL_TOKEN_RBRACE) depth--;
         (*cursor)++;
     }
 }
 
 /* ── Module name from filename ───────────────────────────────────── */
 
-static char *module_name_from_path(const basl_allocator_t *a,
+static char *module_name_from_path(const vigil_allocator_t *a,
                                     const char *path, size_t path_len,
                                     size_t *out_len) {
     const char *base, *dot;
@@ -485,7 +485,7 @@ static char *module_name_from_path(const basl_allocator_t *a,
     while (base > path && *(base - 1) != '/' && *(base - 1) != '\\') base--;
     base_len = (size_t)((path + path_len) - base);
 
-    /* Strip .basl extension. */
+    /* Strip .vigil extension. */
     dot = base + base_len;
     while (dot > base && *(dot - 1) != '.') dot--;
     if (dot > base) base_len = (size_t)(dot - 1 - base);
@@ -496,12 +496,12 @@ static char *module_name_from_path(const basl_allocator_t *a,
 
 /* ── Add symbol to module ────────────────────────────────────────── */
 
-static basl_doc_symbol_t *module_add_symbol(basl_doc_module_t *m) {
-    basl_doc_symbol_t *s;
+static vigil_doc_symbol_t *module_add_symbol(vigil_doc_module_t *m) {
+    vigil_doc_symbol_t *s;
     if (m->symbol_count >= m->symbol_capacity) {
         size_t new_cap = m->symbol_capacity == 0 ? 8 : m->symbol_capacity * 2;
-        basl_doc_symbol_t *p = (basl_doc_symbol_t *)doc_realloc(
-            m->allocator, m->symbols, new_cap * sizeof(basl_doc_symbol_t));
+        vigil_doc_symbol_t *p = (vigil_doc_symbol_t *)doc_realloc(
+            m->allocator, m->symbols, new_cap * sizeof(vigil_doc_symbol_t));
         if (p == NULL) return NULL;
         m->symbols = p;
         m->symbol_capacity = new_cap;
@@ -514,15 +514,15 @@ static basl_doc_symbol_t *module_add_symbol(basl_doc_module_t *m) {
 
 /* ── Parse function declaration ──────────────────────────────────── */
 
-static basl_status_t parse_function(const basl_allocator_t *a,
+static vigil_status_t parse_function(const vigil_allocator_t *a,
                                      const char *src, size_t src_len,
-                                     const basl_token_list_t *tokens,
+                                     const vigil_token_list_t *tokens,
                                      size_t *cursor,
-                                     basl_doc_symbol_t *sym) {
-    const basl_token_t *t;
+                                     vigil_doc_symbol_t *sym) {
+    const vigil_token_t *t;
     size_t name_len;
     const char *name_text;
-    basl_status_t status;
+    vigil_status_t status;
 
     (void)src_len;
     /* cursor is on 'fn' */
@@ -531,14 +531,14 @@ static basl_status_t parse_function(const basl_allocator_t *a,
     /* Name */
     t = tok_at(tokens, *cursor);
     name_text = tok_text(src, t, &name_len);
-    sym->kind = BASL_DOC_FUNCTION;
+    sym->kind = VIGIL_DOC_FUNCTION;
     sym->name = doc_strdup(a, name_text, name_len);
     sym->name_length = name_len;
     (*cursor)++;
 
     /* Parameters */
     status = extract_params(a, src, tokens, cursor, &sym->params, &sym->param_count);
-    if (status != BASL_STATUS_OK) return status;
+    if (status != VIGIL_STATUS_OK) return status;
 
     /* Return type */
     extract_return_type(a, src, tokens, cursor, &sym->return_text, &sym->return_length);
@@ -546,17 +546,17 @@ static basl_status_t parse_function(const basl_allocator_t *a,
     /* Skip body */
     skip_brace_body(tokens, cursor);
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Parse class declaration ─────────────────────────────────────── */
 
-static basl_status_t parse_class(const basl_allocator_t *a,
+static vigil_status_t parse_class(const vigil_allocator_t *a,
                                   const char *src, size_t src_len,
-                                  const basl_token_list_t *tokens,
+                                  const vigil_token_list_t *tokens,
                                   size_t *cursor,
-                                  basl_doc_symbol_t *sym) {
-    const basl_token_t *t;
+                                  vigil_doc_symbol_t *sym) {
+    const vigil_token_t *t;
     size_t name_len;
     const char *name_text;
     size_t field_cap = 4, method_cap = 4;
@@ -568,7 +568,7 @@ static basl_status_t parse_class(const basl_allocator_t *a,
     /* Name */
     t = tok_at(tokens, *cursor);
     name_text = tok_text(src, t, &name_len);
-    sym->kind = BASL_DOC_CLASS;
+    sym->kind = VIGIL_DOC_CLASS;
     sym->name = doc_strdup(a, name_text, name_len);
     sym->name_length = name_len;
     (*cursor)++;
@@ -582,45 +582,45 @@ static basl_status_t parse_class(const basl_allocator_t *a,
         (*cursor)++;
         while (1) {
             t = tok_at(tokens, *cursor);
-            if (t == NULL || t->kind == BASL_TOKEN_LBRACE || t->kind == BASL_TOKEN_EOF) break;
+            if (t == NULL || t->kind == VIGIL_TOKEN_LBRACE || t->kind == VIGIL_TOKEN_EOF) break;
             if (!first) buf_append_cstr(&impl_buf, ", ");
             first = 0;
             name_text = tok_text(src, t, &name_len);
             buf_append(&impl_buf, name_text, name_len);
             (*cursor)++;
             t = tok_at(tokens, *cursor);
-            if (t != NULL && t->kind == BASL_TOKEN_COMMA) (*cursor)++;
+            if (t != NULL && t->kind == VIGIL_TOKEN_COMMA) (*cursor)++;
         }
         sym->implements_text = impl_buf.data;
         sym->implements_length = impl_buf.length;
     }
 
     /* Allocate fields and methods arrays. */
-    sym->fields = (basl_doc_symbol_t *)doc_alloc(a, field_cap * sizeof(basl_doc_symbol_t));
-    sym->methods = (basl_doc_symbol_t *)doc_alloc(a, method_cap * sizeof(basl_doc_symbol_t));
+    sym->fields = (vigil_doc_symbol_t *)doc_alloc(a, field_cap * sizeof(vigil_doc_symbol_t));
+    sym->methods = (vigil_doc_symbol_t *)doc_alloc(a, method_cap * sizeof(vigil_doc_symbol_t));
     sym->field_count = 0;
     sym->method_count = 0;
 
     /* Open brace */
     t = tok_at(tokens, *cursor);
-    if (t == NULL || t->kind != BASL_TOKEN_LBRACE) return BASL_STATUS_OK;
+    if (t == NULL || t->kind != VIGIL_TOKEN_LBRACE) return VIGIL_STATUS_OK;
     (*cursor)++;
 
     /* Parse class body. */
     while (1) {
         int is_pub = 0;
-        basl_doc_symbol_t member;
+        vigil_doc_symbol_t member;
 
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_RBRACE) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE) break;
 
-        if (t->kind == BASL_TOKEN_PUB) {
+        if (t->kind == VIGIL_TOKEN_PUB) {
             is_pub = 1;
             (*cursor)++;
             t = tok_at(tokens, *cursor);
         }
 
-        if (t != NULL && t->kind == BASL_TOKEN_FN) {
+        if (t != NULL && t->kind == VIGIL_TOKEN_FN) {
             /* Method */
             memset(&member, 0, sizeof(member));
             extract_comment_before(a, src, src_len, t->span.start_offset, &member.comment);
@@ -628,8 +628,8 @@ static basl_status_t parse_class(const basl_allocator_t *a,
             if (is_pub) {
                 if (sym->method_count >= method_cap) {
                     method_cap *= 2;
-                    sym->methods = (basl_doc_symbol_t *)doc_realloc(
-                        a, sym->methods, method_cap * sizeof(basl_doc_symbol_t));
+                    sym->methods = (vigil_doc_symbol_t *)doc_realloc(
+                        a, sym->methods, method_cap * sizeof(vigil_doc_symbol_t));
                 }
                 sym->methods[sym->method_count++] = member;
             } else {
@@ -664,23 +664,23 @@ static basl_status_t parse_class(const basl_allocator_t *a,
             /* Skip to semicolon. */
             while (1) {
                 t = tok_at(tokens, *cursor);
-                if (t == NULL || t->kind == BASL_TOKEN_EOF ||
-                    t->kind == BASL_TOKEN_SEMICOLON) break;
+                if (t == NULL || t->kind == VIGIL_TOKEN_EOF ||
+                    t->kind == VIGIL_TOKEN_SEMICOLON) break;
                 (*cursor)++;
             }
-            if (t != NULL && t->kind == BASL_TOKEN_SEMICOLON) (*cursor)++;
+            if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON) (*cursor)++;
 
             if (is_pub) {
                 extract_comment_before(a, src, src_len, field_start, &member.comment);
-                member.kind = BASL_DOC_VARIABLE;
+                member.kind = VIGIL_DOC_VARIABLE;
                 member.name = doc_strdup(a, fname_text, fname_len);
                 member.name_length = fname_len;
                 member.type_text = type_buf.data;
                 member.type_length = type_buf.length;
                 if (sym->field_count >= field_cap) {
                     field_cap *= 2;
-                    sym->fields = (basl_doc_symbol_t *)doc_realloc(
-                        a, sym->fields, field_cap * sizeof(basl_doc_symbol_t));
+                    sym->fields = (vigil_doc_symbol_t *)doc_realloc(
+                        a, sym->fields, field_cap * sizeof(vigil_doc_symbol_t));
                 }
                 sym->fields[sym->field_count++] = member;
             } else {
@@ -693,20 +693,20 @@ static basl_status_t parse_class(const basl_allocator_t *a,
 
     /* Close brace */
     t = tok_at(tokens, *cursor);
-    if (t != NULL && t->kind == BASL_TOKEN_RBRACE) (*cursor)++;
+    if (t != NULL && t->kind == VIGIL_TOKEN_RBRACE) (*cursor)++;
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 
 /* ── Parse interface declaration ─────────────────────────────────── */
 
-static basl_status_t parse_interface(const basl_allocator_t *a,
+static vigil_status_t parse_interface(const vigil_allocator_t *a,
                                       const char *src, size_t src_len,
-                                      const basl_token_list_t *tokens,
+                                      const vigil_token_list_t *tokens,
                                       size_t *cursor,
-                                      basl_doc_symbol_t *sym) {
-    const basl_token_t *t;
+                                      vigil_doc_symbol_t *sym) {
+    const vigil_token_t *t;
     size_t name_len;
     const char *name_text;
     size_t method_cap = 4;
@@ -718,26 +718,26 @@ static basl_status_t parse_interface(const basl_allocator_t *a,
     /* Name */
     t = tok_at(tokens, *cursor);
     name_text = tok_text(src, t, &name_len);
-    sym->kind = BASL_DOC_INTERFACE;
+    sym->kind = VIGIL_DOC_INTERFACE;
     sym->name = doc_strdup(a, name_text, name_len);
     sym->name_length = name_len;
     (*cursor)++;
 
-    sym->iface_methods = (basl_doc_symbol_t *)doc_alloc(a, method_cap * sizeof(basl_doc_symbol_t));
+    sym->iface_methods = (vigil_doc_symbol_t *)doc_alloc(a, method_cap * sizeof(vigil_doc_symbol_t));
     sym->iface_method_count = 0;
 
     /* Open brace */
     t = tok_at(tokens, *cursor);
-    if (t == NULL || t->kind != BASL_TOKEN_LBRACE) return BASL_STATUS_OK;
+    if (t == NULL || t->kind != VIGIL_TOKEN_LBRACE) return VIGIL_STATUS_OK;
     (*cursor)++;
 
     while (1) {
-        basl_doc_symbol_t method;
+        vigil_doc_symbol_t method;
 
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_RBRACE) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE) break;
 
-        if (t->kind == BASL_TOKEN_FN) {
+        if (t->kind == VIGIL_TOKEN_FN) {
             memset(&method, 0, sizeof(method));
             extract_comment_before(a, src, src_len, t->span.start_offset, &method.comment);
             /* Interface methods have no body — just signature + ; */
@@ -745,7 +745,7 @@ static basl_status_t parse_interface(const basl_allocator_t *a,
 
             t = tok_at(tokens, *cursor);
             name_text = tok_text(src, t, &name_len);
-            method.kind = BASL_DOC_FUNCTION;
+            method.kind = VIGIL_DOC_FUNCTION;
             method.name = doc_strdup(a, name_text, name_len);
             method.name_length = name_len;
             (*cursor)++;
@@ -755,12 +755,12 @@ static basl_status_t parse_interface(const basl_allocator_t *a,
 
             /* Skip semicolon. */
             t = tok_at(tokens, *cursor);
-            if (t != NULL && t->kind == BASL_TOKEN_SEMICOLON) (*cursor)++;
+            if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON) (*cursor)++;
 
             if (sym->iface_method_count >= method_cap) {
                 method_cap *= 2;
-                sym->iface_methods = (basl_doc_symbol_t *)doc_realloc(
-                    a, sym->iface_methods, method_cap * sizeof(basl_doc_symbol_t));
+                sym->iface_methods = (vigil_doc_symbol_t *)doc_realloc(
+                    a, sym->iface_methods, method_cap * sizeof(vigil_doc_symbol_t));
             }
             sym->iface_methods[sym->iface_method_count++] = method;
         } else {
@@ -769,19 +769,19 @@ static basl_status_t parse_interface(const basl_allocator_t *a,
     }
 
     t = tok_at(tokens, *cursor);
-    if (t != NULL && t->kind == BASL_TOKEN_RBRACE) (*cursor)++;
+    if (t != NULL && t->kind == VIGIL_TOKEN_RBRACE) (*cursor)++;
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Parse enum declaration ──────────────────────────────────────── */
 
-static basl_status_t parse_enum(const basl_allocator_t *a,
+static vigil_status_t parse_enum(const vigil_allocator_t *a,
                                  const char *src, size_t src_len,
-                                 const basl_token_list_t *tokens,
+                                 const vigil_token_list_t *tokens,
                                  size_t *cursor,
-                                 basl_doc_symbol_t *sym) {
-    const basl_token_t *t;
+                                 vigil_doc_symbol_t *sym) {
+    const vigil_token_t *t;
     size_t name_len;
     const char *name_text;
     size_t var_cap = 8;
@@ -792,7 +792,7 @@ static basl_status_t parse_enum(const basl_allocator_t *a,
 
     t = tok_at(tokens, *cursor);
     name_text = tok_text(src, t, &name_len);
-    sym->kind = BASL_DOC_ENUM;
+    sym->kind = VIGIL_DOC_ENUM;
     sym->name = doc_strdup(a, name_text, name_len);
     sym->name_length = name_len;
     (*cursor)++;
@@ -802,14 +802,14 @@ static basl_status_t parse_enum(const basl_allocator_t *a,
     sym->variant_count = 0;
 
     t = tok_at(tokens, *cursor);
-    if (t == NULL || t->kind != BASL_TOKEN_LBRACE) return BASL_STATUS_OK;
+    if (t == NULL || t->kind != VIGIL_TOKEN_LBRACE) return VIGIL_STATUS_OK;
     (*cursor)++;
 
     while (1) {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_RBRACE) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE) break;
 
-        if (t->kind == BASL_TOKEN_IDENTIFIER) {
+        if (t->kind == VIGIL_TOKEN_IDENTIFIER) {
             name_text = tok_text(src, t, &name_len);
             if (sym->variant_count >= var_cap) {
                 var_cap *= 2;
@@ -824,20 +824,20 @@ static basl_status_t parse_enum(const basl_allocator_t *a,
     }
 
     t = tok_at(tokens, *cursor);
-    if (t != NULL && t->kind == BASL_TOKEN_RBRACE) (*cursor)++;
+    if (t != NULL && t->kind == VIGIL_TOKEN_RBRACE) (*cursor)++;
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 /* ── Parse constant declaration ──────────────────────────────────── */
 
-static void parse_const_or_var(const basl_allocator_t *a,
+static void parse_const_or_var(const vigil_allocator_t *a,
                                 const char *src,
-                                const basl_token_list_t *tokens,
+                                const vigil_token_list_t *tokens,
                                 size_t *cursor,
-                                basl_doc_symbol_t *sym,
+                                vigil_doc_symbol_t *sym,
                                 int is_const) {
-    const basl_token_t *t;
+    const vigil_token_t *t;
     doc_buf_t type_buf;
     size_t name_len;
     const char *name_text;
@@ -853,7 +853,7 @@ static void parse_const_or_var(const basl_allocator_t *a,
     name_text = tok_text(src, t, &name_len);
     (*cursor)++;
 
-    sym->kind = is_const ? BASL_DOC_CONSTANT : BASL_DOC_VARIABLE;
+    sym->kind = is_const ? VIGIL_DOC_CONSTANT : VIGIL_DOC_VARIABLE;
     sym->name = doc_strdup(a, name_text, name_len);
     sym->name_length = name_len;
     sym->type_text = type_buf.data;
@@ -862,31 +862,31 @@ static void parse_const_or_var(const basl_allocator_t *a,
     /* Skip to semicolon. */
     while (1) {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_SEMICOLON) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON) break;
         (*cursor)++;
     }
-    if (t != NULL && t->kind == BASL_TOKEN_SEMICOLON) (*cursor)++;
+    if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON) (*cursor)++;
 }
 
 
-/* ── basl_doc_extract ────────────────────────────────────────────── */
+/* ── vigil_doc_extract ────────────────────────────────────────────── */
 
-basl_status_t basl_doc_extract(
-    const basl_allocator_t *allocator,
+vigil_status_t vigil_doc_extract(
+    const vigil_allocator_t *allocator,
     const char *filename,
     size_t filename_length,
     const char *source_text,
     size_t source_length,
-    const basl_token_list_t *tokens,
-    basl_doc_module_t *out_module,
-    basl_error_t *error
+    const vigil_token_list_t *tokens,
+    vigil_doc_module_t *out_module,
+    vigil_error_t *error
 ) {
     size_t cursor = 0;
-    const basl_token_t *t;
+    const vigil_token_t *t;
     size_t first_decl_offset = (size_t)-1;
 
     (void)error;
-    if (out_module == NULL) return BASL_STATUS_INVALID_ARGUMENT;
+    if (out_module == NULL) return VIGIL_STATUS_INVALID_ARGUMENT;
     memset(out_module, 0, sizeof(*out_module));
     out_module->allocator = allocator;
 
@@ -899,14 +899,14 @@ basl_status_t basl_doc_extract(
         int depth = 0;
         while (1) {
             t = tok_at(tokens, scan);
-            if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
-            if (t->kind == BASL_TOKEN_LBRACE) { depth++; scan++; continue; }
-            if (t->kind == BASL_TOKEN_RBRACE) { if (depth > 0) depth--; scan++; continue; }
+            if (t == NULL || t->kind == VIGIL_TOKEN_EOF) break;
+            if (t->kind == VIGIL_TOKEN_LBRACE) { depth++; scan++; continue; }
+            if (t->kind == VIGIL_TOKEN_RBRACE) { if (depth > 0) depth--; scan++; continue; }
             if (depth == 0) {
-                if (t->kind == BASL_TOKEN_PUB || t->kind == BASL_TOKEN_FN ||
-                    t->kind == BASL_TOKEN_CLASS || t->kind == BASL_TOKEN_INTERFACE ||
-                    t->kind == BASL_TOKEN_ENUM || t->kind == BASL_TOKEN_CONST ||
-                    t->kind == BASL_TOKEN_IMPORT || tok_is_type_start(t)) {
+                if (t->kind == VIGIL_TOKEN_PUB || t->kind == VIGIL_TOKEN_FN ||
+                    t->kind == VIGIL_TOKEN_CLASS || t->kind == VIGIL_TOKEN_INTERFACE ||
+                    t->kind == VIGIL_TOKEN_ENUM || t->kind == VIGIL_TOKEN_CONST ||
+                    t->kind == VIGIL_TOKEN_IMPORT || tok_is_type_start(t)) {
                     if (t->span.start_offset < first_decl_offset)
                         first_decl_offset = t->span.start_offset;
                     break;
@@ -923,16 +923,16 @@ basl_status_t basl_doc_extract(
 
     /* Second pass: extract public declarations at brace depth 0.
      * For script files (those containing a main function), also extract
-     * non-pub declarations so that `basl doc` is useful on scripts. */
+     * non-pub declarations so that `vigil doc` is useful on scripts. */
     int is_script = 0;
     {
         size_t scan = 0;
         while (1) {
-            const basl_token_t *st = tok_at(tokens, scan);
-            if (st == NULL || st->kind == BASL_TOKEN_EOF) break;
-            if (st->kind == BASL_TOKEN_FN) {
-                const basl_token_t *nt = tok_at(tokens, scan + 1);
-                if (nt != NULL && nt->kind == BASL_TOKEN_IDENTIFIER &&
+            const vigil_token_t *st = tok_at(tokens, scan);
+            if (st == NULL || st->kind == VIGIL_TOKEN_EOF) break;
+            if (st->kind == VIGIL_TOKEN_FN) {
+                const vigil_token_t *nt = tok_at(tokens, scan + 1);
+                if (nt != NULL && nt->kind == VIGIL_TOKEN_IDENTIFIER &&
                     nt->span.end_offset - nt->span.start_offset == 4 &&
                     memcmp(source_text + nt->span.start_offset, "main", 4) == 0) {
                     is_script = 1;
@@ -946,36 +946,36 @@ basl_status_t basl_doc_extract(
     while (1) {
         int is_pub = 0;
         size_t decl_start;
-        basl_doc_symbol_t *sym;
+        vigil_doc_symbol_t *sym;
 
         t = tok_at(tokens, cursor);
-        if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF) break;
 
         /* Skip imports at top level. */
-        if (t->kind == BASL_TOKEN_IMPORT) {
+        if (t->kind == VIGIL_TOKEN_IMPORT) {
             while (1) {
                 t = tok_at(tokens, cursor);
-                if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_SEMICOLON) break;
+                if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON) break;
                 cursor++;
             }
-            if (t != NULL && t->kind == BASL_TOKEN_SEMICOLON) cursor++;
+            if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON) cursor++;
             continue;
         }
 
         decl_start = t->span.start_offset;
 
-        if (t->kind == BASL_TOKEN_PUB) {
+        if (t->kind == VIGIL_TOKEN_PUB) {
             is_pub = 1;
             cursor++;
             t = tok_at(tokens, cursor);
         }
 
-        if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF) break;
 
-        if (t->kind == BASL_TOKEN_FN) {
+        if (t->kind == VIGIL_TOKEN_FN) {
             if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
-                if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+                if (sym == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
                                         decl_start, &sym->comment);
                 parse_function(allocator, source_text, source_length, tokens, &cursor, sym);
@@ -984,33 +984,33 @@ basl_status_t basl_doc_extract(
                 cursor++; /* fn */
                 cursor++; /* name */
                 t = tok_at(tokens, cursor);
-                if (t != NULL && t->kind == BASL_TOKEN_LPAREN) {
+                if (t != NULL && t->kind == VIGIL_TOKEN_LPAREN) {
                     int depth = 1;
                     cursor++;
                     while (depth > 0) {
                         t = tok_at(tokens, cursor);
-                        if (t == NULL || t->kind == BASL_TOKEN_EOF) break;
-                        if (t->kind == BASL_TOKEN_LPAREN) depth++;
-                        else if (t->kind == BASL_TOKEN_RPAREN) depth--;
+                        if (t == NULL || t->kind == VIGIL_TOKEN_EOF) break;
+                        if (t->kind == VIGIL_TOKEN_LPAREN) depth++;
+                        else if (t->kind == VIGIL_TOKEN_RPAREN) depth--;
                         cursor++;
                     }
                 }
                 t = tok_at(tokens, cursor);
-                if (t != NULL && t->kind == BASL_TOKEN_ARROW) {
+                if (t != NULL && t->kind == VIGIL_TOKEN_ARROW) {
                     cursor++;
                     /* Skip return type tokens until { */
                     while (1) {
                         t = tok_at(tokens, cursor);
-                        if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_LBRACE) break;
+                        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE) break;
                         cursor++;
                     }
                 }
                 skip_brace_body(tokens, &cursor);
             }
-        } else if (t->kind == BASL_TOKEN_CLASS) {
+        } else if (t->kind == VIGIL_TOKEN_CLASS) {
             if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
-                if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+                if (sym == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
                                         decl_start, &sym->comment);
                 parse_class(allocator, source_text, source_length, tokens, &cursor, sym);
@@ -1021,15 +1021,15 @@ basl_status_t basl_doc_extract(
                 /* Skip to { */
                 while (1) {
                     t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_LBRACE) break;
+                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE) break;
                     cursor++;
                 }
                 skip_brace_body(tokens, &cursor);
             }
-        } else if (t->kind == BASL_TOKEN_INTERFACE) {
+        } else if (t->kind == VIGIL_TOKEN_INTERFACE) {
             if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
-                if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+                if (sym == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
                                         decl_start, &sym->comment);
                 parse_interface(allocator, source_text, source_length, tokens, &cursor, sym);
@@ -1038,15 +1038,15 @@ basl_status_t basl_doc_extract(
                 cursor++;
                 while (1) {
                     t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_LBRACE) break;
+                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE) break;
                     cursor++;
                 }
                 skip_brace_body(tokens, &cursor);
             }
-        } else if (t->kind == BASL_TOKEN_ENUM) {
+        } else if (t->kind == VIGIL_TOKEN_ENUM) {
             if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
-                if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+                if (sym == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
                                         decl_start, &sym->comment);
                 parse_enum(allocator, source_text, source_length, tokens, &cursor, sym);
@@ -1055,10 +1055,10 @@ basl_status_t basl_doc_extract(
                 cursor++;
                 skip_brace_body(tokens, &cursor);
             }
-        } else if (t->kind == BASL_TOKEN_CONST) {
+        } else if (t->kind == VIGIL_TOKEN_CONST) {
             if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
-                if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+                if (sym == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
                                         decl_start, &sym->comment);
                 parse_const_or_var(allocator, source_text, tokens, &cursor, sym, 1);
@@ -1066,39 +1066,39 @@ basl_status_t basl_doc_extract(
                 /* Skip to semicolon. */
                 while (1) {
                     t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_SEMICOLON) break;
+                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON) break;
                     cursor++;
                 }
-                if (t != NULL && t->kind == BASL_TOKEN_SEMICOLON) cursor++;
+                if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON) cursor++;
             }
         } else if (tok_is_type_start(t)) {
             /* Variable declaration: [pub] type name = ...; */
             if (is_pub || is_script) {
                 sym = module_add_symbol(out_module);
-                if (sym == NULL) return BASL_STATUS_OUT_OF_MEMORY;
+                if (sym == NULL) return VIGIL_STATUS_OUT_OF_MEMORY;
                 extract_comment_before(allocator, source_text, source_length,
                                         decl_start, &sym->comment);
                 parse_const_or_var(allocator, source_text, tokens, &cursor, sym, 0);
             } else {
                 while (1) {
                     t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == BASL_TOKEN_EOF || t->kind == BASL_TOKEN_SEMICOLON) break;
+                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON) break;
                     cursor++;
                 }
-                if (t != NULL && t->kind == BASL_TOKEN_SEMICOLON) cursor++;
+                if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON) cursor++;
             }
         } else {
             cursor++;
         }
     }
 
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 
 /* ── Render helpers ──────────────────────────────────────────────── */
 
-static void render_func_sig(doc_buf_t *b, const basl_doc_symbol_t *sym) {
+static void render_func_sig(doc_buf_t *b, const vigil_doc_symbol_t *sym) {
     size_t i;
     buf_append(b, sym->name, sym->name_length);
     buf_append_char(b, '(');
@@ -1115,7 +1115,7 @@ static void render_func_sig(doc_buf_t *b, const basl_doc_symbol_t *sym) {
     }
 }
 
-static void render_indent_comment(doc_buf_t *b, const basl_doc_comment_t *c, int indent) {
+static void render_indent_comment(doc_buf_t *b, const vigil_doc_comment_t *c, int indent) {
     size_t pos = 0;
     if (c->text == NULL || c->length == 0) return;
     while (pos < c->length) {
@@ -1130,7 +1130,7 @@ static void render_indent_comment(doc_buf_t *b, const basl_doc_comment_t *c, int
 
 /* ── Render module view ──────────────────────────────────────────── */
 
-static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
+static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m) {
     size_t i, j;
     int has_section;
 
@@ -1146,7 +1146,7 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
     /* Constants */
     has_section = 0;
     for (i = 0; i < m->symbol_count; i++) {
-        if (m->symbols[i].kind != BASL_DOC_CONSTANT) continue;
+        if (m->symbols[i].kind != VIGIL_DOC_CONSTANT) continue;
         if (!has_section) { buf_append_cstr(b, "\nCONSTANTS\n"); has_section = 1; }
         buf_append_cstr(b, "  ");
         buf_append(b, m->symbols[i].name, m->symbols[i].name_length);
@@ -1160,7 +1160,7 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
     /* Variables */
     has_section = 0;
     for (i = 0; i < m->symbol_count; i++) {
-        if (m->symbols[i].kind != BASL_DOC_VARIABLE) continue;
+        if (m->symbols[i].kind != VIGIL_DOC_VARIABLE) continue;
         if (!has_section) { buf_append_cstr(b, "\nVARIABLES\n"); has_section = 1; }
         buf_append_cstr(b, "  ");
         buf_append(b, m->symbols[i].name, m->symbols[i].name_length);
@@ -1174,8 +1174,8 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
     /* Enums */
     has_section = 0;
     for (i = 0; i < m->symbol_count; i++) {
-        const basl_doc_symbol_t *sym = &m->symbols[i];
-        if (sym->kind != BASL_DOC_ENUM) continue;
+        const vigil_doc_symbol_t *sym = &m->symbols[i];
+        if (sym->kind != VIGIL_DOC_ENUM) continue;
         if (!has_section) { buf_append_cstr(b, "\nENUMS\n"); has_section = 1; }
         buf_append_cstr(b, "  ");
         buf_append(b, sym->name, sym->name_length);
@@ -1197,8 +1197,8 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
     /* Interfaces */
     has_section = 0;
     for (i = 0; i < m->symbol_count; i++) {
-        const basl_doc_symbol_t *sym = &m->symbols[i];
-        if (sym->kind != BASL_DOC_INTERFACE) continue;
+        const vigil_doc_symbol_t *sym = &m->symbols[i];
+        if (sym->kind != VIGIL_DOC_INTERFACE) continue;
         if (!has_section) { buf_append_cstr(b, "\nINTERFACES\n"); has_section = 1; }
         buf_append_cstr(b, "  ");
         buf_append(b, sym->name, sym->name_length);
@@ -1222,8 +1222,8 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
     /* Classes */
     has_section = 0;
     for (i = 0; i < m->symbol_count; i++) {
-        const basl_doc_symbol_t *sym = &m->symbols[i];
-        if (sym->kind != BASL_DOC_CLASS) continue;
+        const vigil_doc_symbol_t *sym = &m->symbols[i];
+        if (sym->kind != VIGIL_DOC_CLASS) continue;
         if (!has_section) { buf_append_cstr(b, "\nCLASSES\n"); has_section = 1; }
         buf_append_cstr(b, "  ");
         buf_append(b, sym->name, sym->name_length);
@@ -1263,8 +1263,8 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
     /* Functions */
     has_section = 0;
     for (i = 0; i < m->symbol_count; i++) {
-        const basl_doc_symbol_t *sym = &m->symbols[i];
-        if (sym->kind != BASL_DOC_FUNCTION) continue;
+        const vigil_doc_symbol_t *sym = &m->symbols[i];
+        if (sym->kind != VIGIL_DOC_FUNCTION) continue;
         if (!has_section) { buf_append_cstr(b, "\nFUNCTIONS\n"); has_section = 1; }
         buf_append_cstr(b, "  ");
         render_func_sig(b, sym);
@@ -1277,11 +1277,11 @@ static void render_module_view(doc_buf_t *b, const basl_doc_module_t *m) {
 
 /* ── Render symbol view ──────────────────────────────────────────── */
 
-static void render_symbol_detail(doc_buf_t *b, const basl_doc_symbol_t *sym) {
+static void render_symbol_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym) {
     size_t j;
 
     switch (sym->kind) {
-    case BASL_DOC_FUNCTION:
+    case VIGIL_DOC_FUNCTION:
         render_func_sig(b, sym);
         buf_append_char(b, '\n');
         if (sym->comment.text != NULL) {
@@ -1290,8 +1290,8 @@ static void render_symbol_detail(doc_buf_t *b, const basl_doc_symbol_t *sym) {
         }
         break;
 
-    case BASL_DOC_CONSTANT:
-    case BASL_DOC_VARIABLE:
+    case VIGIL_DOC_CONSTANT:
+    case VIGIL_DOC_VARIABLE:
         buf_append(b, sym->name, sym->name_length);
         buf_append_char(b, ' ');
         buf_append(b, sym->type_text, sym->type_length);
@@ -1302,7 +1302,7 @@ static void render_symbol_detail(doc_buf_t *b, const basl_doc_symbol_t *sym) {
         }
         break;
 
-    case BASL_DOC_ENUM:
+    case VIGIL_DOC_ENUM:
         buf_append(b, sym->name, sym->name_length);
         buf_append_char(b, '\n');
         if (sym->comment.text != NULL) {
@@ -1319,7 +1319,7 @@ static void render_symbol_detail(doc_buf_t *b, const basl_doc_symbol_t *sym) {
         }
         break;
 
-    case BASL_DOC_INTERFACE:
+    case VIGIL_DOC_INTERFACE:
         buf_append(b, sym->name, sym->name_length);
         buf_append_char(b, '\n');
         if (sym->comment.text != NULL) {
@@ -1338,7 +1338,7 @@ static void render_symbol_detail(doc_buf_t *b, const basl_doc_symbol_t *sym) {
         }
         break;
 
-    case BASL_DOC_CLASS:
+    case VIGIL_DOC_CLASS:
         buf_append(b, sym->name, sym->name_length);
         if (sym->implements_text != NULL) {
             buf_append_cstr(b, " implements ");
@@ -1375,8 +1375,8 @@ static void render_symbol_detail(doc_buf_t *b, const basl_doc_symbol_t *sym) {
     }
 }
 
-static int find_symbol(const basl_doc_module_t *m, const char *name,
-                        const basl_doc_symbol_t **out) {
+static int find_symbol(const vigil_doc_module_t *m, const char *name,
+                        const vigil_doc_symbol_t **out) {
     size_t i, name_len = strlen(name);
     for (i = 0; i < m->symbol_count; i++) {
         if (m->symbols[i].name_length == name_len &&
@@ -1388,8 +1388,8 @@ static int find_symbol(const basl_doc_module_t *m, const char *name,
     return 0;
 }
 
-static int find_class_member(const basl_doc_symbol_t *cls, const char *member,
-                              size_t member_len, const basl_doc_symbol_t **out,
+static int find_class_member(const vigil_doc_symbol_t *cls, const char *member,
+                              size_t member_len, const vigil_doc_symbol_t **out,
                               int *is_method) {
     size_t i;
     for (i = 0; i < cls->field_count; i++) {
@@ -1411,8 +1411,8 @@ static int find_class_member(const basl_doc_symbol_t *cls, const char *member,
     return 0;
 }
 
-static int find_iface_method(const basl_doc_symbol_t *iface, const char *method,
-                              size_t method_len, const basl_doc_symbol_t **out) {
+static int find_iface_method(const vigil_doc_symbol_t *iface, const char *method,
+                              size_t method_len, const vigil_doc_symbol_t **out) {
     size_t i;
     for (i = 0; i < iface->iface_method_count; i++) {
         if (iface->iface_methods[i].name_length == method_len &&
@@ -1424,18 +1424,18 @@ static int find_iface_method(const basl_doc_symbol_t *iface, const char *method,
     return 0;
 }
 
-/* ── basl_doc_render ─────────────────────────────────────────────── */
+/* ── vigil_doc_render ─────────────────────────────────────────────── */
 
-basl_status_t basl_doc_render(
-    const basl_doc_module_t *module,
+vigil_status_t vigil_doc_render(
+    const vigil_doc_module_t *module,
     const char *symbol,
     char **out_text,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     doc_buf_t buf;
 
-    if (module == NULL || out_text == NULL) return BASL_STATUS_INVALID_ARGUMENT;
+    if (module == NULL || out_text == NULL) return VIGIL_STATUS_INVALID_ARGUMENT;
     *out_text = NULL;
     if (out_length != NULL) *out_length = 0;
 
@@ -1451,8 +1451,8 @@ basl_status_t basl_doc_render(
             size_t parent_len = (size_t)(dot - symbol);
             const char *member_name = dot + 1;
             size_t member_len = strlen(member_name);
-            const basl_doc_symbol_t *parent_sym;
-            const basl_doc_symbol_t *member_sym;
+            const vigil_doc_symbol_t *parent_sym;
+            const vigil_doc_symbol_t *member_sym;
             int is_method = 0;
             int found = 0;
 
@@ -1467,7 +1467,7 @@ basl_status_t basl_doc_render(
                 }
             }
 
-            if (parent_sym != NULL && parent_sym->kind == BASL_DOC_CLASS) {
+            if (parent_sym != NULL && parent_sym->kind == VIGIL_DOC_CLASS) {
                 if (find_class_member(parent_sym, member_name, member_len, &member_sym, &is_method)) {
                     buf_append(&buf, parent_name, parent_len);
                     buf_append_char(&buf, '.');
@@ -1486,7 +1486,7 @@ basl_status_t basl_doc_render(
                     found = 1;
                 }
             }
-            if (!found && parent_sym != NULL && parent_sym->kind == BASL_DOC_INTERFACE) {
+            if (!found && parent_sym != NULL && parent_sym->kind == VIGIL_DOC_INTERFACE) {
                 if (find_iface_method(parent_sym, member_name, member_len, &member_sym)) {
                     buf_append(&buf, parent_name, parent_len);
                     buf_append_char(&buf, '.');
@@ -1502,40 +1502,40 @@ basl_status_t basl_doc_render(
             if (!found) {
                 buf_free(&buf);
                 if (error != NULL) {
-                    basl_error_clear(error);
-                    error->type = BASL_STATUS_INVALID_ARGUMENT;
+                    vigil_error_clear(error);
+                    error->type = VIGIL_STATUS_INVALID_ARGUMENT;
                     /* Use a static message. */
                     error->value = "public symbol not found";
                     error->length = 23;
                 }
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
         } else {
-            const basl_doc_symbol_t *sym;
+            const vigil_doc_symbol_t *sym;
             if (find_symbol(module, symbol, &sym)) {
                 render_symbol_detail(&buf, sym);
             } else {
                 buf_free(&buf);
                 if (error != NULL) {
-                    basl_error_clear(error);
-                    error->type = BASL_STATUS_INVALID_ARGUMENT;
+                    vigil_error_clear(error);
+                    error->type = VIGIL_STATUS_INVALID_ARGUMENT;
                     error->value = "public symbol not found";
                     error->length = 23;
                 }
-                return BASL_STATUS_INVALID_ARGUMENT;
+                return VIGIL_STATUS_INVALID_ARGUMENT;
             }
         }
     }
 
     *out_text = buf.data;
     if (out_length != NULL) *out_length = buf.length;
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
 
 
 /* ── Free helpers ────────────────────────────────────────────────── */
 
-static void free_symbol(const basl_allocator_t *a, basl_doc_symbol_t *sym) {
+static void free_symbol(const vigil_allocator_t *a, vigil_doc_symbol_t *sym) {
     size_t i;
     doc_free_ptr(a, sym->name);
     doc_free_ptr(a, sym->comment.text);
@@ -1577,9 +1577,9 @@ static void free_symbol(const basl_allocator_t *a, basl_doc_symbol_t *sym) {
     doc_free_ptr(a, sym->variant_name_lengths);
 }
 
-void basl_doc_module_free(basl_doc_module_t *module) {
+void vigil_doc_module_free(vigil_doc_module_t *module) {
     size_t i;
-    const basl_allocator_t *a;
+    const vigil_allocator_t *a;
     if (module == NULL) return;
     a = module->allocator;
     doc_free_ptr(a, module->name);

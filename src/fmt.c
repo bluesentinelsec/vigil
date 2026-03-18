@@ -1,5 +1,5 @@
 /*
- * basl_fmt — token-stream source formatter.
+ * vigil_fmt — token-stream source formatter.
  *
  * Walks the token list and the raw source text to produce canonically
  * formatted output.  Comments are preserved by scanning the gaps between
@@ -10,7 +10,7 @@
  * Imports are sorted alphabetically and grouped before other decls.
  */
 
-#include "basl/fmt.h"
+#include "vigil/fmt.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -18,7 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "basl/token.h"
+#include "vigil/token.h"
 
 /* ── dynamic buffer ──────────────────────────────────────────────── */
 
@@ -62,7 +62,7 @@ static void buf_puts(buf_t *b, const char *s) {
 typedef struct {
     const char *src;
     size_t src_len;
-    const basl_token_list_t *tokens;
+    const vigil_token_list_t *tokens;
     size_t count;
     buf_t out;
     int indent;
@@ -98,11 +98,11 @@ static void emit_cstr(fmt_state_t *f, const char *s) {
 }
 
 /* Get the source text for a token. */
-static const char *tok_text(const fmt_state_t *f, const basl_token_t *t) {
+static const char *tok_text(const fmt_state_t *f, const vigil_token_t *t) {
     return f->src + t->span.start_offset;
 }
 
-static size_t tok_len(const basl_token_t *t) {
+static size_t tok_len(const vigil_token_t *t) {
     return t->span.end_offset - t->span.start_offset;
 }
 
@@ -147,47 +147,47 @@ static bool emit_comments_between(fmt_state_t *f, size_t start, size_t end) {
 
 /* ── token classification helpers ────────────────────────────────── */
 
-static bool is_binary_op(basl_token_kind_t k) {
+static bool is_binary_op(vigil_token_kind_t k) {
     switch (k) {
-    case BASL_TOKEN_PLUS: case BASL_TOKEN_MINUS:
-    case BASL_TOKEN_STAR: case BASL_TOKEN_SLASH: case BASL_TOKEN_PERCENT:
-    case BASL_TOKEN_EQUAL_EQUAL: case BASL_TOKEN_BANG_EQUAL:
-    case BASL_TOKEN_LESS: case BASL_TOKEN_LESS_EQUAL:
-    case BASL_TOKEN_GREATER: case BASL_TOKEN_GREATER_EQUAL:
-    case BASL_TOKEN_AMPERSAND_AMPERSAND: case BASL_TOKEN_PIPE_PIPE:
-    case BASL_TOKEN_AMPERSAND: case BASL_TOKEN_PIPE: case BASL_TOKEN_CARET:
-    case BASL_TOKEN_SHIFT_LEFT: case BASL_TOKEN_SHIFT_RIGHT:
+    case VIGIL_TOKEN_PLUS: case VIGIL_TOKEN_MINUS:
+    case VIGIL_TOKEN_STAR: case VIGIL_TOKEN_SLASH: case VIGIL_TOKEN_PERCENT:
+    case VIGIL_TOKEN_EQUAL_EQUAL: case VIGIL_TOKEN_BANG_EQUAL:
+    case VIGIL_TOKEN_LESS: case VIGIL_TOKEN_LESS_EQUAL:
+    case VIGIL_TOKEN_GREATER: case VIGIL_TOKEN_GREATER_EQUAL:
+    case VIGIL_TOKEN_AMPERSAND_AMPERSAND: case VIGIL_TOKEN_PIPE_PIPE:
+    case VIGIL_TOKEN_AMPERSAND: case VIGIL_TOKEN_PIPE: case VIGIL_TOKEN_CARET:
+    case VIGIL_TOKEN_SHIFT_LEFT: case VIGIL_TOKEN_SHIFT_RIGHT:
         return true;
     default:
         return false;
     }
 }
 
-static bool is_assign_op(basl_token_kind_t k) {
+static bool is_assign_op(vigil_token_kind_t k) {
     switch (k) {
-    case BASL_TOKEN_ASSIGN:
-    case BASL_TOKEN_PLUS_ASSIGN: case BASL_TOKEN_MINUS_ASSIGN:
-    case BASL_TOKEN_STAR_ASSIGN: case BASL_TOKEN_SLASH_ASSIGN:
-    case BASL_TOKEN_PERCENT_ASSIGN:
+    case VIGIL_TOKEN_ASSIGN:
+    case VIGIL_TOKEN_PLUS_ASSIGN: case VIGIL_TOKEN_MINUS_ASSIGN:
+    case VIGIL_TOKEN_STAR_ASSIGN: case VIGIL_TOKEN_SLASH_ASSIGN:
+    case VIGIL_TOKEN_PERCENT_ASSIGN:
         return true;
     default:
         return false;
     }
 }
 
-static bool is_keyword(basl_token_kind_t k) {
+static bool is_keyword(vigil_token_kind_t k) {
     switch (k) {
-    case BASL_TOKEN_IMPORT: case BASL_TOKEN_AS:
-    case BASL_TOKEN_PUB: case BASL_TOKEN_FN:
-    case BASL_TOKEN_CLASS: case BASL_TOKEN_INTERFACE: case BASL_TOKEN_ENUM:
-    case BASL_TOKEN_CONST: case BASL_TOKEN_RETURN: case BASL_TOKEN_DEFER:
-    case BASL_TOKEN_IF: case BASL_TOKEN_ELSE:
-    case BASL_TOKEN_FOR: case BASL_TOKEN_WHILE:
-    case BASL_TOKEN_SWITCH: case BASL_TOKEN_GUARD:
-    case BASL_TOKEN_CASE: case BASL_TOKEN_DEFAULT:
-    case BASL_TOKEN_BREAK: case BASL_TOKEN_CONTINUE:
-    case BASL_TOKEN_IN:
-    case BASL_TOKEN_TRUE: case BASL_TOKEN_FALSE: case BASL_TOKEN_NIL:
+    case VIGIL_TOKEN_IMPORT: case VIGIL_TOKEN_AS:
+    case VIGIL_TOKEN_PUB: case VIGIL_TOKEN_FN:
+    case VIGIL_TOKEN_CLASS: case VIGIL_TOKEN_INTERFACE: case VIGIL_TOKEN_ENUM:
+    case VIGIL_TOKEN_CONST: case VIGIL_TOKEN_RETURN: case VIGIL_TOKEN_DEFER:
+    case VIGIL_TOKEN_IF: case VIGIL_TOKEN_ELSE:
+    case VIGIL_TOKEN_FOR: case VIGIL_TOKEN_WHILE:
+    case VIGIL_TOKEN_SWITCH: case VIGIL_TOKEN_GUARD:
+    case VIGIL_TOKEN_CASE: case VIGIL_TOKEN_DEFAULT:
+    case VIGIL_TOKEN_BREAK: case VIGIL_TOKEN_CONTINUE:
+    case VIGIL_TOKEN_IN:
+    case VIGIL_TOKEN_TRUE: case VIGIL_TOKEN_FALSE: case VIGIL_TOKEN_NIL:
         return true;
     default:
         return false;
@@ -198,7 +198,7 @@ static bool is_keyword(basl_token_kind_t k) {
 /* ── import sorting ──────────────────────────────────────────────── */
 
 typedef struct {
-    size_t start_idx;  /* index of BASL_TOKEN_IMPORT */
+    size_t start_idx;  /* index of VIGIL_TOKEN_IMPORT */
     size_t end_idx;    /* index after the semicolon */
     const char *path;  /* pointer into source text (inside quotes) */
     size_t path_len;
@@ -217,92 +217,92 @@ static int import_cmp(const void *a, const void *b) {
 
 /*
  * Determine whether a space is needed before the current token, given
- * the previous token.  This encodes the canonical BASL spacing rules.
+ * the previous token.  This encodes the canonical VIGIL spacing rules.
  */
 static bool need_space_before(
-    const basl_token_t *prev,
-    const basl_token_t *cur,
+    const vigil_token_t *prev,
+    const vigil_token_t *cur,
     const fmt_state_t *f
 ) {
-    basl_token_kind_t pk = prev->kind;
-    basl_token_kind_t ck = cur->kind;
+    vigil_token_kind_t pk = prev->kind;
+    vigil_token_kind_t ck = cur->kind;
 
     (void)f;
 
     /* Never space after open or before close grouping. */
-    if (pk == BASL_TOKEN_LPAREN || pk == BASL_TOKEN_LBRACKET ||
-        pk == BASL_TOKEN_LBRACE) return false;
-    if (ck == BASL_TOKEN_RPAREN || ck == BASL_TOKEN_RBRACKET ||
-        ck == BASL_TOKEN_RBRACE) return false;
+    if (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_LBRACKET ||
+        pk == VIGIL_TOKEN_LBRACE) return false;
+    if (ck == VIGIL_TOKEN_RPAREN || ck == VIGIL_TOKEN_RBRACKET ||
+        ck == VIGIL_TOKEN_RBRACE) return false;
 
     /* No space before comma, semicolon, dot. */
-    if (ck == BASL_TOKEN_COMMA || ck == BASL_TOKEN_SEMICOLON ||
-        ck == BASL_TOKEN_DOT) return false;
+    if (ck == VIGIL_TOKEN_COMMA || ck == VIGIL_TOKEN_SEMICOLON ||
+        ck == VIGIL_TOKEN_DOT) return false;
     /* No space before colon (case labels, map literals).
        Ternary colons get space added in the main loop. */
-    if (ck == BASL_TOKEN_COLON) return false;
+    if (ck == VIGIL_TOKEN_COLON) return false;
     /* No space after dot. */
-    if (pk == BASL_TOKEN_DOT) return false;
+    if (pk == VIGIL_TOKEN_DOT) return false;
 
     /* No space before ++ / -- (postfix). */
-    if (ck == BASL_TOKEN_PLUS_PLUS || ck == BASL_TOKEN_MINUS_MINUS) return false;
+    if (ck == VIGIL_TOKEN_PLUS_PLUS || ck == VIGIL_TOKEN_MINUS_MINUS) return false;
 
     /* No space before ( in function calls: ident( or )( */
-    if (ck == BASL_TOKEN_LPAREN &&
-        (pk == BASL_TOKEN_IDENTIFIER || pk == BASL_TOKEN_RPAREN ||
-         pk == BASL_TOKEN_RBRACKET)) return false;
+    if (ck == VIGIL_TOKEN_LPAREN &&
+        (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_RPAREN ||
+         pk == VIGIL_TOKEN_RBRACKET)) return false;
 
     /* No space before [ in indexing: ident[ or )[ */
-    if (ck == BASL_TOKEN_LBRACKET &&
-        (pk == BASL_TOKEN_IDENTIFIER || pk == BASL_TOKEN_RPAREN ||
-         pk == BASL_TOKEN_RBRACKET)) return false;
+    if (ck == VIGIL_TOKEN_LBRACKET &&
+        (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_RPAREN ||
+         pk == VIGIL_TOKEN_RBRACKET)) return false;
 
     /* Space after comma. */
-    if (pk == BASL_TOKEN_COMMA) return true;
+    if (pk == VIGIL_TOKEN_COMMA) return true;
 
     /* Space around binary ops and assignment. */
     if (is_binary_op(ck) || is_assign_op(ck)) return true;
     if (is_binary_op(pk) || is_assign_op(pk)) return true;
 
     /* Space around ? and : (ternary/map). */
-    if (ck == BASL_TOKEN_QUESTION || pk == BASL_TOKEN_QUESTION) return true;
-    if (pk == BASL_TOKEN_COLON) return true;  /* space after colon */
+    if (ck == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_QUESTION) return true;
+    if (pk == VIGIL_TOKEN_COLON) return true;  /* space after colon */
     /* No space before colon (case labels, map literals). */
 
     /* Space around arrow. */
-    if (ck == BASL_TOKEN_ARROW || pk == BASL_TOKEN_ARROW) return true;
+    if (ck == VIGIL_TOKEN_ARROW || pk == VIGIL_TOKEN_ARROW) return true;
 
     /* Space after keywords. */
     if (is_keyword(pk)) return true;
 
     /* Space before { */
-    if (ck == BASL_TOKEN_LBRACE) return true;
+    if (ck == VIGIL_TOKEN_LBRACE) return true;
 
     /* Space after ) before { (e.g. fn() {) */
-    if (pk == BASL_TOKEN_RPAREN && ck == BASL_TOKEN_LBRACE) return true;
+    if (pk == VIGIL_TOKEN_RPAREN && ck == VIGIL_TOKEN_LBRACE) return true;
 
     /* Space between identifier and identifier (type name). */
-    if (pk == BASL_TOKEN_IDENTIFIER && ck == BASL_TOKEN_IDENTIFIER) return true;
+    if (pk == VIGIL_TOKEN_IDENTIFIER && ck == VIGIL_TOKEN_IDENTIFIER) return true;
 
     /* Space between > and identifier (array<i32> name). */
-    if (pk == BASL_TOKEN_GREATER && ck == BASL_TOKEN_IDENTIFIER) return true;
+    if (pk == VIGIL_TOKEN_GREATER && ck == VIGIL_TOKEN_IDENTIFIER) return true;
 
     /* Space after { in map/array literals on same line. */
-    if (pk == BASL_TOKEN_LBRACE) return false;
+    if (pk == VIGIL_TOKEN_LBRACE) return false;
 
     /* No space before unary ! or ~ */
-    if (ck == BASL_TOKEN_BANG || ck == BASL_TOKEN_TILDE) {
+    if (ck == VIGIL_TOKEN_BANG || ck == VIGIL_TOKEN_TILDE) {
         /* But space if after an identifier or literal (binary context). */
-        if (pk == BASL_TOKEN_IDENTIFIER || pk == BASL_TOKEN_INT_LITERAL ||
-            pk == BASL_TOKEN_RPAREN) return true;
+        if (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_INT_LITERAL ||
+            pk == VIGIL_TOKEN_RPAREN) return true;
         return false;
     }
 
     /* Unary minus: no space after ( or , or = or binary op. */
-    if (ck == BASL_TOKEN_MINUS &&
-        (pk == BASL_TOKEN_LPAREN || pk == BASL_TOKEN_COMMA ||
+    if (ck == VIGIL_TOKEN_MINUS &&
+        (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_COMMA ||
          is_assign_op(pk) || is_binary_op(pk) ||
-         pk == BASL_TOKEN_RETURN)) {
+         pk == VIGIL_TOKEN_RETURN)) {
         return false;
     }
 
@@ -314,61 +314,61 @@ static bool need_space_before(
  * Returns: 0 = no newline, 1 = newline, 2 = blank line + newline.
  */
 static int need_newline_before(
-    const basl_token_t *prev,
-    const basl_token_t *cur,
+    const vigil_token_t *prev,
+    const vigil_token_t *cur,
     const fmt_state_t *f
 ) {
-    basl_token_kind_t pk = prev->kind;
-    basl_token_kind_t ck = cur->kind;
+    vigil_token_kind_t pk = prev->kind;
+    vigil_token_kind_t ck = cur->kind;
 
     (void)f;
 
     /* After { -> newline. */
-    if (pk == BASL_TOKEN_LBRACE) return 1;
+    if (pk == VIGIL_TOKEN_LBRACE) return 1;
 
     /* Before } -> newline. */
-    if (ck == BASL_TOKEN_RBRACE) return 1;
+    if (ck == VIGIL_TOKEN_RBRACE) return 1;
 
     /* After ; -> newline (unless inside for-loop header). */
-    if (pk == BASL_TOKEN_SEMICOLON) return 1;
+    if (pk == VIGIL_TOKEN_SEMICOLON) return 1;
 
     /* After } and before something that isn't } or else -> blank line
        (top-level decl separation). But } else { stays on one line. */
-    if (pk == BASL_TOKEN_RBRACE) {
-        if (ck == BASL_TOKEN_ELSE) return 0;
-        if (ck == BASL_TOKEN_RBRACE) return 1;
+    if (pk == VIGIL_TOKEN_RBRACE) {
+        if (ck == VIGIL_TOKEN_ELSE) return 0;
+        if (ck == VIGIL_TOKEN_RBRACE) return 1;
         return 2;
     }
 
     /* Before case/default in switch. */
-    if (ck == BASL_TOKEN_CASE || ck == BASL_TOKEN_DEFAULT) return 1;
+    if (ck == VIGIL_TOKEN_CASE || ck == VIGIL_TOKEN_DEFAULT) return 1;
 
     return 0;
 }
 
-basl_status_t basl_fmt(
+vigil_status_t vigil_fmt(
     const char *source_text,
     size_t source_length,
-    const basl_token_list_t *tokens,
+    const vigil_token_list_t *tokens,
     char **out_text,
     size_t *out_length,
-    basl_error_t *error
+    vigil_error_t *error
 ) {
     (void)error;
     fmt_state_t f;
     f.src = source_text;
     f.src_len = source_length;
     f.tokens = tokens;
-    f.count = basl_token_list_count(tokens);
+    f.count = vigil_token_list_count(tokens);
     buf_init(&f.out);
     f.indent = 0;
     f.at_line_start = true;
 
     if (f.count == 0 || (f.count == 1 &&
-        basl_token_list_get(tokens, 0)->kind == BASL_TOKEN_EOF)) {
+        vigil_token_list_get(tokens, 0)->kind == VIGIL_TOKEN_EOF)) {
         *out_text = calloc(1, 1);
         *out_length = 0;
-        return BASL_STATUS_OK;
+        return VIGIL_STATUS_OK;
     }
 
     /* ── Pass 1: collect and sort imports ─────────────────────────── */
@@ -381,8 +381,8 @@ basl_status_t basl_fmt(
     {
         size_t i = 0;
         while (i < f.count) {
-            const basl_token_t *t = basl_token_list_get(tokens, i);
-            if (t->kind != BASL_TOKEN_IMPORT) break;
+            const vigil_token_t *t = vigil_token_list_get(tokens, i);
+            if (t->kind != VIGIL_TOKEN_IMPORT) break;
 
             import_info_t imp = {0};
             imp.start_idx = i;
@@ -390,8 +390,8 @@ basl_status_t basl_fmt(
 
             /* Expect string literal. */
             if (i < f.count) {
-                const basl_token_t *path_tok = basl_token_list_get(tokens, i);
-                if (path_tok->kind == BASL_TOKEN_STRING_LITERAL) {
+                const vigil_token_t *path_tok = vigil_token_list_get(tokens, i);
+                if (path_tok->kind == VIGIL_TOKEN_STRING_LITERAL) {
                     /* Strip quotes. */
                     imp.path = tok_text(&f, path_tok) + 1;
                     imp.path_len = tok_len(path_tok) - 2;
@@ -401,14 +401,14 @@ basl_status_t basl_fmt(
 
             /* Skip optional 'as' alias. */
             if (i < f.count &&
-                basl_token_list_get(tokens, i)->kind == BASL_TOKEN_AS) {
+                vigil_token_list_get(tokens, i)->kind == VIGIL_TOKEN_AS) {
                 i++; /* 'as' */
                 if (i < f.count) i++; /* alias ident */
             }
 
             /* Expect semicolon. */
             if (i < f.count &&
-                basl_token_list_get(tokens, i)->kind == BASL_TOKEN_SEMICOLON) {
+                vigil_token_list_get(tokens, i)->kind == VIGIL_TOKEN_SEMICOLON) {
                 i++;
             }
             imp.end_idx = i;
@@ -432,8 +432,8 @@ basl_status_t basl_fmt(
     /* Emit any comments that appear before the first import (module header). */
     size_t initial_comment_end = 0;
     if (import_count > 0) {
-        const basl_token_t *first_imp_tok =
-            basl_token_list_get(tokens, imports[0].start_idx);
+        const vigil_token_t *first_imp_tok =
+            vigil_token_list_get(tokens, imports[0].start_idx);
         if (emit_comments_between(&f, 0, first_imp_tok->span.start_offset)) {
             emit_newline(&f);
         }
@@ -441,11 +441,11 @@ basl_status_t basl_fmt(
 
     /* Emit any comments between the last import and the first non-import. */
     if (first_non_import < f.count) {
-        const basl_token_t *first_ni = basl_token_list_get(tokens, first_non_import);
+        const vigil_token_t *first_ni = vigil_token_list_get(tokens, first_non_import);
         size_t scan_start = 0;
         if (import_count > 0) {
-            const basl_token_t *last_imp_tok =
-                basl_token_list_get(tokens, imports[import_count - 1].end_idx - 1);
+            const vigil_token_t *last_imp_tok =
+                vigil_token_list_get(tokens, imports[import_count - 1].end_idx - 1);
             scan_start = last_imp_tok->span.end_offset;
         }
         emit_comments_between(&f, scan_start, first_ni->span.start_offset);
@@ -455,10 +455,10 @@ basl_status_t basl_fmt(
     for (size_t ii = 0; ii < import_count; ii++) {
         const import_info_t *imp = &imports[ii];
         /* Emit comments before this import in original source. */
-        const basl_token_t *imp_tok = basl_token_list_get(tokens, imp->start_idx);
+        const vigil_token_t *imp_tok = vigil_token_list_get(tokens, imp->start_idx);
         if (ii > 0) {
-            const basl_token_t *prev_end_tok =
-                basl_token_list_get(tokens, imports[ii - 1].end_idx - 1);
+            const vigil_token_t *prev_end_tok =
+                vigil_token_list_get(tokens, imports[ii - 1].end_idx - 1);
             emit_comments_between(&f, prev_end_tok->span.end_offset,
                                   imp_tok->span.start_offset);
         }
@@ -471,11 +471,11 @@ basl_status_t basl_fmt(
         /* Check for 'as' alias. */
         size_t j = imp->start_idx + 2; /* after 'import' and string */
         if (j < imp->end_idx &&
-            basl_token_list_get(tokens, j)->kind == BASL_TOKEN_AS) {
+            vigil_token_list_get(tokens, j)->kind == VIGIL_TOKEN_AS) {
             buf_puts(&f.out, " as ");
             j++;
             if (j < imp->end_idx) {
-                const basl_token_t *alias = basl_token_list_get(tokens, j);
+                const vigil_token_t *alias = vigil_token_list_get(tokens, j);
                 buf_write(&f.out, tok_text(&f, alias), tok_len(alias));
             }
         }
@@ -485,8 +485,8 @@ basl_status_t basl_fmt(
 
     /* Blank line between imports and rest. */
     if (import_count > 0 && first_non_import < f.count) {
-        const basl_token_t *next = basl_token_list_get(tokens, first_non_import);
-        if (next->kind != BASL_TOKEN_EOF) {
+        const vigil_token_t *next = vigil_token_list_get(tokens, first_non_import);
+        if (next->kind != VIGIL_TOKEN_EOF) {
             emit_newline(&f);
         }
     }
@@ -517,13 +517,13 @@ basl_status_t basl_fmt(
     bool in_enum_body = false;
 
     for (size_t i = first_non_import; i < f.count; i++) {
-        const basl_token_t *cur = basl_token_list_get(tokens, i);
-        if (cur->kind == BASL_TOKEN_EOF) break;
+        const vigil_token_t *cur = vigil_token_list_get(tokens, i);
+        if (cur->kind == VIGIL_TOKEN_EOF) break;
 
         /* Emit comments between previous token and this one. */
         size_t gap_start;
         if (i > first_non_import) {
-            const basl_token_t *prev = basl_token_list_get(tokens, i - 1);
+            const vigil_token_t *prev = vigil_token_list_get(tokens, i - 1);
             gap_start = prev->span.end_offset;
         } else {
             gap_start = initial_comment_end;
@@ -532,7 +532,7 @@ basl_status_t basl_fmt(
                                                   cur->span.start_offset);
 
         /* Dedent before } */
-        if (cur->kind == BASL_TOKEN_RBRACE) {
+        if (cur->kind == VIGIL_TOKEN_RBRACE) {
             brace_depth--;
             bool is_lit = (brace_depth >= 0 && brace_depth < 64 &&
                            brace_is_literal[brace_depth]);
@@ -546,28 +546,28 @@ basl_status_t basl_fmt(
         }
 
         /* Dedent case body before next case/default. */
-        if ((cur->kind == BASL_TOKEN_CASE || cur->kind == BASL_TOKEN_DEFAULT) &&
+        if ((cur->kind == VIGIL_TOKEN_CASE || cur->kind == VIGIL_TOKEN_DEFAULT) &&
             in_case_body) {
             f.indent--;
             in_case_body = false;
         }
 
         /* Track case/default keyword for colon detection. */
-        if (cur->kind == BASL_TOKEN_CASE || cur->kind == BASL_TOKEN_DEFAULT) {
+        if (cur->kind == VIGIL_TOKEN_CASE || cur->kind == VIGIL_TOKEN_DEFAULT) {
             after_case_kw = true;
         }
 
         /* Determine spacing/newlines. */
         if (i > first_non_import && !had_comment) {
-            const basl_token_t *prev = basl_token_list_get(tokens, i - 1);
+            const vigil_token_t *prev = vigil_token_list_get(tokens, i - 1);
 
             /* Special: semicolons inside for-header don't cause newlines. */
             bool suppress_newline = in_for_header &&
-                                    prev->kind == BASL_TOKEN_SEMICOLON;
+                                    prev->kind == VIGIL_TOKEN_SEMICOLON;
 
             /* In enum body, commas cause newlines. */
             bool force_newline = false;
-            if (in_enum_body && prev->kind == BASL_TOKEN_COMMA) {
+            if (in_enum_body && prev->kind == VIGIL_TOKEN_COMMA) {
                 force_newline = true;
             }
 
@@ -575,33 +575,33 @@ basl_status_t basl_fmt(
             bool in_literal = (brace_depth > 0 && brace_depth < 64 &&
                                brace_is_literal[brace_depth - 1]);
             /* Also suppress if we're about to close a literal brace. */
-            if (cur->kind == BASL_TOKEN_RBRACE && brace_depth >= 0 &&
+            if (cur->kind == VIGIL_TOKEN_RBRACE && brace_depth >= 0 &&
                 brace_depth < 64 && brace_is_literal[brace_depth]) {
                 in_literal = true;
             }
             /* Suppress newline after literal { */
-            if (prev->kind == BASL_TOKEN_LBRACE && brace_depth > 0 &&
+            if (prev->kind == VIGIL_TOKEN_LBRACE && brace_depth > 0 &&
                 brace_depth <= 64 && brace_is_literal[brace_depth - 1]) {
                 in_literal = true;
             }
-            if (in_literal && (prev->kind == BASL_TOKEN_LBRACE ||
-                               cur->kind == BASL_TOKEN_RBRACE ||
-                               prev->kind == BASL_TOKEN_SEMICOLON ||
-                               prev->kind == BASL_TOKEN_RBRACE)) {
+            if (in_literal && (prev->kind == VIGIL_TOKEN_LBRACE ||
+                               cur->kind == VIGIL_TOKEN_RBRACE ||
+                               prev->kind == VIGIL_TOKEN_SEMICOLON ||
+                               prev->kind == VIGIL_TOKEN_RBRACE)) {
                 suppress_newline = true;
             }
             /* After a literal }, don't insert blank line before ; */
-            if (prev_was_literal_rbrace && prev->kind == BASL_TOKEN_RBRACE) {
+            if (prev_was_literal_rbrace && prev->kind == VIGIL_TOKEN_RBRACE) {
                 suppress_newline = true;
             }
 
             int nl = need_newline_before(prev, cur, &f);
 
             /* Blank line between top-level declarations. */
-            if (nl == 1 && f.indent == 0 && prev->kind == BASL_TOKEN_SEMICOLON &&
-                (cur->kind == BASL_TOKEN_FN || cur->kind == BASL_TOKEN_CLASS ||
-                 cur->kind == BASL_TOKEN_INTERFACE || cur->kind == BASL_TOKEN_ENUM ||
-                 cur->kind == BASL_TOKEN_CONST || cur->kind == BASL_TOKEN_PUB)) {
+            if (nl == 1 && f.indent == 0 && prev->kind == VIGIL_TOKEN_SEMICOLON &&
+                (cur->kind == VIGIL_TOKEN_FN || cur->kind == VIGIL_TOKEN_CLASS ||
+                 cur->kind == VIGIL_TOKEN_INTERFACE || cur->kind == VIGIL_TOKEN_ENUM ||
+                 cur->kind == VIGIL_TOKEN_CONST || cur->kind == VIGIL_TOKEN_PUB)) {
                 nl = 2;
             }
 
@@ -618,13 +618,13 @@ basl_status_t basl_fmt(
                 bool space = need_space_before(prev, cur, &f);
                 /* Override: no space around < > inside generics. */
                 if (generic_depth > 0) {
-                    if (cur->kind == BASL_TOKEN_GREATER) space = false;
-                    if (prev->kind == BASL_TOKEN_LESS) space = false;
-                    if (prev->kind == BASL_TOKEN_GREATER) space = false;
+                    if (cur->kind == VIGIL_TOKEN_GREATER) space = false;
+                    if (prev->kind == VIGIL_TOKEN_LESS) space = false;
+                    if (prev->kind == VIGIL_TOKEN_GREATER) space = false;
                 }
                 /* No space before < when it opens a generic (after array/map/fn). */
-                if (cur->kind == BASL_TOKEN_LESS &&
-                    prev->kind == BASL_TOKEN_IDENTIFIER) {
+                if (cur->kind == VIGIL_TOKEN_LESS &&
+                    prev->kind == VIGIL_TOKEN_IDENTIFIER) {
                     const char *pt = tok_text(&f, prev);
                     size_t pl = tok_len(prev);
                     if ((pl == 5 && memcmp(pt, "array", 5) == 0) ||
@@ -633,7 +633,7 @@ basl_status_t basl_fmt(
                     }
                 }
                 /* Add space before ternary colon. */
-                if (cur->kind == BASL_TOKEN_COLON && ternary_depth > 0 &&
+                if (cur->kind == VIGIL_TOKEN_COLON && ternary_depth > 0 &&
                     !after_case_kw) {
                     space = true;
                 }
@@ -647,17 +647,17 @@ basl_status_t basl_fmt(
         emit_str(&f, tok_text(&f, cur), tok_len(cur));
 
         /* Indent after { (only for block braces). */
-        if (cur->kind == BASL_TOKEN_LBRACE) {
+        if (cur->kind == VIGIL_TOKEN_LBRACE) {
             /* Determine if this is a literal brace. */
             bool is_lit = false;
             if (i > 0) {
-                const basl_token_t *prev = basl_token_list_get(tokens, i - 1);
+                const vigil_token_t *prev = vigil_token_list_get(tokens, i - 1);
                 if (is_assign_op(prev->kind) ||
-                    prev->kind == BASL_TOKEN_LPAREN ||
-                    prev->kind == BASL_TOKEN_LBRACKET ||
-                    prev->kind == BASL_TOKEN_COMMA ||
-                    prev->kind == BASL_TOKEN_RETURN ||
-                    prev->kind == BASL_TOKEN_COLON) {
+                    prev->kind == VIGIL_TOKEN_LPAREN ||
+                    prev->kind == VIGIL_TOKEN_LBRACKET ||
+                    prev->kind == VIGIL_TOKEN_COMMA ||
+                    prev->kind == VIGIL_TOKEN_RETURN ||
+                    prev->kind == VIGIL_TOKEN_COLON) {
                     is_lit = true;
                 }
             }
@@ -671,29 +671,29 @@ basl_status_t basl_fmt(
         }
 
         /* After a case/default colon, indent the body. */
-        if (cur->kind == BASL_TOKEN_COLON && after_case_kw) {
+        if (cur->kind == VIGIL_TOKEN_COLON && after_case_kw) {
             after_case_kw = false;
             in_case_body = true;
             f.indent++;
         }
 
         /* Track for-loop header. */
-        if (cur->kind == BASL_TOKEN_FOR) {
+        if (cur->kind == VIGIL_TOKEN_FOR) {
             in_for_header = true;
             for_paren_depth = 0;
         }
         if (in_for_header) {
-            if (cur->kind == BASL_TOKEN_LPAREN) for_paren_depth++;
-            if (cur->kind == BASL_TOKEN_RPAREN) {
+            if (cur->kind == VIGIL_TOKEN_LPAREN) for_paren_depth++;
+            if (cur->kind == VIGIL_TOKEN_RPAREN) {
                 for_paren_depth--;
                 if (for_paren_depth <= 0) in_for_header = false;
             }
         }
 
         /* Track generic type angle brackets. */
-        if (cur->kind == BASL_TOKEN_LESS && i > 0) {
-            const basl_token_t *prev = basl_token_list_get(tokens, i - 1);
-            if (prev->kind == BASL_TOKEN_IDENTIFIER) {
+        if (cur->kind == VIGIL_TOKEN_LESS && i > 0) {
+            const vigil_token_t *prev = vigil_token_list_get(tokens, i - 1);
+            if (prev->kind == VIGIL_TOKEN_IDENTIFIER) {
                 const char *pt = tok_text(&f, prev);
                 size_t pl = tok_len(prev);
                 if ((pl == 5 && memcmp(pt, "array", 5) == 0) ||
@@ -704,27 +704,27 @@ basl_status_t basl_fmt(
             /* Also handle nested: map<string, array<i32>> */
             if (generic_depth > 0) {
                 /* Already inside a generic, this < opens a nested one. */
-                if (prev->kind == BASL_TOKEN_COMMA ||
-                    prev->kind == BASL_TOKEN_LESS) {
+                if (prev->kind == VIGIL_TOKEN_COMMA ||
+                    prev->kind == VIGIL_TOKEN_LESS) {
                     /* Check next token for type name. */
                 }
             }
         }
-        if (cur->kind == BASL_TOKEN_GREATER && generic_depth > 0) {
+        if (cur->kind == VIGIL_TOKEN_GREATER && generic_depth > 0) {
             generic_depth--;
         }
 
         /* Track ternary ? : pairs. */
-        if (cur->kind == BASL_TOKEN_QUESTION) {
+        if (cur->kind == VIGIL_TOKEN_QUESTION) {
             ternary_depth++;
         }
-        if (cur->kind == BASL_TOKEN_COLON && ternary_depth > 0 &&
+        if (cur->kind == VIGIL_TOKEN_COLON && ternary_depth > 0 &&
             !after_case_kw) {
             ternary_depth--;
         }
 
         /* Track whether this was a literal }. */
-        if (cur->kind == BASL_TOKEN_RBRACE) {
+        if (cur->kind == VIGIL_TOKEN_RBRACE) {
             prev_was_literal_rbrace = (brace_depth >= 0 && brace_depth < 64 &&
                                        brace_is_literal[brace_depth]);
             if (in_enum_body) in_enum_body = false;
@@ -733,27 +733,27 @@ basl_status_t basl_fmt(
         }
 
         /* Track enum body. */
-        if (cur->kind == BASL_TOKEN_ENUM) {
+        if (cur->kind == VIGIL_TOKEN_ENUM) {
             /* Next { starts enum body. */
         }
-        if (cur->kind == BASL_TOKEN_LBRACE && i > 0) {
+        if (cur->kind == VIGIL_TOKEN_LBRACE && i > 0) {
             /* Check if this { follows an enum declaration. */
             for (size_t k = i; k > 0 && i - k < 10; k--) {
-                const basl_token_t *tk = basl_token_list_get(tokens, k - 1);
-                if (tk->kind == BASL_TOKEN_ENUM) {
+                const vigil_token_t *tk = vigil_token_list_get(tokens, k - 1);
+                if (tk->kind == VIGIL_TOKEN_ENUM) {
                     in_enum_body = true;
                     break;
                 }
-                if (tk->kind == BASL_TOKEN_LBRACE ||
-                    tk->kind == BASL_TOKEN_RBRACE ||
-                    tk->kind == BASL_TOKEN_SEMICOLON) break;
+                if (tk->kind == VIGIL_TOKEN_LBRACE ||
+                    tk->kind == VIGIL_TOKEN_RBRACE ||
+                    tk->kind == VIGIL_TOKEN_SEMICOLON) break;
             }
         }
     }
 
     /* Emit trailing comments. */
     if (f.count > 0) {
-        const basl_token_t *last = basl_token_list_get(tokens, f.count - 1);
+        const vigil_token_t *last = vigil_token_list_get(tokens, f.count - 1);
         emit_comments_between(&f, last->span.end_offset, f.src_len);
     }
 
@@ -773,5 +773,5 @@ basl_status_t basl_fmt(
     buf_push(&f.out, '\0');
     *out_text = f.out.data;
     *out_length = f.out.len - 1; /* exclude NUL */
-    return BASL_STATUS_OK;
+    return VIGIL_STATUS_OK;
 }
