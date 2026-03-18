@@ -2,17 +2,16 @@
 
 **Blazingly Awesome Scripting Language**
 
-This branch begins the BASL rewrite in C.
+BASL is a statically typed, bytecode-compiled scripting language designed for building CLI tools, graphical programs, and libraries. It favors explicit behavior, batteries-included tooling, and easy distribution.
 
-The repository currently contains a minimal scaffold that proves the new toolchain and CI shape:
+```basl
+import "fmt";
 
-- a public C library in `include/basl/`
-- a tiny CLI entrypoint in `src/cli/`
-- a split public C API surface with runtime, allocator, and status headers
-- a GoogleTest-based unit test
-- GitHub Actions builds for Linux, macOS, Windows, and Emscripten
-
-This scaffold is intentionally small. It exists to prove that BASL can build as a portable C project before the real runtime, VM, checker, and standard library work begin.
+fn main() -> i32 {
+    fmt.println("Hello, World!");
+    return 0;
+}
+```
 
 ## Quick Start
 
@@ -21,34 +20,64 @@ make build
 make test
 ```
 
-The CLI currently acts as a tiny smoke test:
+Run a program:
 
 ```bash
-./build/basl
-# prints "basl CLI scaffold"
+basl run hello.basl
 ```
 
-## Current Layout
+Create a new project:
 
-```text
-include/basl/   Public headers
-src/            Library and CLI sources
-tests/          GoogleTest unit tests
-.github/        Cross-platform CI
+```bash
+basl new myapp
+cd myapp
+basl run main.basl
 ```
 
-## Rewrite Direction
+## Tooling
 
-The near-term C rewrite plan is:
+| Command         | Description                                    |
+|-----------------|------------------------------------------------|
+| `basl run`      | Run a BASL script                              |
+| `basl check`    | Type-check without running                     |
+| `basl test`     | Run tests                                      |
+| `basl fmt`      | Format source files                            |
+| `basl doc`      | Show documentation for modules or source files |
+| `basl debug`    | Debug a script                                 |
+| `basl new`      | Create a new project                           |
+| `basl package`  | Package a program as a standalone binary       |
+| `basl repl`     | Start interactive REPL                         |
+| `basl lsp`      | Start Language Server Protocol server          |
+| `basl embed`    | Embed files as BASL source code                |
 
-1. Establish a cross-platform scaffold with working CI.
-2. Implement foundational runtime data structures.
-3. Implement the core language runtime and bytecode VM.
-4. Rebuild the standard library.
-5. Rebuild related tooling such as formatter, debugger, and LSP support.
+## Language Highlights
 
-The existing BASL language reference in `docs/syntax.md` remains the semantic reference during this early scaffold phase.
+- Static typing with type inference for locals
+- First-class functions and closures
+- Classes, interfaces, and enums
+- Multi-return values and explicit error handling (`guard`)
+- `defer` for cleanup
+- Built-in concurrency primitives
+- Standard library: `fmt`, `math`, `os`, `fs`, `net`, `json`, `time`, `crypto`, and more
+- Portable across Linux, macOS, Windows, and WebAssembly
+
+## Repository Layout
+
+```
+include/basl/       Public C API headers
+src/                Compiler, VM, runtime, CLI, stdlib, platform layer
+tests/              Unit tests
+integration_tests/  CLI integration tests
+examples/           Example programs
+docs/               Language and project documentation
+```
+
+## Documentation
+
+- [Syntax Reference](docs/syntax.md)
+- [Project Structure](docs/project_structure.md)
+- [Stdlib Portability](docs/stdlib-portability.md)
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) for details.
+Apache License 2.0 — see [LICENSE](LICENSE) for details.

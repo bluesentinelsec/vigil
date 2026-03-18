@@ -679,6 +679,7 @@ const char *basl_opcode_name(basl_opcode_t opcode) {
         case BASL_OPCODE_TAIL_CALL: return "TAIL_CALL";
         case BASL_OPCODE_FORLOOP_I32: return "FORLOOP_I32";
         case BASL_OPCODE_CALL_NATIVE: return "CALL_NATIVE";
+        case BASL_OPCODE_DEFER_CALL_NATIVE: return "DEFER_CALL_NATIVE";
         case BASL_OPCODE_STRING_TRIM_LEFT: return "STRING_TRIM_LEFT";
         case BASL_OPCODE_STRING_TRIM_RIGHT: return "STRING_TRIM_RIGHT";
         case BASL_OPCODE_STRING_REPEAT: return "STRING_REPEAT";
