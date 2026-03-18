@@ -7745,6 +7745,9 @@ static basl_status_t basl_parser_parse_native_call(
     size_t arg_count;
     basl_object_t *native_obj;
     basl_value_t native_val;
+    int defer_call;
+
+    defer_call = state->defer_mode;
 
     mod_idx = BASL_NATIVE_SOURCE_INDEX(source_id);
     if (mod_idx >= state->program->natives->module_count) {
@@ -7863,7 +7866,7 @@ static basl_status_t basl_parser_parse_native_call(
             return status;
         }
         status = basl_parser_emit_opcode(
-            state, BASL_OPCODE_CALL_NATIVE, member_token->span);
+            state, defer_call ? BASL_OPCODE_DEFER_CALL_NATIVE : BASL_OPCODE_CALL_NATIVE, member_token->span);
         if (status != BASL_STATUS_OK) {
             return status;
         }
@@ -7877,6 +7880,13 @@ static basl_status_t basl_parser_parse_native_call(
         if (status != BASL_STATUS_OK) {
             return status;
         }
+    }
+
+    if (defer_call) {
+        state->defer_emitted = 1;
+        basl_expression_result_set_type(
+            out_result, basl_binding_type_primitive(BASL_TYPE_VOID));
+        return BASL_STATUS_OK;
     }
 
     /* Set return type. */

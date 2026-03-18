@@ -211,7 +211,8 @@ typedef enum basl_opcode {
        format_type: 0=string, 1=decimal, 2=hex_lower, 3=hex_upper,
                     4=binary, 5=octal, 6=float_f
        grouping: 1 = insert thousands separators */
-    BASL_OPCODE_FORMAT_SPEC = 150
+    BASL_OPCODE_FORMAT_SPEC = 150,
+    BASL_OPCODE_DEFER_CALL_NATIVE = 151
 } basl_opcode_t;
 
 typedef struct basl_chunk {

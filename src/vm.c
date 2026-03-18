@@ -233,7 +233,8 @@ typedef enum basl_vm_defer_kind {
     BASL_VM_DEFER_CALL = 0,
     BASL_VM_DEFER_CALL_VALUE = 1,
     BASL_VM_DEFER_NEW_INSTANCE = 2,
-    BASL_VM_DEFER_CALL_INTERFACE = 3
+    BASL_VM_DEFER_CALL_INTERFACE = 3,
+    BASL_VM_DEFER_CALL_NATIVE = 4
 } basl_vm_defer_kind_t;
 
 typedef struct basl_vm_defer_action {
@@ -1269,6 +1270,23 @@ static basl_status_t basl_vm_execute_next_defer(
                 error
             );
             break;
+        case BASL_VM_DEFER_CALL_NATIVE: {
+            const basl_value_t *nval;
+            basl_object_t *nobj;
+            basl_native_fn_t nfn;
+            nval = BASL_VM_CHUNK_CONSTANT(
+                frame->chunk, (size_t)action.operand_a);
+            nobj = (basl_object_t *)basl_nanbox_decode_ptr(*nval);
+            nfn = basl_native_function_get(nobj);
+            if (nfn == NULL) {
+                basl_error_set_literal(error, BASL_STATUS_INTERNAL,
+                    "deferred call target is not a native function");
+                status = BASL_STATUS_INTERNAL;
+            } else {
+                status = nfn(vm, (size_t)action.arg_count, error);
+            }
+            break;
+        }
         default:
             basl_error_set_literal(error, BASL_STATUS_INTERNAL, "defer target is invalid");
             status = BASL_STATUS_INTERNAL;
@@ -3120,6 +3138,7 @@ basl_status_t basl_vm_execute_function(
             [BASL_OPCODE_TAIL_CALL] = &&op_TAIL_CALL,
             [BASL_OPCODE_FORLOOP_I32] = &&op_FORLOOP_I32,
             [BASL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
+            [BASL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
             [BASL_OPCODE_MODULO] = &&op_MODULO,
             [BASL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [BASL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3719,6 +3738,28 @@ basl_status_t basl_vm_execute_function(
                     goto cleanup;
                 }
                 status = native_fn(vm, (size_t)native_arg_count, error);
+                if (status != BASL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+            VM_CASE(DEFER_CALL_NATIVE) {
+                uint32_t native_defer_arg_count;
+
+                BASL_VM_READ_U32(code, frame->ip, constant_index);
+                BASL_VM_READ_RAW_U32(code, frame->ip, native_defer_arg_count);
+
+                frame = basl_vm_current_frame(vm);
+                status = basl_vm_schedule_defer(
+                    vm,
+                    frame,
+                    BASL_VM_DEFER_CALL_NATIVE,
+                    constant_index,
+                    0U,
+                    native_defer_arg_count,
+                    (size_t)native_defer_arg_count,
+                    error
+                );
                 if (status != BASL_STATUS_OK) {
                     goto cleanup;
                 }

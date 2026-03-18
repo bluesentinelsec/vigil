@@ -509,7 +509,7 @@ fn process() -> i32 {
 }
 ```
 
-- The argument must be a function call (local functions, object methods, or IIFEs — not module-qualified calls like `fmt.println`).
+- The argument must be a function call.
 - Deferred calls run in LIFO order.
 - Arguments are evaluated eagerly.
 
