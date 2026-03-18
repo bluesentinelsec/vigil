@@ -60,7 +60,7 @@ TEST(BaslHttpTest, ParseUrlFull) {
     EXPECT_STREQ(u.scheme, "https");
     EXPECT_STREQ(u.host, "example.com");
     EXPECT_EQ(u.port, 8080);
-    EXPECT_STREQ(u.path, "/api/v1");
+    EXPECT_TRUE(strcmp(u.path, "/api/v1") == 0);
 }
 
 TEST(BaslHttpTest, ParseUrlHttpDefault) {
@@ -69,7 +69,7 @@ TEST(BaslHttpTest, ParseUrlHttpDefault) {
     EXPECT_STREQ(u.scheme, "http");
     EXPECT_STREQ(u.host, "localhost");
     EXPECT_EQ(u.port, 80);
-    EXPECT_STREQ(u.path, "/test");
+    EXPECT_TRUE(strcmp(u.path, "/test") == 0);
 }
 
 TEST(BaslHttpTest, ParseUrlHttpsDefaultPort) {
@@ -82,7 +82,7 @@ TEST(BaslHttpTest, ParseUrlNoPath) {
     parsed_url_t u;
     ASSERT_TRUE(parse_url("http://example.com", &u));
     EXPECT_STREQ(u.host, "example.com");
-    EXPECT_STREQ(u.path, "/");
+    EXPECT_TRUE(strcmp(u.path, "/") == 0);
 }
 
 TEST(BaslHttpTest, ParseUrlNoScheme) {
@@ -90,7 +90,7 @@ TEST(BaslHttpTest, ParseUrlNoScheme) {
     ASSERT_TRUE(parse_url("example.com/foo", &u));
     EXPECT_STREQ(u.scheme, "http");
     EXPECT_STREQ(u.host, "example.com");
-    EXPECT_STREQ(u.path, "/foo");
+    EXPECT_TRUE(strcmp(u.path, "/foo") == 0);
 }
 
 TEST(BaslHttpTest, ParseUrlLoopback) {
@@ -98,7 +98,7 @@ TEST(BaslHttpTest, ParseUrlLoopback) {
     ASSERT_TRUE(parse_url("http://127.0.0.1:9100/data", &u));
     EXPECT_STREQ(u.host, "127.0.0.1");
     EXPECT_EQ(u.port, 9100);
-    EXPECT_STREQ(u.path, "/data");
+    EXPECT_TRUE(strcmp(u.path, "/data") == 0);
 }
 
 /* ── Loopback test server ────────────────────────────────────────── */

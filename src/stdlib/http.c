@@ -76,7 +76,7 @@ static int get_string_arg(basl_vm_t *vm, size_t base, size_t idx,
 /* ── URL parsing ─────────────────────────────────────────────────── */
 
 #ifdef BASL_HTTP_TESTING
-#define HTTP_STATIC
+#define HTTP_STATIC BASL_API
 #else
 #define HTTP_STATIC static
 #endif
