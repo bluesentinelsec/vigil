@@ -241,6 +241,7 @@ TEST(VigilFsTest, TempFile) {
 
 /* ── Symlink operations ──────────────────────────────────────────── */
 
+#ifndef _WIN32
 TEST(VigilFsTest, SymlinkCreateAndRead) {
     char target[256], link[256];
     make_temp_path(target, sizeof(target), "vigil_sym_target.txt");
@@ -249,11 +250,7 @@ TEST(VigilFsTest, SymlinkCreateAndRead) {
     vigil_platform_write_file(target, "symlink test", 12, NULL);
 
     vigil_status_t s = vigil_platform_symlink(target, link, NULL);
-    if (s != VIGIL_STATUS_OK) {
-        /* Windows CI lacks symlink privileges — skip gracefully. */
-        vigil_platform_remove(target, NULL);
-        return;
-    }
+    ASSERT_EQ(s, VIGIL_STATUS_OK);
 
     int is_sym = 0;
     vigil_platform_is_symlink(link, &is_sym);
@@ -272,15 +269,21 @@ TEST(VigilFsTest, SymlinkCreateAndRead) {
     vigil_platform_remove(link, NULL);
     vigil_platform_remove(target, NULL);
 }
+#endif
 
 /* ── Recursive remove ────────────────────────────────────────────── */
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+
 TEST(VigilFsTest, RemoveAll) {
-    char base[256], sub[512], file1[512], file2[512];
+    char base[256], sub[1024], file1[1024], file2[1024];
     make_temp_path(base, sizeof(base), "vigil_rmall_test");
     snprintf(sub, sizeof(sub), "%s/sub/deep", base);
     snprintf(file1, sizeof(file1), "%s/top.txt", base);
-    snprintf(file2, sizeof(file2), "%s/sub/deep/leaf.txt", sub);
+    snprintf(file2, sizeof(file2), "%s/leaf.txt", sub);
 
     vigil_platform_mkdir_p(sub, NULL);
     vigil_platform_write_file(file1, "top", 3, NULL);
@@ -296,6 +299,10 @@ TEST(VigilFsTest, RemoveAll) {
     vigil_platform_file_exists(base, &exists);
     EXPECT_EQ(exists, 0);
 }
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 /* ── Glob matching ───────────────────────────────────────────────── */
 
@@ -333,7 +340,9 @@ void register_fs_tests(void) {
     REGISTER_TEST(VigilFsTest, HomeDir);
     REGISTER_TEST(VigilFsTest, ConfigDir);
     REGISTER_TEST(VigilFsTest, TempFile);
+#ifndef _WIN32
     REGISTER_TEST(VigilFsTest, SymlinkCreateAndRead);
+#endif
     REGISTER_TEST(VigilFsTest, RemoveAll);
     REGISTER_TEST(VigilFsTest, GlobMatch);
 }
