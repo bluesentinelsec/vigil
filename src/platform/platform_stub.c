@@ -352,3 +352,54 @@ vigil_status_t vigil_platform_http_request(
     if (error) { error->type = VIGIL_STATUS_UNSUPPORTED; error->value = "HTTP not supported on this platform"; error->length = 34; }
     return VIGIL_STATUS_UNSUPPORTED;
 }
+
+/* ── New fs platform stubs ───────────────────────────────────────── */
+
+vigil_status_t vigil_platform_symlink(const char *target, const char *linkpath, vigil_error_t *error) {
+    (void)target; (void)linkpath;
+    vigil_error_set_literal(error, VIGIL_STATUS_UNSUPPORTED, "symlink not supported");
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_hardlink(const char *target, const char *linkpath, vigil_error_t *error) {
+    (void)target; (void)linkpath;
+    vigil_error_set_literal(error, VIGIL_STATUS_UNSUPPORTED, "hardlink not supported");
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_readlink(const char *path, char **out_target, vigil_error_t *error) {
+    (void)path; *out_target = NULL;
+    vigil_error_set_literal(error, VIGIL_STATUS_UNSUPPORTED, "readlink not supported");
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_is_symlink(const char *path, int *out_is_symlink) {
+    (void)path; *out_is_symlink = 0;
+    return VIGIL_STATUS_OK;
+}
+
+vigil_status_t vigil_platform_remove_all(const char *path, vigil_error_t *error) {
+    (void)path;
+    vigil_error_set_literal(error, VIGIL_STATUS_UNSUPPORTED, "remove_all not supported");
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+int vigil_platform_glob_match(const char *pattern, const char *name) {
+    while (*pattern && *name) {
+        if (*pattern == '*') {
+            pattern++;
+            if (*pattern == '\0') return 1;
+            while (*name) {
+                if (vigil_platform_glob_match(pattern, name)) return 1;
+                name++;
+            }
+            return 0;
+        } else if (*pattern == '?' || *pattern == *name) {
+            pattern++; name++;
+        } else {
+            return 0;
+        }
+    }
+    while (*pattern == '*') pattern++;
+    return *pattern == '\0' && *name == '\0';
+}

@@ -8,8 +8,10 @@
 #include "vigil/fmt.h"
 #include "vigil/json.h"
 #include "vigil/lexer.h"
+#include "vigil/native_module.h"
 #include "vigil/runtime.h"
 #include "vigil/source.h"
+#include "vigil/stdlib.h"
 #include "internal/vigil_internal.h"
 
 /* ── Server State ─────────────────────────────────────────── */
@@ -947,6 +949,46 @@ static vigil_status_t handle_completion(
         jset_obj(item, "documentation", doc, error);
 
         vigil_json_array_push(result, item, error);
+    }
+
+    /* Add native module function completions */
+    {
+        vigil_native_registry_t natives;
+        vigil_native_registry_init(&natives);
+        if (vigil_stdlib_register_all(&natives, error) == VIGIL_STATUS_OK) {
+            size_t mi;
+            for (mi = 0; mi < natives.module_count; mi++) {
+                const vigil_native_module_t *mod = natives.modules[mi];
+                size_t fi;
+                for (fi = 0; fi < mod->function_count; fi++) {
+                    const vigil_native_module_function_t *fn = &mod->functions[fi];
+                    vigil_json_value_t *item = NULL;
+                    vigil_json_value_t *label = NULL;
+                    vigil_json_value_t *detail = NULL;
+
+                    /* Build qualified label: "module.function" */
+                    char qualified[256];
+                    snprintf(qualified, sizeof(qualified), "%.*s.%.*s",
+                        (int)mod->name_length, mod->name,
+                        (int)fn->name_length, fn->name);
+
+                    vigil_json_object_new(a, &item, error);
+                    vigil_json_string_new(a, qualified, strlen(qualified), &label, error);
+                    jset_obj(item, "label", label, error);
+                    jset_int(item, "kind", 3, a, error);  /* Function */
+
+                    /* Build detail string with module name */
+                    char det[128];
+                    snprintf(det, sizeof(det), "%.*s module",
+                        (int)mod->name_length, mod->name);
+                    vigil_json_string_new(a, det, strlen(det), &detail, error);
+                    jset_obj(item, "detail", detail, error);
+
+                    vigil_json_array_push(result, item, error);
+                }
+            }
+        }
+        vigil_native_registry_free(&natives);
     }
 
     return lsp_make_response(a, id, result, out, error);

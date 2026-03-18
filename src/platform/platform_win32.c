@@ -686,11 +686,77 @@ VIGIL_API vigil_status_t vigil_platform_readlink(
     char **out_target,
     vigil_error_t *error
 ) {
-    /* Windows symlink reading is complex; simplified version */
     (void)path;
     vigil_error_set_literal(error, VIGIL_STATUS_UNSUPPORTED, "readlink not fully supported on Windows");
     *out_target = NULL;
     return VIGIL_STATUS_UNSUPPORTED;
+}
+
+VIGIL_API vigil_status_t vigil_platform_is_symlink(
+    const char *path, int *out_is_symlink
+) {
+    DWORD attrs = GetFileAttributesA(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) { *out_is_symlink = 0; return VIGIL_STATUS_OK; }
+    *out_is_symlink = (attrs & FILE_ATTRIBUTE_REPARSE_POINT) ? 1 : 0;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t win32_remove_all(const char *path, vigil_error_t *error) {
+    DWORD attrs = GetFileAttributesA(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) return VIGIL_STATUS_OK;
+    if (!(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (!DeleteFileA(path)) {
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "remove failed");
+            return VIGIL_STATUS_INTERNAL;
+        }
+        return VIGIL_STATUS_OK;
+    }
+    char pattern[MAX_PATH];
+    snprintf(pattern, sizeof(pattern), "%s\\*", path);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(pattern, &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+            char child[MAX_PATH];
+            snprintf(child, sizeof(child), "%s\\%s", path, fd.cFileName);
+            vigil_status_t s = win32_remove_all(child, error);
+            if (s != VIGIL_STATUS_OK) { FindClose(h); return s; }
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+    if (!RemoveDirectoryA(path)) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "rmdir failed");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_remove_all(
+    const char *path, vigil_error_t *error
+) {
+    return win32_remove_all(path, error);
+}
+
+VIGIL_API int vigil_platform_glob_match(const char *pattern, const char *name) {
+    while (*pattern && *name) {
+        if (*pattern == '*') {
+            pattern++;
+            if (*pattern == '\0') return 1;
+            while (*name) {
+                if (vigil_platform_glob_match(pattern, name)) return 1;
+                name++;
+            }
+            return 0;
+        } else if (*pattern == '?' || *pattern == *name) {
+            pattern++;
+            name++;
+        } else {
+            return 0;
+        }
+    }
+    while (*pattern == '*') pattern++;
+    return *pattern == '\0' && *name == '\0';
 }
 
 VIGIL_API vigil_status_t vigil_platform_home_dir(char **out_path, vigil_error_t *error) {

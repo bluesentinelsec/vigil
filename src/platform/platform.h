@@ -326,6 +326,24 @@ VIGIL_API vigil_status_t vigil_platform_readlink(
     vigil_error_t *error
 );
 
+/** Check whether path is a symbolic link. */
+VIGIL_API vigil_status_t vigil_platform_is_symlink(
+    const char *path,
+    int *out_is_symlink
+);
+
+/** Remove a file, directory, or directory tree recursively. */
+VIGIL_API vigil_status_t vigil_platform_remove_all(
+    const char *path,
+    vigil_error_t *error
+);
+
+/** Match a filename against a glob pattern (*, ?). */
+VIGIL_API int vigil_platform_glob_match(
+    const char *pattern,
+    const char *name
+);
+
 /** Get user home directory. Caller must free *out_path. */
 VIGIL_API vigil_status_t vigil_platform_home_dir(
     char **out_path,

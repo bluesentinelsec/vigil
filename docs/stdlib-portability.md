@@ -31,7 +31,7 @@ These modules need OS-specific APIs but are expected to work on most desktop sys
 
 | Module | Needs                                              |
 |--------|----------------------------------------------------|
-| `file` | `stat`, `readdir`/`FindFirstFile`, `mkdir`, `unlink` |
+| `fs`   | `stat`, `readdir`/`FindFirstFile`, `mkdir`, `unlink`, `symlink`/`lstat` |
 | `env`  | `getenv` (C11), `setenv`/`_putenv_s` (platform)   |
 | `time` | `time()` (C11), high-res timers (platform)         |
 
@@ -54,7 +54,7 @@ src/
         stdlib_parse.c        # tier 1
         stdlib_math.c         # tier 1
         stdlib_bytes.c        # tier 1
-        stdlib_file.c         # tier 2
+        stdlib_fs.c           # tier 2
         stdlib_env.c          # tier 2
         stdlib_time.c         # tier 2
         stdlib_net.c          # tier 3
