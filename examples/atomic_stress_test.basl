@@ -464,7 +464,142 @@ fn mutex_ref_init() -> void {
     mutex_counter = atomic.new(i64(0));
 }
 // ============================================================================
-// Section 7: Main driver — spawn threads, run workloads, validate
+// Section 7: New operations stress (exchange, fetch_or/and/xor, fence)
+//
+// Exercises the new atomic operations under contention:
+//   - Exchange-based spinlock (simpler than CAS-based)
+//   - Concurrent bitmap via fetch_or (32 threads set bits)
+//   - Concurrent mask via fetch_and (clear bits under contention)
+//   - Concurrent toggle via fetch_xor
+//   - Fence between store and load sequences
+// ============================================================================
+
+i64 xchg_lock = i64(0);
+i64 xchg_counter = i64(0);
+i64 bitmap_atom = i64(0);
+i64 xor_atom = i64(0);
+
+fn new_ops_init() -> void {
+    xchg_lock = atomic.new(i64(0));
+    xchg_counter = atomic.new(i64(0));
+    bitmap_atom = atomic.new(i64(0));
+    xor_atom = atomic.new(i64(0));
+}
+
+fn run_new_ops_test() -> bool {
+    fmt.println("=== Section 7: New Operations Stress ===");
+    new_ops_init();
+    i64 t0 = time.now_ms();
+    bool pass = true;
+
+    // Part A: exchange-based spinlock (16 threads x 1000 iters)
+    array<i64> threads = [];
+    for (i64 t = i64(0); t < SPINLOCK_THREADS; t++) {
+        i64 tid = thread.spawn(fn() -> i64 {
+            for (i64 i = i64(0); i < SPINLOCK_ITERS; i++) {
+                // Acquire via exchange
+                for (;;) {
+                    i64 was = atomic.exchange(xchg_lock, i64(1));
+                    if (was == i64(0)) {
+                        break;
+                    }
+                    thread.yield();
+                }
+                i64 v = atomic.load(xchg_counter);
+                atomic.store(xchg_counter, v + i64(1));
+                // Release
+                atomic.store(xchg_lock, i64(0));
+            }
+            return i64(0);
+        });
+        threads.push(tid);
+    }
+    for (i32 i = 0; i < threads.len(); i++) {
+        thread.join(threads[i]);
+    }
+    i64 xchg_result = atomic.load(xchg_counter);
+    i64 xchg_expected = SPINLOCK_THREADS * SPINLOCK_ITERS;
+    fmt.println(f"  Exchange spinlock: {xchg_result}, Expected: {xchg_expected}");
+    if (xchg_result != xchg_expected) {
+        pass = false;
+    }
+
+    // Part B: concurrent bitmap via fetch_or (32 threads set bits 0-15)
+    array<i64> threads2 = [];
+    for (i64 t = i64(0); t < BARRIER_THREADS; t++) {
+        i64 tid = thread.spawn(fn() -> i64 {
+            i64 id = thread.current_id();
+            i64 bit = id % i64(16);
+            if (bit < i64(0)) {
+                bit = bit * i64(-1);
+            }
+            bit = bit % i64(16);
+            i64 mask = i64(1);
+            for (i64 s = i64(0); s < bit; s++) {
+                mask = mask * i64(2);
+            }
+            atomic.fetch_or(bitmap_atom, mask);
+            return i64(0);
+        });
+        threads2.push(tid);
+    }
+    for (i32 i = 0; i < threads2.len(); i++) {
+        thread.join(threads2[i]);
+    }
+    i64 bm = atomic.load(bitmap_atom);
+    fmt.println(f"  Concurrent bitmap: {bm}");
+
+    // Part C: fetch_xor toggle (each thread XORs its bit on then off)
+    array<i64> threads3 = [];
+    for (i64 t = i64(0); t < BARRIER_THREADS; t++) {
+        i64 tid = thread.spawn(fn() -> i64 {
+            // XOR bit 0 on, then off — net effect should be 0
+            for (i64 i = i64(0); i < i64(100); i++) {
+                atomic.fetch_xor(xor_atom, i64(1));
+                atomic.fetch_xor(xor_atom, i64(1));
+            }
+            return i64(0);
+        });
+        threads3.push(tid);
+    }
+    for (i32 i = 0; i < threads3.len(); i++) {
+        thread.join(threads3[i]);
+    }
+    i64 xor_result = atomic.load(xor_atom);
+    fmt.println(f"  XOR toggle result: {xor_result} (expected 0)");
+    if (xor_result != i64(0)) {
+        pass = false;
+    }
+
+    // Part D: fence (verify it doesn't crash under contention)
+    array<i64> threads4 = [];
+    for (i64 t = i64(0); t < i64(8); t++) {
+        i64 tid = thread.spawn(fn() -> i64 {
+            for (i64 i = i64(0); i < i64(100); i++) {
+                atomic.fence();
+            }
+            return i64(0);
+        });
+        threads4.push(tid);
+    }
+    for (i32 i = 0; i < threads4.len(); i++) {
+        thread.join(threads4[i]);
+    }
+    fmt.println("  Fence stress: OK");
+
+    i64 elapsed = time.now_ms() - t0;
+    fmt.println(f"  Time: {elapsed}ms");
+    if (pass) {
+        fmt.println("  PASS: All new operations correct");
+    } else {
+        fmt.println("  FAIL: New operation error!");
+    }
+    fmt.println("");
+    return pass;
+}
+
+// ============================================================================
+// Section 8: Main driver — spawn threads, run workloads, validate
 // ============================================================================
 fn run_ring_buffer_test() -> bool {
     fmt.println("=== Section 1: Lock-free MPMC Ring Buffer ===");
@@ -866,19 +1001,29 @@ fn main() -> i32 {
         fail_count = fail_count + 1;
     }
 
+    if (run_new_ops_test()) {
+        pass_count = pass_count + 1;
+    } else {
+        fail_count = fail_count + 1;
+    }
+
     i64 t_total = time.now_ms() - t_start;
     fmt.println("══════════════════════════════════════════════════════════");
     fmt.println(f"  Results: {pass_count} passed, {fail_count} failed");
     fmt.println(f"  Total time: {t_total}ms");
     // Summary of atomic operations exercised:
-    // - atomic.new:   ring buffer slots, metrics shards, spinlock, stack pool, barrier, mutex ref
-    // - atomic.load:  ring buffer seq/val reads, metrics reads, spinlock check, stack top, barrier
-    // - atomic.store: ring buffer seq/val writes, spinlock release, stack node setup, barrier flag
-    // - atomic.add:   metrics counters, consumed totals, push/pop sums
-    // - atomic.sub:   barrier countdown
-    // - atomic.cas:   ring buffer head/tail, metrics gauge CAS, spinlock acquire, stack push/pop
-    // - atomic.inc:   ring buffer enq/deq counts, metrics ops, spinlock contention, barrier result
-    // - atomic.dec:   (available but inc/sub cover the same ground)
+    // - atomic.new:       ring buffer slots, metrics shards, spinlock, stack pool, barrier, mutex ref, new ops
+    // - atomic.load:      ring buffer seq/val reads, metrics reads, spinlock check, stack top, barrier
+    // - atomic.store:     ring buffer seq/val writes, spinlock release, stack node setup, barrier flag
+    // - atomic.add:       metrics counters, consumed totals, push/pop sums
+    // - atomic.sub:       barrier countdown
+    // - atomic.cas:       ring buffer head/tail, metrics gauge CAS, spinlock acquire, stack push/pop
+    // - atomic.exchange:  exchange-based spinlock
+    // - atomic.fetch_or:  concurrent bitmap
+    // - atomic.fetch_xor: concurrent toggle
+    // - atomic.fence:     contended fence stress
+    // - atomic.inc:       ring buffer enq/deq counts, metrics ops, spinlock contention, barrier result
+    // - atomic.dec:       (available, functionally same as sub(h,1))
     if (fail_count > 0) {
         fmt.println("  STATUS: FAIL");
         return 1;

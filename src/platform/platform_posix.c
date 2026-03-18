@@ -1138,6 +1138,26 @@ BASL_API int basl_atomic_cas(volatile int64_t *ptr, int64_t expected, int64_t de
     return atomic_compare_exchange_strong((_Atomic int64_t *)ptr, &expected, desired) ? 1 : 0;
 }
 
+BASL_API int64_t basl_atomic_exchange(volatile int64_t *ptr, int64_t value) {
+    return atomic_exchange((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_fetch_or(volatile int64_t *ptr, int64_t value) {
+    return atomic_fetch_or((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_fetch_and(volatile int64_t *ptr, int64_t value) {
+    return atomic_fetch_and((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API int64_t basl_atomic_fetch_xor(volatile int64_t *ptr, int64_t value) {
+    return atomic_fetch_xor((_Atomic int64_t *)ptr, value);
+}
+
+BASL_API void basl_atomic_fence(void) {
+    atomic_thread_fence(memory_order_seq_cst);
+}
+
 /* ── TCP sockets ─────────────────────────────────────────────────── */
 
 #include <sys/socket.h>
