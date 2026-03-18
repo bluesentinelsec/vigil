@@ -7,7 +7,7 @@ BASL is a statically typed, C-style scripting language with explicit control flo
 - Source files use the `.basl` extension.
 - Statements end with `;`.
 - Blocks use `{ }`.
-- Runnable programs define a `main` entrypoint:
+- Every runnable program must define a `main` function. It returns `i32` (the exit code):
 
 ```
 fn main() -> i32 {
@@ -15,7 +15,16 @@ fn main() -> i32 {
 }
 ```
 
-Library modules export `pub` declarations instead.
+- Library modules have no `main`. They export declarations with `pub` so other files can import them:
+
+```
+// mylib.basl
+pub const string VERSION = "1.0";
+
+pub fn double(i32 x) -> i32 {
+    return x * 2;
+}
+```
 
 ## Comments
 
