@@ -711,7 +711,7 @@ static basl_status_t http_listen(basl_vm_t *vm, size_t arg_count, basl_error_t *
     if (strcmp(host_buf, "0.0.0.0") == 0) {
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
     } else {
-        addr.sin_addr.s_addr = inet_addr(host_buf);
+        inet_pton(AF_INET, host_buf, &addr.sin_addr);
     }
 
     socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
