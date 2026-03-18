@@ -2909,7 +2909,11 @@ static basl_status_t basl_program_parse_constant_float(
     buffer[length] = '\0';
     errno = 0;
     parsed = strtod(buffer, &end);
-    if (errno != 0 || end == buffer || *end != '\0') {
+    if (end == buffer || *end != '\0') {
+        return basl_compile_report(program, token->span, "invalid float literal");
+    }
+    /* Reject overflow (HUGE_VAL) but allow underflow to zero/denormal. */
+    if (errno == ERANGE && (parsed == HUGE_VAL || parsed == -HUGE_VAL)) {
         return basl_compile_report(program, token->span, "invalid float literal");
     }
 
@@ -5531,7 +5535,11 @@ static basl_status_t basl_parser_parse_float_literal(
     buffer[length] = '\0';
     errno = 0;
     parsed = strtod(buffer, &end);
-    if (errno != 0 || end == buffer || *end != '\0') {
+    if (end == buffer || *end != '\0') {
+        return basl_parser_report(state, token->span, "invalid float literal");
+    }
+    /* Reject overflow (HUGE_VAL) but allow underflow to zero/denormal. */
+    if (errno == ERANGE && (parsed == HUGE_VAL || parsed == -HUGE_VAL)) {
         return basl_parser_report(state, token->span, "invalid float literal");
     }
 
@@ -5543,8 +5551,6 @@ static basl_status_t basl_parser_parse_float_literal(
  * Peephole: try to fuse GET_LOCAL + GET_LOCAL + <i64_op> into a single
  * LOCALS_<op>_I64 superinstruction.  Called just before emitting an i64
  * binary opcode.  If the last 10 emitted bytes are two GET_LOCAL
- * instructions, rewind the chunk and emit the fused opcode with the
- * two local indices as operands.  Returns the fused opcode, or the
  * original opcode if fusion is not possible.
  */
 static basl_opcode_t basl_parser_try_fuse_locals_i64(

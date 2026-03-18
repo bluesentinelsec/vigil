@@ -184,6 +184,48 @@ static const basl_doc_entry_t math_docs[] = {
         NULL,
         "math.exp(1.0)  // ~2.718"
     },
+    {
+        "math.cbrt",
+        "math.cbrt(x: f64) -> f64",
+        "Return the cube root of x.",
+        NULL,
+        "math.cbrt(27.0)  // 3.0"
+    },
+    {
+        "math.tau",
+        "math.tau() -> f64",
+        "Return tau (2*pi, approximately 6.283185).",
+        NULL,
+        "math.tau()  // 6.283185..."
+    },
+    {
+        "math.epsilon",
+        "math.epsilon() -> f64",
+        "Return machine epsilon (smallest f64 such that 1.0 + epsilon > 1.0).",
+        NULL,
+        "math.epsilon()  // 2.220446e-16"
+    },
+    {
+        "math.isNaN",
+        "math.isNaN(x: f64) -> bool",
+        "Return true if x is NaN.",
+        NULL,
+        "math.isNaN(0.0 / 0.0)  // true"
+    },
+    {
+        "math.isInf",
+        "math.isInf(x: f64) -> bool",
+        "Return true if x is positive or negative infinity.",
+        NULL,
+        "math.isInf(1.0 / 0.0)  // true"
+    },
+    {
+        "math.isFinite",
+        "math.isFinite(x: f64) -> bool",
+        "Return true if x is neither NaN nor infinity.",
+        NULL,
+        "math.isFinite(42.0)  // true"
+    },
 };
 
 #define MATH_COUNT (sizeof(math_docs) / sizeof(math_docs[0]))
@@ -543,6 +585,13 @@ static const basl_doc_entry_t random_docs[] = {
         "Generate a random integer in [min, max).",
         "Returns a random i32 value between min (inclusive) and max (exclusive).",
         "i32 dice = random.range(1, 7)  // 1-6"
+    },
+    {
+        "random.gaussian",
+        "random.gaussian() -> f64",
+        "Generate a random value from the standard normal distribution (mean=0, stddev=1).",
+        "Uses the Box-Muller transform. Call repeatedly for multiple samples.",
+        "f64 g = random.gaussian()  // e.g. -0.42"
     },
 };
 

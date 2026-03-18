@@ -26,6 +26,14 @@ static basl_status_t basl_math_push_f64(
     return basl_vm_stack_push(vm, &val, error);
 }
 
+static basl_status_t basl_math_push_bool(
+    basl_vm_t *vm, int b, basl_error_t *error
+) {
+    basl_value_t val;
+    basl_value_init_bool(&val, b);
+    return basl_vm_stack_push(vm, &val, error);
+}
+
 /* ── f64 -> f64 callbacks ────────────────────────────────────────── */
 
 #define MATH_UNARY(name, cfn)                                       \
@@ -43,6 +51,7 @@ MATH_UNARY(ceil, ceil)
 MATH_UNARY(round, round)
 MATH_UNARY(abs, fabs)
 MATH_UNARY(sqrt, sqrt)
+MATH_UNARY(cbrt, cbrt)
 MATH_UNARY(sin, sin)
 MATH_UNARY(cos, cos)
 MATH_UNARY(tan, tan)
@@ -66,6 +75,46 @@ static basl_status_t basl_math_e(
 ) {
     (void)arg_count;
     return basl_math_push_f64(vm, 2.71828182845904523536, error);
+}
+
+static basl_status_t basl_math_tau(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    return basl_math_push_f64(vm, 6.28318530717958647692, error);
+}
+
+static basl_status_t basl_math_epsilon(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    return basl_math_push_f64(vm, 2.2204460492503131e-16, error);
+}
+
+/* ── (f64) -> bool callbacks ─────────────────────────────────────── */
+
+static basl_status_t basl_math_is_nan(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    double a = basl_math_pop_f64(vm);
+    return basl_math_push_bool(vm, isnan(a) != 0, error);
+}
+
+static basl_status_t basl_math_is_inf(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    double a = basl_math_pop_f64(vm);
+    return basl_math_push_bool(vm, isinf(a) != 0, error);
+}
+
+static basl_status_t basl_math_is_finite(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    (void)arg_count;
+    double a = basl_math_pop_f64(vm);
+    return basl_math_push_bool(vm, isfinite(a) != 0, error);
 }
 
 /* ── (f64, f64) -> f64 callbacks ─────────────────────────────────── */
@@ -282,6 +331,10 @@ static const int basl_math_f64f64f64_params[] = {
     { n, nl, basl_math_##id, 1U, basl_math_f64_params,             \
       BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL }
 
+#define MATH_FN1_BOOL(id, n, nl)                                    \
+    { n, nl, basl_math_##id, 1U, basl_math_f64_params,             \
+      BASL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL }
+
 #define MATH_FN2(id, n, nl)                                         \
     { n, nl, basl_math_##id, 2U, basl_math_f64f64_params,          \
       BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL }
@@ -297,6 +350,8 @@ static const int basl_math_f64f64f64_params[] = {
 static const basl_native_module_function_t basl_math_functions[] = {
     MATH_FN0(pi,        "pi",       2U),
     MATH_FN0(e,         "e",        1U),
+    MATH_FN0(tau,       "tau",      3U),
+    MATH_FN0(epsilon,   "epsilon",  7U),
     MATH_FN1(floor,     "floor",    5U),
     MATH_FN1(ceil,      "ceil",     4U),
     MATH_FN1(round,     "round",    5U),
@@ -304,6 +359,7 @@ static const basl_native_module_function_t basl_math_functions[] = {
     MATH_FN1(abs,       "abs",      3U),
     MATH_FN1(sign,      "sign",     4U),
     MATH_FN1(sqrt,      "sqrt",     4U),
+    MATH_FN1(cbrt,      "cbrt",     4U),
     MATH_FN1(sin,       "sin",      3U),
     MATH_FN1(cos,       "cos",      3U),
     MATH_FN1(tan,       "tan",      3U),
@@ -323,6 +379,9 @@ static const basl_native_module_function_t basl_math_functions[] = {
     MATH_FN2(hypot,     "hypot",    5U),
     MATH_FN2(fmod,      "fmod",     4U),
     MATH_FN2(step,      "step",     4U),
+    MATH_FN1_BOOL(is_nan,    "isNaN",     5U),
+    MATH_FN1_BOOL(is_inf,    "isInf",     5U),
+    MATH_FN1_BOOL(is_finite, "isFinite",  8U),
     MATH_FN3(clamp,     "clamp",    5U),
     MATH_FN3(lerp,      "lerp",     4U),
     MATH_FN3(inverselerp, "inverseLerp", 11U),
