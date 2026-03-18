@@ -210,6 +210,7 @@ HTTP_STATIC int do_request(const char *method, const char *url_str,
 
     if (st == BASL_STATUS_OK) {
         resp->status_code = native_resp.status_code;
+        resp->headers = native_resp.headers;
         resp->body = native_resp.body;
         resp->body_len = native_resp.body_len;
         return 0;
@@ -585,6 +586,7 @@ static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *err
     const char *url; size_t url_len;
     if (!get_string_arg(vm, base, 0, &url, &url_len)) {
         basl_vm_stack_pop_n(vm, arg_count);
+        push_string(vm, "", 0, error); push_string(vm, "", 0, error);
         return push_i64(vm, -1, error);
     }
     char *uc = (char *)malloc(url_len + 1); memcpy(uc, url, url_len); uc[url_len] = '\0';
@@ -593,8 +595,9 @@ static basl_status_t http_get(basl_vm_t *vm, size_t arg_count, basl_error_t *err
     http_response_t resp;
     int rc = do_request("GET", uc, NULL, NULL, 0, &resp);
     free(uc);
-    if (rc != 0) { push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
+    if (rc != 0) { push_string(vm, "", 0, error); push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
     int status = resp.status_code;
+    push_string(vm, resp.headers ? resp.headers : "", resp.headers ? strlen(resp.headers) : 0, error);
     basl_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
     response_free(&resp);
     return st != BASL_STATUS_OK ? st : push_i64(vm, status, error);
@@ -607,6 +610,7 @@ static basl_status_t http_post(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     if (!get_string_arg(vm, base, 0, &url, &url_len) ||
         !get_string_arg(vm, base, 1, &body, &body_len)) {
         basl_vm_stack_pop_n(vm, arg_count);
+        push_string(vm, "", 0, error); push_string(vm, "", 0, error);
         return push_i64(vm, -1, error);
     }
     if (arg_count >= 3) get_string_arg(vm, base, 2, &ct, &ct_len);
@@ -619,8 +623,9 @@ static basl_status_t http_post(basl_vm_t *vm, size_t arg_count, basl_error_t *er
     http_response_t resp;
     int rc = do_request("POST", uc, hdrs, bc, body_len, &resp);
     free(uc); free(bc);
-    if (rc != 0) { push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
+    if (rc != 0) { push_string(vm, "", 0, error); push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
     int status = resp.status_code;
+    push_string(vm, resp.headers ? resp.headers : "", resp.headers ? strlen(resp.headers) : 0, error);
     basl_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
     response_free(&resp);
     return st != BASL_STATUS_OK ? st : push_i64(vm, status, error);
@@ -633,6 +638,7 @@ static basl_status_t http_request(basl_vm_t *vm, size_t arg_count, basl_error_t 
     if (!get_string_arg(vm, base, 0, &method, &ml) ||
         !get_string_arg(vm, base, 1, &url, &ul)) {
         basl_vm_stack_pop_n(vm, arg_count);
+        push_string(vm, "", 0, error); push_string(vm, "", 0, error);
         return push_i64(vm, -1, error);
     }
     if (arg_count >= 3) get_string_arg(vm, base, 2, &headers, &hl);
@@ -648,8 +654,9 @@ static basl_status_t http_request(basl_vm_t *vm, size_t arg_count, basl_error_t 
     http_response_t resp;
     int rc = do_request(mc, uc, hc, bc, bl, &resp);
     free(mc); free(uc); free(hc); free(bc);
-    if (rc != 0) { push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
+    if (rc != 0) { push_string(vm, "", 0, error); push_string(vm, "", 0, error); return push_i64(vm, -1, error); }
     int status = resp.status_code;
+    push_string(vm, resp.headers ? resp.headers : "", resp.headers ? strlen(resp.headers) : 0, error);
     basl_status_t st = push_string(vm, resp.body ? resp.body : "", resp.body_len, error);
     response_free(&resp);
     return st != BASL_STATUS_OK ? st : push_i64(vm, status, error);
@@ -666,9 +673,9 @@ static const int http_respond_p[] = { BASL_TYPE_I64, BASL_TYPE_I32, BASL_TYPE_ST
 static const int http_i64_str[] = { BASL_TYPE_I64, BASL_TYPE_STRING };
 
 static const basl_native_module_function_t http_functions[] = {
-    { "get", 3, http_get, 1, http_1str, BASL_TYPE_I32, 2, NULL, 0, NULL, NULL },
-    { "post", 4, http_post, 2, http_2str, BASL_TYPE_I32, 2, NULL, 0, NULL, NULL },
-    { "request", 7, http_request, 2, http_2str, BASL_TYPE_I32, 2, NULL, 0, NULL, NULL },
+    { "get", 3, http_get, 1, http_1str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
+    { "post", 4, http_post, 2, http_2str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
+    { "request", 7, http_request, 2, http_2str, BASL_TYPE_I32, 3, NULL, 0, NULL, NULL },
     { "listen", 6, http_listen, 2, http_str_i32, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
     { "accept", 6, http_accept, 1, http_i64, BASL_TYPE_I64, 1, NULL, 0, NULL, NULL },
     { "req_method", 10, http_req_method, 1, http_i64, BASL_TYPE_STRING, 1, NULL, 0, NULL, NULL },

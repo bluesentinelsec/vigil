@@ -1266,6 +1266,8 @@ typedef int CURLcode;
 #define CURLOPT_POSTFIELDS 10015
 #define CURLOPT_POSTFIELDSIZE 60
 #define CURLOPT_CUSTOMREQUEST 10036
+#define CURLOPT_HEADERFUNCTION 20079
+#define CURLOPT_HEADERDATA 10029
 #define CURLINFO_RESPONSE_CODE 0x200002
 
 typedef CURL *(*curl_easy_init_t)(void);
@@ -1344,9 +1346,12 @@ BASL_API basl_status_t basl_platform_http_request(
     if (!curl) return BASL_STATUS_INTERNAL;
 
     curl_buf_t buf = {(char *)malloc(4096), 0, 4096};
+    curl_buf_t hdr_buf = {(char *)malloc(2048), 0, 2048};
     p_curl_easy_setopt(curl, CURLOPT_URL, url);
     p_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     p_curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    p_curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_write_cb);
+    p_curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hdr_buf);
     p_curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
 
     struct curl_slist *hdr_list = NULL;
@@ -1374,8 +1379,12 @@ BASL_API basl_status_t basl_platform_http_request(
         buf.data[buf.len] = '\0';
         out->body = buf.data;
         out->body_len = buf.len;
+        hdr_buf.data[hdr_buf.len] = '\0';
+        out->headers = hdr_buf.data;
+        out->headers_len = hdr_buf.len;
     } else {
         free(buf.data);
+        free(hdr_buf.data);
         if (hdr_list) p_curl_slist_free_all(hdr_list);
         p_curl_easy_cleanup(curl);
         if (error) { error->type = BASL_STATUS_INTERNAL; error->value = "curl request failed"; error->length = 19; }

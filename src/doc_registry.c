@@ -925,9 +925,9 @@ static const basl_doc_entry_t crypto_docs[] = {
 
 static const basl_doc_entry_t http_docs[] = {
     {"http", NULL, "HTTP client and server.", "Client functions use native HTTPS (WinHTTP/libcurl) with plain HTTP fallback. Server functions provide a simple HTTP/1.1 listener.", NULL},
-    {"http.get", "http.get(url: string) -> (i32, string)", "HTTP GET request.", "Returns (status_code, body). Uses WinHTTP/libcurl for HTTPS.", "i32 status, string body = http.get(\"https://example.com\")"},
-    {"http.post", "http.post(url: string, body: string, content_type?: string) -> (i32, string)", "HTTP POST request.", "Returns (status_code, response_body).", "i32 status, string resp = http.post(url, data, \"application/json\")"},
-    {"http.request", "http.request(method: string, url: string, headers?: string, body?: string) -> (i32, string)", "Generic HTTP request.", "Supports any HTTP method. Headers as CRLF-separated string.", "i32 status, string body = http.request(\"PUT\", url, \"X-Custom: value\\r\\n\", data)"},
+    {"http.get", "http.get(url: string) -> (i32, string, string)", "HTTP GET request.", "Returns (status_code, body, headers). Uses WinHTTP/libcurl for HTTPS.", "i32 status, string body, string hdrs = http.get(\"https://example.com\")"},
+    {"http.post", "http.post(url: string, body: string, content_type?: string) -> (i32, string, string)", "HTTP POST request.", "Returns (status_code, response_body, headers).", "i32 status, string resp, string hdrs = http.post(url, data, \"application/json\")"},
+    {"http.request", "http.request(method: string, url: string, headers?: string, body?: string) -> (i32, string, string)", "Generic HTTP request.", "Supports any HTTP method. Returns (status_code, body, headers).", "i32 status, string body, string hdrs = http.request(\"PUT\", url, \"X-Custom: value\\r\\n\", data)"},
     {"http.listen", "http.listen(host: string, port: i32) -> i64", "Start an HTTP server.", "Binds a TCP listener. Returns server handle or -1 on error.", "i64 srv = http.listen(\"127.0.0.1\", 8080)"},
     {"http.accept", "http.accept(server: i64) -> i64", "Accept an HTTP request.", "Blocks until a client connects and parses the request. Returns connection handle.", "i64 conn = http.accept(srv)"},
     {"http.req_method", "http.req_method(conn: i64) -> string", "Get request method.", "Returns the HTTP method (GET, POST, etc.) from an accepted connection.", "string method = http.req_method(conn)"},

@@ -1355,6 +1355,26 @@ BASL_API basl_status_t basl_platform_http_request(
         out->status_code = (int)status;
     }
 
+    /* Capture response headers */
+    {
+        DWORD hdr_sz = 0;
+        pw_QueryHeaders(req, WINHTTP_QUERY_RAW_HEADERS_CRLF,
+                        WINHTTP_HEADER_NAME_BY_INDEX, NULL, &hdr_sz, WINHTTP_NO_HEADER_INDEX);
+        if (hdr_sz > 0) {
+            wchar_t *whdr = (wchar_t *)malloc(hdr_sz);
+            if (whdr && pw_QueryHeaders(req, WINHTTP_QUERY_RAW_HEADERS_CRLF,
+                                         WINHTTP_HEADER_NAME_BY_INDEX, whdr, &hdr_sz, WINHTTP_NO_HEADER_INDEX)) {
+                int utf8_len = WideCharToMultiByte(CP_UTF8, 0, whdr, -1, NULL, 0, NULL, NULL);
+                if (utf8_len > 0) {
+                    out->headers = (char *)malloc((size_t)utf8_len);
+                    WideCharToMultiByte(CP_UTF8, 0, whdr, -1, out->headers, utf8_len, NULL, NULL);
+                    out->headers_len = (size_t)(utf8_len - 1);
+                }
+            }
+            free(whdr);
+        }
+    }
+
     {
         size_t cap = 8192, len = 0;
         char *buf = (char *)malloc(cap);

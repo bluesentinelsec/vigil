@@ -526,9 +526,11 @@ BASL_API basl_status_t basl_platform_tcp_close(
 
 /* ── HTTP client (native library, runtime-loaded) ────────────────── */
 
-/** Result of an HTTP request. Caller must free body with free(). */
+/** Result of an HTTP request. Caller must free body and headers with free(). */
 typedef struct {
     int status_code;
+    char *headers;
+    size_t headers_len;
     char *body;
     size_t body_len;
 } basl_http_response_t;
