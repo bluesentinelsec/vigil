@@ -332,6 +332,80 @@ static basl_status_t basl_lexer_skip_block_comment(
     return basl_lexer_report(state, start, state->offset, "unterminated block comment");
 }
 
+/* Scan an f-string literal.  Unlike plain strings, f-strings must track
+   brace depth so that `"` inside `{...}` interpolations does not
+   terminate the token.  This allows e.g. f"{pad("hi", 10)}". */
+static basl_status_t basl_lexer_scan_fstring(
+    basl_lexer_state_t *state,
+    size_t start
+) {
+    size_t brace_depth = 0U;
+
+    while (!basl_lexer_is_at_end(state)) {
+        char c = basl_lexer_peek(state);
+        if (c == '\\') {
+            basl_lexer_advance(state);
+            if (!basl_lexer_is_at_end(state)) {
+                basl_lexer_advance(state);
+            }
+            continue;
+        }
+        if (c == '{') {
+            brace_depth += 1U;
+            basl_lexer_advance(state);
+            continue;
+        }
+        if (c == '}' && brace_depth > 0U) {
+            brace_depth -= 1U;
+            basl_lexer_advance(state);
+            continue;
+        }
+        if (c == '"' && brace_depth > 0U) {
+            /* Inside an interpolation — skip a nested string literal. */
+            basl_lexer_advance(state);
+            while (!basl_lexer_is_at_end(state) && basl_lexer_peek(state) != '"') {
+                if (basl_lexer_peek(state) == '\\') {
+                    basl_lexer_advance(state);
+                    if (!basl_lexer_is_at_end(state)) {
+                        basl_lexer_advance(state);
+                    }
+                    continue;
+                }
+                basl_lexer_advance(state);
+            }
+            if (!basl_lexer_is_at_end(state)) {
+                basl_lexer_advance(state); /* closing " of nested string */
+            }
+            continue;
+        }
+        if (c == '\'' && brace_depth > 0U) {
+            /* Inside an interpolation — skip a nested char literal. */
+            basl_lexer_advance(state);
+            while (!basl_lexer_is_at_end(state) && basl_lexer_peek(state) != '\'') {
+                if (basl_lexer_peek(state) == '\\') {
+                    basl_lexer_advance(state);
+                    if (!basl_lexer_is_at_end(state)) {
+                        basl_lexer_advance(state);
+                    }
+                    continue;
+                }
+                basl_lexer_advance(state);
+            }
+            if (!basl_lexer_is_at_end(state)) {
+                basl_lexer_advance(state);
+            }
+            continue;
+        }
+        if (c == '"' && brace_depth == 0U) {
+            basl_lexer_advance(state);
+            return basl_lexer_emit(state, BASL_TOKEN_FSTRING_LITERAL, start, state->offset);
+        }
+        basl_lexer_advance(state);
+    }
+
+    return basl_lexer_report(state, start, state->offset, "unterminated f-string literal");
+}
+
 static basl_status_t basl_lexer_scan_token(
     basl_lexer_state_t *state
 ) {
@@ -461,7 +535,7 @@ static basl_status_t basl_lexer_scan_token(
         case 'f':
             if (basl_lexer_peek(state) == '"') {
                 basl_lexer_advance(state);
-                return basl_lexer_scan_quoted(state, start, '"', BASL_TOKEN_FSTRING_LITERAL);
+                return basl_lexer_scan_fstring(state, start);
             }
             return basl_lexer_scan_identifier(state, start);
         default:

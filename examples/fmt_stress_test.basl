@@ -579,7 +579,60 @@ fn run_volume_test() -> bool {
     fmt.println(f"  Volume test: {ok}");
     return ok;
 }
-// ── Section 10: Main Driver ─────────────────────────────────────────────────
+
+// ── Section 10: New Features Stress ─────────────────────────────────────────
+// Exercises the 5 new improvements: \x escapes, char_count, width/alignment,
+// integer format specifiers, and nested string literals in f-strings.
+
+fn run_new_features_test() -> bool {
+    fmt.println("\n=== Section 10: New Features Stress ===");
+    bool ok = true;
+
+    // \x escape — ANSI color codes now possible
+    string red = "\x1b[31m";
+    string reset = "\x1b[0m";
+    string colored = red + "ERROR" + reset;
+    fmt.println(f"  ANSI colored: {colored}");
+    ok = ok && colored.len() == 14;
+
+    // char_count — Unicode-aware length
+    string emoji = "🚀🎉🌍";
+    ok = ok && emoji.char_count() == 3;
+    fmt.println(f"  emoji char_count: {emoji.char_count()} (bytes: {emoji.len()})");
+
+    // Width/alignment — replaces manual pad helpers
+    fmt.println(f"  |{"Name":<15}|{"Score":>8}|{"Grade":^10}|");
+    fmt.println(f"  |{"Alice":<15}|{98:>8d}|{"A+":^10}|");
+    fmt.println(f"  |{"Bob":<15}|{85:>8d}|{"B":^10}|");
+    ok = ok && f"{"hi":<10}" == "hi        ";
+    ok = ok && f"{"hi":>10}" == "        hi";
+    ok = ok && f"{42:0>8d}" == "00000042";
+
+    // Integer formats — hex, binary, octal, thousands
+    i32 val = 255;
+    ok = ok && f"{val:x}" == "ff";
+    ok = ok && f"{val:X}" == "FF";
+    ok = ok && f"{val:b}" == "11111111";
+    ok = ok && f"{val:o}" == "377";
+    i32 big = 1234567;
+    ok = ok && f"{big:,}" == "1,234,567";
+    fmt.println(f"  hex={val:x} HEX={val:X} bin={val:b} oct={val:o}");
+    fmt.println(f"  thousands: {big:,}");
+    fmt.println(f"  padded hex: {val:0>8x}  padded bin: {val:0>16b}");
+
+    // Nested string literals in f-strings
+    string r = f"{"hello world".replace("world", "BASL")}";
+    ok = ok && r == "hello BASL";
+    string u = f"{"test".to_upper()}";
+    ok = ok && u == "TEST";
+    fmt.println(f"  nested replace: {r}");
+    fmt.println(f"  nested upper: {u}");
+
+    fmt.println(f"  New features: {ok}");
+    return ok;
+}
+
+// ── Section 11: Main Driver ─────────────────────────────────────────────────
 fn main() -> i32 {
     fmt.println("╔══════════════════════════════════════════════════════════╗");
     fmt.println("║       fmt Module Stress Test — BASL                     ║");
@@ -630,6 +683,12 @@ fn main() -> i32 {
     }
 
     if (run_volume_test()) {
+        pass_count = pass_count + 1;
+    } else {
+        fail_count = fail_count + 1;
+    }
+
+    if (run_new_features_test()) {
         pass_count = pass_count + 1;
     } else {
         fail_count = fail_count + 1;
