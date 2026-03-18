@@ -754,6 +754,156 @@ static vigil_status_t fs_cwd(vigil_vm_t *vm, size_t arg_count, vigil_error_t *er
     return s;
 }
 
+/* ── Symlink operations ──────────────────────────────────────────── */
+
+static vigil_status_t fs_symlink(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    const char *target, *linkpath;
+    size_t target_len, link_len;
+
+    if (!get_string_arg(vm, base, 0, &target, &target_len) ||
+        !get_string_arg(vm, base, 1, &linkpath, &link_len)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_bool(vm, 0, error);
+    }
+
+    char tbuf[4096], lbuf[4096];
+    snprintf(tbuf, sizeof(tbuf), "%.*s", (int)target_len, target);
+    snprintf(lbuf, sizeof(lbuf), "%.*s", (int)link_len, linkpath);
+
+    vigil_status_t s = vigil_platform_symlink(tbuf, lbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
+}
+
+static vigil_status_t fs_readlink(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    const char *path;
+    size_t path_len;
+
+    if (!get_string_arg(vm, base, 0, &path, &path_len)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_string(vm, "", 0, error);
+    }
+
+    char pathbuf[4096];
+    snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
+
+    char *target = NULL;
+    vigil_status_t s = vigil_platform_readlink(pathbuf, &target, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+
+    if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
+    s = push_string(vm, target, strlen(target), error);
+    free(target);
+    return s;
+}
+
+static vigil_status_t fs_is_symlink(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    const char *path;
+    size_t path_len;
+
+    if (!get_string_arg(vm, base, 0, &path, &path_len)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_bool(vm, 0, error);
+    }
+
+    char pathbuf[4096];
+    snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
+
+    int result = 0;
+    vigil_platform_is_symlink(pathbuf, &result);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, result, error);
+}
+
+/* ── Recursive remove ────────────────────────────────────────────── */
+
+static vigil_status_t fs_remove_all(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    const char *path;
+    size_t path_len;
+
+    if (!get_string_arg(vm, base, 0, &path, &path_len)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_bool(vm, 0, error);
+    }
+
+    char pathbuf[4096];
+    snprintf(pathbuf, sizeof(pathbuf), "%.*s", (int)path_len, path);
+
+    vigil_status_t s = vigil_platform_remove_all(pathbuf, error);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return push_bool(vm, s == VIGIL_STATUS_OK, error);
+}
+
+/* ── Glob matching ───────────────────────────────────────────────── */
+
+typedef struct {
+    vigil_vm_t *vm;
+    vigil_object_t *array;
+    vigil_error_t *error;
+    const char *pattern;
+    const char *dir_path;
+} glob_ctx_t;
+
+static vigil_status_t glob_callback(const char *name, int is_dir, void *user_data) {
+    glob_ctx_t *ctx = (glob_ctx_t *)user_data;
+    (void)is_dir;
+
+    if (!vigil_platform_glob_match(ctx->pattern, name)) return VIGIL_STATUS_OK;
+
+    char full[4096];
+    snprintf(full, sizeof(full), "%s/%s", ctx->dir_path, name);
+
+    vigil_object_t *str = NULL;
+    vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(ctx->vm), full, strlen(full), &str, ctx->error);
+    if (s != VIGIL_STATUS_OK) return s;
+
+    vigil_value_t val;
+    vigil_value_init_object(&val, &str);
+    s = vigil_array_object_append(ctx->array, &val, ctx->error);
+    vigil_value_release(&val);
+    return s;
+}
+
+static vigil_status_t fs_glob(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    const char *dir, *pattern;
+    size_t dir_len, pat_len;
+
+    if (!get_string_arg(vm, base, 0, &dir, &dir_len) ||
+        !get_string_arg(vm, base, 1, &pattern, &pat_len)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        vigil_object_t *arr = NULL;
+        vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+        vigil_value_t val;
+        vigil_value_init_object(&val, &arr);
+        vigil_status_t s = vigil_vm_stack_push(vm, &val, error);
+        vigil_value_release(&val);
+        return s;
+    }
+
+    char dirbuf[4096], patbuf[4096];
+    snprintf(dirbuf, sizeof(dirbuf), "%.*s", (int)dir_len, dir);
+    snprintf(patbuf, sizeof(patbuf), "%.*s", (int)pat_len, pattern);
+
+    vigil_object_t *arr = NULL;
+    vigil_status_t s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
+    if (s != VIGIL_STATUS_OK) { vigil_vm_stack_pop_n(vm, arg_count); return s; }
+
+    glob_ctx_t ctx = { vm, arr, error, patbuf, dirbuf };
+    vigil_platform_list_dir(dirbuf, glob_callback, &ctx, error);
+
+    vigil_vm_stack_pop_n(vm, arg_count);
+    vigil_value_t val;
+    vigil_value_init_object(&val, &arr);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
+    return s;
+}
+
 /* ── Module definition ───────────────────────────────────────────── */
 
 static const int str_param[] = {VIGIL_TYPE_STRING};
@@ -774,14 +924,20 @@ static const vigil_native_module_function_t vigil_fs_functions[] = {
     {"copy", 4U, fs_copy, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"move", 4U, fs_move, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"remove", 6U, fs_remove, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"remove_all", 10U, fs_remove_all, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"exists", 6U, fs_exists, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"is_dir", 6U, fs_is_dir, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"is_file", 7U, fs_is_file, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"is_symlink", 10U, fs_is_symlink, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     /* Directory operations */
     {"mkdir", 5U, fs_mkdir, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"mkdir_all", 9U, fs_mkdir_all, 1U, str_param, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
     {"list", 4U, fs_list, 1U, str_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, NULL},
     {"walk", 4U, fs_walk, 1U, str_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, NULL},
+    {"glob", 4U, fs_glob, 2U, str_str_params, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, NULL},
+    /* Symlink operations */
+    {"symlink", 7U, fs_symlink, 2U, str_str_params, VIGIL_TYPE_BOOL, 1U, NULL, 0, NULL, NULL},
+    {"readlink", 8U, fs_readlink, 1U, str_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     /* Metadata */
     {"size", 4U, fs_size, 1U, str_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
     {"mtime", 5U, fs_mtime, 1U, str_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},

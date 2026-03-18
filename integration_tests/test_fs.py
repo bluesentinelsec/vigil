@@ -195,6 +195,36 @@ fn main() -> i32 {
         rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
+    def test_remove_all(self):
+        code = '''import "fs";
+fn main() -> i32 {
+    string base = fs.join(fs.temp_dir(), "vigil_it_rmall");
+    fs.mkdir_all(fs.join(base, "a/b"));
+    fs.write(fs.join(base, "a/b/c.txt"), "x");
+    if (!fs.remove_all(base)) { return 1; }
+    if (fs.exists(base)) { return 2; }
+    return 0;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
+    def test_glob(self):
+        code = '''import "fs";
+import "fmt";
+fn main() -> i32 {
+    string base = fs.join(fs.temp_dir(), "vigil_it_glob");
+    fs.mkdir_all(base);
+    fs.write(fs.join(base, "a.txt"), "a");
+    fs.write(fs.join(base, "b.txt"), "b");
+    fs.write(fs.join(base, "c.md"), "c");
+    array<string> matches = fs.glob(base, "*.txt");
+    fs.remove_all(base);
+    if (matches.len() == 2) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
 
 if __name__ == "__main__":
     unittest.main()

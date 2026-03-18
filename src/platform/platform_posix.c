@@ -705,6 +705,73 @@ VIGIL_API vigil_status_t vigil_platform_readlink(
     return VIGIL_STATUS_OK;
 }
 
+VIGIL_API vigil_status_t vigil_platform_is_symlink(
+    const char *path, int *out_is_symlink
+) {
+    struct stat st;
+    if (lstat(path, &st) != 0) { *out_is_symlink = 0; return VIGIL_STATUS_OK; }
+    *out_is_symlink = S_ISLNK(st.st_mode) ? 1 : 0;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t remove_all_impl(const char *path, vigil_error_t *error) {
+    struct stat st;
+    if (lstat(path, &st) != 0) return VIGIL_STATUS_OK; /* already gone */
+    if (!S_ISDIR(st.st_mode)) {
+        if (unlink(path) != 0) {
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "remove failed");
+            return VIGIL_STATUS_INTERNAL;
+        }
+        return VIGIL_STATUS_OK;
+    }
+    DIR *d = opendir(path);
+    if (!d) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "opendir failed");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    struct dirent *ent;
+    char child[PATH_MAX];
+    while ((ent = readdir(d)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) continue;
+        snprintf(child, sizeof(child), "%s/%s", path, ent->d_name);
+        vigil_status_t s = remove_all_impl(child, error);
+        if (s != VIGIL_STATUS_OK) { closedir(d); return s; }
+    }
+    closedir(d);
+    if (rmdir(path) != 0) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "rmdir failed");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_remove_all(
+    const char *path, vigil_error_t *error
+) {
+    return remove_all_impl(path, error);
+}
+
+VIGIL_API int vigil_platform_glob_match(const char *pattern, const char *name) {
+    while (*pattern && *name) {
+        if (*pattern == '*') {
+            pattern++;
+            if (*pattern == '\0') return 1;
+            while (*name) {
+                if (vigil_platform_glob_match(pattern, name)) return 1;
+                name++;
+            }
+            return 0;
+        } else if (*pattern == '?' || *pattern == *name) {
+            pattern++;
+            name++;
+        } else {
+            return 0;
+        }
+    }
+    while (*pattern == '*') pattern++;
+    return *pattern == '\0' && *name == '\0';
+}
+
 VIGIL_API vigil_status_t vigil_platform_home_dir(char **out_path, vigil_error_t *error) {
     const char *home = getenv("HOME");
     if (!home) {

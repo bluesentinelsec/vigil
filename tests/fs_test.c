@@ -239,6 +239,88 @@ TEST(VigilFsTest, TempFile) {
     free(path);
 }
 
+/* ── Symlink operations ──────────────────────────────────────────── */
+
+#ifndef _WIN32
+TEST(VigilFsTest, SymlinkCreateAndRead) {
+    char target[256], link[256];
+    make_temp_path(target, sizeof(target), "vigil_sym_target.txt");
+    make_temp_path(link, sizeof(link), "vigil_sym_link.txt");
+
+    vigil_platform_write_file(target, "symlink test", 12, NULL);
+
+    vigil_status_t s = vigil_platform_symlink(target, link, NULL);
+    ASSERT_EQ(s, VIGIL_STATUS_OK);
+
+    int is_sym = 0;
+    vigil_platform_is_symlink(link, &is_sym);
+    EXPECT_EQ(is_sym, 1);
+
+    int is_sym_target = 0;
+    vigil_platform_is_symlink(target, &is_sym_target);
+    EXPECT_EQ(is_sym_target, 0);
+
+    char *read_target = NULL;
+    s = vigil_platform_readlink(link, &read_target, NULL);
+    ASSERT_EQ(s, VIGIL_STATUS_OK);
+    EXPECT_STREQ(read_target, target);
+    free(read_target);
+
+    vigil_platform_remove(link, NULL);
+    vigil_platform_remove(target, NULL);
+}
+#endif
+
+/* ── Recursive remove ────────────────────────────────────────────── */
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+
+TEST(VigilFsTest, RemoveAll) {
+    char base[256], sub[1024], file1[1024], file2[1024];
+    make_temp_path(base, sizeof(base), "vigil_rmall_test");
+    snprintf(sub, sizeof(sub), "%s/sub/deep", base);
+    snprintf(file1, sizeof(file1), "%s/top.txt", base);
+    snprintf(file2, sizeof(file2), "%s/leaf.txt", sub);
+
+    vigil_platform_mkdir_p(sub, NULL);
+    vigil_platform_write_file(file1, "top", 3, NULL);
+    vigil_platform_write_file(file2, "leaf", 4, NULL);
+
+    int exists = 0;
+    vigil_platform_file_exists(base, &exists);
+    EXPECT_EQ(exists, 1);
+
+    vigil_status_t s = vigil_platform_remove_all(base, NULL);
+    ASSERT_EQ(s, VIGIL_STATUS_OK);
+
+    vigil_platform_file_exists(base, &exists);
+    EXPECT_EQ(exists, 0);
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+/* ── Glob matching ───────────────────────────────────────────────── */
+
+TEST(VigilFsTest, GlobMatch) {
+    EXPECT_EQ(vigil_platform_glob_match("*.txt", "hello.txt"), 1);
+    EXPECT_EQ(vigil_platform_glob_match("*.txt", "hello.md"), 0);
+    EXPECT_EQ(vigil_platform_glob_match("test_*", "test_foo"), 1);
+    EXPECT_EQ(vigil_platform_glob_match("test_*", "foo_test"), 0);
+    EXPECT_EQ(vigil_platform_glob_match("*.vigil", "main.vigil"), 1);
+    EXPECT_EQ(vigil_platform_glob_match("?oo", "foo"), 1);
+    EXPECT_EQ(vigil_platform_glob_match("?oo", "fo"), 0);
+    EXPECT_EQ(vigil_platform_glob_match("*", "anything"), 1);
+    EXPECT_EQ(vigil_platform_glob_match("", ""), 1);
+    EXPECT_EQ(vigil_platform_glob_match("", "x"), 0);
+    EXPECT_EQ(vigil_platform_glob_match("a*b*c", "aXbYc"), 1);
+    EXPECT_EQ(vigil_platform_glob_match("a*b*c", "aXbY"), 0);
+}
+
 /* ── Test Registration ───────────────────────────────────────────── */
 
 void register_fs_tests(void) {
@@ -258,4 +340,9 @@ void register_fs_tests(void) {
     REGISTER_TEST(VigilFsTest, HomeDir);
     REGISTER_TEST(VigilFsTest, ConfigDir);
     REGISTER_TEST(VigilFsTest, TempFile);
+#ifndef _WIN32
+    REGISTER_TEST(VigilFsTest, SymlinkCreateAndRead);
+#endif
+    REGISTER_TEST(VigilFsTest, RemoveAll);
+    REGISTER_TEST(VigilFsTest, GlobMatch);
 }

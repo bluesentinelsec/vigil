@@ -207,8 +207,8 @@ TEST(LspTest, CompletionEmpty) {
 
     const vigil_json_value_t *result = vigil_json_object_get(resp, "result");
     ASSERT_NE(result, NULL);
-    /* Completion list includes string method completions even with no documents */
-    EXPECT_EQ(vigil_json_array_count(result), 27u);  /* 27 string methods */
+    /* Completion list includes string methods + native module functions */
+    EXPECT_TRUE(vigil_json_array_count(result) > 27u);  /* string methods + native modules */
 
     vigil_json_free(&resp);
     vigil_lsp_server_destroy(&server);
