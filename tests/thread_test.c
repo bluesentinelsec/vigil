@@ -19,6 +19,8 @@
 
 /* ── test harness ────────────────────────────────────────────────── */
 
+#ifndef __EMSCRIPTEN__
+
 static int64_t RunWithStdlib(int *basl_test_failed_, const char *source_text) {
     basl_runtime_t *runtime = NULL;
     basl_vm_t *vm = NULL;
@@ -167,6 +169,8 @@ TEST(BaslThreadTest, SpawnWithMutexCoordination) {
     );
     EXPECT_EQ(r, 200);
 }
+
+#endif /* __EMSCRIPTEN__ */
 
 /* ── Registration ────────────────────────────────────────────────── */
 
