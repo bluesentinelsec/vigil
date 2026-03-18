@@ -116,6 +116,40 @@ static basl_status_t basl_random_range(
     return basl_vm_stack_push(vm, &v, error);
 }
 
+/* ── random.gaussian() -> f64 (Box-Muller, mean=0, stddev=1) ─────── */
+
+#include <math.h>
+
+/* Cached spare value for Box-Muller (generates pairs). */
+static double gaussian_spare;
+static int gaussian_has_spare = 0;
+
+static basl_status_t basl_random_gaussian(
+    basl_vm_t *vm, size_t arg_count, basl_error_t *error
+) {
+    basl_value_t val;
+    double result;
+    (void)arg_count;
+
+    if (gaussian_has_spare) {
+        gaussian_has_spare = 0;
+        result = gaussian_spare;
+    } else {
+        double u1, u2, r;
+        do {
+            u1 = (double)(xorshift128plus() >> 11) * (1.0 / 9007199254740992.0);
+        } while (u1 < 1e-300);
+        u2 = (double)(xorshift128plus() >> 11) * (1.0 / 9007199254740992.0);
+        r = sqrt(-2.0 * log(u1));
+        result = r * cos(6.28318530717958647692 * u2);
+        gaussian_spare = r * sin(6.28318530717958647692 * u2);
+        gaussian_has_spare = 1;
+    }
+
+    val = basl_nanbox_encode_double(result);
+    return basl_vm_stack_push(vm, &val, error);
+}
+
 /* ── Module definition ───────────────────────────────────────────── */
 
 static const int seed_params[] = {BASL_TYPE_I32};
@@ -126,6 +160,7 @@ static const basl_native_module_function_t basl_random_functions[] = {
     {"i64", 3U, basl_random_i64, 0U, NULL, BASL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
     {"i32", 3U, basl_random_i32, 0U, NULL, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
     {"f64", 3U, basl_random_f64, 0U, NULL, BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
+    {"gaussian", 8U, basl_random_gaussian, 0U, NULL, BASL_TYPE_F64, 1U, NULL, 0, NULL, NULL},
     {"range", 5U, basl_random_range, 2U, range_params, BASL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
 };
 

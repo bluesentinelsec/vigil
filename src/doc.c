@@ -284,7 +284,7 @@ static void extract_module_summary(const basl_allocator_t *a,
 
 static void extract_type_text(const char *src, const basl_token_list_t *tokens,
                                size_t *cursor, doc_buf_t *buf) {
-    /* Extracts a type expression: identifier, array<T>, map<K,V>, fn(...) -> R */
+    /* Extracts a type expression: identifier, module.Type, array<T>, map<K,V>, fn(...) -> R */
     const basl_token_t *t = tok_at(tokens, *cursor);
     size_t len;
     const char *text;
@@ -296,8 +296,21 @@ static void extract_type_text(const char *src, const basl_token_list_t *tokens,
     buf_append(buf, text, len);
     (*cursor)++;
 
-    /* Handle generic types: array<T>, map<K,V> */
+    /* Handle dot-qualified types: math.Vec3, module.Type */
     t = tok_at(tokens, *cursor);
+    if (t != NULL && t->kind == BASL_TOKEN_DOT) {
+        buf_append_char(buf, '.');
+        (*cursor)++;
+        t = tok_at(tokens, *cursor);
+        if (t != NULL) {
+            text = tok_text(src, t, &len);
+            buf_append(buf, text, len);
+            (*cursor)++;
+        }
+        t = tok_at(tokens, *cursor);
+    }
+
+    /* Handle generic types: array<T>, map<K,V> */
     if (t != NULL && t->kind == BASL_TOKEN_LESS) {
         buf_append_char(buf, '<');
         (*cursor)++;
@@ -312,6 +325,11 @@ static void extract_type_text(const char *src, const basl_token_list_t *tokens,
             } else if (t->kind == BASL_TOKEN_GREATER) {
                 angle_depth--;
                 buf_append_char(buf, '>');
+                (*cursor)++;
+            } else if (t->kind == BASL_TOKEN_SHIFT_RIGHT) {
+                /* >> token closes two levels of nested generics */
+                angle_depth -= 2;
+                buf_append_cstr(buf, ">>");
                 (*cursor)++;
             } else if (t->kind == BASL_TOKEN_COMMA) {
                 buf_append_cstr(buf, ", ");

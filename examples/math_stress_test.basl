@@ -1598,6 +1598,129 @@ fn run_vec2_vec4_test() -> bool {
     fmt.println(f"  Vec2/Vec4 tests: {pass}/{total} passed");
     return pass == total;
 }
+
+// ── Section 12: New Math Functions ──────────────────────────────────────────
+// Exercises: cbrt, tau, epsilon, isNaN, isInf, isFinite, random.gaussian,
+// and float literals with extreme exponents.
+
+fn run_new_math_test() -> bool {
+    fmt.println("\n=== Section 12: New Math Functions ===");
+    i32 pass = 0;
+    i32 total = 0;
+    f64 tol = 1.0e-10;
+
+    // cbrt
+    total++;
+    if (math.abs(math.cbrt(27.0) - 3.0) < tol) {
+        pass++;
+    }
+    total++;
+    if (math.abs(math.cbrt(-8.0) - (-2.0)) < tol) {
+        pass++;
+    }
+    total++;
+    if (math.abs(math.cbrt(0.0)) < tol) {
+        pass++;
+    }
+
+    // tau = 2*pi
+    total++;
+    if (math.abs(math.tau() - 2.0 * math.pi()) < tol) {
+        pass++;
+    }
+
+    // epsilon: 1.0 + epsilon > 1.0, but 1.0 + epsilon/2 == 1.0
+    total++;
+    if (1.0 + math.epsilon() > 1.0) {
+        pass++;
+    }
+    total++;
+    if (1.0 + math.epsilon() / 2.1 == 1.0) {
+        pass++;
+    }
+
+    // isNaN
+    f64 nan = 0.0 / 0.0;
+    total++;
+    if (math.isNaN(nan)) {
+        pass++;
+    }
+    total++;
+    if (!math.isNaN(42.0)) {
+        pass++;
+    }
+    total++;
+    if (math.isNaN(math.sqrt(-1.0))) {
+        pass++;
+    }
+
+    // isInf
+    f64 inf = 1.0 / 0.0;
+    total++;
+    if (math.isInf(inf)) {
+        pass++;
+    }
+    total++;
+    if (math.isInf(-1.0 / 0.0)) {
+        pass++;
+    }
+    total++;
+    if (!math.isInf(42.0)) {
+        pass++;
+    }
+
+    // isFinite
+    total++;
+    if (math.isFinite(42.0)) {
+        pass++;
+    }
+    total++;
+    if (!math.isFinite(inf)) {
+        pass++;
+    }
+    total++;
+    if (!math.isFinite(nan)) {
+        pass++;
+    }
+
+    // Float literals with extreme exponents (parser fix)
+    f64 tiny = 1.0e-308;
+    total++;
+    if (tiny > 0.0 && tiny < 1.0e-307) {
+        pass++;
+    }
+    f64 denorm = 5.0e-324;
+    total++;
+    if (denorm >= 0.0) {
+        pass++;
+    }
+
+    // random.gaussian: generate 500 samples, check mean ≈ 0, stddev ≈ 1
+    random.seed(99);
+    array<f64> samples = [];
+    for (i32 i = 0; i < 500; i++) {
+        samples.push(random.gaussian());
+    }
+    f64 g_mean = arr_mean(samples);
+    f64 g_std = arr_stddev(samples);
+    total++;
+    if (math.abs(g_mean) < 0.15) {
+        pass++;
+    }
+    total++;
+    if (math.abs(g_std - 1.0) < 0.15) {
+        pass++;
+    }
+
+    fmt.println(f"  New math tests: {pass}/{total} passed");
+    fmt.println(f"    cbrt(27)={math.cbrt(27.0):.1f} cbrt(-8)={math.cbrt(-8.0):.1f}");
+    fmt.println(f"    tau={math.tau():.10f}");
+    fmt.println(f"    epsilon={math.epsilon()}");
+    fmt.println(f"    isNaN(0/0)={math.isNaN(nan)} isInf(1/0)={math.isInf(inf)} isFinite(42)={math.isFinite(42.0)}");
+    fmt.println(f"    gaussian: mean={g_mean:.4f} stddev={g_std:.4f}");
+    return pass == total;
+}
+
 // ── Main Driver ─────────────────────────────────────────────────────────────
 fn main() -> i32 {
     fmt.println("╔══════════════════════════════════════════════════════════════╗");
@@ -1659,6 +1782,11 @@ fn main() -> i32 {
 
     total++;
     if (run_vec2_vec4_test()) {
+        passed++;
+    }
+
+    total++;
+    if (run_new_math_test()) {
         passed++;
     }
 
