@@ -10,9 +10,26 @@
 
 static vigil_ffi_callback_dispatch_fn g_cb_dispatch;
 static int g_cb_used[VIGIL_FFI_MAX_CALLBACKS];
+static vigil_object_t *g_cb_closures[VIGIL_FFI_MAX_CALLBACKS];
 
 void vigil_ffi_callback_set_dispatch(vigil_ffi_callback_dispatch_fn fn) {
     g_cb_dispatch = fn;
+}
+
+void vigil_ffi_callback_set_closure(int slot, vigil_object_t *closure) {
+    if (slot >= 0 && slot < VIGIL_FFI_MAX_CALLBACKS) {
+        if (g_cb_closures[slot]) {
+            vigil_object_release(&g_cb_closures[slot]);
+        }
+        g_cb_closures[slot] = closure;
+        if (closure) vigil_object_retain(closure);
+    }
+}
+
+vigil_object_t *vigil_ffi_callback_get_closure(int slot) {
+    if (slot >= 0 && slot < VIGIL_FFI_MAX_CALLBACKS)
+        return g_cb_closures[slot];
+    return NULL;
 }
 
 static intptr_t cb_invoke(int slot, intptr_t a0, intptr_t a1,
@@ -61,6 +78,10 @@ int vigil_ffi_callback_alloc(void **out_ptr) {
 }
 
 void vigil_ffi_callback_free(int slot) {
-    if (slot >= 0 && slot < VIGIL_FFI_MAX_CALLBACKS)
+    if (slot >= 0 && slot < VIGIL_FFI_MAX_CALLBACKS) {
+        if (g_cb_closures[slot]) {
+            vigil_object_release(&g_cb_closures[slot]);
+        }
         g_cb_used[slot] = 0;
+    }
 }

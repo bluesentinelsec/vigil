@@ -11,6 +11,8 @@
  *   ffi.call(i64 h, i64 a0..a5) -> i64
  *   ffi.call_f(i64 h, f64 a0, f64 a1) -> f64
  *   ffi.call_s(i64 h, i64 a0, i64 a1) -> string
+ *   ffi.callback(fn, string sig) -> i64
+ *   ffi.callback_free(i32 slot)
  *   ffi.close(i64 lib)
  */
 #include <stdint.h>
@@ -22,6 +24,7 @@
 #include "vigil/value.h"
 #include "vigil/vm.h"
 
+#include "internal/ffi_callback.h"
 #include "internal/vigil_internal.h"
 #include "internal/vigil_nanbox.h"
 #include "platform/platform.h"
@@ -443,10 +446,248 @@ static vigil_status_t vigil_ffi_call_s(
 #endif
 }
 
+/* ── CALL_EXTERN runtime implementation ──────────────────────────── */
+
+/* Cache of opened libraries and resolved extern functions. */
+#define EXTERN_LIB_CACHE_SIZE 16
+#define EXTERN_FN_CACHE_SIZE 64
+
+typedef struct {
+    char path[256];
+    void *handle;
+} extern_lib_entry_t;
+
+typedef struct {
+    char key[384];
+    size_t key_len;
+    void *fn_ptr;
+    char sig[128];
+} extern_fn_entry_t;
+
+static extern_lib_entry_t g_ext_libs[EXTERN_LIB_CACHE_SIZE];
+static int g_ext_lib_count;
+static extern_fn_entry_t g_ext_fns[EXTERN_FN_CACHE_SIZE];
+static int g_ext_fn_count;
+
+static void *ext_open_lib(const char *path, vigil_error_t *error) {
+    for (int i = 0; i < g_ext_lib_count; i++) {
+        if (strcmp(g_ext_libs[i].path, path) == 0)
+            return g_ext_libs[i].handle;
+    }
+    void *handle = NULL;
+    vigil_status_t s = vigil_platform_dlopen(path, &handle, error);
+    if (s != VIGIL_STATUS_OK) return NULL;
+    if (g_ext_lib_count < EXTERN_LIB_CACHE_SIZE) {
+        size_t n = strlen(path);
+        if (n >= sizeof(g_ext_libs[0].path)) n = sizeof(g_ext_libs[0].path) - 1;
+        memcpy(g_ext_libs[g_ext_lib_count].path, path, n);
+        g_ext_libs[g_ext_lib_count].path[n] = '\0';
+        g_ext_libs[g_ext_lib_count].handle = handle;
+        g_ext_lib_count++;
+    }
+    return handle;
+}
+
+static extern_fn_entry_t *ext_resolve(
+    const char *desc, size_t desc_len, vigil_error_t *error
+) {
+    for (int i = 0; i < g_ext_fn_count; i++) {
+        if (g_ext_fns[i].key_len == desc_len &&
+            memcmp(g_ext_fns[i].key, desc, desc_len) == 0)
+            return &g_ext_fns[i];
+    }
+    const char *lib_path = desc;
+    size_t lib_len = strlen(lib_path);
+    const char *c_name = lib_path + lib_len + 1;
+    size_t name_len = strlen(c_name);
+    const char *sig = c_name + name_len + 1;
+
+    void *handle = ext_open_lib(lib_path, error);
+    if (!handle) return NULL;
+    void *sym = NULL;
+    vigil_status_t s = vigil_platform_dlsym(handle, c_name, &sym, error);
+    if (s != VIGIL_STATUS_OK) return NULL;
+
+    if (g_ext_fn_count >= EXTERN_FN_CACHE_SIZE) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
+                               "extern fn cache full");
+        return NULL;
+    }
+    extern_fn_entry_t *e = &g_ext_fns[g_ext_fn_count++];
+    if (desc_len >= sizeof(e->key)) desc_len = sizeof(e->key) - 1;
+    memcpy(e->key, desc, desc_len);
+    e->key_len = desc_len;
+    e->fn_ptr = sym;
+    size_t slen = strlen(sig);
+    if (slen >= sizeof(e->sig)) slen = sizeof(e->sig) - 1;
+    memcpy(e->sig, sig, slen);
+    e->sig[slen] = '\0';
+    return e;
+}
+
+VIGIL_API vigil_status_t vigil_extern_call(
+    vigil_vm_t *vm,
+    const char *desc, size_t desc_len,
+    size_t arg_count,
+    vigil_error_t *error
+) {
+    extern_fn_entry_t *entry = ext_resolve(desc, desc_len, error);
+    if (!entry) return VIGIL_STATUS_INTERNAL;
+
+#ifdef VIGIL_HAS_LIBFFI
+    {
+        size_t base = vigil_vm_stack_depth(vm) - arg_count;
+        int64_t args_s[16] = {0};
+        int64_t *args = arg_count <= 16 ? args_s :
+            malloc(arg_count * sizeof(*args));
+        if (!args) {
+            vigil_vm_stack_pop_n(vm, arg_count);
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
+                                   "extern call: alloc failed");
+            return VIGIL_STATUS_INTERNAL;
+        }
+        for (size_t i = 0; i < arg_count; i++) {
+            vigil_value_t v = vigil_vm_stack_get(vm, base + i);
+            if (vigil_nanbox_is_double(v)) {
+                double d = vigil_nanbox_decode_double(v);
+                memcpy(&args[i], &d, sizeof(double));
+            } else {
+                args[i] = vigil_nanbox_decode_int(v);
+            }
+        }
+        vigil_vm_stack_pop_n(vm, arg_count);
+
+        int64_t result = ffi_call_generic(entry->fn_ptr, entry->sig,
+                                           args, (int)arg_count);
+        if (args != args_s) free(args);
+
+        /* Determine return type from sig. */
+        const char *paren = strchr(entry->sig, '(');
+        size_t ret_len = paren ? (size_t)(paren - entry->sig) : strlen(entry->sig);
+        int is_void = (ret_len == 4 && memcmp(entry->sig, "void", 4) == 0);
+        int is_f64 = (ret_len == 3 && memcmp(entry->sig, "f64", 3) == 0);
+        int is_string = (ret_len == 6 && memcmp(entry->sig, "string", 6) == 0);
+
+        if (is_void) {
+            return VIGIL_STATUS_OK;
+        } else if (is_f64) {
+            double rv;
+            memcpy(&rv, &result, sizeof(rv));
+            return push_f64(vm, rv, error);
+        } else if (is_string) {
+            const char *s = (const char *)(intptr_t)result;
+            return push_string(vm, s, error);
+        } else {
+            return push_i64(vm, result, error);
+        }
+    }
+#else
+    (void)entry;
+    vigil_vm_stack_pop_n(vm, arg_count);
+    vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
+                           "extern fn: libffi not available");
+    return VIGIL_STATUS_INTERNAL;
+#endif
+}
+
+/* ── ffi.callback — wrap a Vigil closure as a C function pointer ── */
+
+/*
+ * Global VM + runtime for callback dispatch.  Set once by the first
+ * ffi.callback() call.  Callbacks create a fresh VM to avoid
+ * re-entering the running interpreter.
+ */
+static vigil_runtime_t *g_cb_runtime;
+
+static intptr_t vigil_ffi_callback_dispatch(
+    int slot, intptr_t a0, intptr_t a1, intptr_t a2, intptr_t a3
+) {
+    vigil_object_t *closure = vigil_ffi_callback_get_closure(slot);
+    if (!closure || !g_cb_runtime) return 0;
+
+    vigil_vm_t *cb_vm = NULL;
+    vigil_error_t err = {0};
+    vigil_value_t out = {0};
+
+    if (vigil_vm_open(&cb_vm, g_cb_runtime, NULL, &err) != VIGIL_STATUS_OK)
+        return 0;
+
+    /* Push arguments onto the callback VM stack.
+     * The closure's arity determines how many args to pass (max 4). */
+    const vigil_object_t *fn = vigil_callable_object_function(closure);
+    size_t arity = vigil_function_object_arity(fn);
+    intptr_t argv[4] = { a0, a1, a2, a3 };
+    for (size_t i = 0; i < arity && i < 4; i++) {
+        vigil_value_t v = vigil_nanbox_encode_int((int64_t)argv[i]);
+        vigil_vm_stack_push(cb_vm, &v, &err);
+    }
+
+    vigil_vm_execute_function(cb_vm, closure, &out, &err);
+
+    intptr_t result = 0;
+    if (vigil_nanbox_is_int(out))
+        result = (intptr_t)vigil_nanbox_decode_int(out);
+
+    vigil_vm_close(&cb_vm);
+    return result;
+}
+
+/* ffi.callback(fn, string sig) -> i64
+ * Returns a C function pointer (as i64) that, when called by C code,
+ * invokes the given Vigil closure.  Up to 4 intptr_t args are passed. */
+static vigil_status_t vigil_ffi_callback(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
+) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    vigil_value_t fn_val = vigil_vm_stack_get(vm, base);
+    /* sig is arg 1 — read but currently unused (reserved for future
+     * libffi closure support with typed signatures). */
+    vigil_vm_stack_pop_n(vm, arg_count);
+
+    vigil_object_t *fn = vigil_value_as_object(&fn_val);
+    if (fn == NULL ||
+        (vigil_object_type(fn) != VIGIL_OBJECT_FUNCTION &&
+         vigil_object_type(fn) != VIGIL_OBJECT_CLOSURE)) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                               "ffi.callback: first argument must be a function");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    /* Wire up dispatch on first use. */
+    if (!g_cb_runtime) {
+        g_cb_runtime = vigil_vm_runtime(vm);
+        vigil_ffi_callback_set_dispatch(vigil_ffi_callback_dispatch);
+    }
+
+    void *ptr = NULL;
+    int slot = vigil_ffi_callback_alloc(&ptr);
+    if (slot < 0) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
+                               "ffi.callback: all callback slots in use");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    vigil_ffi_callback_set_closure(slot, fn);
+
+    return push_i64(vm, (int64_t)(intptr_t)ptr, error);
+}
+
+/* ffi.callback_free(i32 slot) */
+static vigil_status_t vigil_ffi_callback_free_fn(
+    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
+) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    int32_t slot = (int32_t)pop_i64(vm, base, 0);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    vigil_ffi_callback_free(slot);
+    (void)error;
+    return VIGIL_STATUS_OK;
+}
+
 /* ── module descriptor ───────────────────────────────────────────── */
 
 static const int p_str[] = { VIGIL_TYPE_STRING };
 static const int p_i64[] = { VIGIL_TYPE_I64 };
+static const int p_i32[] = { VIGIL_TYPE_I32 };
 static const int p_i64_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING };
 static const int p_i64_str_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING,
                                       VIGIL_TYPE_STRING };
@@ -455,18 +696,21 @@ static const int p_call[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I64, VIGIL_TYPE_I64,
                                VIGIL_TYPE_I64 };
 static const int p_call_f[] = { VIGIL_TYPE_I64, VIGIL_TYPE_F64, VIGIL_TYPE_F64 };
 static const int p_call_s[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I64, VIGIL_TYPE_I64 };
+static const int p_obj_str[] = { VIGIL_TYPE_OBJECT, VIGIL_TYPE_STRING };
 
 #define F(n, nl, fn, pc, pt, rt) { n, nl, fn, pc, pt, rt, 1, NULL, 0, NULL, NULL }
 #define FV(n, nl, fn, pc, pt) { n, nl, fn, pc, pt, VIGIL_TYPE_VOID, 0, NULL, 0, NULL, NULL }
 
 static const vigil_native_module_function_t vigil_ffi_functions[] = {
-    F("open",   4U, vigil_ffi_open,   1U, p_str,          VIGIL_TYPE_I64),
-    F("sym",    3U, vigil_ffi_sym,    2U, p_i64_str,      VIGIL_TYPE_I64),
-    FV("close", 5U, vigil_ffi_close,  1U, p_i64),
-    F("bind",   4U, vigil_ffi_bind,   3U, p_i64_str_str,  VIGIL_TYPE_I64),
-    F("call",   4U, vigil_ffi_call,   7U, p_call,         VIGIL_TYPE_I64),
-    F("call_f", 6U, vigil_ffi_call_f, 3U, p_call_f,       VIGIL_TYPE_F64),
-    F("call_s", 6U, vigil_ffi_call_s, 3U, p_call_s,       VIGIL_TYPE_STRING),
+    F("open",          4U,  vigil_ffi_open,             1U, p_str,          VIGIL_TYPE_I64),
+    F("sym",           3U,  vigil_ffi_sym,              2U, p_i64_str,      VIGIL_TYPE_I64),
+    FV("close",        5U,  vigil_ffi_close,            1U, p_i64),
+    F("bind",          4U,  vigil_ffi_bind,             3U, p_i64_str_str,  VIGIL_TYPE_I64),
+    F("call",          4U,  vigil_ffi_call,             7U, p_call,         VIGIL_TYPE_I64),
+    F("call_f",        6U,  vigil_ffi_call_f,           3U, p_call_f,       VIGIL_TYPE_F64),
+    F("call_s",        6U,  vigil_ffi_call_s,           3U, p_call_s,       VIGIL_TYPE_STRING),
+    F("callback",      8U,  vigil_ffi_callback,         2U, p_obj_str,      VIGIL_TYPE_I64),
+    FV("callback_free",13U, vigil_ffi_callback_free_fn, 1U, p_i32),
 };
 
 #undef F

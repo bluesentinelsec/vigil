@@ -101,6 +101,16 @@ static vigil_status_t vigil_compile_function_with_parent(
     size_t function_index,
     const vigil_parser_state_t *parent_state
 );
+static vigil_status_t vigil_compile_extern_fn(
+    vigil_program_state_t *program,
+    size_t function_index,
+    const vigil_extern_fn_decl_t *ext
+);
+static vigil_status_t vigil_program_parse_extern_fn(
+    vigil_program_state_t *program,
+    size_t *cursor,
+    int is_public
+);
 const vigil_token_t *vigil_parser_peek(const vigil_parser_state_t *state);
 int vigil_parser_check(
     const vigil_parser_state_t *state,
@@ -4834,6 +4844,254 @@ vigil_status_t vigil_program_parse_constant_expression(
 }
 
 
+/* ── extern fn declarations ───────────────────────────────────────── */
+
+static const char *vigil_type_to_ffi_sig(vigil_type_kind_t kind) {
+    switch (kind) {
+        case VIGIL_TYPE_I32:    return "i32";
+        case VIGIL_TYPE_I64:    return "i64";
+        case VIGIL_TYPE_U8:     return "u8";
+        case VIGIL_TYPE_U32:    return "u32";
+        case VIGIL_TYPE_F64:    return "f64";
+        case VIGIL_TYPE_BOOL:   return "i32";
+        case VIGIL_TYPE_STRING: return "ptr";
+        case VIGIL_TYPE_VOID:   return "void";
+        default:                return "ptr";
+    }
+}
+
+static vigil_status_t vigil_program_parse_extern_fn(
+    vigil_program_state_t *program,
+    size_t *cursor,
+    int is_public
+) {
+    vigil_status_t status;
+    const vigil_token_t *token;
+    const vigil_token_t *name_token;
+    const vigil_token_t *type_token;
+    const vigil_token_t *param_name_token;
+    vigil_function_decl_t *decl;
+    vigil_extern_fn_decl_t *ext;
+    const char *name_text;
+    size_t name_length;
+
+    /* Skip 'extern'. */
+    token = vigil_program_token_at(program, *cursor);
+    *cursor += 1U;
+
+    /* Expect 'fn'. */
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_FN) {
+        return vigil_compile_report(program, token ? token->span :
+            vigil_program_eof_span(program), "expected 'fn' after 'extern'");
+    }
+    *cursor += 1U;
+
+    /* Function name. */
+    name_token = vigil_program_token_at(program, *cursor);
+    if (name_token == NULL || name_token->kind != VIGIL_TOKEN_IDENTIFIER) {
+        return vigil_compile_report(program, token->span,
+            "expected function name after 'extern fn'");
+    }
+    name_text = vigil_program_token_text(program, name_token, &name_length);
+    *cursor += 1U;
+
+    /* Register in function table so call resolution works normally. */
+    status = vigil_program_grow_functions(program, program->functions.count + 1U);
+    if (status != VIGIL_STATUS_OK) return status;
+
+    decl = &program->functions.functions[program->functions.count];
+    vigil_binding_function_init(decl);
+    decl->name = name_text;
+    decl->name_length = name_length;
+    decl->name_span = name_token->span;
+    decl->is_public = is_public;
+    decl->source = program->source;
+    decl->tokens = program->tokens;
+
+    /* Parse parameter list: '(' type name, ... ')' */
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_LPAREN) {
+        return vigil_program_fail_partial_decl(program, decl,
+            vigil_compile_report(program, name_token->span,
+                "expected '(' after extern function name"));
+    }
+    *cursor += 1U;
+
+    token = vigil_program_token_at(program, *cursor);
+    if (token != NULL && token->kind != VIGIL_TOKEN_RPAREN) {
+        while (1) {
+            vigil_parser_type_t param_type;
+            type_token = vigil_program_token_at(program, *cursor);
+            status = vigil_program_parse_type_reference(
+                program, cursor, "unsupported extern parameter type", &param_type);
+            if (status != VIGIL_STATUS_OK)
+                return vigil_program_fail_partial_decl(program, decl, status);
+            status = vigil_program_require_non_void_type(
+                program, type_token ? type_token->span : name_token->span,
+                param_type, "extern parameters cannot use type void");
+            if (status != VIGIL_STATUS_OK)
+                return vigil_program_fail_partial_decl(program, decl, status);
+
+            param_name_token = vigil_program_token_at(program, *cursor);
+            if (param_name_token == NULL ||
+                param_name_token->kind != VIGIL_TOKEN_IDENTIFIER) {
+                return vigil_program_fail_partial_decl(program, decl,
+                    vigil_compile_report(program,
+                        type_token ? type_token->span : name_token->span,
+                        "expected parameter name"));
+            }
+            status = vigil_program_add_param(program, decl, param_type,
+                                             param_name_token);
+            if (status != VIGIL_STATUS_OK)
+                return vigil_program_fail_partial_decl(program, decl, status);
+            *cursor += 1U;
+
+            token = vigil_program_token_at(program, *cursor);
+            if (token != NULL && token->kind == VIGIL_TOKEN_COMMA) {
+                *cursor += 1U;
+                continue;
+            }
+            break;
+        }
+    }
+
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN) {
+        return vigil_program_fail_partial_decl(program, decl,
+            vigil_compile_report(program, name_token->span,
+                "expected ')' after extern parameter list"));
+    }
+    *cursor += 1U;
+
+    /* Parse return type: '-> type' */
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_ARROW) {
+        return vigil_program_fail_partial_decl(program, decl,
+            vigil_compile_report(program, name_token->span,
+                "expected '->' after extern function signature"));
+    }
+    *cursor += 1U;
+
+    status = vigil_program_parse_function_return_types(
+        program, cursor, "unsupported extern return type", decl);
+    if (status != VIGIL_STATUS_OK)
+        return vigil_program_fail_partial_decl(program, decl, status);
+
+    /* Parse 'from "libpath"' clause. */
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_IDENTIFIER) {
+        return vigil_program_fail_partial_decl(program, decl,
+            vigil_compile_report(program, name_token->span,
+                "expected 'from' after extern return type"));
+    }
+    {
+        const char *kw;
+        size_t kw_len;
+        kw = vigil_program_token_text(program, token, &kw_len);
+        if (kw_len != 4U || memcmp(kw, "from", 4U) != 0) {
+            return vigil_program_fail_partial_decl(program, decl,
+                vigil_compile_report(program, token->span,
+                    "expected 'from' after extern return type"));
+        }
+    }
+    *cursor += 1U;
+
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_STRING_LITERAL) {
+        return vigil_program_fail_partial_decl(program, decl,
+            vigil_compile_report(program, name_token->span,
+                "expected library path string after 'from'"));
+    }
+    *cursor += 1U;
+
+    /* Expect semicolon. */
+    {
+        const vigil_token_t *semi = vigil_program_token_at(program, *cursor);
+        if (semi == NULL || semi->kind != VIGIL_TOKEN_SEMICOLON) {
+            return vigil_program_fail_partial_decl(program, decl,
+                vigil_compile_report(program, name_token->span,
+                    "expected ';' after extern fn declaration"));
+        }
+        *cursor += 1U;
+    }
+
+    /* Mark as extern: body_start == body_end == 0 signals no body. */
+    decl->body_start = 0U;
+    decl->body_end = 0U;
+
+    /* Grow extern fn table. */
+    if (program->extern_fn_count >= program->extern_fn_capacity) {
+        size_t new_cap = program->extern_fn_capacity == 0U ? 4U :
+                         program->extern_fn_capacity * 2U;
+        vigil_extern_fn_decl_t *new_arr = realloc(
+            program->extern_fns, new_cap * sizeof(*new_arr));
+        if (!new_arr) {
+            vigil_error_set_literal(program->error, VIGIL_STATUS_OUT_OF_MEMORY,
+                                   "extern fn table alloc failed");
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        }
+        program->extern_fns = new_arr;
+        program->extern_fn_capacity = new_cap;
+    }
+    ext = &program->extern_fns[program->extern_fn_count];
+    memset(ext, 0, sizeof(*ext));
+    ext->name = name_text;
+    ext->name_length = name_length;
+    ext->name_span = name_token->span;
+    ext->is_public = is_public;
+    ext->source_id = program->source->id;
+    ext->function_index = program->functions.count;
+
+    /* Extract library path from the string literal token (strip quotes). */
+    {
+        const char *lib_text;
+        size_t lib_len;
+        lib_text = vigil_program_token_text(program, token, &lib_len);
+        if (lib_len >= 2U && lib_text[0] == '"') {
+            lib_text++;
+            lib_len -= 2U;
+        }
+        if (lib_len >= sizeof(ext->lib_path)) lib_len = sizeof(ext->lib_path) - 1;
+        memcpy(ext->lib_path, lib_text, lib_len);
+        ext->lib_path[lib_len] = '\0';
+    }
+
+    /* C function name defaults to Vigil name. */
+    if (name_length >= sizeof(ext->c_name)) name_length = sizeof(ext->c_name) - 1;
+    memcpy(ext->c_name, name_text, name_length);
+    ext->c_name[name_length] = '\0';
+
+    /* Build FFI signature string: "ret(p1,p2,...)". */
+    {
+        char *s = ext->sig;
+        size_t rem = sizeof(ext->sig);
+        size_t n;
+        const char *rt = vigil_type_to_ffi_sig(decl->return_type.kind);
+        n = strlen(rt);
+        if (n < rem) { memcpy(s, rt, n); s += n; rem -= n; }
+        if (rem > 1) { *s++ = '('; rem--; }
+        for (size_t i = 0; i < decl->param_count; i++) {
+            if (i > 0 && rem > 1) { *s++ = ','; rem--; }
+            const char *pt = vigil_type_to_ffi_sig(decl->params[i].type.kind);
+            n = strlen(pt);
+            if (n < rem) { memcpy(s, pt, n); s += n; rem -= n; }
+        }
+        if (rem > 1) { *s++ = ')'; rem--; }
+        *s = '\0';
+    }
+
+    /* Store params for type checking at call sites. */
+    ext->return_type = decl->return_type;
+    ext->params = decl->params;
+    ext->param_count = decl->param_count;
+
+    program->extern_fn_count++;
+    program->functions.count += 1U;
+
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_program_parse_declarations(
     vigil_program_state_t *program
 ) {
@@ -4909,6 +5167,13 @@ static vigil_status_t vigil_program_parse_declarations(
             }
             continue;
         }
+        if (token->kind == VIGIL_TOKEN_EXTERN) {
+            status = vigil_program_parse_extern_fn(program, &cursor, is_public);
+            if (status != VIGIL_STATUS_OK) {
+                return status;
+            }
+            continue;
+        }
         if (token->kind != VIGIL_TOKEN_FN) {
             if (program->compile_mode == VIGIL_COMPILE_MODE_REPL && !is_public) {
                 /* In REPL mode, non-declaration tokens are top-level
@@ -4929,7 +5194,7 @@ static vigil_status_t vigil_program_parse_declarations(
             return vigil_compile_report(
                 program,
                 token->span,
-                "expected top-level 'import', 'const', 'enum', 'interface', 'class', variable declaration, or 'fn'"
+                "expected top-level 'import', 'const', 'enum', 'interface', 'class', variable declaration, 'extern fn', or 'fn'"
             );
         }
         cursor += 1U;
@@ -15117,6 +15382,108 @@ static vigil_status_t vigil_compile_require_function_returns(
     );
 }
 
+/* ── Compile extern fn as synthetic bytecode ──────────────────────── */
+
+static vigil_status_t vigil_compile_extern_fn(
+    vigil_program_state_t *program,
+    size_t function_index,
+    const vigil_extern_fn_decl_t *ext
+) {
+    vigil_status_t status;
+    vigil_parser_state_t state;
+    vigil_function_decl_t *decl;
+    vigil_object_t *object;
+
+    decl = &program->functions.functions[function_index];
+
+    memset(&state, 0, sizeof(state));
+    state.program = program;
+    state.function_index = function_index;
+    state.expected_return_type = decl->return_type;
+    vigil_chunk_init(&state.chunk, program->registry->runtime);
+    vigil_binding_scope_stack_init(&state.locals, program->registry->runtime);
+
+    /* Push all parameters onto the stack via GET_LOCAL. */
+    for (size_t i = 0; i < decl->param_count; i++) {
+        status = vigil_parser_emit_opcode(&state, VIGIL_OPCODE_GET_LOCAL,
+                                          decl->name_span);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+        status = vigil_parser_emit_u32(&state, (uint32_t)i, decl->name_span);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+    }
+
+    /* Emit CALL_EXTERN <descriptor_const> <arg_count>.
+     * Descriptor is a string with embedded NULs: "lib\0name\0sig". */
+    {
+        size_t lib_len = strlen(ext->lib_path);
+        size_t name_len = strlen(ext->c_name);
+        size_t sig_len = strlen(ext->sig);
+        size_t desc_len = lib_len + 1 + name_len + 1 + sig_len;
+        char *desc = malloc(desc_len + 1);
+        if (!desc) {
+            status = VIGIL_STATUS_OUT_OF_MEMORY;
+            goto cleanup;
+        }
+        char *p = desc;
+        memcpy(p, ext->lib_path, lib_len); p += lib_len; *p++ = '\0';
+        memcpy(p, ext->c_name, name_len); p += name_len; *p++ = '\0';
+        memcpy(p, ext->sig, sig_len); p += sig_len; *p = '\0';
+
+        vigil_object_t *str_obj = NULL;
+        status = vigil_string_object_new(
+            program->registry->runtime,
+            desc, desc_len,
+            &str_obj, program->error);
+        free(desc);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+
+        vigil_value_t str_val;
+        vigil_value_init_object(&str_val, &str_obj);
+        size_t const_idx;
+        status = vigil_chunk_add_constant(&state.chunk, &str_val, &const_idx,
+                                          program->error);
+        vigil_value_release(&str_val);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+
+        status = vigil_parser_emit_opcode(&state, VIGIL_OPCODE_CALL_EXTERN,
+                                          decl->name_span);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+        status = vigil_parser_emit_u32(&state, (uint32_t)const_idx,
+                                       decl->name_span);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+        status = vigil_parser_emit_u32(&state, (uint32_t)decl->param_count,
+                                       decl->name_span);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+    }
+
+    /* Emit RETURN. */
+    status = vigil_parser_emit_opcode(&state, VIGIL_OPCODE_RETURN,
+                                      decl->name_span);
+    if (status != VIGIL_STATUS_OK) goto cleanup;
+    {
+        uint32_t rc = vigil_parser_type_is_void(decl->return_type) ? 0U : 1U;
+        status = vigil_parser_emit_u32(&state, rc, decl->name_span);
+        if (status != VIGIL_STATUS_OK) goto cleanup;
+    }
+
+    object = NULL;
+    status = vigil_function_object_new(
+        program->registry->runtime,
+        decl->name, decl->name_length,
+        decl->param_count, decl->return_count,
+        &state.chunk, &object, program->error);
+    if (status != VIGIL_STATUS_OK) goto cleanup;
+
+    vigil_parser_state_free(&state);
+    decl->object = object;
+    return VIGIL_STATUS_OK;
+
+cleanup:
+    vigil_chunk_free(&state.chunk);
+    vigil_parser_state_free(&state);
+    return status;
+}
+
 static vigil_status_t vigil_compile_function_with_parent(
     vigil_program_state_t *program,
     size_t function_index,
@@ -15158,6 +15525,15 @@ static vigil_status_t vigil_compile_function_with_parent(
             init_method->function_index
         );
     }
+
+    /* Check if this is an extern fn. */
+    for (size_t ei = 0; ei < program->extern_fn_count; ei++) {
+        if (program->extern_fns[ei].function_index == function_index) {
+            return vigil_compile_extern_fn(program, function_index,
+                                           &program->extern_fns[ei]);
+        }
+    }
+
     memset(&state, 0, sizeof(state));
     vigil_program_set_module_context(program, decl->source, decl->tokens);
     state.program = program;

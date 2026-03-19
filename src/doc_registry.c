@@ -1027,7 +1027,7 @@ static const vigil_doc_entry_t http_docs[] = {
 /* ── ffi module ──────────────────────────────────────────────────── */
 
 static const vigil_doc_entry_t ffi_docs[] = {
-    {"ffi", NULL, "Foreign function interface.", "Load shared libraries and call C functions at runtime.", NULL},
+    {"ffi", NULL, "Foreign function interface.", "Load shared libraries and call C functions at runtime. Use 'extern fn' for type-safe declarations.", NULL},
     {"ffi.open", "ffi.open(path: string) -> i64", "Open a shared library.", "Returns a library handle or 0 on failure.", "i64 lib = ffi.open(\"libm.so\")"},
     {"ffi.sym", "ffi.sym(lib: i64, name: string) -> i64", "Look up a symbol.", "Returns a function pointer address or 0 if not found.", "i64 fn = ffi.sym(lib, \"sqrt\")"},
     {"ffi.close", "ffi.close(lib: i64) -> void", "Close a shared library.", "Releases the library handle.", "ffi.close(lib)"},
@@ -1035,6 +1035,8 @@ static const vigil_doc_entry_t ffi_docs[] = {
     {"ffi.call", "ffi.call(fn: i64, a1-a6: i64) -> i64", "Call a bound function returning i64.", "Pass up to 6 integer/pointer arguments.", "i64 r = ffi.call(fn, arg1, arg2, 0, 0, 0, 0)"},
     {"ffi.call_f", "ffi.call_f(fn: i64, a1: f64, a2: f64) -> f64", "Call a bound function returning f64.", "For functions that take and return floating-point values.", "f64 r = ffi.call_f(fn, 2.0, 0.0)"},
     {"ffi.call_s", "ffi.call_s(fn: i64, a1: i64, a2: i64) -> string", "Call a bound function returning a string.", "Reads a null-terminated C string from the returned pointer.", "string s = ffi.call_s(fn, ptr, len)"},
+    {"ffi.callback", "ffi.callback(fn: function, sig: string) -> i64", "Wrap a Vigil function as a C callback.", "Returns a C function pointer (as i64) that invokes the Vigil function. Up to 8 active callbacks.", "i64 cb = ffi.callback(my_cmp, \"i64(i64,i64)\")"},
+    {"ffi.callback_free", "ffi.callback_free(slot: i32) -> void", "Free a callback slot.", "Releases the callback slot for reuse.", "ffi.callback_free(0)"},
 };
 
 #define FFI_COUNT (sizeof(ffi_docs) / sizeof(ffi_docs[0]))

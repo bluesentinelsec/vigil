@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "internal/vigil_compiler_types.h"
@@ -1701,6 +1702,10 @@ void vigil_program_free(vigil_program_state_t *program) {
     program->globals = NULL;
     program->global_count = 0U;
     program->global_capacity = 0U;
+    free(program->extern_fns);
+    program->extern_fns = NULL;
+    program->extern_fn_count = 0U;
+    program->extern_fn_capacity = 0U;
     vigil_binding_function_table_free(&program->functions);
 }
 
