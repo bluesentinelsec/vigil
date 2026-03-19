@@ -260,6 +260,7 @@ const char *vigil_token_kind_name(vigil_token_kind_t kind) {
         case VIGIL_TOKEN_TILDE: return "tilde";
         case VIGIL_TOKEN_SHIFT_LEFT: return "shift_left";
         case VIGIL_TOKEN_SHIFT_RIGHT: return "shift_right";
+        case VIGIL_TOKEN_EXTERN: return "extern";
         default: return "unknown";
     }
 }

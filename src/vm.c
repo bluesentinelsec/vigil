@@ -2925,6 +2925,28 @@ vigil_status_t vigil_vm_execute(
     return vigil_vm_execute_function(vm, NULL, out_value, error);
 }
 
+/* ── CALL_EXTERN runtime handler ─────────────────────────────────── */
+
+/*
+ * vigil_extern_call is implemented in ffi.c (which has libffi access).
+ * The VM calls it through this declaration.
+ */
+extern vigil_status_t vigil_extern_call(
+    vigil_vm_t *vm,
+    const char *desc, size_t desc_len,
+    size_t arg_count,
+    vigil_error_t *error
+);
+
+static vigil_status_t vigil_vm_call_extern(
+    vigil_vm_t *vm,
+    const char *desc, size_t desc_len,
+    size_t arg_count,
+    vigil_error_t *error
+) {
+    return vigil_extern_call(vm, desc, desc_len, arg_count, error);
+}
+
 vigil_status_t vigil_vm_execute_function(
     vigil_vm_t *vm,
     const vigil_object_t *function,
@@ -3139,6 +3161,7 @@ vigil_status_t vigil_vm_execute_function(
             [VIGIL_OPCODE_FORLOOP_I32] = &&op_FORLOOP_I32,
             [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
             [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
+            [VIGIL_OPCODE_CALL_EXTERN] = &&op_CALL_EXTERN,
             [VIGIL_OPCODE_MODULO] = &&op_MODULO,
             [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
             [VIGIL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3760,6 +3783,31 @@ vigil_status_t vigil_vm_execute_function(
                     (size_t)native_defer_arg_count,
                     error
                 );
+                if (status != VIGIL_STATUS_OK) {
+                    goto cleanup;
+                }
+                VM_BREAK();
+            }
+            VM_CASE(CALL_EXTERN) {
+                uint32_t extern_arg_count;
+                const vigil_value_t *desc_val;
+                const vigil_object_t *desc_obj;
+                const char *desc_data;
+                size_t desc_len;
+
+                VIGIL_VM_READ_U32(code, frame->ip, constant_index);
+                VIGIL_VM_READ_RAW_U32(code, frame->ip, extern_arg_count);
+
+                desc_val = VIGIL_VM_CHUNK_CONSTANT(
+                    frame->chunk, (size_t)constant_index);
+                desc_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(
+                    *desc_val);
+                desc_data = vigil_string_object_c_str(desc_obj);
+                desc_len = vigil_string_object_length(desc_obj);
+
+                status = vigil_vm_call_extern(
+                    vm, desc_data, desc_len,
+                    (size_t)extern_arg_count, error);
                 if (status != VIGIL_STATUS_OK) {
                     goto cleanup;
                 }

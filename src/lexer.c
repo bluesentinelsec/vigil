@@ -172,6 +172,7 @@ static vigil_token_kind_t vigil_lexer_keyword_kind(
             if (memcmp(text, "while", 5U) == 0) return VIGIL_TOKEN_WHILE;
             break;
         case 6U:
+            if (memcmp(text, "extern", 6U) == 0) return VIGIL_TOKEN_EXTERN;
             if (memcmp(text, "import", 6U) == 0) return VIGIL_TOKEN_IMPORT;
             if (memcmp(text, "return", 6U) == 0) return VIGIL_TOKEN_RETURN;
             if (memcmp(text, "switch", 6U) == 0) return VIGIL_TOKEN_SWITCH;

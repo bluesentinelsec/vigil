@@ -84,7 +84,8 @@ typedef enum vigil_token_kind {
     VIGIL_TOKEN_CARET = 68,
     VIGIL_TOKEN_TILDE = 69,
     VIGIL_TOKEN_SHIFT_LEFT = 70,
-    VIGIL_TOKEN_SHIFT_RIGHT = 71
+    VIGIL_TOKEN_SHIFT_RIGHT = 71,
+    VIGIL_TOKEN_EXTERN = 72
 } vigil_token_kind_t;
 
 typedef struct vigil_token {

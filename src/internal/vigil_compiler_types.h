@@ -179,6 +179,28 @@ typedef struct vigil_global_variable {
     size_t initializer_end;
 } vigil_global_variable_t;
 
+/* ── Extern function declarations ─────────────────────────────────── */
+
+typedef struct vigil_extern_fn_decl {
+    const char *name;
+    size_t name_length;
+    vigil_source_span_t name_span;
+    int is_public;
+    vigil_source_id_t source_id;
+    /* Library path (from the "from" clause). */
+    char lib_path[256];
+    /* C function name (defaults to Vigil name). */
+    char c_name[256];
+    /* libffi signature string, e.g. "f64(f64,i32)". */
+    char sig[128];
+    /* Vigil-level parameter and return types for type checking. */
+    vigil_binding_function_param_t *params;
+    size_t param_count;
+    vigil_binding_type_t return_type;
+    /* Index into the function table (the wrapper stub). */
+    size_t function_index;
+} vigil_extern_fn_decl_t;
+
 typedef struct vigil_program_state {
     const vigil_source_registry_t *registry;
     const vigil_source_file_t *source;
@@ -213,6 +235,9 @@ typedef struct vigil_program_state {
     vigil_global_variable_t *globals;
     size_t global_count;
     size_t global_capacity;
+    vigil_extern_fn_decl_t *extern_fns;
+    size_t extern_fn_count;
+    size_t extern_fn_capacity;
     const struct vigil_native_registry *natives;
     int compile_mode;
     size_t repl_stmts_start;

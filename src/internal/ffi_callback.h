@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include "vigil/export.h"
+#include "vigil/value.h"
 
 #define VIGIL_FFI_MAX_CALLBACKS 8
 
@@ -19,5 +20,9 @@ typedef intptr_t (*vigil_ffi_callback_dispatch_fn)(
 VIGIL_API void vigil_ffi_callback_set_dispatch(vigil_ffi_callback_dispatch_fn fn);
 VIGIL_API int  vigil_ffi_callback_alloc(void **out_ptr);
 VIGIL_API void vigil_ffi_callback_free(int slot);
+
+/* Per-slot closure storage for VM-based dispatch. */
+VIGIL_API void vigil_ffi_callback_set_closure(int slot, vigil_object_t *closure);
+VIGIL_API vigil_object_t *vigil_ffi_callback_get_closure(int slot);
 
 #endif
