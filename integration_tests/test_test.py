@@ -121,7 +121,7 @@ class TestVigilTest(unittest.TestCase):
             'fn test_import(test.T t) -> void {\n'
             '    t.assert(helper.message() == "ok", "import should resolve");\n'
             '}\n')
-        r = run_test(cwd=self.tmpdir)
+        r = run_test(os.path.join(self.tmpdir, "test", "import_test.vigil"), cwd=self.tmpdir)
         self.assertEqual(r.returncode, 0)
         self.assertIn("PASS: 1 passed", r.stdout)
 
