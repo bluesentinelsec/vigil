@@ -117,7 +117,7 @@ class TestVigilTest(unittest.TestCase):
         helper_import = helper_path.replace("\\", "/")
         self._write("test/import_test.vigil",
             'import "test";\n'
-            f'import "{helper_import}";\n'
+            f'import "{helper_import}" as helper;\n'
             'fn test_import(test.T t) -> void {\n'
             '    t.assert(helper.message() == "ok", "import should resolve");\n'
             '}\n')
