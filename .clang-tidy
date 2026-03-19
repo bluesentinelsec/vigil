@@ -1,0 +1,12 @@
+Checks: >
+  -*,
+  bugprone-branch-clone,
+  readability-else-after-return,
+  readability-function-cognitive-complexity,
+  readability-redundant-control-flow
+WarningsAsErrors: ''
+CheckOptions:
+  - key: readability-function-cognitive-complexity.Threshold
+    value: '30'
+  - key: readability-function-cognitive-complexity.DescribeBasicIncrements
+    value: 'false'

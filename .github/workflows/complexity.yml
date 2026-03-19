@@ -1,0 +1,100 @@
+name: Complexity
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  complexity:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install complexity dependencies
+        run: |
+          pip install lizard
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy-18
+
+      - name: Configure PR head
+        run: >
+          cmake -S . -B build-complexity
+          -DVIGIL_BUILD_TESTS=ON
+          -DVIGIL_STDLIB_FFI=ON
+          -DVIGIL_STDLIB_FS=ON
+          -DVIGIL_STDLIB_HTTP=ON
+          -DVIGIL_STDLIB_NET=ON
+          -DVIGIL_STDLIB_READLINE=ON
+          -DVIGIL_STDLIB_THREAD=ON
+          -DVIGIL_STDLIB_TIME=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Prepare origin/main worktree
+        run: git worktree add ../vigil-main origin/main
+
+      - name: Configure origin/main
+        run: >
+          cmake -S ../vigil-main -B ../vigil-main/build-complexity
+          -DVIGIL_BUILD_TESTS=ON
+          -DVIGIL_STDLIB_FFI=ON
+          -DVIGIL_STDLIB_FS=ON
+          -DVIGIL_STDLIB_HTTP=ON
+          -DVIGIL_STDLIB_NET=ON
+          -DVIGIL_STDLIB_READLINE=ON
+          -DVIGIL_STDLIB_THREAD=ON
+          -DVIGIL_STDLIB_TIME=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Check lizard complexity
+        run: >
+          python3 scripts/check_complexity.py
+          --candidate-root $PWD
+          --baseline-root $PWD/../vigil-main
+          --thresholds complexity/thresholds.json
+          --summary complexity-artifacts/lizard-summary.json
+          --candidate-report complexity-artifacts/lizard-pr.csv
+          --baseline-report complexity-artifacts/lizard-main.csv
+
+      - name: Run clang-tidy on PR head
+        env:
+          CLANG_TIDY_BIN: /usr/bin/clang-tidy-18
+          CLANG_TIDY_CONFIG_FILE: ${{ github.workspace }}/.clang-tidy
+        run: >
+          scripts/run_clang_tidy.sh
+          $PWD
+          $PWD/build-complexity
+          $PWD/complexity-artifacts/clang-tidy-pr.log
+
+      - name: Run clang-tidy on origin/main
+        env:
+          CLANG_TIDY_BIN: /usr/bin/clang-tidy-18
+          CLANG_TIDY_CONFIG_FILE: ${{ github.workspace }}/.clang-tidy
+        run: >
+          scripts/run_clang_tidy.sh
+          $PWD/../vigil-main
+          $PWD/../vigil-main/build-complexity
+          $PWD/complexity-artifacts/clang-tidy-main.log
+
+      - name: Check clang-tidy diagnostics
+        run: >
+          python3 scripts/check_clang_tidy.py
+          --baseline-log complexity-artifacts/clang-tidy-main.log
+          --candidate-log complexity-artifacts/clang-tidy-pr.log
+          --summary complexity-artifacts/clang-tidy-summary.json
+
+      - name: Upload complexity artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: complexity-artifacts
+          path: complexity-artifacts/
