@@ -993,10 +993,16 @@ VIGIL_API void vigil_platform_cond_broadcast(vigil_platform_cond_t *cond) {
     WakeAllConditionVariable(&cond->cv);
 }
 
-/* ── Read-write lock (using SRWLOCK) ─────────────────────────────── */
+/* ── Read-write lock ─────────────────────────────────────────────── */
 
 struct vigil_platform_rwlock {
-    SRWLOCK lock;
+    CRITICAL_SECTION cs;
+    CONDITION_VARIABLE readers_cv;
+    CONDITION_VARIABLE writers_cv;
+    int readers;
+    int writer_active;
+    int waiting_writers;
+    DWORD writer_owner;
 };
 
 VIGIL_API vigil_status_t vigil_platform_rwlock_create(
@@ -1006,33 +1012,62 @@ VIGIL_API vigil_status_t vigil_platform_rwlock_create(
     (void)error;
     vigil_platform_rwlock_t *rw = malloc(sizeof(*rw));
     if (!rw) return VIGIL_STATUS_OUT_OF_MEMORY;
-    InitializeSRWLock(&rw->lock);
+    InitializeCriticalSection(&rw->cs);
+    InitializeConditionVariable(&rw->readers_cv);
+    InitializeConditionVariable(&rw->writers_cv);
+    rw->readers = 0;
+    rw->writer_active = 0;
+    rw->waiting_writers = 0;
+    rw->writer_owner = 0;
     *out_rwlock = rw;
     return VIGIL_STATUS_OK;
 }
 
 VIGIL_API void vigil_platform_rwlock_destroy(vigil_platform_rwlock_t *rwlock) {
-    /* Windows SRWLOCKs don't need explicit destruction */
+    DeleteCriticalSection(&rwlock->cs);
     free(rwlock);
 }
 
 VIGIL_API void vigil_platform_rwlock_rdlock(vigil_platform_rwlock_t *rwlock) {
-    AcquireSRWLockShared(&rwlock->lock);
+    EnterCriticalSection(&rwlock->cs);
+    while (rwlock->writer_active || rwlock->waiting_writers > 0) {
+        SleepConditionVariableCS(&rwlock->readers_cv, &rwlock->cs, INFINITE);
+    }
+    rwlock->readers++;
+    LeaveCriticalSection(&rwlock->cs);
 }
 
 VIGIL_API void vigil_platform_rwlock_wrlock(vigil_platform_rwlock_t *rwlock) {
-    AcquireSRWLockExclusive(&rwlock->lock);
+    EnterCriticalSection(&rwlock->cs);
+    rwlock->waiting_writers++;
+    while (rwlock->writer_active || rwlock->readers > 0) {
+        SleepConditionVariableCS(&rwlock->writers_cv, &rwlock->cs, INFINITE);
+    }
+    rwlock->waiting_writers--;
+    rwlock->writer_active = 1;
+    rwlock->writer_owner = GetCurrentThreadId();
+    LeaveCriticalSection(&rwlock->cs);
 }
 
 VIGIL_API void vigil_platform_rwlock_unlock(vigil_platform_rwlock_t *rwlock) {
-    /* SRWLOCK requires knowing if it was shared or exclusive.
-       We use TryAcquire to detect - if exclusive succeeds, it was shared. */
-    if (TryAcquireSRWLockExclusive(&rwlock->lock)) {
-        ReleaseSRWLockExclusive(&rwlock->lock);
-        ReleaseSRWLockShared(&rwlock->lock);
+    EnterCriticalSection(&rwlock->cs);
+    if (rwlock->writer_active && rwlock->writer_owner == GetCurrentThreadId()) {
+        rwlock->writer_active = 0;
+        rwlock->writer_owner = 0;
+        if (rwlock->waiting_writers > 0) {
+            WakeConditionVariable(&rwlock->writers_cv);
+        } else {
+            WakeAllConditionVariable(&rwlock->readers_cv);
+        }
     } else {
-        ReleaseSRWLockExclusive(&rwlock->lock);
+        if (rwlock->readers > 0) {
+            rwlock->readers--;
+            if (rwlock->readers == 0 && rwlock->waiting_writers > 0) {
+                WakeConditionVariable(&rwlock->writers_cv);
+            }
+        }
     }
+    LeaveCriticalSection(&rwlock->cs);
 }
 
 /* ── Thread-local storage ────────────────────────────────────────── */

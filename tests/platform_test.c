@@ -176,6 +176,21 @@ TEST_F(PlatformTest, WriteEmptyFile) {
     vigil_platform_remove(path, &FIXTURE(PlatformTest)->error);
 }
 
+TEST_F(PlatformTest, RWLockReadThenWriteUnlocks) {
+    vigil_platform_rwlock_t *rwlock = NULL;
+
+    ASSERT_EQ(VIGIL_STATUS_OK,
+              vigil_platform_rwlock_create(&rwlock, &FIXTURE(PlatformTest)->error));
+    ASSERT_NE(rwlock, NULL);
+
+    vigil_platform_rwlock_rdlock(rwlock);
+    vigil_platform_rwlock_unlock(rwlock);
+    vigil_platform_rwlock_wrlock(rwlock);
+    vigil_platform_rwlock_unlock(rwlock);
+
+    vigil_platform_rwlock_destroy(rwlock);
+}
+
 /* ── Stub contract tests (always compiled) ───────────────────────── */
 
 /* These verify the stub returns UNSUPPORTED.  On native builds we
@@ -199,5 +214,6 @@ void register_platform_tests(void) {
     REGISTER_TEST_F(PlatformTest, ReadFileCustomAllocator);
     REGISTER_TEST_F(PlatformTest, NullArgs);
     REGISTER_TEST_F(PlatformTest, WriteEmptyFile);
+    REGISTER_TEST_F(PlatformTest, RWLockReadThenWriteUnlocks);
     REGISTER_TEST_F(PlatformTest, FileExistsReturnsValidStatus);
 }

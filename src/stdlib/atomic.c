@@ -33,11 +33,11 @@
 
 #define INITIAL_CAPACITY 1024
 
-static volatile int64_t *g_atomics = NULL;
+static volatile int64_t **g_atomics = NULL;
 static volatile int64_t g_atomic_count = 0;
 static size_t g_atomic_capacity = 0;
 
-/* Mutex for registry growth only — not on the hot path. */
+/* Protects handle table growth and lookup. */
 static volatile int64_t g_registry_lock = 0;
 
 static void registry_lock(void) {
@@ -48,29 +48,22 @@ static void registry_unlock(void) {
     vigil_atomic_store(&g_registry_lock, 0);
 }
 
-static void ensure_capacity(size_t needed) {
-    if (needed <= g_atomic_capacity) return;
-    registry_lock();
-    /* Double-check after acquiring lock. */
-    if (needed <= g_atomic_capacity) {
-        registry_unlock();
-        return;
-    }
+static int ensure_capacity_locked(size_t needed) {
+    if (needed <= g_atomic_capacity) return 1;
     size_t new_cap = g_atomic_capacity ? g_atomic_capacity : INITIAL_CAPACITY;
     while (new_cap < needed) new_cap *= 2;
-    volatile int64_t *new_buf = (volatile int64_t *)calloc(new_cap, sizeof(int64_t));
+    volatile int64_t **new_buf = (volatile int64_t **)calloc(new_cap, sizeof(*new_buf));
     if (new_buf == NULL) {
-        registry_unlock();
-        return;
+        return 0;
     }
     if (g_atomics != NULL) {
         memcpy((void *)new_buf, (const void *)g_atomics,
-               (size_t)g_atomic_count * sizeof(int64_t));
+               (size_t)g_atomic_count * sizeof(*new_buf));
         free((void *)g_atomics);
     }
     g_atomics = new_buf;
     g_atomic_capacity = new_cap;
-    registry_unlock();
+    return 1;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -97,38 +90,65 @@ static int valid_handle(int64_t handle) {
     return handle >= 0 && handle < vigil_atomic_load(&g_atomic_count);
 }
 
+static volatile int64_t *lookup_atomic_cell(int64_t handle) {
+    volatile int64_t *cell = NULL;
+
+    if (!valid_handle(handle)) return NULL;
+
+    registry_lock();
+    if (handle >= 0 && (size_t)handle < g_atomic_capacity) {
+        cell = g_atomics[handle];
+    }
+    registry_unlock();
+    return cell;
+}
+
 /* ── Functions ───────────────────────────────────────────────── */
 
 static vigil_status_t atomic_new(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t initial = arg_count > 0 ? get_i64_arg(vm, base, 0) : 0;
+    volatile int64_t *cell = NULL;
+    int64_t handle = -1;
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    int64_t handle = vigil_atomic_add(&g_atomic_count, 1);
-    ensure_capacity((size_t)(handle + 1));
-    if ((size_t)(handle + 1) > g_atomic_capacity) {
-        vigil_atomic_sub(&g_atomic_count, 1);
+    registry_lock();
+    if (!ensure_capacity_locked((size_t)(vigil_atomic_load(&g_atomic_count) + 1))) {
+        registry_unlock();
         return push_i64(vm, -1, error);
     }
-    vigil_atomic_store(&g_atomics[handle], initial);
+    cell = (volatile int64_t *)malloc(sizeof(*cell));
+    if (cell == NULL) {
+        registry_unlock();
+        return push_i64(vm, -1, error);
+    }
+    handle = g_atomic_count;
+    vigil_atomic_store(cell, initial);
+    g_atomics[handle] = cell;
+    g_atomic_count++;
+    registry_unlock();
     return push_i64(vm, handle, error);
 }
 
 static vigil_status_t atomic_load_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_load(&g_atomics[handle]), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_load(cell), error);
 }
 
 static vigil_status_t atomic_store_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_bool(vm, 0, error);
-    vigil_atomic_store(&g_atomics[handle], val);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_bool(vm, 0, error);
+    vigil_atomic_store(cell, val);
     return push_bool(vm, 1, error);
 }
 
@@ -136,18 +156,22 @@ static vigil_status_t atomic_add_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_add(&g_atomics[handle], val), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_add(cell, val), error);
 }
 
 static vigil_status_t atomic_sub_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_sub(&g_atomics[handle], val), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_sub(cell, val), error);
 }
 
 static vigil_status_t atomic_cas_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
@@ -155,61 +179,75 @@ static vigil_status_t atomic_cas_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t expected = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
     int64_t desired = arg_count > 2 ? get_i64_arg(vm, base, 2) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_bool(vm, 0, error);
-    return push_bool(vm, vigil_atomic_cas(&g_atomics[handle], expected, desired), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_bool(vm, 0, error);
+    return push_bool(vm, vigil_atomic_cas(cell, expected, desired), error);
 }
 
 static vigil_status_t atomic_exchange_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_exchange(&g_atomics[handle], val), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_exchange(cell, val), error);
 }
 
 static vigil_status_t atomic_fetch_or_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_fetch_or(&g_atomics[handle], val), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_fetch_or(cell, val), error);
 }
 
 static vigil_status_t atomic_fetch_and_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_fetch_and(&g_atomics[handle], val), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_fetch_and(cell, val), error);
 }
 
 static vigil_status_t atomic_fetch_xor_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int64_t val = arg_count > 1 ? get_i64_arg(vm, base, 1) : 0;
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_fetch_xor(&g_atomics[handle], val), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_fetch_xor(cell, val), error);
 }
 
 static vigil_status_t atomic_inc_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_add(&g_atomics[handle], 1), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_add(cell, 1), error);
 }
 
 static vigil_status_t atomic_dec_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
+    volatile int64_t *cell = NULL;
     vigil_vm_stack_pop_n(vm, arg_count);
-    if (!valid_handle(handle)) return push_i64(vm, 0, error);
-    return push_i64(vm, vigil_atomic_sub(&g_atomics[handle], 1), error);
+    cell = lookup_atomic_cell(handle);
+    if (cell == NULL) return push_i64(vm, 0, error);
+    return push_i64(vm, vigil_atomic_sub(cell, 1), error);
 }
 
 static vigil_status_t atomic_fence_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {

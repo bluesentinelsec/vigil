@@ -136,5 +136,22 @@ fn main() -> i32 {
         self.assertEqual(rc, 0, f"stderr: {err}")
 
 
+class AtomicGrowthTest(unittest.TestCase):
+    def test_allocate_past_initial_capacity(self):
+        code = '''import "atomic";
+fn main() -> i32 {
+    array<i64> handles = [];
+    for (i64 i = i64(0); i < i64(1500); i = i + i64(1)) {
+        handles.push(atomic.new(i));
+    }
+    for (i32 i = 0; i < handles.len(); i = i + 1) {
+        if (atomic.load(handles[i]) != i64(i)) { return 1; }
+    }
+    return 0;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
+
 if __name__ == "__main__":
     unittest.main()

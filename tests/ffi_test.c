@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "vigil/runtime.h"
 #include "internal/ffi_callback.h"
 #include "platform/platform.h"
 
@@ -126,6 +127,49 @@ TEST(FFICallback, FreeAndReuse) {
     EXPECT_EQ(s1, s2);
     vigil_ffi_callback_free(s2);
     vigil_ffi_callback_set_dispatch(NULL);
+}
+
+TEST(FFICallback, SlotFromPointer) {
+    void *ptr = NULL;
+    int slot = -1;
+
+    vigil_ffi_callback_set_dispatch(test_dispatch);
+    slot = vigil_ffi_callback_alloc(&ptr);
+    EXPECT_TRUE(slot >= 0);
+    EXPECT_EQ(slot, vigil_ffi_callback_slot_from_ptr(ptr));
+    EXPECT_TRUE(vigil_ffi_callback_is_allocated(slot));
+
+    vigil_ffi_callback_free(slot);
+    vigil_ffi_callback_set_dispatch(NULL);
+}
+
+TEST(FFICallback, RetainedClosureSurvivesFree) {
+    vigil_runtime_t *runtime = NULL;
+    vigil_object_t *closure = NULL;
+    vigil_object_t *retained = NULL;
+    vigil_error_t error = {0};
+    void *ptr = NULL;
+    int slot = -1;
+
+    ASSERT_EQ(VIGIL_STATUS_OK, vigil_runtime_open(&runtime, NULL, &error));
+    ASSERT_EQ(VIGIL_STATUS_OK,
+              vigil_string_object_new_cstr(runtime, "callback", &closure, &error));
+
+    slot = vigil_ffi_callback_alloc(&ptr);
+    ASSERT_TRUE(slot >= 0);
+    vigil_ffi_callback_set_closure(slot, closure);
+
+    retained = vigil_ffi_callback_retain_closure(slot);
+    EXPECT_TRUE(retained != NULL);
+
+    vigil_ffi_callback_free(slot);
+    EXPECT_FALSE(vigil_ffi_callback_is_allocated(slot));
+
+    vigil_object_release(&closure);
+    if (retained) {
+        vigil_object_release(&retained);
+    }
+    vigil_runtime_close(&runtime);
 }
 
 TEST(FFICallback, NullDispatch) {
@@ -841,6 +885,8 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFICallback, AllSlotsExhaust);
     REGISTER_TEST(FFICallback, MultipleSlotDispatch);
     REGISTER_TEST(FFICallback, FreeAndReuse);
+    REGISTER_TEST(FFICallback, SlotFromPointer);
+    REGISTER_TEST(FFICallback, RetainedClosureSurvivesFree);
     REGISTER_TEST(FFICallback, NullDispatch);
 #ifdef VIGIL_HAS_LIBFFI
     /* libffi direct */

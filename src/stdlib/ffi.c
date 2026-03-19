@@ -12,7 +12,7 @@
  *   ffi.call_f(i64 h, f64 a0, f64 a1) -> f64
  *   ffi.call_s(i64 h, i64 a0, i64 a1) -> string
  *   ffi.callback(fn, string sig) -> i64
- *   ffi.callback_free(i32 slot)
+ *   ffi.callback_free(i64 callback)
  *   ffi.close(i64 lib)
  */
 #include <stdint.h>
@@ -598,19 +598,103 @@ VIGIL_API vigil_status_t vigil_extern_call(
  * re-entering the running interpreter.
  */
 static vigil_runtime_t *g_cb_runtime;
+static volatile int64_t g_cb_state_lock = 0;
+static int64_t g_cb_registered_callbacks = 0;
+static int64_t g_cb_active_invocations = 0;
+static int g_cb_runtime_shutdown_pending = 0;
+
+static intptr_t vigil_ffi_callback_dispatch(
+    int slot, intptr_t a0, intptr_t a1, intptr_t a2, intptr_t a3);
+
+static void cb_state_lock(void) {
+    while (!vigil_atomic_cas(&g_cb_state_lock, 0, 1)) {
+    }
+}
+
+static void cb_state_unlock(void) {
+    vigil_atomic_store(&g_cb_state_lock, 0);
+}
+
+static vigil_status_t ensure_callback_runtime(
+    vigil_vm_t *vm,
+    vigil_error_t *error
+) {
+    vigil_status_t st = VIGIL_STATUS_OK;
+    int needs_dispatch_install = 0;
+
+    cb_state_lock();
+    if (g_cb_runtime == NULL) {
+        vigil_runtime_options_t options;
+        const vigil_runtime_t *source_runtime = vigil_vm_runtime(vm);
+
+        vigil_runtime_options_init(&options);
+        options.allocator = vigil_runtime_allocator(source_runtime);
+        options.logger = vigil_runtime_logger(source_runtime);
+        st = vigil_runtime_open(&g_cb_runtime, &options, error);
+        if (st == VIGIL_STATUS_OK) {
+            needs_dispatch_install = 1;
+            g_cb_runtime_shutdown_pending = 0;
+        }
+    }
+    cb_state_unlock();
+
+    if (st == VIGIL_STATUS_OK && needs_dispatch_install) {
+        vigil_ffi_callback_set_dispatch(vigil_ffi_callback_dispatch);
+    }
+
+    return st;
+}
+
+static void maybe_shutdown_callback_runtime(void) {
+    vigil_runtime_t *runtime_to_close = NULL;
+
+    cb_state_lock();
+    if (g_cb_registered_callbacks == 0 &&
+        g_cb_active_invocations == 0 &&
+        g_cb_runtime != NULL) {
+        runtime_to_close = g_cb_runtime;
+        g_cb_runtime = NULL;
+        g_cb_runtime_shutdown_pending = 0;
+    }
+    cb_state_unlock();
+
+    if (runtime_to_close != NULL) {
+        vigil_runtime_close(&runtime_to_close);
+    }
+}
 
 static intptr_t vigil_ffi_callback_dispatch(
     int slot, intptr_t a0, intptr_t a1, intptr_t a2, intptr_t a3
 ) {
-    vigil_object_t *closure = vigil_ffi_callback_get_closure(slot);
-    if (!closure || !g_cb_runtime) return 0;
-
+    vigil_object_t *closure = vigil_ffi_callback_retain_closure(slot);
     vigil_vm_t *cb_vm = NULL;
     vigil_error_t err = {0};
     vigil_value_t out = {0};
+    vigil_runtime_t *runtime = NULL;
+    intptr_t result = 0;
 
-    if (vigil_vm_open(&cb_vm, g_cb_runtime, NULL, &err) != VIGIL_STATUS_OK)
+    if (!closure) return 0;
+
+    cb_state_lock();
+    runtime = g_cb_runtime;
+    if (runtime != NULL) {
+        g_cb_active_invocations++;
+    }
+    cb_state_unlock();
+
+    if (runtime == NULL) {
+        vigil_object_release(&closure);
         return 0;
+    }
+
+    if (vigil_vm_open(&cb_vm, runtime, NULL, &err) != VIGIL_STATUS_OK) {
+        cb_state_lock();
+        g_cb_active_invocations--;
+        cb_state_unlock();
+        vigil_object_release(&closure);
+        maybe_shutdown_callback_runtime();
+        return 0;
+    }
 
     /* Push arguments onto the callback VM stack.
      * The closure's arity determines how many args to pass (max 4). */
@@ -624,11 +708,16 @@ static intptr_t vigil_ffi_callback_dispatch(
 
     vigil_vm_execute_function(cb_vm, closure, &out, &err);
 
-    intptr_t result = 0;
     if (vigil_nanbox_is_int(out))
         result = (intptr_t)vigil_nanbox_decode_int(out);
 
     vigil_vm_close(&cb_vm);
+    vigil_object_release(&closure);
+
+    cb_state_lock();
+    g_cb_active_invocations--;
+    cb_state_unlock();
+    maybe_shutdown_callback_runtime();
     return result;
 }
 
@@ -645,6 +734,10 @@ static vigil_status_t vigil_ffi_callback(
     vigil_vm_stack_pop_n(vm, arg_count);
 
     vigil_object_t *fn = vigil_value_as_object(&fn_val);
+    void *ptr = NULL;
+    int slot = -1;
+    vigil_status_t st;
+
     if (fn == NULL ||
         (vigil_object_type(fn) != VIGIL_OBJECT_FUNCTION &&
          vigil_object_type(fn) != VIGIL_OBJECT_CLOSURE)) {
@@ -653,32 +746,59 @@ static vigil_status_t vigil_ffi_callback(
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    /* Wire up dispatch on first use. */
-    if (!g_cb_runtime) {
-        g_cb_runtime = vigil_vm_runtime(vm);
-        vigil_ffi_callback_set_dispatch(vigil_ffi_callback_dispatch);
-    }
-
-    void *ptr = NULL;
-    int slot = vigil_ffi_callback_alloc(&ptr);
+    slot = vigil_ffi_callback_alloc(&ptr);
     if (slot < 0) {
         vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
                                "ffi.callback: all callback slots in use");
         return VIGIL_STATUS_INTERNAL;
     }
+
+    st = ensure_callback_runtime(vm, error);
+    if (st != VIGIL_STATUS_OK) {
+        vigil_ffi_callback_free(slot);
+        return st;
+    }
+
     vigil_ffi_callback_set_closure(slot, fn);
+
+    cb_state_lock();
+    g_cb_registered_callbacks++;
+    cb_state_unlock();
 
     return push_i64(vm, (int64_t)(intptr_t)ptr, error);
 }
 
-/* ffi.callback_free(i32 slot) */
+/* ffi.callback_free(i64 callback) */
 static vigil_status_t vigil_ffi_callback_free_fn(
     vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
 ) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    int32_t slot = (int32_t)pop_i64(vm, base, 0);
+    int64_t callback = pop_i64(vm, base, 0);
+    int slot = -1;
+    int was_allocated = 0;
     vigil_vm_stack_pop_n(vm, arg_count);
-    vigil_ffi_callback_free(slot);
+
+    if (callback >= 0 && callback < VIGIL_FFI_MAX_CALLBACKS) {
+        slot = (int)callback;
+    } else {
+        slot = vigil_ffi_callback_slot_from_ptr((void *)(intptr_t)callback);
+    }
+
+    if (slot >= 0) {
+        was_allocated = vigil_ffi_callback_is_allocated(slot);
+        if (was_allocated) {
+            vigil_ffi_callback_free(slot);
+            cb_state_lock();
+            if (g_cb_registered_callbacks > 0) {
+                g_cb_registered_callbacks--;
+            }
+            if (g_cb_registered_callbacks == 0) {
+                g_cb_runtime_shutdown_pending = 1;
+            }
+            cb_state_unlock();
+            maybe_shutdown_callback_runtime();
+        }
+    }
     (void)error;
     return VIGIL_STATUS_OK;
 }
@@ -687,7 +807,6 @@ static vigil_status_t vigil_ffi_callback_free_fn(
 
 static const int p_str[] = { VIGIL_TYPE_STRING };
 static const int p_i64[] = { VIGIL_TYPE_I64 };
-static const int p_i32[] = { VIGIL_TYPE_I32 };
 static const int p_i64_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING };
 static const int p_i64_str_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING,
                                       VIGIL_TYPE_STRING };
@@ -710,7 +829,7 @@ static const vigil_native_module_function_t vigil_ffi_functions[] = {
     F("call_f",        6U,  vigil_ffi_call_f,           3U, p_call_f,       VIGIL_TYPE_F64),
     F("call_s",        6U,  vigil_ffi_call_s,           3U, p_call_s,       VIGIL_TYPE_STRING),
     F("callback",      8U,  vigil_ffi_callback,         2U, p_obj_str,      VIGIL_TYPE_I64),
-    FV("callback_free",13U, vigil_ffi_callback_free_fn, 1U, p_i32),
+    FV("callback_free",13U, vigil_ffi_callback_free_fn, 1U, p_i64),
 };
 
 #undef F
