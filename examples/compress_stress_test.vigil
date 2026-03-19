@@ -783,6 +783,65 @@ fn test_file_io(string workspace) -> void {
 
 // ─── Main Driver ────────────────────────────────────────────────
 
+
+// ─── Mode 11: New APIs (zip_create_level, tar_gz_create, gzip_decompress_max, gzip_info) ───
+
+fn test_new_apis() -> void {
+    section("Mode 11: New APIs");
+
+    string data = "The quick brown fox jumps over the lazy dog. ".repeat(i32(200));
+    array<string> names = ["a.txt", "b.txt"];
+    array<string> contents = [data, data];
+
+    // zip_create_level
+    string zip0 = compress.zip_create_level(names, contents, 0);
+    string zip9 = compress.zip_create_level(names, contents, 9);
+    check(zip0.len() > zip9.len(), "zip level 0 > level 9");
+    check(compress.zip_read(zip0, "a.txt") == data, "zip_create_level 0 read");
+    check(compress.zip_read(zip9, "b.txt") == data, "zip_create_level 9 read");
+    check(compress.zip_list(zip9).len() == 2, "zip_create_level list");
+
+    // tar_gz_create
+    string tgz = compress.tar_gz_create(names, contents);
+    string tar = compress.gzip_decompress(tgz);
+    check(tar.len() > 0, "tar_gz_create non-empty");
+    check(compress.tar_list(tar).len() == 2, "tar_gz_create list");
+    check(compress.tar_read(tar, "a.txt") == data, "tar_gz_create read a");
+    check(compress.tar_read(tar, "b.txt") == data, "tar_gz_create read b");
+    check(tgz.len() < tar.len(), "tar_gz smaller than tar");
+
+    // gzip_decompress_max
+    string big = "x".repeat(i32(10000));
+    string gz = compress.gzip_compress(big);
+    string limited = compress.gzip_decompress_max(gz, 100);
+    check(limited.len() <= 100, "decompress_max respects limit");
+    check(limited.len() > 0, "decompress_max non-empty");
+    string full = compress.gzip_decompress_max(gz, 20000);
+    check(full.len() == 10000, "decompress_max full recovery");
+    check(full == big, "decompress_max data integrity");
+    // Edge: limit of 0
+    string zero = compress.gzip_decompress_max(gz, 0);
+    check(zero.len() == 0, "decompress_max limit=0 empty");
+
+    // gzip_info
+    map<string, string> info = compress.gzip_info(gz);
+    check(info["method"] == "8", "gzip_info method=deflate");
+    check(info["os"] == "3", "gzip_info os=unix");
+    check(info["size"] == "10000", "gzip_info original size");
+    // Info on level 9 compressed data
+    string gz9 = compress.gzip_compress_level(big, 9);
+    map<string, string> info9 = compress.gzip_info(gz9);
+    check(info9["xfl"] == "2", "gzip_info xfl=2 for level 9");
+    // Info on level 1 compressed data
+    string gz1 = compress.gzip_compress_level(big, 1);
+    map<string, string> info1 = compress.gzip_info(gz1);
+    check(info1["xfl"] == "4", "gzip_info xfl=4 for level 1");
+    // Info on empty/invalid data
+    map<string, string> empty_info = compress.gzip_info("");
+    check(empty_info.len() == 0, "gzip_info empty input");
+
+    fmt.println("  New APIs tests complete.");
+}
 fn main() -> i32 {
     fmt.println("╔══════════════════════════════════════════════════════════╗");
     fmt.println("║  VIGIL compress Module Stress Test                      ║");
@@ -805,6 +864,7 @@ fn main() -> i32 {
     test_levels_and_checksums();
     test_error_handling();
     test_file_io(workspace);
+    test_new_apis();
 
     i64 elapsed = time.now_ms() - start;
 

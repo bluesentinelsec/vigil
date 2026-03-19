@@ -143,6 +143,35 @@ jobs:
       - name: Check core portability
         run: python3 scripts/check_core_portability.py
 
+  valgrind:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DVIGIL_BUILD_TESTS=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_FLAGS_DEBUG="-g -O0 -Wno-format-truncation"
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Run tests under valgrind
+        run: >
+          valgrind
+          --leak-check=full
+          --show-leak-kinds=definite,indirect
+          --track-origins=yes
+          --num-callers=30
+          --error-exitcode=1
+          ./build/vigil_tests
+
   sanitizers:
     runs-on: ubuntu-latest
     env:

@@ -1869,6 +1869,88 @@ TEST(VigilStdlibCryptoTest, PasswordDecryptWrongPassword) {
         "}\n"), 0);
 }
 
+/* ── Compress module ──────────────────────────────────────────────── */
+
+TEST(VigilStdlibCompressTest, RoundTrip) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    string gz = compress.gzip_compress(\"hello\");\n"
+        "    if (compress.gzip_decompress(gz) != \"hello\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(VigilStdlibCompressTest, CompressLevels) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    string g9 = compress.gzip_compress_level(\"hello\", 9);\n"
+        "    if (compress.gzip_decompress(g9) != \"hello\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(VigilStdlibCompressTest, Checksums) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    if (compress.crc32(\"Hello, World!\") != i64(3964322768)) { return 1; }\n"
+        "    if (compress.adler32(\"Hello, World!\") != i64(530449514)) { return 2; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(VigilStdlibCompressTest, ZipCreateLevel) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    array<string> n = [\"a.txt\"];\n"
+        "    array<string> c = [\"hello\"];\n"
+        "    string z = compress.zip_create_level(n, c, 9);\n"
+        "    if (compress.zip_read(z, \"a.txt\") != \"hello\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(VigilStdlibCompressTest, TarGzCreate) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    array<string> n = [\"a.txt\"];\n"
+        "    array<string> c = [\"hello\"];\n"
+        "    string tgz = compress.tar_gz_create(n, c);\n"
+        "    string tar = compress.gzip_decompress(tgz);\n"
+        "    if (compress.tar_read(tar, \"a.txt\") != \"hello\") { return 1; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(VigilStdlibCompressTest, GzipDecompressMax) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    string gz = compress.gzip_compress(\"abcdefghij\");\n"
+        "    string limited = compress.gzip_decompress_max(gz, 5);\n"
+        "    if (limited.len() > 5) { return 1; }\n"
+        "    string full = compress.gzip_decompress_max(gz, 100);\n"
+        "    if (full != \"abcdefghij\") { return 2; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
+TEST(VigilStdlibCompressTest, GzipInfo) {
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
+        "import \"compress\";\n"
+        "fn main() -> i32 {\n"
+        "    string gz = compress.gzip_compress(\"hello\");\n"
+        "    map<string, string> m = compress.gzip_info(gz);\n"
+        "    if (m[\"size\"] != \"5\") { return 1; }\n"
+        "    if (m[\"method\"] != \"8\") { return 2; }\n"
+        "    return 0;\n"
+        "}\n"), 0);
+}
+
 void register_stdlib_tests(void) {
     REGISTER_TEST(VigilStdlibFmtTest, PrintlnOutputsStringWithNewline);
     REGISTER_TEST(VigilStdlibFmtTest, PrintOutputsStringWithoutNewline);
@@ -1976,4 +2058,11 @@ void register_stdlib_tests(void) {
     REGISTER_TEST(VigilStdlibCryptoTest, RandomBytesLength);
     REGISTER_TEST(VigilStdlibCryptoTest, PasswordEncryptDecrypt);
     REGISTER_TEST(VigilStdlibCryptoTest, PasswordDecryptWrongPassword);
+    REGISTER_TEST(VigilStdlibCompressTest, RoundTrip);
+    REGISTER_TEST(VigilStdlibCompressTest, CompressLevels);
+    REGISTER_TEST(VigilStdlibCompressTest, Checksums);
+    REGISTER_TEST(VigilStdlibCompressTest, ZipCreateLevel);
+    REGISTER_TEST(VigilStdlibCompressTest, TarGzCreate);
+    REGISTER_TEST(VigilStdlibCompressTest, GzipDecompressMax);
+    REGISTER_TEST(VigilStdlibCompressTest, GzipInfo);
 }

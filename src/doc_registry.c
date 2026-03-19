@@ -865,9 +865,13 @@ static const vigil_doc_entry_t compress_docs[] = {
     {"compress.zip_list", "compress.zip_list(data: string) -> array<string>", "List files in ZIP archive.", "Returns array of filenames in the archive.", "compress.zip_list(zip_data)"},
     {"compress.zip_read", "compress.zip_read(data: string, filename: string) -> string", "Read file from ZIP archive.", "Extracts and returns contents of named file.", "compress.zip_read(zip_data, \"file.txt\")"},
     {"compress.zip_create", "compress.zip_create(names: array<string>, contents: array<string>) -> string", "Create ZIP archive.", "Creates archive from parallel arrays of names and contents.", "compress.zip_create([\"a.txt\"], [\"data\"])"},
+    {"compress.zip_create_level", "compress.zip_create_level(names: array<string>, contents: array<string>, level: i32) -> string", "Create ZIP archive at level.", "Level 0=store, 1=fast, 9=best, 10=uber.", "compress.zip_create_level([\"a.txt\"], [\"data\"], 9)"},
     {"compress.tar_list", "compress.tar_list(data: string) -> array<string>", "List files in TAR archive.", "Returns array of filenames in the archive.", "compress.tar_list(tar_data)"},
     {"compress.tar_read", "compress.tar_read(data: string, filename: string) -> string", "Read file from TAR archive.", "Extracts and returns contents of named file.", "compress.tar_read(tar_data, \"file.txt\")"},
     {"compress.tar_create", "compress.tar_create(names: array<string>, contents: array<string>) -> string", "Create TAR archive.", "Creates archive from parallel arrays of names and contents.", "compress.tar_create([\"a.txt\"], [\"data\"])"},
+    {"compress.tar_gz_create", "compress.tar_gz_create(names: array<string>, contents: array<string>) -> string", "Create TAR.GZ archive.", "Creates tar archive and gzip-compresses it.", "compress.tar_gz_create([\"a.txt\"], [\"data\"])"},
+    {"compress.gzip_decompress_max", "compress.gzip_decompress_max(data: string, max_bytes: i32) -> string", "Decompress gzip with size limit.", "Stops decompression at max_bytes. Protects against zip bombs.", "compress.gzip_decompress_max(data, 1048576)"},
+    {"compress.gzip_info", "compress.gzip_info(data: string) -> map<string, string>", "Read gzip header metadata.", "Returns map with method, xfl, os, flags, size, and optional filename/comment.", "compress.gzip_info(gz_data)"},
 };
 
 #define COMPRESS_COUNT (sizeof(compress_docs) / sizeof(compress_docs[0]))
