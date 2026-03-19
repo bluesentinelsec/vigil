@@ -1,0 +1,76 @@
+{
+  "stdlib_modules": {
+    "args": [
+      "integration_tests/test_args.py"
+    ],
+    "atomic": [
+      "integration_tests/test_atomic.py"
+    ],
+    "compress": [
+      "integration_tests/test_compress.py"
+    ],
+    "crypto": [
+      "integration_tests/test_crypto.py"
+    ],
+    "csv": [
+      "integration_tests/test_csv.py"
+    ],
+    "ffi": [
+      "tests/ffi_test.c"
+    ],
+    "fmt": [
+      "integration_tests/test_fmt.py"
+    ],
+    "fs": [
+      "tests/fs_test.c",
+      "integration_tests/test_fs.py"
+    ],
+    "http": [
+      "tests/http_test.c"
+    ],
+    "log": [
+      "integration_tests/test_log.py"
+    ],
+    "math": [
+      "integration_tests/test_math.py"
+    ],
+    "net": [
+      "integration_tests/test_net.py"
+    ],
+    "parse": [
+      "integration_tests/test_parse.py"
+    ],
+    "random": [
+      "integration_tests/test_random.py"
+    ],
+    "readline": [
+      "integration_tests/test_repl.py",
+      "tests/vigil_new_test.c"
+    ],
+    "regex": [
+      "integration_tests/test_regex.py"
+    ],
+    "regex_engine": [
+      "integration_tests/test_regex.py"
+    ],
+    "test": [
+      "integration_tests/test_test.py"
+    ],
+    "thread": [
+      "tests/thread_test.c",
+      "integration_tests/test_thread.py"
+    ],
+    "time": [
+      "integration_tests/test_time.py"
+    ],
+    "unsafe": [
+      "tests/unsafe_test.c"
+    ],
+    "url": [
+      "integration_tests/test_url.py"
+    ],
+    "yaml": [
+      "integration_tests/test_yaml.py"
+    ]
+  }
+}

@@ -70,6 +70,7 @@ tests/              Unit tests
 integration_tests/  CLI integration tests
 examples/           Example programs
 benchmarks/         Performance regression benchmark cases and thresholds
+coverage/           Coverage thresholds and test-surface manifests
 docs/               Language and project documentation
 ```
 
