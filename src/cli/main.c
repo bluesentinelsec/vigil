@@ -1347,7 +1347,7 @@ static int cmd_doc_builtin(const char *name) {
             size_t count, i;
             const vigil_doc_entry_t *entries = vigil_doc_list_module(name, &count);
             if (entries != NULL && count > 1) {
-                printf("\nFunctions:\n");
+                printf("\nSymbols:\n");
                 for (i = 1; i < count; i++) {  /* Skip module entry itself */
                     printf("  %-20s %s\n", entries[i].name, entries[i].summary);
                 }
