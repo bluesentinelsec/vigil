@@ -365,31 +365,45 @@ TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand)
     free(text);
 }
 
-TEST(VigilChunkTest, DisassembleRejectsTruncatedOperandInstructions)
+TEST(VigilChunkTest, DisassembleRejectsTruncatedCallInstructions)
 {
-    struct
-    {
-        vigil_opcode_t opcode;
-        const char *message;
-    } cases[] = {
-        {VIGIL_OPCODE_CALL, "truncated call instruction"},
-        {VIGIL_OPCODE_CALL_VALUE, "truncated indirect call instruction"},
-        {VIGIL_OPCODE_NEW_CLOSURE, "truncated closure instruction"},
-        {VIGIL_OPCODE_CALL_INTERFACE, "truncated interface call instruction"},
-        {VIGIL_OPCODE_NEW_INSTANCE, "truncated constructor instruction"},
-        {VIGIL_OPCODE_NEW_ARRAY, "truncated collection instruction"},
-        {VIGIL_OPCODE_GET_LOCAL, "truncated constant instruction"},
-    };
-    size_t i;
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated call instruction");
+    free(message);
 
-    for (i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
-    {
-        char *message = BuildDisassembleFailureMessage(cases[i].opcode);
+    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_VALUE);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated indirect call instruction");
+    free(message);
 
-        ASSERT_NE(message, NULL);
-        EXPECT_STREQ(message, cases[i].message);
-        free(message);
-    }
+    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_CLOSURE);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated closure instruction");
+    free(message);
+
+    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_INTERFACE);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated interface call instruction");
+    free(message);
+}
+
+TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorAndCollectionInstructions)
+{
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_INSTANCE);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated constructor instruction");
+    free(message);
+
+    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_ARRAY);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated collection instruction");
+    free(message);
+
+    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_GET_LOCAL);
+    ASSERT_NE(message, NULL);
+    EXPECT_STREQ(message, "truncated constant instruction");
+    free(message);
 }
 
 TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode)
@@ -479,7 +493,8 @@ void register_chunk_tests(void)
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOperandInstructions);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand);
-    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedOperandInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedCallInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorAndCollectionInstructions);
     REGISTER_TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode);
     REGISTER_TEST(VigilChunkTest, UsesRuntimeAllocatorHooks);
     REGISTER_TEST(VigilChunkTest, RejectsMissingRuntimeForMutation);
