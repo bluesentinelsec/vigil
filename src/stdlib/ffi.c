@@ -537,7 +537,7 @@ VIGIL_API vigil_status_t vigil_extern_call(
 #ifdef VIGIL_HAS_LIBFFI
     {
         size_t base = vigil_vm_stack_depth(vm) - arg_count;
-        int64_t args_s[16];
+        int64_t args_s[16] = {0};
         int64_t *args = arg_count <= 16 ? args_s :
             malloc(arg_count * sizeof(*args));
         if (!args) {
