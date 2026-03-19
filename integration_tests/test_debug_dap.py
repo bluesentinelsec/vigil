@@ -215,6 +215,20 @@ class TestVigilDebug(unittest.TestCase):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_interactive_debug_quit(self):
+        """Interactive debug mode should start and honor the quit command."""
+        if sys.platform == "win32":
+            self.skipTest("interactive debug stdin piping is unreliable on Windows CI")
+        self.tmpdir = tempfile.mkdtemp(prefix="vigil_debug_interactive_")
+        script_path = Path(self.tmpdir) / "test.vigil"
+        script_path.write_text("fn main() -> i32 {\n    return 0;\n}\n")
+
+        cmd = [*resolve_vigil_command(), "debug", "--interactive", str(script_path)]
+        result = subprocess.run(cmd, input="quit\n", capture_output=True, text=True, timeout=10)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("VIGIL Interactive Debugger", result.stdout)
+
     def test_help_shows_debug(self):
         """vigil --help should list the debug command."""
         cmd = [*resolve_vigil_command()]
