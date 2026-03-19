@@ -106,7 +106,9 @@ TEST(DocRegistryTest, CoversAllStdlibModulesAndFunctions) {
         const vigil_doc_entry_t *module_entry = NULL;
         const vigil_doc_entry_t *module_entries = NULL;
         size_t entry_count = 0U;
+        size_t expected_min_entries = 1U + module->function_count;
         size_t function_index;
+        size_t class_index;
 
         ASSERT_NE(module, NULL);
         EXPECT_TRUE(module_name_in_list(module->name, listed_modules, module_count));
@@ -117,7 +119,6 @@ TEST(DocRegistryTest, CoversAllStdlibModulesAndFunctions) {
 
         module_entries = vigil_doc_list_module(module->name, &entry_count);
         ASSERT_NE(module_entries, NULL);
-        EXPECT_GE(entry_count, module->function_count + 1U);
 
         for (function_index = 0U; function_index < module->function_count; function_index += 1U) {
             const vigil_native_module_function_t *function = &module->functions[function_index];
@@ -141,6 +142,79 @@ TEST(DocRegistryTest, CoversAllStdlibModulesAndFunctions) {
             ASSERT_NE(entry->signature, NULL);
             ASSERT_NE(entry->summary, NULL);
         }
+
+        for (class_index = 0U; class_index < module->class_count; class_index += 1U) {
+            const vigil_native_class_t *klass = &module->classes[class_index];
+            const vigil_doc_entry_t *class_entry = NULL;
+            char class_name[160];
+            int written;
+            size_t field_index;
+            size_t method_index;
+
+            expected_min_entries += 1U + klass->field_count + klass->method_count;
+
+            written = snprintf(
+                class_name,
+                sizeof(class_name),
+                "%s.%s",
+                module->name,
+                klass->name
+            );
+            ASSERT_TRUE(written > 0);
+            ASSERT_TRUE((size_t)written < sizeof(class_name));
+
+            class_entry = vigil_doc_lookup(class_name);
+            ASSERT_NE(class_entry, NULL);
+            EXPECT_STREQ(class_entry->name, class_name);
+            ASSERT_NE(class_entry->signature, NULL);
+            ASSERT_NE(class_entry->summary, NULL);
+
+            for (field_index = 0U; field_index < klass->field_count; field_index += 1U) {
+                const vigil_native_class_field_t *field = &klass->fields[field_index];
+                const vigil_doc_entry_t *field_entry = NULL;
+                char field_name[192];
+
+                written = snprintf(
+                    field_name,
+                    sizeof(field_name),
+                    "%s.%s",
+                    class_name,
+                    field->name
+                );
+                ASSERT_TRUE(written > 0);
+                ASSERT_TRUE((size_t)written < sizeof(field_name));
+
+                field_entry = vigil_doc_lookup(field_name);
+                ASSERT_NE(field_entry, NULL);
+                EXPECT_STREQ(field_entry->name, field_name);
+                ASSERT_NE(field_entry->signature, NULL);
+                ASSERT_NE(field_entry->summary, NULL);
+            }
+
+            for (method_index = 0U; method_index < klass->method_count; method_index += 1U) {
+                const vigil_native_class_method_t *method = &klass->methods[method_index];
+                const vigil_doc_entry_t *method_entry = NULL;
+                char method_name[192];
+
+                written = snprintf(
+                    method_name,
+                    sizeof(method_name),
+                    "%s.%s",
+                    class_name,
+                    method->name
+                );
+                ASSERT_TRUE(written > 0);
+                ASSERT_TRUE((size_t)written < sizeof(method_name));
+
+                method_entry = vigil_doc_lookup(method_name);
+                ASSERT_NE(method_entry, NULL);
+                EXPECT_STREQ(method_entry->name, method_name);
+                ASSERT_NE(method_entry->signature, NULL);
+                ASSERT_NE(method_entry->summary, NULL);
+            }
+        }
+
+        EXPECT_GE(entry_count, expected_min_entries);
     }
 }
 

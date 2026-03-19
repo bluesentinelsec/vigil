@@ -63,6 +63,16 @@ STDLIB_SYMBOLS = [
     "thread.rwlock_destroy",
     "math.pi",
     "math.remap",
+    "math.Vec2",
+    "math.Vec2.x",
+    "math.Vec2.length",
+    "math.Quaternion.toMat4",
+    "math.Mat4.identity",
+    "args.Parser",
+    "args.Parser.new",
+    "args.Parser.get_bool",
+    "test.T",
+    "test.T.assert",
     "unsafe.get_f32",
     "unsafe.alignof",
     "unsafe.cb_alloc",
@@ -156,6 +166,20 @@ class TestVigilDoc(unittest.TestCase):
                 result = self._run_doc(symbol)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(symbol, result.stdout)
+
+    def test_modules_with_native_classes_list_class_symbols(self):
+        """Module views should include documented native classes and their members."""
+        expectations = {
+            "args": ["Symbols:", "args.Parser", "args.Parser.new"],
+            "math": ["Symbols:", "math.Vec2", "math.Vec2.length", "math.Mat4.identity"],
+            "test": ["Symbols:", "test.T", "test.T.assert"],
+        }
+        for module, snippets in expectations.items():
+            with self.subTest(module=module):
+                result = self._run_doc(module)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for snippet in snippets:
+                    self.assertIn(snippet, result.stdout)
 
 
 if __name__ == "__main__":
