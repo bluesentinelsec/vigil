@@ -65,6 +65,146 @@ static vigil_status_t AppendOpcodeU32(vigil_chunk_t *chunk, vigil_opcode_t opcod
     return vigil_chunk_write_u32(chunk, operand, Span(1U, 0U, 0U), error);
 }
 
+static char *DuplicateString(const char *text)
+{
+    size_t length;
+    char *copy;
+
+    if (text == NULL)
+    {
+        return NULL;
+    }
+
+    length = strlen(text);
+    copy = (char *)malloc(length + 1U);
+    if (copy == NULL)
+    {
+        return NULL;
+    }
+
+    memcpy(copy, text, length + 1U);
+    return copy;
+}
+
+static char *BuildOperandDisassemblyOutput(void)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_chunk_t chunk;
+    vigil_string_t output;
+    char *result = NULL;
+
+    if (vigil_runtime_open(&runtime, NULL, &error) != VIGIL_STATUS_OK)
+    {
+        return NULL;
+    }
+    vigil_chunk_init(&chunk, runtime);
+    vigil_string_init(&output, runtime);
+
+    if (AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL, 7U, &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL_VALUE, 9U, &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_CLOSURE, 5U, &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_write_u32(&chunk, 3U, Span(1U, 0U, 0U), &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL_INTERFACE, 1U, &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_write_u32(&chunk, 4U, Span(1U, 0U, 0U), &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_INSTANCE, 6U, &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_write_u32(&chunk, 1U, Span(1U, 0U, 0U), &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_ARRAY, 8U, &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_GET_LOCAL, 11U, &error) != VIGIL_STATUS_OK ||
+        AppendOpcodeU32(&chunk, VIGIL_OPCODE_RETURN, 1U, &error) != VIGIL_STATUS_OK ||
+        vigil_chunk_disassemble(&chunk, &output, &error) != VIGIL_STATUS_OK)
+    {
+        result = NULL;
+    }
+    else
+    {
+        result = DuplicateString(vigil_string_c_str(&output));
+    }
+
+    vigil_string_free(&output);
+    vigil_chunk_free(&chunk);
+    vigil_runtime_close(&runtime);
+    return result;
+}
+
+static char *BuildBareReturnDisassemblyOutput(void)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_chunk_t chunk;
+    vigil_string_t output;
+    char *result = NULL;
+
+    if (vigil_runtime_open(&runtime, NULL, &error) != VIGIL_STATUS_OK)
+    {
+        return NULL;
+    }
+    vigil_chunk_init(&chunk, runtime);
+    vigil_string_init(&output, runtime);
+
+    if (AppendOpcode(&chunk, VIGIL_OPCODE_RETURN, &error) == VIGIL_STATUS_OK &&
+        vigil_chunk_disassemble(&chunk, &output, &error) == VIGIL_STATUS_OK)
+    {
+        result = DuplicateString(vigil_string_c_str(&output));
+    }
+
+    vigil_string_free(&output);
+    vigil_chunk_free(&chunk);
+    vigil_runtime_close(&runtime);
+    return result;
+}
+
+static char *BuildDisassembleFailureMessage(vigil_opcode_t opcode)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_chunk_t chunk;
+    vigil_string_t output;
+    char *result = NULL;
+
+    if (vigil_runtime_open(&runtime, NULL, &error) != VIGIL_STATUS_OK)
+    {
+        return NULL;
+    }
+    vigil_chunk_init(&chunk, runtime);
+    vigil_string_init(&output, runtime);
+
+    if (AppendOpcode(&chunk, opcode, &error) == VIGIL_STATUS_OK &&
+        vigil_chunk_disassemble(&chunk, &output, &error) == VIGIL_STATUS_INTERNAL)
+    {
+        result = DuplicateString(error.value);
+    }
+
+    vigil_error_clear(&error);
+    vigil_string_free(&output);
+    vigil_chunk_free(&chunk);
+    vigil_runtime_close(&runtime);
+    return result;
+}
+
+static const char *FindMissingSubstring(const char *text, const char *const *expected, size_t count)
+{
+    size_t index;
+
+    if (text == NULL)
+    {
+        return "<null>";
+    }
+
+    for (index = 0U; index < count; ++index)
+    {
+        if (strstr(text, expected[index]) == NULL)
+        {
+            return expected[index];
+        }
+    }
+
+    return NULL;
+}
+
 TEST(VigilChunkTest, InitStartsEmpty)
 {
     vigil_chunk_t chunk;
@@ -202,67 +342,27 @@ TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants)
 
 TEST(VigilChunkTest, DisassembleFormatsOperandInstructions)
 {
-    vigil_runtime_t *runtime = NULL;
-    vigil_error_t error = {0};
-    vigil_chunk_t chunk;
-    vigil_string_t output;
+    static const char *const expected[] = {
+        "CALL 7 2",         "CALL_VALUE 9",  "NEW_CLOSURE 5 3", "CALL_INTERFACE 1 2 4",
+        "NEW_INSTANCE 6 1", "NEW_ARRAY 8 2", "GET_LOCAL 11",    "RETURN 1",
+    };
     const char *text;
+    const char *missing;
 
-    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-    vigil_chunk_init(&chunk, runtime);
-    vigil_string_init(&output, runtime);
-
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL, 7U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL_VALUE, 9U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_CLOSURE, 5U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 3U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL_INTERFACE, 1U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 4U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_INSTANCE, 6U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 1U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_ARRAY, 8U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_GET_LOCAL, 11U, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_RETURN, 1U, &error), VIGIL_STATUS_OK);
-
-    ASSERT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_OK);
-    text = vigil_string_c_str(&output);
+    text = BuildOperandDisassemblyOutput();
     ASSERT_NE(text, NULL);
-    EXPECT_NE(strstr(text, "CALL 7 2"), NULL);
-    EXPECT_NE(strstr(text, "CALL_VALUE 9"), NULL);
-    EXPECT_NE(strstr(text, "NEW_CLOSURE 5 3"), NULL);
-    EXPECT_NE(strstr(text, "CALL_INTERFACE 1 2 4"), NULL);
-    EXPECT_NE(strstr(text, "NEW_INSTANCE 6 1"), NULL);
-    EXPECT_NE(strstr(text, "NEW_ARRAY 8 2"), NULL);
-    EXPECT_NE(strstr(text, "GET_LOCAL 11"), NULL);
-    EXPECT_NE(strstr(text, "RETURN 1"), NULL);
-
-    vigil_string_free(&output);
-    vigil_chunk_free(&chunk);
-    vigil_runtime_close(&runtime);
+    missing = FindMissingSubstring(text, expected, sizeof(expected) / sizeof(expected[0]));
+    EXPECT_EQ(missing, NULL);
+    free((void *)text);
 }
 
 TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand)
 {
-    vigil_runtime_t *runtime = NULL;
-    vigil_error_t error = {0};
-    vigil_chunk_t chunk;
-    vigil_string_t output;
+    char *text = BuildBareReturnDisassemblyOutput();
 
-    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-    vigil_chunk_init(&chunk, runtime);
-    vigil_string_init(&output, runtime);
-
-    ASSERT_EQ(AppendOpcode(&chunk, VIGIL_OPCODE_RETURN, &error), VIGIL_STATUS_OK);
-
-    ASSERT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_OK);
-    EXPECT_STREQ(vigil_string_c_str(&output), "0000 RETURN\n");
-
-    vigil_string_free(&output);
-    vigil_chunk_free(&chunk);
-    vigil_runtime_close(&runtime);
+    ASSERT_NE(text, NULL);
+    EXPECT_STREQ(text, "0000 RETURN\n");
+    free(text);
 }
 
 TEST(VigilChunkTest, DisassembleRejectsTruncatedOperandInstructions)
@@ -284,25 +384,11 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedOperandInstructions)
 
     for (i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
     {
-        vigil_runtime_t *runtime = NULL;
-        vigil_error_t error = {0};
-        vigil_chunk_t chunk;
-        vigil_string_t output;
+        char *message = BuildDisassembleFailureMessage(cases[i].opcode);
 
-        ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-        vigil_chunk_init(&chunk, runtime);
-        vigil_string_init(&output, runtime);
-
-        ASSERT_EQ(AppendOpcode(&chunk, cases[i].opcode, &error), VIGIL_STATUS_OK);
-        EXPECT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_INTERNAL);
-        EXPECT_EQ(error.type, VIGIL_STATUS_INTERNAL);
-        ASSERT_NE(error.value, NULL);
-        EXPECT_STREQ(error.value, cases[i].message);
-
-        vigil_error_clear(&error);
-        vigil_string_free(&output);
-        vigil_chunk_free(&chunk);
-        vigil_runtime_close(&runtime);
+        ASSERT_NE(message, NULL);
+        EXPECT_STREQ(message, cases[i].message);
+        free(message);
     }
 }
 
