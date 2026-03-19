@@ -7920,21 +7920,25 @@ static vigil_status_t vigil_parser_parse_native_call(
             );
         }
     } else {
-        /* Multi-return: build return_types array on the stack. */
-        vigil_parser_type_t ret_types[2];
-        size_t rc;
-
-        rc = fn->return_count > 2U ? 2U : fn->return_count;
-        for (i = 0U; i < rc; i++) {
-            ret_types[i] = vigil_binding_type_primitive(
-                (vigil_type_kind_t)fn->return_types[i]);
+        /* Multi-return: use owned_types storage in the result. */
+        if (fn->return_types == NULL) {
+            return vigil_parser_report(state, member_token->span,
+                "native function declares multiple returns but has no return type list");
         }
-        vigil_expression_result_set_return_types(
-            out_result,
-            ret_types[0],
-            ret_types,
-            rc
-        );
+        if (fn->return_count == 2U) {
+            vigil_expression_result_set_pair(
+                out_result,
+                vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
+                vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1])
+            );
+        } else if (fn->return_count >= 3U) {
+            vigil_expression_result_set_triple(
+                out_result,
+                vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
+                vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]),
+                vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[2])
+            );
+        }
     }
     return VIGIL_STATUS_OK;
 }
@@ -7966,7 +7970,6 @@ static void vigil_parser_set_native_method_return_type(
     size_t class_index,
     vigil_expression_result_t *out_result
 ) {
-    size_t i;
     if (method->return_count <= 1U) {
         if (method->return_type == VIGIL_TYPE_OBJECT &&
             method->return_element_type != 0) {
@@ -7989,14 +7992,24 @@ static void vigil_parser_set_native_method_return_type(
                 vigil_binding_type_primitive((vigil_type_kind_t)method->return_type));
         }
     } else {
-        vigil_parser_type_t ret_types[2];
-        size_t rc = method->return_count > 2U ? 2U : method->return_count;
-        for (i = 0U; i < rc; i++) {
-            ret_types[i] = vigil_binding_type_primitive(
-                (vigil_type_kind_t)method->return_types[i]);
+        if (method->return_types == NULL) {
+            vigil_expression_result_set_type(
+                out_result,
+                vigil_binding_type_primitive((vigil_type_kind_t)method->return_type));
+        } else if (method->return_count == 2U) {
+            vigil_expression_result_set_pair(
+                out_result,
+                vigil_binding_type_primitive((vigil_type_kind_t)method->return_types[0]),
+                vigil_binding_type_primitive((vigil_type_kind_t)method->return_types[1])
+            );
+        } else if (method->return_count >= 3U) {
+            vigil_expression_result_set_triple(
+                out_result,
+                vigil_binding_type_primitive((vigil_type_kind_t)method->return_types[0]),
+                vigil_binding_type_primitive((vigil_type_kind_t)method->return_types[1]),
+                vigil_binding_type_primitive((vigil_type_kind_t)method->return_types[2])
+            );
         }
-        vigil_expression_result_set_return_types(
-            out_result, ret_types[0], ret_types, rc);
     }
 }
 
