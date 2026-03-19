@@ -29,6 +29,7 @@ typedef struct vigil_binding_type
 } vigil_binding_type_t;
 
 #define VIGIL_BINDING_INVALID_CLASS_INDEX ((size_t)-1)
+
 typedef struct vigil_binding_function_param
 {
     const char *name;

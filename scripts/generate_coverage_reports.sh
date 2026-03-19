@@ -17,6 +17,7 @@ common_args="
   --root $repo_root
   --object-directory $build_dir
   --filter $repo_root/src/
+  --gcov-ignore-parse-errors negative_hits.warn_once_per_file
 "
 
 python3 -m gcovr $common_args \
