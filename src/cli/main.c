@@ -2149,13 +2149,67 @@ static char *build_test_wrapper_source(const char *original_source, size_t origi
     return combined;
 }
 
+typedef struct
+{
+    vigil_runtime_t *runtime;
+    vigil_source_registry_t *registry;
+    vigil_source_id_t source_id;
+    const char *test_file_path;
+    const vigil_source_file_t **source;
+    vigil_error_t *error;
+} test_import_context_t;
+
+static void register_test_import_path(const test_import_context_t *context, const char *import_text, size_t import_len)
+{
+    vigil_string_t import_path;
+    char project_root[4096];
+    const char *root =
+        find_project_root(context->test_file_path, project_root, sizeof(project_root)) ? project_root : NULL;
+
+    vigil_string_init(&import_path, context->runtime);
+    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path), import_text + 1U,
+                            import_len - 2U, &import_path, context->error) == VIGIL_STATUS_OK)
+    {
+        (void)register_source_tree(context->registry, vigil_string_c_str(&import_path), root, NULL, context->error);
+        *context->source = vigil_source_registry_get(context->registry, context->source_id);
+    }
+    vigil_string_free(&import_path);
+}
+
+static void register_test_import_token(const test_import_context_t *context, const vigil_token_list_t *tokens,
+                                       size_t cursor)
+{
+    const vigil_token_t *path_tok = vigil_token_list_get(tokens, cursor + 1U);
+    size_t import_len;
+    const char *import_text;
+
+    if (path_tok == NULL)
+        return;
+    if (path_tok->kind != VIGIL_TOKEN_STRING_LITERAL && path_tok->kind != VIGIL_TOKEN_RAW_STRING_LITERAL)
+        return;
+
+    import_text = source_token_text(*context->source, path_tok, &import_len);
+    if (import_text == NULL || import_len < 2U || vigil_stdlib_is_known_module(import_text + 1U, import_len - 2U))
+        return;
+
+    register_test_import_path(context, import_text, import_len);
+}
+
 static void register_test_imports(vigil_runtime_t *runtime, vigil_source_registry_t *registry,
                                   vigil_source_id_t source_id, const char *test_file_path, vigil_error_t *error)
 {
     const vigil_source_file_t *source = vigil_source_registry_get(registry, source_id);
+    test_import_context_t context;
     vigil_token_list_t tokens;
     size_t cursor = 0U;
     size_t brace_depth = 0U;
+
+    context.runtime = runtime;
+    context.registry = registry;
+    context.source_id = source_id;
+    context.test_file_path = test_file_path;
+    context.source = &source;
+    context.error = error;
 
     vigil_token_list_init(&tokens, runtime);
     if (vigil_lex_source(registry, source_id, &tokens, NULL, error) == VIGIL_STATUS_OK)
@@ -2180,30 +2234,7 @@ static void register_test_imports(vigil_runtime_t *runtime, vigil_source_registr
             }
             if (brace_depth == 0U && tok->kind == VIGIL_TOKEN_IMPORT)
             {
-                const vigil_token_t *path_tok = vigil_token_list_get(&tokens, cursor + 1U);
-                if (path_tok != NULL &&
-                    (path_tok->kind == VIGIL_TOKEN_STRING_LITERAL || path_tok->kind == VIGIL_TOKEN_RAW_STRING_LITERAL))
-                {
-                    size_t import_len;
-                    const char *import_text = source_token_text(source, path_tok, &import_len);
-                    if (import_text != NULL && import_len >= 2U &&
-                        !vigil_stdlib_is_known_module(import_text + 1U, import_len - 2U))
-                    {
-                        vigil_string_t import_path;
-                        char project_root[4096];
-                        const char *root =
-                            find_project_root(test_file_path, project_root, sizeof(project_root)) ? project_root : NULL;
-
-                        vigil_string_init(&import_path, runtime);
-                        if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1U,
-                                                import_len - 2U, &import_path, error) == VIGIL_STATUS_OK)
-                        {
-                            (void)register_source_tree(registry, vigil_string_c_str(&import_path), root, NULL, error);
-                            source = vigil_source_registry_get(registry, source_id);
-                        }
-                        vigil_string_free(&import_path);
-                    }
-                }
+                register_test_import_token(&context, &tokens, cursor);
             }
             cursor += 1U;
         }
