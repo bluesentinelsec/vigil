@@ -376,7 +376,6 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedCallInstructions)
 TEST(VigilChunkTest, DisassembleRejectsTruncatedCallValueInstructions)
 {
     char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_VALUE);
-    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_VALUE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated indirect call instruction");
     free(message);
@@ -385,7 +384,6 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedCallValueInstructions)
 TEST(VigilChunkTest, DisassembleRejectsTruncatedClosureInstructions)
 {
     char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_CLOSURE);
-    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_CLOSURE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated closure instruction");
     free(message);
@@ -394,7 +392,6 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedClosureInstructions)
 TEST(VigilChunkTest, DisassembleRejectsTruncatedInterfaceCallInstructions)
 {
     char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_INTERFACE);
-    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_INTERFACE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated interface call instruction");
     free(message);
@@ -411,7 +408,6 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorInstructions)
 TEST(VigilChunkTest, DisassembleRejectsTruncatedCollectionInstructions)
 {
     char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_ARRAY);
-    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_ARRAY);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated collection instruction");
     free(message);
@@ -420,7 +416,6 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedCollectionInstructions)
 TEST(VigilChunkTest, DisassembleRejectsTruncatedU32OperandInstructions)
 {
     char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_GET_LOCAL);
-    message = BuildDisassembleFailureMessage(VIGIL_OPCODE_GET_LOCAL);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated constant instruction");
     free(message);

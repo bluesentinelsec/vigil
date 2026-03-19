@@ -2141,8 +2141,6 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     vigil_status_t status;
     int exit_code = 0;
     char wrapper[512];
-    size_t wrapper_len, total_len;
-    char *combined;
 
     snprintf(wrapper, sizeof(wrapper),
              "\nfn main() -> i32 {\n"
@@ -2152,10 +2150,10 @@ static int run_one_test(const char *test_file_path, const char *original_source,
              "}\n",
              test_name);
 
-    wrapper_len = strlen(wrapper);
-    total_len = original_length + wrapper_len;
-    combined = (char *)malloc(total_len + 1U);
-    if (combined == NULL)
+    size_t wrapper_len = strlen(wrapper);
+    size_t total_len = original_length + wrapper_len;
+    char *combined = malloc(total_len + 1);
+    if (!combined)
     {
         snprintf(err_msg, err_msg_size, "out of memory");
         return 1;
@@ -2193,8 +2191,7 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     {
         const vigil_source_file_t *source = vigil_source_registry_get(&registry, source_id);
         vigil_token_list_t tokens;
-        size_t cursor = 0U;
-        size_t brace_depth = 0U;
+        size_t cursor = 0, brace_depth = 0;
 
         vigil_token_list_init(&tokens, runtime);
         vigil_diagnostic_list_init(&diagnostics, runtime);
@@ -2203,7 +2200,7 @@ static int run_one_test(const char *test_file_path, const char *original_source,
             while (1)
             {
                 const vigil_token_t *tok = vigil_token_list_get(&tokens, cursor);
-                if (tok == NULL || tok->kind == VIGIL_TOKEN_EOF)
+                if (!tok || tok->kind == VIGIL_TOKEN_EOF)
                     break;
                 if (tok->kind == VIGIL_TOKEN_LBRACE)
                 {
@@ -2218,21 +2215,21 @@ static int run_one_test(const char *test_file_path, const char *original_source,
                     cursor++;
                     continue;
                 }
-                if (brace_depth == 0U && tok->kind == VIGIL_TOKEN_IMPORT)
+                if (brace_depth == 0 && tok->kind == VIGIL_TOKEN_IMPORT)
                 {
-                    const vigil_token_t *path_tok = vigil_token_list_get(&tokens, cursor + 1U);
-                    if (path_tok != NULL && (path_tok->kind == VIGIL_TOKEN_STRING_LITERAL ||
-                                             path_tok->kind == VIGIL_TOKEN_RAW_STRING_LITERAL))
+                    const vigil_token_t *path_tok = vigil_token_list_get(&tokens, cursor + 1);
+                    if (path_tok && (path_tok->kind == VIGIL_TOKEN_STRING_LITERAL ||
+                                     path_tok->kind == VIGIL_TOKEN_RAW_STRING_LITERAL))
                     {
                         size_t import_len;
                         const char *import_text = source_token_text(source, path_tok, &import_len);
-                        if (import_text != NULL && import_len >= 2U &&
-                            !vigil_stdlib_is_known_module(import_text + 1U, import_len - 2U))
+                        if (import_text && import_len >= 2 &&
+                            !vigil_stdlib_is_known_module(import_text + 1, import_len - 2))
                         {
                             vigil_string_t import_path;
                             vigil_string_init(&import_path, runtime);
-                            if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1U,
-                                                    import_len - 2U, &import_path, &error) == VIGIL_STATUS_OK)
+                            if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1,
+                                                    import_len - 2, &import_path, &error) == VIGIL_STATUS_OK)
                             {
                                 char pr[4096];
                                 const char *root = find_project_root(test_file_path, pr, sizeof(pr)) ? pr : NULL;

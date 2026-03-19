@@ -139,6 +139,46 @@ class TestVigilPackage(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("--inspect requires a binary path", result.stderr)
 
+    def test_package_default_output_path(self):
+        if sys.platform == "win32":
+            self.skipTest("Packaged binary execution unreliable on Windows CI")
+        """vigil package without -o should derive output name from the script path."""
+        script = Path(self.tmpdir) / "default_name.vigil"
+        script.write_text('fn main() -> i32 { return 0; }\n')
+        result = subprocess.run(
+            [*resolve_vigil_command(), "package", str(script)],
+            capture_output=True, text=True, timeout=10, cwd=self.tmpdir
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertTrue((Path(self.tmpdir) / "default_name").exists())
+
+    def test_package_collects_imported_sources(self):
+        """Packaged binary should include imported non-entry source files."""
+        script = Path(self.tmpdir) / "main.vigil"
+        helper = Path(self.tmpdir) / "helper.vigil"
+        out_bin = Path(self.tmpdir) / "with_imports"
+
+        helper.write_text('pub fn value() -> i32 { return 7; }\n')
+        script.write_text(
+            'import "helper";\n'
+            'fn main() -> i32 {\n'
+            '    return helper.value();\n'
+            '}\n'
+        )
+
+        result = subprocess.run(
+            [*resolve_vigil_command(), "package", str(script), "-o", str(out_bin)],
+            capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        result = subprocess.run(
+            [*resolve_vigil_command(), "package", "--inspect", str(out_bin)],
+            capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("helper.vigil", result.stdout)
+
     def test_package_encrypted(self):
         if sys.platform == "win32":
             self.skipTest("Packaged binary execution unreliable on Windows CI")
