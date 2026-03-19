@@ -130,6 +130,27 @@ HTTP_STATIC void response_free(http_response_t *r) {
 
 /* ── Socket-based HTTP/1.1 fallback (no TLS) ─────────────────────── */
 
+#define HTTP_MAX_REQUEST_SIZE 4096U
+#define HTTP_MAX_HEADER_BYTES (64U * 1024U)
+#define HTTP_MAX_BODY_BYTES (8U * 1024U * 1024U)
+
+static int tcp_send_all(vigil_socket_t sock, const void *data, size_t len) {
+    const char *cursor = (const char *)data;
+    size_t sent_total = 0;
+
+    while (sent_total < len) {
+        size_t sent_now = 0;
+        vigil_status_t st = vigil_platform_tcp_send(
+            sock, cursor + sent_total, len - sent_total, &sent_now, NULL);
+        if (st != VIGIL_STATUS_OK || sent_now == 0) {
+            return -1;
+        }
+        sent_total += sent_now;
+    }
+
+    return 0;
+}
+
 HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
                           const char *headers, const char *body, size_t body_len,
                           http_response_t *resp) {
@@ -140,7 +161,7 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
     if (vigil_platform_tcp_connect(url->host, url->port, &sock, NULL) != VIGIL_STATUS_OK)
         return -1;
 
-    char req_buf[4096];
+    char req_buf[HTTP_MAX_REQUEST_SIZE];
     int req_len = snprintf(req_buf, sizeof(req_buf),
         "%s %s HTTP/1.1\r\n"
         "Host: %s\r\n"
@@ -152,9 +173,19 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
         headers ? headers : "",
         body_len);
 
-    vigil_platform_tcp_send(sock, req_buf, (size_t)req_len, NULL, NULL);
-    if (body && body_len > 0)
-        vigil_platform_tcp_send(sock, body, body_len, NULL, NULL);
+    if (req_len < 0 || (size_t)req_len >= sizeof(req_buf)) {
+        vigil_platform_tcp_close(sock, NULL);
+        return -1;
+    }
+
+    if (tcp_send_all(sock, req_buf, (size_t)req_len) != 0) {
+        vigil_platform_tcp_close(sock, NULL);
+        return -1;
+    }
+    if (body && body_len > 0 && tcp_send_all(sock, body, body_len) != 0) {
+        vigil_platform_tcp_close(sock, NULL);
+        return -1;
+    }
 
     size_t cap = 8192, len = 0;
     char *buf = (char *)malloc(cap);
@@ -185,12 +216,24 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url,
 
     size_t hdr_len = (size_t)(header_end - buf);
     resp->headers = (char *)malloc(hdr_len + 1);
-    if (resp->headers) { memcpy(resp->headers, buf, hdr_len); resp->headers[hdr_len] = '\0'; }
+    if (!resp->headers) {
+        free(buf);
+        return -1;
+    }
+    memcpy(resp->headers, buf, hdr_len);
+    resp->headers[hdr_len] = '\0';
 
     char *body_start = header_end + 4;
     resp->body_len = len - (size_t)(body_start - buf);
     resp->body = (char *)malloc(resp->body_len + 1);
-    if (resp->body) { memcpy(resp->body, body_start, resp->body_len); resp->body[resp->body_len] = '\0'; }
+    if (!resp->body) {
+        free(resp->headers);
+        resp->headers = NULL;
+        free(buf);
+        return -1;
+    }
+    memcpy(resp->body, body_start, resp->body_len);
+    resp->body[resp->body_len] = '\0';
 
     free(buf);
     return 0;
@@ -384,6 +427,12 @@ static http_conn_t *get_client(int64_t h) {
 static int parse_incoming_request(http_conn_t *conn) {
     size_t cap = 8192, len = 0;
     char *buf = (char *)malloc(cap);
+    char *method = NULL;
+    char *path = NULL;
+    char *headers = NULL;
+    char *body = NULL;
+    size_t body_len = 0;
+    size_t content_length = 0;
     if (!buf) return -1;
 
     for (;;) {
@@ -394,65 +443,96 @@ static int parse_incoming_request(http_conn_t *conn) {
         buf[len] = '\0';
         if (strstr(buf, "\r\n\r\n")) break;
         if (len + 1 >= cap) {
-            cap *= 2;
+            size_t new_cap;
+            if (cap >= HTTP_MAX_HEADER_BYTES) goto fail;
+            new_cap = cap * 2;
+            if (new_cap > HTTP_MAX_HEADER_BYTES) {
+                new_cap = HTTP_MAX_HEADER_BYTES;
+            }
+            cap = new_cap;
             char *nb = (char *)realloc(buf, cap);
-            if (!nb) { free(buf); return -1; }
+            if (!nb) goto fail;
             buf = nb;
         }
     }
 
     char *line_end = strstr(buf, "\r\n");
-    if (!line_end) { free(buf); return -1; }
+    if (!line_end) goto fail;
 
     char *sp1 = strchr(buf, ' ');
-    if (!sp1 || sp1 > line_end) { free(buf); return -1; }
-    conn->method = (char *)malloc((size_t)(sp1 - buf) + 1);
-    memcpy(conn->method, buf, (size_t)(sp1 - buf));
-    conn->method[sp1 - buf] = '\0';
+    if (!sp1 || sp1 > line_end) goto fail;
+    method = (char *)malloc((size_t)(sp1 - buf) + 1);
+    if (!method) goto fail;
+    memcpy(method, buf, (size_t)(sp1 - buf));
+    method[sp1 - buf] = '\0';
 
     char *path_start = sp1 + 1;
     char *sp2 = strchr(path_start, ' ');
-    if (!sp2 || sp2 > line_end) { free(buf); return -1; }
-    conn->path = (char *)malloc((size_t)(sp2 - path_start) + 1);
-    memcpy(conn->path, path_start, (size_t)(sp2 - path_start));
-    conn->path[sp2 - path_start] = '\0';
+    if (!sp2 || sp2 > line_end) goto fail;
+    path = (char *)malloc((size_t)(sp2 - path_start) + 1);
+    if (!path) goto fail;
+    memcpy(path, path_start, (size_t)(sp2 - path_start));
+    path[sp2 - path_start] = '\0';
 
     char *hdr_start = line_end + 2;
     char *hdr_end = strstr(buf, "\r\n\r\n");
     size_t hdr_len = (size_t)(hdr_end - hdr_start);
-    conn->headers = (char *)malloc(hdr_len + 1);
-    memcpy(conn->headers, hdr_start, hdr_len);
-    conn->headers[hdr_len] = '\0';
+    headers = (char *)malloc(hdr_len + 1);
+    if (!headers) goto fail;
+    memcpy(headers, hdr_start, hdr_len);
+    headers[hdr_len] = '\0';
 
     char *bstart = hdr_end + 4;
     size_t already = len - (size_t)(bstart - buf);
+    if (already > HTTP_MAX_BODY_BYTES) goto fail;
 
-    size_t content_length = 0;
-    const char *cl = strstr(conn->headers, "Content-Length:");
-    if (!cl) cl = strstr(conn->headers, "content-length:");
-    if (cl) content_length = (size_t)atol(cl + 15);
+    {
+        const char *cl = strstr(headers, "Content-Length:");
+        if (!cl) cl = strstr(headers, "content-length:");
+        if (cl) {
+            unsigned long long parsed = strtoull(cl + 15, NULL, 10);
+            if (parsed > HTTP_MAX_BODY_BYTES) goto fail;
+            content_length = (size_t)parsed;
+        }
+    }
 
     if (content_length > already) {
-        char *full = (char *)malloc(content_length + 1);
-        if (already > 0) memcpy(full, bstart, already);
+        body = (char *)malloc(content_length + 1);
+        if (!body) goto fail;
+        if (already > 0) memcpy(body, bstart, already);
         size_t got = already;
         while (got < content_length) {
             size_t n = 0;
-            if (vigil_platform_tcp_recv(conn->sock, full + got, content_length - got, &n, NULL) != VIGIL_STATUS_OK || n == 0) break;
+            if (vigil_platform_tcp_recv(conn->sock, body + got, content_length - got, &n, NULL) != VIGIL_STATUS_OK || n == 0) {
+                goto fail;
+            }
             got += n;
         }
-        full[got] = '\0';
-        conn->body = full;
-        conn->body_len = got;
+        body[got] = '\0';
+        body_len = got;
     } else {
-        conn->body = (char *)malloc(already + 1);
-        if (already > 0) memcpy(conn->body, bstart, already);
-        conn->body[already] = '\0';
-        conn->body_len = already;
+        body = (char *)malloc(already + 1);
+        if (!body) goto fail;
+        if (already > 0) memcpy(body, bstart, already);
+        body[already] = '\0';
+        body_len = already;
     }
 
+    conn->method = method;
+    conn->path = path;
+    conn->headers = headers;
+    conn->body = body;
+    conn->body_len = body_len;
     free(buf);
     return 0;
+
+fail:
+    free(method);
+    free(path);
+    free(headers);
+    free(body);
+    free(buf);
+    return -1;
 }
 
 /* ── Server VIGIL functions ───────────────────────────────────────── */

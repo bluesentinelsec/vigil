@@ -23,60 +23,127 @@
 
 typedef struct {
     void **items;
-    volatile int64_t count;
+    int64_t count;
     int64_t capacity;
     vigil_platform_mutex_t *lock;
 } handle_registry_t;
 
-static void registry_init(handle_registry_t *r) {
+static vigil_status_t registry_init(handle_registry_t *r, vigil_error_t *error) {
+    vigil_status_t st;
+
     r->capacity = INITIAL_CAPACITY;
     r->items = calloc((size_t)r->capacity, sizeof(void *));
     r->count = 0;
-    vigil_platform_mutex_create(&r->lock, NULL);
+    if (r->items == NULL) {
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
+                                "thread registry allocation failed");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
+    st = vigil_platform_mutex_create(&r->lock, error);
+    if (st != VIGIL_STATUS_OK) {
+        free(r->items);
+        r->items = NULL;
+        r->capacity = 0;
+    }
+    return st;
 }
 
-static int64_t registry_alloc(handle_registry_t *r) {
-    vigil_platform_mutex_lock(r->lock);
-    int64_t idx = vigil_atomic_add(&r->count, 1);
-    if (idx >= r->capacity) {
+static vigil_status_t registry_ensure_capacity_locked(
+    handle_registry_t *r,
+    int64_t needed,
+    vigil_error_t *error
+) {
+    if (needed <= r->capacity) {
+        return VIGIL_STATUS_OK;
+    }
+
+    {
         int64_t new_cap = r->capacity * 2;
-        while (new_cap <= idx) new_cap *= 2;
+        while (new_cap < needed) new_cap *= 2;
         void **new_items = calloc((size_t)new_cap, sizeof(void *));
-        if (new_items) {
-            memcpy(new_items, r->items, (size_t)r->capacity * sizeof(void *));
-            free(r->items);
-            r->items = new_items;
-            r->capacity = new_cap;
+        if (new_items == NULL) {
+            vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
+                                    "thread registry growth failed");
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
+        memcpy(new_items, r->items, (size_t)r->capacity * sizeof(void *));
+        free(r->items);
+        r->items = new_items;
+        r->capacity = new_cap;
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t registry_alloc(
+    handle_registry_t *r,
+    int64_t *out_handle,
+    vigil_error_t *error
+) {
+    vigil_status_t st;
+
+    if (out_handle == NULL) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "thread registry out_handle is null");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    vigil_platform_mutex_lock(r->lock);
+    st = registry_ensure_capacity_locked(r, r->count + 1, error);
+    if (st == VIGIL_STATUS_OK) {
+        *out_handle = r->count++;
     }
     vigil_platform_mutex_unlock(r->lock);
-    return idx;
+    return st;
 }
 
 static void *registry_get(handle_registry_t *r, int64_t handle) {
-    int64_t count = vigil_atomic_load(&r->count);
-    if (handle < 0 || handle >= count) return NULL;
-    return r->items[handle];
+    void *value = NULL;
+
+    vigil_platform_mutex_lock(r->lock);
+    if (handle >= 0 && handle < r->count) {
+        value = r->items[handle];
+    }
+    vigil_platform_mutex_unlock(r->lock);
+    return value;
 }
 
 static void registry_set(handle_registry_t *r, int64_t handle, void *val) {
-    if (handle >= 0 && handle < r->capacity) {
+    vigil_platform_mutex_lock(r->lock);
+    if (handle >= 0 && handle < r->count) {
         r->items[handle] = val;
     }
+    vigil_platform_mutex_unlock(r->lock);
 }
 
 static handle_registry_t g_mutexes;
 static handle_registry_t g_conds;
 static handle_registry_t g_rwlocks;
 
-static int g_registries_inited = 0;
+static volatile int64_t g_registries_state = 0;
 
-static void ensure_registries(void) {
-    if (!g_registries_inited) {
-        registry_init(&g_mutexes);
-        registry_init(&g_conds);
-        registry_init(&g_rwlocks);
-        g_registries_inited = 1;
+static vigil_status_t ensure_registries(vigil_error_t *error) {
+    for (;;) {
+        int64_t state = vigil_atomic_load(&g_registries_state);
+        if (state == 2) {
+            return VIGIL_STATUS_OK;
+        }
+        if (state == 0 && vigil_atomic_cas(&g_registries_state, 0, 1)) {
+            vigil_status_t st = registry_init(&g_mutexes, error);
+            if (st == VIGIL_STATUS_OK) {
+                st = registry_init(&g_conds, error);
+            }
+            if (st == VIGIL_STATUS_OK) {
+                st = registry_init(&g_rwlocks, error);
+            }
+            if (st != VIGIL_STATUS_OK) {
+                vigil_atomic_store(&g_registries_state, 0);
+                return st;
+            }
+            vigil_atomic_store(&g_registries_state, 2);
+            return VIGIL_STATUS_OK;
+        }
+        vigil_platform_thread_yield();
     }
 }
 
@@ -108,39 +175,120 @@ typedef struct {
     vigil_runtime_t *runtime;
     vigil_object_t *function;
     vigil_platform_thread_t *thread;
-    int in_use;
+    volatile int64_t in_use;
     volatile int64_t result; /* return value from thread function */
 } thread_slot_t;
 
-static thread_slot_t *g_threads = NULL;
-static volatile int64_t g_thread_count = 0;
+static thread_slot_t **g_threads = NULL;
+static int64_t g_thread_count = 0;
 static int64_t g_thread_capacity = 0;
 static vigil_platform_mutex_t *g_thread_lock = NULL;
+static volatile int64_t g_threads_state = 0;
 
-static void ensure_threads(void) {
-    if (!g_threads) {
-        g_thread_capacity = INITIAL_THREAD_CAPACITY;
-        g_threads = calloc((size_t)g_thread_capacity, sizeof(thread_slot_t));
-        vigil_platform_mutex_create(&g_thread_lock, NULL);
+static vigil_status_t ensure_threads(vigil_error_t *error) {
+    for (;;) {
+        int64_t state = vigil_atomic_load(&g_threads_state);
+        if (state == 2) {
+            return VIGIL_STATUS_OK;
+        }
+        if (state == 0 && vigil_atomic_cas(&g_threads_state, 0, 1)) {
+            vigil_status_t st;
+
+            g_thread_capacity = INITIAL_THREAD_CAPACITY;
+            g_threads = calloc((size_t)g_thread_capacity, sizeof(*g_threads));
+            if (g_threads == NULL) {
+                vigil_atomic_store(&g_threads_state, 0);
+                vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
+                                        "thread slot allocation failed");
+                return VIGIL_STATUS_OUT_OF_MEMORY;
+            }
+
+            st = vigil_platform_mutex_create(&g_thread_lock, error);
+            if (st != VIGIL_STATUS_OK) {
+                free(g_threads);
+                g_threads = NULL;
+                g_thread_capacity = 0;
+                vigil_atomic_store(&g_threads_state, 0);
+                return st;
+            }
+
+            vigil_atomic_store(&g_threads_state, 2);
+            return VIGIL_STATUS_OK;
+        }
+        vigil_platform_thread_yield();
     }
 }
 
-static int64_t alloc_thread_slot(void) {
-    vigil_platform_mutex_lock(g_thread_lock);
-    int64_t idx = vigil_atomic_add(&g_thread_count, 1);
-    if (idx >= g_thread_capacity) {
+static vigil_status_t ensure_thread_capacity_locked(
+    int64_t needed,
+    vigil_error_t *error
+) {
+    if (needed <= g_thread_capacity) {
+        return VIGIL_STATUS_OK;
+    }
+
+    {
         int64_t new_cap = g_thread_capacity * 2;
-        while (new_cap <= idx) new_cap *= 2;
-        thread_slot_t *new_slots = calloc((size_t)new_cap, sizeof(thread_slot_t));
-        if (new_slots) {
-            memcpy(new_slots, g_threads, (size_t)g_thread_capacity * sizeof(thread_slot_t));
-            free(g_threads);
-            g_threads = new_slots;
-            g_thread_capacity = new_cap;
+        while (new_cap < needed) new_cap *= 2;
+        thread_slot_t **new_slots = calloc((size_t)new_cap, sizeof(*new_slots));
+        if (new_slots == NULL) {
+            vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
+                                    "thread slot growth failed");
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        }
+        memcpy(new_slots, g_threads, (size_t)g_thread_capacity * sizeof(*new_slots));
+        free(g_threads);
+        g_threads = new_slots;
+        g_thread_capacity = new_cap;
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t alloc_thread_slot(
+    thread_slot_t **out_slot,
+    int64_t *out_handle,
+    vigil_error_t *error
+) {
+    vigil_status_t st = VIGIL_STATUS_OK;
+    thread_slot_t *slot = NULL;
+
+    if (out_slot == NULL || out_handle == NULL) {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "thread slot output is null");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    vigil_platform_mutex_lock(g_thread_lock);
+    st = ensure_thread_capacity_locked(g_thread_count + 1, error);
+    if (st == VIGIL_STATUS_OK) {
+        slot = calloc(1U, sizeof(*slot));
+        if (slot == NULL) {
+            st = VIGIL_STATUS_OUT_OF_MEMORY;
+            vigil_error_set_literal(error, st, "thread slot allocation failed");
+        } else {
+            *out_handle = g_thread_count;
+            g_threads[g_thread_count++] = slot;
+            *out_slot = slot;
         }
     }
     vigil_platform_mutex_unlock(g_thread_lock);
-    return idx;
+    return st;
+}
+
+static thread_slot_t *thread_get_slot(int64_t handle) {
+    thread_slot_t *slot = NULL;
+
+    if (g_thread_lock == NULL) {
+        return NULL;
+    }
+
+    vigil_platform_mutex_lock(g_thread_lock);
+    if (handle >= 0 && handle < g_thread_count) {
+        slot = g_threads[handle];
+    }
+    vigil_platform_mutex_unlock(g_thread_lock);
+    return slot;
 }
 
 static void thread_spawn_entry(void *arg) {
@@ -161,9 +309,17 @@ static void thread_spawn_entry(void *arg) {
 }
 
 static vigil_status_t thread_spawn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    ensure_threads();
+    thread_slot_t *slot = NULL;
+    int64_t idx = -1;
+    vigil_status_t st;
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     vigil_value_t val = vigil_vm_stack_get(vm, base);
+
+    st = ensure_threads(error);
+    if (st != VIGIL_STATUS_OK) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_i64(vm, -1, error);
+    }
 
     vigil_object_t *fn = vigil_value_as_object(&val);
     if (fn == NULL ||
@@ -173,22 +329,26 @@ static vigil_status_t thread_spawn(vigil_vm_t *vm, size_t arg_count, vigil_error
         return push_i64(vm, -1, error);
     }
 
-    int64_t idx = alloc_thread_slot();
+    st = alloc_thread_slot(&slot, &idx, error);
+    if (st != VIGIL_STATUS_OK) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_i64(vm, -1, error);
+    }
 
     /* Retain before popping so the closure isn't freed */
     vigil_object_retain(fn);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    g_threads[idx].runtime = vigil_vm_runtime(vm);
-    g_threads[idx].function = fn;
-    g_threads[idx].in_use = 1;
-    g_threads[idx].result = 0;
+    slot->runtime = vigil_vm_runtime(vm);
+    slot->function = fn;
+    vigil_atomic_store(&slot->in_use, 1);
+    vigil_atomic_store(&slot->result, 0);
 
-    vigil_status_t st = vigil_platform_thread_create(
-        &g_threads[idx].thread, thread_spawn_entry, &g_threads[idx], error);
+    st = vigil_platform_thread_create(
+        &slot->thread, thread_spawn_entry, slot, error);
     if (st != VIGIL_STATUS_OK) {
-        vigil_object_release(&g_threads[idx].function);
-        g_threads[idx].in_use = 0;
+        vigil_object_release(&slot->function);
+        vigil_atomic_store(&slot->in_use, 0);
         return push_i64(vm, -1, error);
     }
     return push_i64(vm, idx, error);
@@ -198,30 +358,48 @@ static vigil_status_t thread_spawn(vigil_vm_t *vm, size_t arg_count, vigil_error
 static vigil_status_t thread_join(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
+    thread_slot_t *slot = NULL;
+    vigil_status_t st;
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    int64_t count = vigil_atomic_load(&g_thread_count);
-    if (handle < 0 || handle >= count || !g_threads[handle].in_use) {
+    slot = thread_get_slot(handle);
+    if (slot == NULL || !vigil_atomic_cas(&slot->in_use, 1, 0)) {
         return push_i64(vm, INT64_MIN, error);
     }
-    vigil_platform_thread_join(g_threads[handle].thread, error);
-    int64_t result = vigil_atomic_load(&g_threads[handle].result);
-    g_threads[handle].in_use = 0;
-    return push_i64(vm, result, error);
+
+    st = vigil_platform_thread_join(slot->thread, error);
+    if (st != VIGIL_STATUS_OK) {
+        vigil_atomic_store(&slot->in_use, 1);
+        return push_i64(vm, INT64_MIN, error);
+    }
+
+    slot->thread = NULL;
+    {
+        int64_t result = vigil_atomic_load(&slot->result);
+        return push_i64(vm, result, error);
+    }
 }
 
 /* thread.detach(handle) -> bool */
 static vigil_status_t thread_detach(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
+    thread_slot_t *slot = NULL;
+    vigil_status_t st;
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    int64_t count = vigil_atomic_load(&g_thread_count);
-    if (handle < 0 || handle >= count || !g_threads[handle].in_use) {
+    slot = thread_get_slot(handle);
+    if (slot == NULL || !vigil_atomic_cas(&slot->in_use, 1, 0)) {
         return push_bool(vm, 0, error);
     }
-    vigil_platform_thread_detach(g_threads[handle].thread, error);
-    g_threads[handle].in_use = 0;
+
+    st = vigil_platform_thread_detach(slot->thread, error);
+    if (st != VIGIL_STATUS_OK) {
+        vigil_atomic_store(&slot->in_use, 1);
+        return push_bool(vm, 0, error);
+    }
+
+    slot->thread = NULL;
     return push_bool(vm, 1, error);
 }
 
@@ -249,13 +427,22 @@ static vigil_status_t thread_sleep(vigil_vm_t *vm, size_t arg_count, vigil_error
 /* ── Mutex functions ─────────────────────────────────────────── */
 
 static vigil_status_t thread_mutex(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    ensure_registries();
+    int64_t handle = -1;
+    vigil_status_t s;
     vigil_vm_stack_pop_n(vm, arg_count);
-    
-    int64_t handle = registry_alloc(&g_mutexes);
-    
+
+    s = ensure_registries(error);
+    if (s != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
+
+    s = registry_alloc(&g_mutexes, &handle, error);
+    if (s != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
+
     vigil_platform_mutex_t *m = NULL;
-    vigil_status_t s = vigil_platform_mutex_create(&m, error);
+    s = vigil_platform_mutex_create(&m, error);
     if (s != VIGIL_STATUS_OK) {
         return push_i64(vm, -1, error);
     }
@@ -316,13 +503,22 @@ static vigil_status_t mutex_destroy(vigil_vm_t *vm, size_t arg_count, vigil_erro
 /* ── Condition variable functions ────────────────────────────── */
 
 static vigil_status_t thread_cond(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    ensure_registries();
+    int64_t handle = -1;
+    vigil_status_t s;
     vigil_vm_stack_pop_n(vm, arg_count);
-    
-    int64_t handle = registry_alloc(&g_conds);
-    
+
+    s = ensure_registries(error);
+    if (s != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
+
+    s = registry_alloc(&g_conds, &handle, error);
+    if (s != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
+
     vigil_platform_cond_t *c = NULL;
-    vigil_status_t s = vigil_platform_cond_create(&c, error);
+    s = vigil_platform_cond_create(&c, error);
     if (s != VIGIL_STATUS_OK) {
         return push_i64(vm, -1, error);
     }
@@ -401,13 +597,22 @@ static vigil_status_t cond_destroy(vigil_vm_t *vm, size_t arg_count, vigil_error
 /* ── RWLock functions ────────────────────────────────────────── */
 
 static vigil_status_t thread_rwlock(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    ensure_registries();
+    int64_t handle = -1;
+    vigil_status_t s;
     vigil_vm_stack_pop_n(vm, arg_count);
-    
-    int64_t handle = registry_alloc(&g_rwlocks);
-    
+
+    s = ensure_registries(error);
+    if (s != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
+
+    s = registry_alloc(&g_rwlocks, &handle, error);
+    if (s != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
+
     vigil_platform_rwlock_t *rw = NULL;
-    vigil_status_t s = vigil_platform_rwlock_create(&rw, error);
+    s = vigil_platform_rwlock_create(&rw, error);
     if (s != VIGIL_STATUS_OK) {
         return push_i64(vm, -1, error);
     }

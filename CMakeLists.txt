@@ -278,77 +278,43 @@ if(VIGIL_BUILD_TESTS)
     add_test(NAME vigil_tests COMMAND vigil_tests)
 
     if (NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
-        add_test(
-            NAME VigilSyntaxIntegrationTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_syntax_integration.py
-        )
-        set_tests_properties(
-            VigilSyntaxIntegrationTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilRegressionTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_regression.py
-        )
-        set_tests_properties(
-            VigilRegressionTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilDebugDAPTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_debug_dap.py
-        )
-        set_tests_properties(
-            VigilDebugDAPTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilDocTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_doc.py
-        )
-        set_tests_properties(
-            VigilDocTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilPackageTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_package.py
-        )
-        set_tests_properties(
-            VigilPackageTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilFmtTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_fmt.py
-        )
-        set_tests_properties(
-            VigilFmtTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilEmbedTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_embed.py
-        )
-        set_tests_properties(
-            VigilEmbedTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilTestTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_test.py
-        )
-        set_tests_properties(
-            VigilTestTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
-        add_test(
-            NAME VigilPkgTest
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/test_pkg.py
-        )
-        set_tests_properties(
-            VigilPkgTest
-            PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
-        )
+        function(vigil_add_integration_test test_name script_name)
+            add_test(
+                NAME ${test_name}
+                COMMAND ${Python3_EXECUTABLE}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/integration_tests/${script_name}
+            )
+            set_tests_properties(
+                ${test_name}
+                PROPERTIES ENVIRONMENT "VIGIL_BIN=$<TARGET_FILE:vigil_cli>"
+            )
+        endfunction()
+
+        vigil_add_integration_test(VigilArgsTest test_args.py)
+        vigil_add_integration_test(VigilAtomicTest test_atomic.py)
+        vigil_add_integration_test(VigilCompressTest test_compress.py)
+        vigil_add_integration_test(VigilCryptoTest test_crypto.py)
+        vigil_add_integration_test(VigilCsvTest test_csv.py)
+        vigil_add_integration_test(VigilDebugDAPTest test_debug_dap.py)
+        vigil_add_integration_test(VigilDocTest test_doc.py)
+        vigil_add_integration_test(VigilEmbedTest test_embed.py)
+        vigil_add_integration_test(VigilFmtTest test_fmt.py)
+        vigil_add_integration_test(VigilFsTest test_fs.py)
+        vigil_add_integration_test(VigilLogTest test_log.py)
+        vigil_add_integration_test(VigilMathTest test_math.py)
+        vigil_add_integration_test(VigilNetTest test_net.py)
+        vigil_add_integration_test(VigilPackageTest test_package.py)
+        vigil_add_integration_test(VigilPkgTest test_pkg.py)
+        vigil_add_integration_test(VigilRandomTest test_random.py)
+        vigil_add_integration_test(VigilRegexTest test_regex.py)
+        vigil_add_integration_test(VigilRegressionTest test_regression.py)
+        vigil_add_integration_test(VigilReplTest test_repl.py)
+        vigil_add_integration_test(VigilStringMethodsTest test_string_methods.py)
+        vigil_add_integration_test(VigilSyntaxIntegrationTest test_syntax_integration.py)
+        vigil_add_integration_test(VigilTestTest test_test.py)
+        vigil_add_integration_test(VigilThreadTest test_thread.py)
+        vigil_add_integration_test(VigilTimeTest test_time.py)
+        vigil_add_integration_test(VigilUrlTest test_url.py)
+        vigil_add_integration_test(VigilYamlTest test_yaml.py)
     endif()
 endif()

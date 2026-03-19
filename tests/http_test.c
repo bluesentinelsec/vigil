@@ -250,6 +250,38 @@ TEST(VigilHttpTest, SocketConnectionRefused) {
     EXPECT_EQ(rc, -1);
 }
 
+TEST(VigilHttpTest, SocketRequestRejectsOversizedHeaders) {
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    const char *canned =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 2\r\n"
+        "\r\n"
+        "ok";
+    char *headers = NULL;
+
+    if (!start_test_server(&srv, canned, &thr)) return;
+
+    headers = (char *)malloc(5001);
+    ASSERT_TRUE(headers != NULL);
+    memset(headers, 'a', 5000);
+    headers[0] = 'X';
+    headers[1] = ':';
+    headers[4998] = '\r';
+    headers[4999] = '\n';
+    headers[5000] = '\0';
+
+    parsed_url_t url;
+    parse_url("http://127.0.0.1:18787/too-large", &url);
+
+    http_response_t resp;
+    int rc = socket_request("GET", &url, headers, NULL, 0, &resp);
+    EXPECT_EQ(rc, -1);
+
+    free(headers);
+    stop_test_server(&srv, thr);
+}
+
 TEST(VigilHttpTest, DoRequestHttpsFallbackFails) {
     /* Without libcurl, HTTPS via do_request should fail gracefully */
     http_response_t resp;
@@ -430,6 +462,7 @@ void register_http_tests(void) {
     REGISTER_TEST(VigilHttpTest, Socket404Response);
     REGISTER_TEST(VigilHttpTest, SocketEmptyBody);
     REGISTER_TEST(VigilHttpTest, SocketConnectionRefused);
+    REGISTER_TEST(VigilHttpTest, SocketRequestRejectsOversizedHeaders);
     REGISTER_TEST(VigilHttpTest, DoRequestHttpsFallbackFails);
     /* Misc */
     REGISTER_TEST(VigilHttpTest, ResponseFreeNull);

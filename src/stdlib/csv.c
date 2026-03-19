@@ -128,8 +128,10 @@ static vigil_status_t csv_parse(vigil_vm_t *vm, size_t arg_count, vigil_error_t 
         vigil_vm_stack_pop_n(vm, arg_count);
         s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &rows_arr, error);
         if (s != VIGIL_STATUS_OK) return s;
-        rows_val = vigil_nanbox_encode_object(rows_arr);
-        return vigil_vm_stack_push(vm, &rows_val, error);
+        vigil_value_init_object(&rows_val, &rows_arr);
+        s = vigil_vm_stack_push(vm, &rows_val, error);
+        vigil_value_release(&rows_val);
+        return s;
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
@@ -164,21 +166,27 @@ static vigil_status_t csv_parse(vigil_vm_t *vm, size_t arg_count, vigil_error_t 
             free(field);
             if (s != VIGIL_STATUS_OK) return s;
 
-            vigil_value_t str_val = vigil_nanbox_encode_object(str_obj);
+            vigil_value_t str_val;
+            vigil_value_init_object(&str_val, &str_obj);
             s = vigil_array_object_append(row_arr, &str_val, error);
+            vigil_value_release(&str_val);
             if (s != VIGIL_STATUS_OK) return s;
         }
 
         /* Add row to rows */
-        vigil_value_t row_val = vigil_nanbox_encode_object(row_arr);
+        vigil_value_t row_val;
+        vigil_value_init_object(&row_val, &row_arr);
         s = vigil_array_object_append(rows_arr, &row_val, error);
+        vigil_value_release(&row_val);
         if (s != VIGIL_STATUS_OK) return s;
 
         csv_skip_crlf(&reader);
     }
 
-    rows_val = vigil_nanbox_encode_object(rows_arr);
-    return vigil_vm_stack_push(vm, &rows_val, error);
+    vigil_value_init_object(&rows_val, &rows_arr);
+    s = vigil_vm_stack_push(vm, &rows_val, error);
+    vigil_value_release(&rows_val);
+    return s;
 }
 
 /* ── csv.parse_row(data: string) -> array<string> ────────────────── */
@@ -296,11 +304,18 @@ static vigil_status_t csv_stringify(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
     for (size_t r = 0; r < row_count; r++) {
         vigil_value_t row_val;
+        vigil_value_init_nil(&row_val);
         if (!vigil_array_object_get(rows_arr, r, &row_val)) continue;
-        if (!vigil_nanbox_is_object(row_val)) continue;
+        if (!vigil_nanbox_is_object(row_val)) {
+            vigil_value_release(&row_val);
+            continue;
+        }
 
         vigil_object_t *row_arr = (vigil_object_t *)vigil_nanbox_decode_ptr(row_val);
-        if (!row_arr || vigil_object_type(row_arr) != VIGIL_OBJECT_ARRAY) continue;
+        if (!row_arr || vigil_object_type(row_arr) != VIGIL_OBJECT_ARRAY) {
+            vigil_value_release(&row_val);
+            continue;
+        }
 
         size_t col_count = vigil_array_object_length(row_arr);
         for (size_t c = 0; c < col_count; c++) {
@@ -313,6 +328,7 @@ static vigil_status_t csv_stringify(vigil_vm_t *vm, size_t arg_count, vigil_erro
             }
 
             vigil_value_t cell_val;
+            vigil_value_init_nil(&cell_val);
             if (!vigil_array_object_get(row_arr, c, &cell_val)) continue;
             if (vigil_nanbox_is_object(cell_val)) {
                 vigil_object_t *str_obj = (vigil_object_t *)vigil_nanbox_decode_ptr(cell_val);
@@ -322,7 +338,9 @@ static vigil_status_t csv_stringify(vigil_vm_t *vm, size_t arg_count, vigil_erro
                     csv_write_field(&buf, &cap, &len, s, slen);
                 }
             }
+            vigil_value_release(&cell_val);
         }
+        vigil_value_release(&row_val);
 
         /* Add newline */
         if (len + 2 >= cap) {
@@ -368,6 +386,7 @@ static vigil_status_t csv_stringify_row(vigil_vm_t *vm, size_t arg_count, vigil_
         }
 
         vigil_value_t cell_val;
+        vigil_value_init_nil(&cell_val);
         if (!vigil_array_object_get(row_arr, c, &cell_val)) continue;
         if (vigil_nanbox_is_object(cell_val)) {
             vigil_object_t *str_obj = (vigil_object_t *)vigil_nanbox_decode_ptr(cell_val);
@@ -377,6 +396,7 @@ static vigil_status_t csv_stringify_row(vigil_vm_t *vm, size_t arg_count, vigil_
                 csv_write_field(&buf, &cap, &len, s, slen);
             }
         }
+        vigil_value_release(&cell_val);
     }
 
     vigil_status_t s = push_string(vm, buf ? buf : "", len, error);
