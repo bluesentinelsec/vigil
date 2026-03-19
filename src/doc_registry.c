@@ -1067,6 +1067,30 @@ static const vigil_doc_entry_t unsafe_docs[] = {
 
 #define UNSAFE_COUNT (sizeof(unsafe_docs) / sizeof(unsafe_docs[0]))
 
+/* ── parse module ────────────────────────────────────────────────── */
+
+static const vigil_doc_entry_t parse_docs[] = {
+    {"parse", NULL, "String-to-value parsing.", "Parse strings into typed values with error handling.", NULL},
+    {"parse.i32", "parse.i32(s: string) -> (i32, error)", "Parse string to i32.", "Returns (value, error). Error is ok on success.", "i32 v, error err = parse.i32(\"42\")"},
+    {"parse.i64", "parse.i64(s: string) -> (i64, error)", "Parse string to i64.", "Returns (value, error). Error is ok on success.", "i64 v, error err = parse.i64(\"123456789\")"},
+    {"parse.f64", "parse.f64(s: string) -> (f64, error)", "Parse string to f64.", "Returns (value, error). Error is ok on success.", "f64 v, error err = parse.f64(\"3.14\")"},
+    {"parse.bool", "parse.bool(s: string) -> (bool, error)", "Parse string to bool.", "Accepts \"true\" and \"false\". Returns (value, error).", "bool v, error err = parse.bool(\"true\")"},
+};
+
+#define PARSE_COUNT (sizeof(parse_docs) / sizeof(parse_docs[0]))
+
+/* ── readline module ─────────────────────────────────────────────── */
+
+static const vigil_doc_entry_t readline_docs[] = {
+    {"readline", NULL, "Interactive line input.", "Read user input with prompt and history support.", NULL},
+    {"readline.input", "readline.input(prompt: string) -> string", "Read a line of input.", "Displays the prompt and reads a line from the terminal.", "string line = readline.input(\"> \")"},
+    {"readline.history_add", "readline.history_add(line: string) -> void", "Add a line to history.", "Stores the line for recall with history_get.", "readline.history_add(line)"},
+    {"readline.history_get", "readline.history_get(index: i32) -> string", "Get a history entry.", "Returns the history entry at the given index.", "string h = readline.history_get(0)"},
+    {"readline.history_length", "readline.history_length() -> i32", "Get history length.", "Returns the number of entries in the history.", "i32 n = readline.history_length()"},
+};
+
+#define READLINE_COUNT (sizeof(readline_docs) / sizeof(readline_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -1081,7 +1105,9 @@ static const char *module_names[] = {
     "log",
     "math",
     "net",
+    "parse",
     "args",
+    "readline",
     "test",
     "strings",
     "regex",
@@ -1258,6 +1284,20 @@ const vigil_doc_entry_t *vigil_doc_lookup(const char *name) {
         }
     }
 
+    /* Check parse */
+    for (i = 0; i < PARSE_COUNT; i++) {
+        if (strcmp(parse_docs[i].name, name) == 0) {
+            return &parse_docs[i];
+        }
+    }
+
+    /* Check readline */
+    for (i = 0; i < READLINE_COUNT; i++) {
+        if (strcmp(readline_docs[i].name, name) == 0) {
+            return &readline_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -1362,6 +1402,14 @@ const vigil_doc_entry_t *vigil_doc_list_module(
     if (strcmp(module_name, "unsafe") == 0) {
         if (count) *count = UNSAFE_COUNT;
         return unsafe_docs;
+    }
+    if (strcmp(module_name, "parse") == 0) {
+        if (count) *count = PARSE_COUNT;
+        return parse_docs;
+    }
+    if (strcmp(module_name, "readline") == 0) {
+        if (count) *count = READLINE_COUNT;
+        return readline_docs;
     }
 
     return NULL;

@@ -1907,6 +1907,7 @@ static int run_one_test(
                                 char pr[4096];
                                 const char *root = find_project_root(test_file_path, pr, sizeof(pr)) ? pr : NULL;
                                 register_source_tree(&registry, vigil_string_c_str(&import_path), root, NULL, &error);
+                                source = vigil_source_registry_get(&registry, source_id);
                             }
                             vigil_string_free(&import_path);
                         }
@@ -2512,6 +2513,7 @@ static int repl_compile_and_run(
                                 &import_path, &error) == VIGIL_STATUS_OK) {
                             register_source_tree(&registry, vigil_string_c_str(&import_path),
                                 project_root, NULL, &error);
+                            source = vigil_source_registry_get(&registry, source_id);
                         }
                         vigil_string_free(&import_path);
                     }
