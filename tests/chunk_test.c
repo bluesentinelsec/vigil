@@ -181,6 +181,12 @@ TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode)
+{
+    EXPECT_STREQ(vigil_opcode_name(VIGIL_OPCODE_RETURN), "RETURN");
+    EXPECT_STREQ(vigil_opcode_name((vigil_opcode_t)(VIGIL_OPCODE_CALL_EXTERN + 1)), "UNKNOWN");
+}
+
 TEST(VigilChunkTest, UsesRuntimeAllocatorHooks)
 {
     vigil_runtime_t *runtime = NULL;
@@ -260,6 +266,7 @@ void register_chunk_tests(void)
     REGISTER_TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree);
     REGISTER_TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants);
+    REGISTER_TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode);
     REGISTER_TEST(VigilChunkTest, UsesRuntimeAllocatorHooks);
     REGISTER_TEST(VigilChunkTest, RejectsMissingRuntimeForMutation);
     REGISTER_TEST(VigilChunkTest, RejectsMissingArguments);
