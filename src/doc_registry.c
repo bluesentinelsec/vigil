@@ -143,6 +143,20 @@ static const vigil_doc_entry_t math_docs[] = {
         "math.ceil(3.2)   // 4\nmath.ceil(-3.7)  // -3"
     },
     {
+        "math.round",
+        "math.round(x: f64) -> f64",
+        "Return x rounded to the nearest integer value.",
+        NULL,
+        "math.round(3.6)  // 4.0"
+    },
+    {
+        "math.trunc",
+        "math.trunc(x: f64) -> f64",
+        "Return x with the fractional part removed.",
+        NULL,
+        "math.trunc(-3.7)  // -3.0"
+    },
+    {
         "math.pow",
         "math.pow(base: float, exp: float) -> float",
         "Return base raised to the power exp.",
@@ -185,11 +199,123 @@ static const vigil_doc_entry_t math_docs[] = {
         "math.exp(1.0)  // ~2.718"
     },
     {
+        "math.pi",
+        "math.pi() -> f64",
+        "Return pi (approximately 3.141593).",
+        NULL,
+        "math.pi()  // 3.141592..."
+    },
+    {
+        "math.e",
+        "math.e() -> f64",
+        "Return Euler's number (approximately 2.718282).",
+        NULL,
+        "math.e()  // 2.718281..."
+    },
+    {
         "math.cbrt",
         "math.cbrt(x: f64) -> f64",
         "Return the cube root of x.",
         NULL,
         "math.cbrt(27.0)  // 3.0"
+    },
+    {
+        "math.sign",
+        "math.sign(x: f64) -> f64",
+        "Return the sign of x as -1.0, 0.0, or 1.0.",
+        NULL,
+        "math.sign(-42.0)  // -1.0"
+    },
+    {
+        "math.asin",
+        "math.asin(x: f64) -> f64",
+        "Return the arc sine of x in radians.",
+        NULL,
+        "math.asin(0.0)  // 0.0"
+    },
+    {
+        "math.acos",
+        "math.acos(x: f64) -> f64",
+        "Return the arc cosine of x in radians.",
+        NULL,
+        "math.acos(1.0)  // 0.0"
+    },
+    {
+        "math.atan",
+        "math.atan(x: f64) -> f64",
+        "Return the arc tangent of x in radians.",
+        NULL,
+        "math.atan(1.0)  // ~0.785398"
+    },
+    {
+        "math.log2",
+        "math.log2(x: f64) -> f64",
+        "Return the base-2 logarithm of x.",
+        NULL,
+        "math.log2(8.0)  // 3.0"
+    },
+    {
+        "math.log10",
+        "math.log10(x: f64) -> f64",
+        "Return the base-10 logarithm of x.",
+        NULL,
+        "math.log10(1000.0)  // 3.0"
+    },
+    {
+        "math.deg2rad",
+        "math.deg2rad(x: f64) -> f64",
+        "Convert degrees to radians.",
+        NULL,
+        "math.deg2rad(180.0)  // 3.141592..."
+    },
+    {
+        "math.rad2deg",
+        "math.rad2deg(x: f64) -> f64",
+        "Convert radians to degrees.",
+        NULL,
+        "math.rad2deg(math.pi())  // 180.0"
+    },
+    {
+        "math.min",
+        "math.min(a: f64, b: f64) -> f64",
+        "Return the smaller of two values.",
+        NULL,
+        "math.min(2.0, 5.0)  // 2.0"
+    },
+    {
+        "math.max",
+        "math.max(a: f64, b: f64) -> f64",
+        "Return the larger of two values.",
+        NULL,
+        "math.max(2.0, 5.0)  // 5.0"
+    },
+    {
+        "math.atan2",
+        "math.atan2(y: f64, x: f64) -> f64",
+        "Return the angle of the vector (x, y) in radians.",
+        NULL,
+        "math.atan2(1.0, 1.0)  // ~0.785398"
+    },
+    {
+        "math.hypot",
+        "math.hypot(a: f64, b: f64) -> f64",
+        "Return the Euclidean length sqrt(a*a + b*b).",
+        NULL,
+        "math.hypot(3.0, 4.0)  // 5.0"
+    },
+    {
+        "math.fmod",
+        "math.fmod(a: f64, b: f64) -> f64",
+        "Return the floating-point remainder of a / b.",
+        NULL,
+        "math.fmod(7.5, 2.0)  // 1.5"
+    },
+    {
+        "math.step",
+        "math.step(edge: f64, x: f64) -> f64",
+        "Return 0.0 when x is below edge, otherwise 1.0.",
+        NULL,
+        "math.step(0.5, 0.7)  // 1.0"
     },
     {
         "math.tau",
@@ -226,6 +352,149 @@ static const vigil_doc_entry_t math_docs[] = {
         NULL,
         "math.isFinite(42.0)  // true"
     },
+    {
+        "math.clamp",
+        "math.clamp(x: f64, lo: f64, hi: f64) -> f64",
+        "Clamp x into the inclusive range [lo, hi].",
+        NULL,
+        "math.clamp(12.0, 0.0, 10.0)  // 10.0"
+    },
+    {
+        "math.lerp",
+        "math.lerp(a: f64, b: f64, t: f64) -> f64",
+        "Linearly interpolate between a and b.",
+        NULL,
+        "math.lerp(10.0, 20.0, 0.25)  // 12.5"
+    },
+    {
+        "math.inverseLerp",
+        "math.inverseLerp(a: f64, b: f64, x: f64) -> f64",
+        "Return the interpolation factor t such that lerp(a, b, t) == x.",
+        NULL,
+        "math.inverseLerp(10.0, 20.0, 15.0)  // 0.5"
+    },
+    {
+        "math.smoothstep",
+        "math.smoothstep(lo: f64, hi: f64, x: f64) -> f64",
+        "Smoothly interpolate from 0.0 to 1.0 across the range [lo, hi].",
+        NULL,
+        "math.smoothstep(0.0, 1.0, 0.5)  // 0.5"
+    },
+    {
+        "math.normalize",
+        "math.normalize(x: f64, lo: f64, hi: f64) -> f64",
+        "Map x from [lo, hi] into the normalized range [0.0, 1.0].",
+        NULL,
+        "math.normalize(15.0, 10.0, 20.0)  // 0.5"
+    },
+    {
+        "math.wrap",
+        "math.wrap(x: f64, lo: f64, hi: f64) -> f64",
+        "Wrap x into the half-open interval [lo, hi).",
+        NULL,
+        "math.wrap(13.0, 0.0, 10.0)  // 3.0"
+    },
+    {
+        "math.remap",
+        "math.remap(x: f64, in_lo: f64, in_hi: f64, out_lo: f64, out_hi: f64) -> f64",
+        "Map x from one numeric range into another.",
+        NULL,
+        "math.remap(5.0, 0.0, 10.0, 0.0, 100.0)  // 50.0"
+    },
+    {"math.Vec2", "class math.Vec2", "Two-dimensional floating-point vector.", "Represents a 2D vector with x and y components.", NULL},
+    {"math.Vec2.x", "math.Vec2.x: f64", "X component.", NULL, NULL},
+    {"math.Vec2.y", "math.Vec2.y: f64", "Y component.", NULL, NULL},
+    {"math.Vec2.zero", "math.Vec2.zero() -> math.Vec2", "Return the zero vector.", NULL, NULL},
+    {"math.Vec2.one", "math.Vec2.one() -> math.Vec2", "Return the all-ones vector.", NULL, NULL},
+    {"math.Vec2.length", "math.Vec2.length() -> f64", "Return the vector length.", NULL, NULL},
+    {"math.Vec2.lengthSqr", "math.Vec2.lengthSqr() -> f64", "Return the squared vector length.", NULL, NULL},
+    {"math.Vec2.dot", "math.Vec2.dot(other: math.Vec2) -> f64", "Return the dot product with another vector.", NULL, NULL},
+    {"math.Vec2.distance", "math.Vec2.distance(other: math.Vec2) -> f64", "Return the distance to another vector.", NULL, NULL},
+    {"math.Vec2.normalize", "math.Vec2.normalize() -> math.Vec2", "Return a normalized copy of the vector.", NULL, NULL},
+    {"math.Vec2.negate", "math.Vec2.negate() -> math.Vec2", "Return the negated vector.", NULL, NULL},
+    {"math.Vec2.add", "math.Vec2.add(other: math.Vec2) -> math.Vec2", "Return the sum with another vector.", NULL, NULL},
+    {"math.Vec2.sub", "math.Vec2.sub(other: math.Vec2) -> math.Vec2", "Return the difference with another vector.", NULL, NULL},
+    {"math.Vec2.scale", "math.Vec2.scale(scale: f64) -> math.Vec2", "Scale the vector by a scalar.", NULL, NULL},
+    {"math.Vec2.lerp", "math.Vec2.lerp(other: math.Vec2, t: f64) -> math.Vec2", "Linearly interpolate toward another vector.", NULL, NULL},
+    {"math.Vec2.reflect", "math.Vec2.reflect(normal: math.Vec2) -> math.Vec2", "Reflect the vector across a normal.", NULL, NULL},
+    {"math.Vec2.angle", "math.Vec2.angle() -> f64", "Return the vector angle in radians.", NULL, NULL},
+    {"math.Vec2.rotate", "math.Vec2.rotate(angle: f64) -> math.Vec2", "Rotate the vector by an angle in radians.", NULL, NULL},
+    {"math.Vec3", "class math.Vec3", "Three-dimensional floating-point vector.", "Represents a 3D vector with x, y, and z components.", NULL},
+    {"math.Vec3.x", "math.Vec3.x: f64", "X component.", NULL, NULL},
+    {"math.Vec3.y", "math.Vec3.y: f64", "Y component.", NULL, NULL},
+    {"math.Vec3.z", "math.Vec3.z: f64", "Z component.", NULL, NULL},
+    {"math.Vec3.zero", "math.Vec3.zero() -> math.Vec3", "Return the zero vector.", NULL, NULL},
+    {"math.Vec3.one", "math.Vec3.one() -> math.Vec3", "Return the all-ones vector.", NULL, NULL},
+    {"math.Vec3.length", "math.Vec3.length() -> f64", "Return the vector length.", NULL, NULL},
+    {"math.Vec3.lengthSqr", "math.Vec3.lengthSqr() -> f64", "Return the squared vector length.", NULL, NULL},
+    {"math.Vec3.dot", "math.Vec3.dot(other: math.Vec3) -> f64", "Return the dot product with another vector.", NULL, NULL},
+    {"math.Vec3.distance", "math.Vec3.distance(other: math.Vec3) -> f64", "Return the distance to another vector.", NULL, NULL},
+    {"math.Vec3.angle", "math.Vec3.angle(other: math.Vec3) -> f64", "Return the angle to another vector in radians.", NULL, NULL},
+    {"math.Vec3.cross", "math.Vec3.cross(other: math.Vec3) -> math.Vec3", "Return the cross product with another vector.", NULL, NULL},
+    {"math.Vec3.normalize", "math.Vec3.normalize() -> math.Vec3", "Return a normalized copy of the vector.", NULL, NULL},
+    {"math.Vec3.negate", "math.Vec3.negate() -> math.Vec3", "Return the negated vector.", NULL, NULL},
+    {"math.Vec3.add", "math.Vec3.add(other: math.Vec3) -> math.Vec3", "Return the sum with another vector.", NULL, NULL},
+    {"math.Vec3.sub", "math.Vec3.sub(other: math.Vec3) -> math.Vec3", "Return the difference with another vector.", NULL, NULL},
+    {"math.Vec3.scale", "math.Vec3.scale(scale: f64) -> math.Vec3", "Scale the vector by a scalar.", NULL, NULL},
+    {"math.Vec3.lerp", "math.Vec3.lerp(other: math.Vec3, t: f64) -> math.Vec3", "Linearly interpolate toward another vector.", NULL, NULL},
+    {"math.Vec3.reflect", "math.Vec3.reflect(normal: math.Vec3) -> math.Vec3", "Reflect the vector across a normal.", NULL, NULL},
+    {"math.Vec3.transform", "math.Vec3.transform(matrix: math.Mat4) -> math.Vec3", "Transform the vector by a matrix.", NULL, NULL},
+    {"math.Vec3.rotateByQuaternion", "math.Vec3.rotateByQuaternion(rotation: math.Quaternion) -> math.Vec3", "Rotate the vector by a quaternion.", NULL, NULL},
+    {"math.Vec3.unproject", "math.Vec3.unproject(projection: math.Mat4, view: math.Mat4) -> math.Vec3", "Unproject normalized screen coordinates into world space.", NULL, NULL},
+    {"math.Vec4", "class math.Vec4", "Four-dimensional floating-point vector.", "Represents a 4D vector with x, y, z, and w components.", NULL},
+    {"math.Vec4.x", "math.Vec4.x: f64", "X component.", NULL, NULL},
+    {"math.Vec4.y", "math.Vec4.y: f64", "Y component.", NULL, NULL},
+    {"math.Vec4.z", "math.Vec4.z: f64", "Z component.", NULL, NULL},
+    {"math.Vec4.w", "math.Vec4.w: f64", "W component.", NULL, NULL},
+    {"math.Vec4.zero", "math.Vec4.zero() -> math.Vec4", "Return the zero vector.", NULL, NULL},
+    {"math.Vec4.one", "math.Vec4.one() -> math.Vec4", "Return the all-ones vector.", NULL, NULL},
+    {"math.Vec4.length", "math.Vec4.length() -> f64", "Return the vector length.", NULL, NULL},
+    {"math.Vec4.lengthSqr", "math.Vec4.lengthSqr() -> f64", "Return the squared vector length.", NULL, NULL},
+    {"math.Vec4.dot", "math.Vec4.dot(other: math.Vec4) -> f64", "Return the dot product with another vector.", NULL, NULL},
+    {"math.Vec4.distance", "math.Vec4.distance(other: math.Vec4) -> f64", "Return the distance to another vector.", NULL, NULL},
+    {"math.Vec4.normalize", "math.Vec4.normalize() -> math.Vec4", "Return a normalized copy of the vector.", NULL, NULL},
+    {"math.Vec4.negate", "math.Vec4.negate() -> math.Vec4", "Return the negated vector.", NULL, NULL},
+    {"math.Vec4.add", "math.Vec4.add(other: math.Vec4) -> math.Vec4", "Return the sum with another vector.", NULL, NULL},
+    {"math.Vec4.sub", "math.Vec4.sub(other: math.Vec4) -> math.Vec4", "Return the difference with another vector.", NULL, NULL},
+    {"math.Vec4.scale", "math.Vec4.scale(scale: f64) -> math.Vec4", "Scale the vector by a scalar.", NULL, NULL},
+    {"math.Vec4.lerp", "math.Vec4.lerp(other: math.Vec4, t: f64) -> math.Vec4", "Linearly interpolate toward another vector.", NULL, NULL},
+    {"math.Quaternion", "class math.Quaternion", "Quaternion rotation value.", "Represents a quaternion with x, y, z, and w components.", NULL},
+    {"math.Quaternion.x", "math.Quaternion.x: f64", "X component.", NULL, NULL},
+    {"math.Quaternion.y", "math.Quaternion.y: f64", "Y component.", NULL, NULL},
+    {"math.Quaternion.z", "math.Quaternion.z: f64", "Z component.", NULL, NULL},
+    {"math.Quaternion.w", "math.Quaternion.w: f64", "W component.", NULL, NULL},
+    {"math.Quaternion.length", "math.Quaternion.length() -> f64", "Return the quaternion magnitude.", NULL, NULL},
+    {"math.Quaternion.dot", "math.Quaternion.dot(other: math.Quaternion) -> f64", "Return the dot product with another quaternion.", NULL, NULL},
+    {"math.Quaternion.normalize", "math.Quaternion.normalize() -> math.Quaternion", "Return a normalized copy of the quaternion.", NULL, NULL},
+    {"math.Quaternion.conjugate", "math.Quaternion.conjugate() -> math.Quaternion", "Return the quaternion conjugate.", NULL, NULL},
+    {"math.Quaternion.inverse", "math.Quaternion.inverse() -> math.Quaternion", "Return the quaternion inverse.", NULL, NULL},
+    {"math.Quaternion.multiply", "math.Quaternion.multiply(other: math.Quaternion) -> math.Quaternion", "Return the Hamilton product with another quaternion.", NULL, NULL},
+    {"math.Quaternion.slerp", "math.Quaternion.slerp(other: math.Quaternion, t: f64) -> math.Quaternion", "Spherically interpolate toward another quaternion.", NULL, NULL},
+    {"math.Quaternion.fromAxisAngle", "math.Quaternion.fromAxisAngle(axis: math.Vec3, angle: f64) -> math.Quaternion", "Build a quaternion from an axis-angle rotation.", NULL, NULL},
+    {"math.Quaternion.fromEuler", "math.Quaternion.fromEuler(pitch: f64, yaw: f64, roll: f64) -> math.Quaternion", "Build a quaternion from Euler angles.", NULL, NULL},
+    {"math.Quaternion.toEuler", "math.Quaternion.toEuler() -> math.Quaternion", "Convert the quaternion to Euler angles.", "Returns a quaternion-shaped value whose x, y, and z components hold pitch, yaw, and roll in radians.", NULL},
+    {"math.Quaternion.toMat4", "math.Quaternion.toMat4() -> math.Mat4", "Convert the quaternion to a rotation matrix.", NULL, NULL},
+    {"math.Mat4", "class math.Mat4", "4x4 floating-point matrix.", "Represents a column-major 4x4 matrix suitable for transforms and projections.", NULL},
+    {"math.Mat4.data", "math.Mat4.data: array<f64>", "Raw matrix elements.", "Stores the 16 matrix elements in column-major order.", NULL},
+    {"math.Mat4.identity", "math.Mat4.identity() -> math.Mat4", "Return the identity matrix.", NULL, NULL},
+    {"math.Mat4.lookAt", "math.Mat4.lookAt(eye: math.Vec3, target: math.Vec3, up: math.Vec3) -> math.Mat4", "Build a view matrix from eye, target, and up vectors.", NULL, NULL},
+    {"math.Mat4.perspective", "math.Mat4.perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> math.Mat4", "Build a perspective projection matrix.", NULL, NULL},
+    {"math.Mat4.ortho", "math.Mat4.ortho(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> math.Mat4", "Build an orthographic projection matrix.", NULL, NULL},
+    {"math.Mat4.frustum", "math.Mat4.frustum(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> math.Mat4", "Build a frustum projection matrix.", NULL, NULL},
+    {"math.Mat4.get", "math.Mat4.get(row: i32, col: i32) -> f64", "Read a matrix element by row and column.", NULL, NULL},
+    {"math.Mat4.set", "math.Mat4.set(row: i32, col: i32, value: f64) -> math.Mat4", "Return a copy with one matrix element replaced.", NULL, NULL},
+    {"math.Mat4.multiply", "math.Mat4.multiply(other: math.Mat4) -> math.Mat4", "Multiply the matrix by another matrix.", NULL, NULL},
+    {"math.Mat4.transpose", "math.Mat4.transpose() -> math.Mat4", "Return the transposed matrix.", NULL, NULL},
+    {"math.Mat4.determinant", "math.Mat4.determinant() -> f64", "Return the matrix determinant.", NULL, NULL},
+    {"math.Mat4.trace", "math.Mat4.trace() -> f64", "Return the matrix trace.", NULL, NULL},
+    {"math.Mat4.invert", "math.Mat4.invert() -> math.Mat4", "Return the matrix inverse.", NULL, NULL},
+    {"math.Mat4.add", "math.Mat4.add(other: math.Mat4) -> math.Mat4", "Add another matrix element-wise.", NULL, NULL},
+    {"math.Mat4.scale", "math.Mat4.scale(scale: f64) -> math.Mat4", "Scale the matrix by a scalar.", NULL, NULL},
+    {"math.Mat4.scaleV", "math.Mat4.scaleV(scale: math.Vec3) -> math.Mat4", "Apply a non-uniform scale.", NULL, NULL},
+    {"math.Mat4.translate", "math.Mat4.translate(offset: math.Vec3) -> math.Mat4", "Apply a translation.", NULL, NULL},
+    {"math.Mat4.rotateX", "math.Mat4.rotateX(angle: f64) -> math.Mat4", "Apply a rotation about the X axis.", NULL, NULL},
+    {"math.Mat4.rotateY", "math.Mat4.rotateY(angle: f64) -> math.Mat4", "Apply a rotation about the Y axis.", NULL, NULL},
+    {"math.Mat4.rotateZ", "math.Mat4.rotateZ(angle: f64) -> math.Mat4", "Apply a rotation about the Z axis.", NULL, NULL},
 };
 
 #define MATH_COUNT (sizeof(math_docs) / sizeof(math_docs[0]))
@@ -241,12 +510,45 @@ static const vigil_doc_entry_t args_docs[] = {
         NULL
     },
     {
-        "args.get",
-        "args.get() -> [string]",
-        "Return the command-line arguments as an array of strings.",
-        NULL,
-        "let argv = args.get()\nfor arg in argv { println(arg) }"
+        "args.count",
+        "args.count() -> i32",
+        "Return the number of command-line arguments.",
+        "Counts the script arguments passed after the program name.",
+        "i32 argc = args.count()"
     },
+    {
+        "args.at",
+        "args.at(index: i32) -> string",
+        "Return a command-line argument by index.",
+        "Returns an empty string if the index is out of range.",
+        "string first = args.at(0)"
+    },
+    {"args.Parser", "class args.Parser", "Command-line parser builder.", "Builds declarative CLI parsers with flags, options, positional arguments, and generated help text.", NULL},
+    {"args.Parser.prog", "args.Parser.prog: string", "Program name.", "Stores the program name shown in generated usage text.", "string name = parser.prog"},
+    {"args.Parser.desc", "args.Parser.desc: string", "Program description.", "Stores the description shown in generated help text.", "string desc = parser.desc"},
+    {"args.Parser.names", "args.Parser.names: array<string>", "Declared option names.", "Holds the long names for declared options.", "array<string> names = parser.names"},
+    {"args.Parser.shorts", "args.Parser.shorts: array<string>", "Declared short option names.", "Holds the short aliases for declared options.", "array<string> shorts = parser.shorts"},
+    {"args.Parser.types", "args.Parser.types: array<string>", "Declared option types.", "Stores the internal option type tags for each declared option.", "array<string> types = parser.types"},
+    {"args.Parser.defaults", "args.Parser.defaults: array<string>", "Declared default values.", "Stores default string values for declared options.", "array<string> defaults = parser.defaults"},
+    {"args.Parser.descs", "args.Parser.descs: array<string>", "Declared option descriptions.", "Stores help text for declared options.", "array<string> descs = parser.descs"},
+    {"args.Parser.required", "args.Parser.required: array<string>", "Required-option markers.", "Stores whether each declared option is required.", "array<string> required = parser.required"},
+    {"args.Parser.pos_names", "args.Parser.pos_names: array<string>", "Declared positional argument names.", "Stores names for declared positional arguments.", "array<string> names = parser.pos_names"},
+    {"args.Parser.pos_descs", "args.Parser.pos_descs: array<string>", "Declared positional argument descriptions.", "Stores help text for declared positional arguments.", "array<string> descs = parser.pos_descs"},
+    {"args.Parser.values", "args.Parser.values: array<string>", "Parsed option values.", "Stores parsed option values after a successful parse.", "array<string> values = parser.values"},
+    {"args.Parser.positionals", "args.Parser.positionals: array<string>", "Parsed positional values.", "Stores parsed positional arguments after a successful parse.", "array<string> values = parser.positionals"},
+    {"args.Parser.new", "args.Parser.new(prog: string, desc: string) -> args.Parser", "Create a parser.", "Constructs a new parser configured with a program name and description.", "args.Parser parser = args.Parser.new(\"vigil\", \"Run scripts\")"},
+    {"args.Parser.flag", "args.Parser.flag(name: string, short: string, desc: string) -> args.Parser", "Declare a boolean flag.", "Adds a boolean flag option and returns the parser for chaining.", "parser.flag(\"verbose\", \"v\", \"Enable verbose output\")"},
+    {"args.Parser.option", "args.Parser.option(name: string, short: string, default: string, desc: string) -> args.Parser", "Declare a string option.", "Adds a string-valued option and returns the parser for chaining.", "parser.option(\"output\", \"o\", \"out.txt\", \"Output file\")"},
+    {"args.Parser.option_int", "args.Parser.option_int(name: string, short: string, default: string, desc: string) -> args.Parser", "Declare an integer option.", "Adds an integer-valued option and returns the parser for chaining.", "parser.option_int(\"retries\", \"r\", \"3\", \"Retry count\")"},
+    {"args.Parser.option_multi", "args.Parser.option_multi(name: string, short: string, desc: string) -> args.Parser", "Declare a repeated string option.", "Adds an option that can be provided multiple times and returns the parser for chaining.", "parser.option_multi(\"include\", \"I\", \"Include path\")"},
+    {"args.Parser.mark_required", "args.Parser.mark_required() -> args.Parser", "Mark the last declared option as required.", "Sets the most recently declared option to required and returns the parser for chaining.", "parser.option(\"config\", \"c\", \"\", \"Config file\").mark_required()"},
+    {"args.Parser.positional", "args.Parser.positional(name: string, desc: string) -> args.Parser", "Declare a positional argument.", "Adds a positional argument and returns the parser for chaining.", "parser.positional(\"input\", \"Input file\")"},
+    {"args.Parser.parse", "args.Parser.parse(argc: i32) -> error", "Parse command-line arguments.", "Parses the process arguments currently available to the runtime. Returns an error value indicating success or failure.", "error err = parser.parse(args.count())"},
+    {"args.Parser.get", "args.Parser.get(name: string) -> string", "Get a parsed string option.", "Returns the parsed string value for the named option.", "string out = parser.get(\"output\")"},
+    {"args.Parser.get_bool", "args.Parser.get_bool(name: string) -> bool", "Get a parsed boolean flag.", "Returns true when the named flag was provided.", "bool verbose = parser.get_bool(\"verbose\")"},
+    {"args.Parser.get_multi", "args.Parser.get_multi(name: string) -> array<string>", "Get repeated option values.", "Returns all parsed values for a repeated option.", "array<string> includes = parser.get_multi(\"include\")"},
+    {"args.Parser.get_positionals", "args.Parser.get_positionals() -> array<string>", "Get parsed positional arguments.", "Returns the parsed positional arguments in declaration order.", "array<string> values = parser.get_positionals()"},
+    {"args.Parser.help", "args.Parser.help() -> string", "Render help text.", "Builds formatted usage and option help text for the parser.", "string help = parser.help()"},
 };
 
 #define ARGS_COUNT (sizeof(args_docs) / sizeof(args_docs[0]))
@@ -258,23 +560,12 @@ static const vigil_doc_entry_t test_docs[] = {
         "test",
         NULL,
         "Testing utilities.",
-        "The test module provides assertion functions for testing.",
+        "The test module provides the test.T assertion helper used by VIGIL test files.",
         NULL
     },
-    {
-        "test.assert",
-        "test.assert(condition: bool) -> void",
-        "Assert that condition is true, panic otherwise.",
-        NULL,
-        "test.assert(1 + 1 == 2)"
-    },
-    {
-        "test.assert_eq",
-        "test.assert_eq(left: any, right: any) -> void",
-        "Assert that left equals right, panic otherwise.",
-        NULL,
-        "test.assert_eq(add(1, 2), 3)"
-    },
+    {"test.T", "class test.T", "Test assertion context.", "Supplies assertion helpers to VIGIL test functions.", NULL},
+    {"test.T.assert", "test.T.assert(condition: bool, message: string) -> void", "Assert that a condition is true.", "Fails the current test with the provided message when the condition is false.", "t.assert(1 + 1 == 2, \"math still works\")"},
+    {"test.T.fail", "test.T.fail(message: string) -> void", "Fail the current test.", "Unconditionally fails the current test with the provided message.", "t.fail(\"expected connection to close\")"},
 };
 
 #define TEST_COUNT (sizeof(test_docs) / sizeof(test_docs[0]))
@@ -796,21 +1087,26 @@ static const vigil_doc_entry_t thread_docs[] = {
     },
     {"thread.current_id", "thread.current_id() -> i64", "Get current thread ID.", "Returns unique identifier for current thread.", "thread.current_id()"},
     {"thread.spawn", "thread.spawn(fn: function) -> i64", "Spawn a new thread.", "Runs a zero-argument function on a new OS thread. Returns a thread handle for join, or -1 on error.", "i64 t = thread.spawn(fn() -> void { fmt.println(\"hello\") })"},
-    {"thread.join", "thread.join(t: i64) -> bool", "Wait for thread to finish.", "Blocks until the spawned thread completes.", "thread.join(t)"},
+    {"thread.join", "thread.join(t: i64) -> i64", "Wait for thread to finish.", "Blocks until the spawned thread completes and returns its i64 result. Returns INT64_MIN on invalid handle or join failure.", "i64 result = thread.join(t)"},
+    {"thread.detach", "thread.detach(t: i64) -> bool", "Detach a thread.", "Marks a spawned thread as detached so its resources are released without joining.", "thread.detach(t)"},
     {"thread.yield", "thread.yield() -> bool", "Yield to other threads.", "Hints scheduler to run other threads.", "thread.yield()"},
     {"thread.sleep", "thread.sleep(ms: i64) -> bool", "Sleep for milliseconds.", "Pauses current thread for specified duration.", "thread.sleep(100)"},
-    {"thread.mutex", "thread.mutex() -> Mutex", "Create a mutex.", "Creates a mutual exclusion lock.", "thread.Mutex m = thread.mutex()"},
-    {"thread.lock", "thread.lock(m: Mutex) -> bool", "Lock a mutex.", "Acquires mutex, blocking if held.", "thread.lock(m)"},
-    {"thread.unlock", "thread.unlock(m: Mutex) -> bool", "Unlock a mutex.", "Releases a held mutex.", "thread.unlock(m)"},
-    {"thread.try_lock", "thread.try_lock(m: Mutex) -> bool", "Try to lock mutex.", "Attempts to acquire without blocking.", "if (thread.try_lock(m)) { ... }"},
-    {"thread.cond", "thread.cond() -> Cond", "Create condition variable.", "Creates a condition variable for signaling.", "thread.Cond c = thread.cond()"},
-    {"thread.wait", "thread.wait(c: Cond, m: Mutex) -> bool", "Wait on condition.", "Releases mutex and waits for signal.", "thread.wait(c, m)"},
-    {"thread.signal", "thread.signal(c: Cond) -> bool", "Signal one waiter.", "Wakes one thread waiting on condition.", "thread.signal(c)"},
-    {"thread.broadcast", "thread.broadcast(c: Cond) -> bool", "Signal all waiters.", "Wakes all threads waiting on condition.", "thread.broadcast(c)"},
-    {"thread.rwlock", "thread.rwlock() -> RWLock", "Create read-write lock.", "Creates lock allowing multiple readers or one writer.", "thread.RWLock rw = thread.rwlock()"},
-    {"thread.read_lock", "thread.read_lock(rw: RWLock) -> bool", "Acquire read lock.", "Acquires shared read access.", "thread.read_lock(rw)"},
-    {"thread.write_lock", "thread.write_lock(rw: RWLock) -> bool", "Acquire write lock.", "Acquires exclusive write access.", "thread.write_lock(rw)"},
-    {"thread.rw_unlock", "thread.rw_unlock(rw: RWLock) -> bool", "Release read-write lock.", "Releases read or write lock.", "thread.rw_unlock(rw)"},
+    {"thread.mutex", "thread.mutex() -> i64", "Create a mutex.", "Creates a mutual exclusion lock and returns its handle.", "i64 m = thread.mutex()"},
+    {"thread.lock", "thread.lock(m: i64) -> bool", "Lock a mutex.", "Acquires a mutex handle, blocking if it is already held.", "thread.lock(m)"},
+    {"thread.unlock", "thread.unlock(m: i64) -> bool", "Unlock a mutex.", "Releases a held mutex handle.", "thread.unlock(m)"},
+    {"thread.try_lock", "thread.try_lock(m: i64) -> bool", "Try to lock a mutex.", "Attempts to acquire a mutex without blocking.", "if (thread.try_lock(m)) { /* critical section */ }"},
+    {"thread.mutex_destroy", "thread.mutex_destroy(m: i64) -> bool", "Destroy a mutex.", "Destroys a mutex handle and releases its underlying platform resource.", "thread.mutex_destroy(m)"},
+    {"thread.cond", "thread.cond() -> i64", "Create a condition variable.", "Creates a condition variable handle for signaling between threads.", "i64 c = thread.cond()"},
+    {"thread.wait", "thread.wait(c: i64, m: i64) -> bool", "Wait on a condition variable.", "Atomically releases the mutex and waits until the condition variable is signaled.", "thread.wait(c, m)"},
+    {"thread.wait_timeout", "thread.wait_timeout(c: i64, m: i64, ms: i64) -> bool", "Wait on a condition variable with timeout.", "Waits until signaled or the timeout expires. Returns false on timeout or invalid handles.", "thread.wait_timeout(c, m, 5000)"},
+    {"thread.signal", "thread.signal(c: i64) -> bool", "Signal one waiter.", "Wakes one thread waiting on the condition variable.", "thread.signal(c)"},
+    {"thread.broadcast", "thread.broadcast(c: i64) -> bool", "Signal all waiters.", "Wakes all threads waiting on the condition variable.", "thread.broadcast(c)"},
+    {"thread.cond_destroy", "thread.cond_destroy(c: i64) -> bool", "Destroy a condition variable.", "Destroys a condition-variable handle and releases its underlying platform resource.", "thread.cond_destroy(c)"},
+    {"thread.rwlock", "thread.rwlock() -> i64", "Create a read-write lock.", "Creates a read-write lock handle allowing multiple readers or one writer.", "i64 rw = thread.rwlock()"},
+    {"thread.read_lock", "thread.read_lock(rw: i64) -> bool", "Acquire read lock.", "Acquires shared read access on a read-write lock handle.", "thread.read_lock(rw)"},
+    {"thread.write_lock", "thread.write_lock(rw: i64) -> bool", "Acquire write lock.", "Acquires exclusive write access on a read-write lock handle.", "thread.write_lock(rw)"},
+    {"thread.rw_unlock", "thread.rw_unlock(rw: i64) -> bool", "Release read-write lock.", "Releases either a read or write lock previously acquired on the handle.", "thread.rw_unlock(rw)"},
+    {"thread.rwlock_destroy", "thread.rwlock_destroy(rw: i64) -> bool", "Destroy a read-write lock.", "Destroys a read-write lock handle and releases its underlying platform resource.", "thread.rwlock_destroy(rw)"},
 };
 
 #define THREAD_COUNT (sizeof(thread_docs) / sizeof(thread_docs[0]))
@@ -826,14 +1122,19 @@ static const vigil_doc_entry_t atomic_docs[] = {
         "for thread-safe programming without mutexes.",
         NULL
     },
-    {"atomic.new", "atomic.new(initial: i64) -> Int", "Create atomic integer.", "Creates an atomic integer with initial value.", "atomic.Int a = atomic.new(0)"},
-    {"atomic.load", "atomic.load(a: Int) -> i64", "Atomically load value.", "Returns current value atomically.", "atomic.load(a)"},
-    {"atomic.store", "atomic.store(a: Int, val: i64) -> bool", "Atomically store value.", "Sets value atomically.", "atomic.store(a, 42)"},
-    {"atomic.add", "atomic.add(a: Int, val: i64) -> i64", "Atomically add.", "Adds to value, returns previous.", "atomic.add(a, 1)"},
-    {"atomic.sub", "atomic.sub(a: Int, val: i64) -> i64", "Atomically subtract.", "Subtracts from value, returns previous.", "atomic.sub(a, 1)"},
-    {"atomic.inc", "atomic.inc(a: Int) -> i64", "Atomically increment.", "Increments by 1, returns previous.", "atomic.inc(a)"},
-    {"atomic.dec", "atomic.dec(a: Int) -> i64", "Atomically decrement.", "Decrements by 1, returns previous.", "atomic.dec(a)"},
-    {"atomic.cas", "atomic.cas(a: Int, expected: i64, desired: i64) -> bool", "Compare and swap.", "Sets to desired if current equals expected.", "atomic.cas(a, 0, 1)"},
+    {"atomic.new", "atomic.new(initial: i64) -> i64", "Create atomic integer handle.", "Creates an atomic integer cell with the given initial value and returns its handle.", "i64 a = atomic.new(0)"},
+    {"atomic.load", "atomic.load(a: i64) -> i64", "Atomically load value.", "Returns the current value stored in the atomic cell handle.", "atomic.load(a)"},
+    {"atomic.store", "atomic.store(a: i64, val: i64) -> bool", "Atomically store value.", "Sets the atomic cell to the given value.", "atomic.store(a, 42)"},
+    {"atomic.add", "atomic.add(a: i64, val: i64) -> i64", "Atomically add.", "Adds val to the cell and returns the previous value.", "atomic.add(a, 1)"},
+    {"atomic.sub", "atomic.sub(a: i64, val: i64) -> i64", "Atomically subtract.", "Subtracts val from the cell and returns the previous value.", "atomic.sub(a, 1)"},
+    {"atomic.cas", "atomic.cas(a: i64, expected: i64, desired: i64) -> bool", "Compare and swap.", "Sets the cell to desired if the current value equals expected.", "atomic.cas(a, 0, 1)"},
+    {"atomic.exchange", "atomic.exchange(a: i64, val: i64) -> i64", "Atomically exchange value.", "Stores val in the cell and returns the previous value.", "i64 prev = atomic.exchange(a, 5)"},
+    {"atomic.fetch_or", "atomic.fetch_or(a: i64, val: i64) -> i64", "Atomically bitwise-OR value.", "Applies bitwise OR with val and returns the previous value.", "i64 prev = atomic.fetch_or(a, 0x10)"},
+    {"atomic.fetch_and", "atomic.fetch_and(a: i64, val: i64) -> i64", "Atomically bitwise-AND value.", "Applies bitwise AND with val and returns the previous value.", "i64 prev = atomic.fetch_and(a, 0xff)"},
+    {"atomic.fetch_xor", "atomic.fetch_xor(a: i64, val: i64) -> i64", "Atomically bitwise-XOR value.", "Applies bitwise XOR with val and returns the previous value.", "i64 prev = atomic.fetch_xor(a, 0x01)"},
+    {"atomic.inc", "atomic.inc(a: i64) -> i64", "Atomically increment.", "Increments the cell by 1 and returns the previous value.", "atomic.inc(a)"},
+    {"atomic.dec", "atomic.dec(a: i64) -> i64", "Atomically decrement.", "Decrements the cell by 1 and returns the previous value.", "atomic.dec(a)"},
+    {"atomic.fence", "atomic.fence() -> void", "Issue a full memory fence.", "Forces a full memory barrier for ordering surrounding atomic operations.", "atomic.fence()"},
 };
 
 #define ATOMIC_COUNT (sizeof(atomic_docs) / sizeof(atomic_docs[0]))
@@ -1056,15 +1357,35 @@ static const vigil_doc_entry_t unsafe_docs[] = {
     {"unsafe.set_i32", "unsafe.set_i32(buf: i64, offset: i32, value: i32) -> void", "Write a 32-bit integer.", "Writes a native-endian i32 at the given byte offset.", "unsafe.set_i32(buf, 0, 42)"},
     {"unsafe.get_i64", "unsafe.get_i64(buf: i64, offset: i32) -> i64", "Read a 64-bit integer.", "Reads a native-endian i64 at the given byte offset.", "i64 v = unsafe.get_i64(buf, 0)"},
     {"unsafe.set_i64", "unsafe.set_i64(buf: i64, offset: i32, value: i64) -> void", "Write a 64-bit integer.", "Writes a native-endian i64 at the given byte offset.", "unsafe.set_i64(buf, 0, 100)"},
+    {"unsafe.get_f32", "unsafe.get_f32(buf: i64, offset: i32) -> f64", "Read a 32-bit float.", "Reads a native-endian f32 at the given byte offset and returns it as f64.", "f64 v = unsafe.get_f32(buf, 0)"},
+    {"unsafe.set_f32", "unsafe.set_f32(buf: i64, offset: i32, value: f64) -> void", "Write a 32-bit float.", "Writes a native-endian f32 value at the given byte offset.", "unsafe.set_f32(buf, 0, 3.5)"},
     {"unsafe.get_f64", "unsafe.get_f64(buf: i64, offset: i32) -> f64", "Read a 64-bit float.", "Reads a native-endian f64 at the given byte offset.", "f64 v = unsafe.get_f64(buf, 0)"},
     {"unsafe.set_f64", "unsafe.set_f64(buf: i64, offset: i32, value: f64) -> void", "Write a 64-bit float.", "Writes a native-endian f64 at the given byte offset.", "unsafe.set_f64(buf, 0, 3.14)"},
+    {"unsafe.write_str", "unsafe.write_str(buf: i64, offset: i32, value: string) -> void", "Write a string into a buffer.", "Copies the string bytes into the buffer starting at the given byte offset.", "unsafe.write_str(buf, 0, \"hello\")"},
+    {"unsafe.peek_u8", "unsafe.peek_u8(ptr: i64, offset: i32) -> i32", "Read a byte from a raw pointer.", "Reads an unchecked u8 from ptr + offset.", "i32 b = unsafe.peek_u8(ptr, 0)"},
+    {"unsafe.peek_i32", "unsafe.peek_i32(ptr: i64, offset: i32) -> i32", "Read a 32-bit integer from a raw pointer.", "Reads an unchecked native-endian i32 from ptr + offset.", "i32 v = unsafe.peek_i32(ptr, 0)"},
+    {"unsafe.peek_i64", "unsafe.peek_i64(ptr: i64, offset: i32) -> i64", "Read a 64-bit integer from a raw pointer.", "Reads an unchecked native-endian i64 from ptr + offset.", "i64 v = unsafe.peek_i64(ptr, 0)"},
+    {"unsafe.peek_f32", "unsafe.peek_f32(ptr: i64, offset: i32) -> f64", "Read a 32-bit float from a raw pointer.", "Reads an unchecked native-endian f32 from ptr + offset and returns it as f64.", "f64 v = unsafe.peek_f32(ptr, 0)"},
+    {"unsafe.peek_f64", "unsafe.peek_f64(ptr: i64, offset: i32) -> f64", "Read a 64-bit float from a raw pointer.", "Reads an unchecked native-endian f64 from ptr + offset.", "f64 v = unsafe.peek_f64(ptr, 0)"},
+    {"unsafe.peek_ptr", "unsafe.peek_ptr(ptr: i64, offset: i32) -> i64", "Read a pointer from a raw pointer.", "Reads an unchecked pointer-sized value from ptr + offset.", "i64 p = unsafe.peek_ptr(ptr, 0)"},
+    {"unsafe.poke_u8", "unsafe.poke_u8(ptr: i64, offset: i32, value: i32) -> void", "Write a byte to a raw pointer.", "Writes an unchecked u8 value to ptr + offset.", "unsafe.poke_u8(ptr, 0, 0xff)"},
+    {"unsafe.poke_i32", "unsafe.poke_i32(ptr: i64, offset: i32, value: i32) -> void", "Write a 32-bit integer to a raw pointer.", "Writes an unchecked native-endian i32 to ptr + offset.", "unsafe.poke_i32(ptr, 0, 42)"},
+    {"unsafe.poke_i64", "unsafe.poke_i64(ptr: i64, offset: i32, value: i64) -> void", "Write a 64-bit integer to a raw pointer.", "Writes an unchecked native-endian i64 to ptr + offset.", "unsafe.poke_i64(ptr, 0, 99)"},
+    {"unsafe.poke_f32", "unsafe.poke_f32(ptr: i64, offset: i32, value: f64) -> void", "Write a 32-bit float to a raw pointer.", "Writes an unchecked native-endian f32 to ptr + offset.", "unsafe.poke_f32(ptr, 0, 1.5)"},
+    {"unsafe.poke_f64", "unsafe.poke_f64(ptr: i64, offset: i32, value: f64) -> void", "Write a 64-bit float to a raw pointer.", "Writes an unchecked native-endian f64 to ptr + offset.", "unsafe.poke_f64(ptr, 0, 1.5)"},
+    {"unsafe.poke_ptr", "unsafe.poke_ptr(ptr: i64, offset: i32, value: i64) -> void", "Write a pointer to a raw pointer.", "Writes an unchecked pointer-sized value to ptr + offset.", "unsafe.poke_ptr(ptr, 0, other_ptr)"},
     {"unsafe.null", "unsafe.null() -> i64", "Get null pointer.", "Returns 0 (null pointer constant).", "i64 p = unsafe.null()"},
     {"unsafe.sizeof", "unsafe.sizeof(type: string) -> i32", "Get type size.", "Returns the size in bytes of a C type name.", "i32 n = unsafe.sizeof(\"int\")"},
     {"unsafe.sizeof_ptr", "unsafe.sizeof_ptr() -> i32", "Get pointer size.", "Returns the size of a pointer on this platform (4 or 8).", "i32 n = unsafe.sizeof_ptr()"},
+    {"unsafe.alignof", "unsafe.alignof(type: string) -> i32", "Get type alignment.", "Returns the alignment requirement in bytes of a C type name.", "i32 n = unsafe.alignof(\"double\")"},
+    {"unsafe.offsetof", "unsafe.offsetof(type: string, field: i32) -> i32", "Get field offset.", "Returns the byte offset of a generated struct field index within the named C struct layout.", "i32 off = unsafe.offsetof(\"sockaddr_in\", 0)"},
+    {"unsafe.struct_size", "unsafe.struct_size(type: string) -> i32", "Get struct size.", "Returns the size in bytes of a named C struct layout.", "i32 n = unsafe.struct_size(\"sockaddr_in\")"},
     {"unsafe.errno", "unsafe.errno() -> i32", "Get errno.", "Returns the current C errno value.", "i32 e = unsafe.errno()"},
     {"unsafe.set_errno", "unsafe.set_errno(value: i32) -> void", "Set errno.", "Sets the C errno value.", "unsafe.set_errno(0)"},
     {"unsafe.str", "unsafe.str(ptr: i64) -> string", "Read C string.", "Reads a null-terminated string from a raw pointer.", "string s = unsafe.str(ptr)"},
     {"unsafe.copy", "unsafe.copy(dst: i64, dst_off: i32, src: i64, src_off: i32, len: i32) -> void", "Copy bytes between buffers.", "Copies len bytes from src+src_off to dst+dst_off.", "unsafe.copy(dst, 0, src, 0, 64)"},
+    {"unsafe.cb_alloc", "unsafe.cb_alloc() -> i64", "Allocate a callback slot.", "Returns an FFI callback slot handle for advanced unsafe callback plumbing.", "i64 slot = unsafe.cb_alloc()"},
+    {"unsafe.cb_free", "unsafe.cb_free(slot: i32) -> void", "Free a callback slot.", "Releases a callback slot previously allocated with unsafe.cb_alloc.", "unsafe.cb_free(0)"},
 };
 
 #define UNSAFE_COUNT (sizeof(unsafe_docs) / sizeof(unsafe_docs[0]))
@@ -1089,6 +1410,9 @@ static const vigil_doc_entry_t readline_docs[] = {
     {"readline.history_add", "readline.history_add(line: string) -> void", "Add a line to history.", "Stores the line for recall with history_get.", "readline.history_add(line)"},
     {"readline.history_get", "readline.history_get(index: i32) -> string", "Get a history entry.", "Returns the history entry at the given index.", "string h = readline.history_get(0)"},
     {"readline.history_length", "readline.history_length() -> i32", "Get history length.", "Returns the number of entries in the history.", "i32 n = readline.history_length()"},
+    {"readline.history_clear", "readline.history_clear() -> void", "Clear line history.", "Removes all entries from the in-memory history list.", "readline.history_clear()"},
+    {"readline.history_load", "readline.history_load(path: string) -> void", "Load history from a file.", "Loads previously saved history entries from the given file path.", "readline.history_load(\".vigil_history\")"},
+    {"readline.history_save", "readline.history_save(path: string) -> void", "Save history to a file.", "Writes the current in-memory history entries to the given file path.", "readline.history_save(\".vigil_history\")"},
 };
 
 #define READLINE_COUNT (sizeof(readline_docs) / sizeof(readline_docs[0]))

@@ -12,7 +12,71 @@ def resolve_vigil_command():
     env_bin = os.environ.get("VIGIL_BIN")
     if env_bin:
         return [env_bin]
-    return [str(Path(__file__).resolve().parent.parent / "build" / "RELEASE" / "vigil")]
+    root = Path(__file__).resolve().parent.parent
+    release_bin = root / "build" / "RELEASE" / "vigil"
+    debug_bin = root / "build" / "vigil"
+    if release_bin.exists():
+        return [str(release_bin)]
+    return [str(debug_bin)]
+
+
+STDLIB_MODULES = [
+    "args",
+    "atomic",
+    "compress",
+    "crypto",
+    "csv",
+    "ffi",
+    "fmt",
+    "fs",
+    "http",
+    "log",
+    "math",
+    "net",
+    "parse",
+    "random",
+    "readline",
+    "regex",
+    "test",
+    "thread",
+    "time",
+    "unsafe",
+    "url",
+    "yaml",
+]
+
+STDLIB_SYMBOLS = [
+    "args.count",
+    "args.at",
+    "atomic.exchange",
+    "atomic.fetch_or",
+    "atomic.fetch_and",
+    "atomic.fetch_xor",
+    "atomic.fence",
+    "readline.history_clear",
+    "readline.history_load",
+    "readline.history_save",
+    "thread.detach",
+    "thread.mutex_destroy",
+    "thread.wait_timeout",
+    "thread.cond_destroy",
+    "thread.rwlock_destroy",
+    "math.pi",
+    "math.remap",
+    "math.Vec2",
+    "math.Vec2.x",
+    "math.Vec2.length",
+    "math.Quaternion.toMat4",
+    "math.Mat4.identity",
+    "args.Parser",
+    "args.Parser.new",
+    "args.Parser.get_bool",
+    "test.T",
+    "test.T.assert",
+    "unsafe.get_f32",
+    "unsafe.alignof",
+    "unsafe.cb_alloc",
+]
 
 
 class TestVigilDoc(unittest.TestCase):
@@ -86,6 +150,36 @@ class TestVigilDoc(unittest.TestCase):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         output = result.stdout + result.stderr
         self.assertIn("doc", output)
+
+    def test_all_stdlib_modules_render(self):
+        """vigil doc <module> should work for every stdlib module."""
+        for module in STDLIB_MODULES:
+            with self.subTest(module=module):
+                result = self._run_doc(module)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(module, result.stdout)
+
+    def test_recently_missing_stdlib_symbols_render(self):
+        """vigil doc <module.symbol> should work for historically missing stdlib docs."""
+        for symbol in STDLIB_SYMBOLS:
+            with self.subTest(symbol=symbol):
+                result = self._run_doc(symbol)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(symbol, result.stdout)
+
+    def test_modules_with_native_classes_list_class_symbols(self):
+        """Module views should include documented native classes and their members."""
+        expectations = {
+            "args": ["Symbols:", "args.Parser", "args.Parser.new"],
+            "math": ["Symbols:", "math.Vec2", "math.Vec2.length", "math.Mat4.identity"],
+            "test": ["Symbols:", "test.T", "test.T.assert"],
+        }
+        for module, snippets in expectations.items():
+            with self.subTest(module=module):
+                result = self._run_doc(module)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for snippet in snippets:
+                    self.assertIn(snippet, result.stdout)
 
 
 if __name__ == "__main__":

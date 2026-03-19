@@ -2601,6 +2601,7 @@ static vigil_status_t vigil_program_parse_import(
 ) {
     vigil_status_t status;
     const vigil_token_t *token;
+    const vigil_token_t *import_target_token;
     const vigil_token_t *alias_token;
     const char *alias_text;
     size_t alias_length;
@@ -2611,6 +2612,7 @@ static vigil_status_t vigil_program_parse_import(
     int native_found;
 
     alias_token = NULL;
+    import_target_token = NULL;
     alias_text = NULL;
     alias_length = 0U;
     imported_source_id = 0U;
@@ -2631,6 +2633,7 @@ static vigil_status_t vigil_program_parse_import(
     *cursor += 1U;
 
     token = vigil_program_token_at(program, *cursor);
+    import_target_token = token;
     {
         const char *raw_import;
         size_t raw_import_len;
@@ -2689,6 +2692,44 @@ static vigil_status_t vigil_program_parse_import(
     }
     *cursor += 1U;
 
+    if (!native_found && program->natives != NULL && import_target_token != NULL) {
+        char message[128];
+        const char *raw_import = NULL;
+        size_t raw_import_len = 0U;
+        int written;
+
+        raw_import = vigil_program_token_text(program, import_target_token, &raw_import_len);
+        if (raw_import != NULL && raw_import_len >= 2U) {
+            raw_import += 1U;
+            raw_import_len -= 2U;
+        } else {
+            raw_import = "";
+            raw_import_len = 0U;
+        }
+
+        if (!vigil_stdlib_is_known_module(raw_import, raw_import_len)) {
+            goto check_registered_import_source;
+        }
+
+        written = snprintf(
+            message,
+            sizeof(message),
+            "stdlib module '%.*s' is not available in this build",
+            (int)raw_import_len,
+            raw_import
+        );
+        vigil_string_free(&import_path);
+        if (written < 0 || (size_t)written >= sizeof(message)) {
+            return vigil_compile_report(
+                program,
+                import_target_token->span,
+                "stdlib module is not available in this build"
+            );
+        }
+        return vigil_compile_report(program, import_target_token->span, message);
+    }
+
+check_registered_import_source:
     if (
         !native_found &&
         !vigil_program_find_source_by_path(
@@ -2701,7 +2742,7 @@ static vigil_status_t vigil_program_parse_import(
         vigil_string_free(&import_path);
         return vigil_compile_report(
             program,
-            alias_token == NULL ? token->span : alias_token->span,
+            import_target_token == NULL ? token->span : import_target_token->span,
             "imported source is not registered"
         );
     }
@@ -2730,7 +2771,8 @@ static vigil_status_t vigil_program_parse_import(
         }
     }
     if (alias_token != NULL &&
-        vigil_stdlib_is_native_module(alias_text, alias_length)) {
+        program->natives != NULL &&
+        vigil_stdlib_is_known_module(alias_text, alias_length)) {
         vigil_string_free(&import_path);
         return vigil_compile_report(
             program,

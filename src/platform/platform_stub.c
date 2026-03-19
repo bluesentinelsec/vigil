@@ -1,5 +1,7 @@
 #include "platform.h"
 
+#include <string.h>
+
 #include "internal/vigil_internal.h"
 
 /* Stub implementation — returns VIGIL_STATUS_UNSUPPORTED for all operations. */
@@ -227,6 +229,8 @@ vigil_status_t vigil_platform_thread_detach(vigil_platform_thread_t *thread, vig
 uint64_t vigil_platform_thread_current_id(void) { return 1; }
 void vigil_platform_thread_yield(void) { }
 void vigil_platform_thread_sleep(uint64_t milliseconds) { (void)milliseconds; }
+int64_t vigil_platform_now_ms(void) { return 0; }
+int64_t vigil_platform_now_ns(void) { return 0; }
 
 vigil_status_t vigil_platform_mutex_create(vigil_platform_mutex_t **out_mutex, vigil_error_t *error) {
     (void)error;
@@ -337,6 +341,47 @@ vigil_status_t vigil_platform_tcp_close(vigil_socket_t sock, vigil_error_t *erro
 
 vigil_status_t vigil_platform_tcp_set_timeout(vigil_socket_t sock, int timeout_ms, vigil_error_t *error) {
     (void)sock; (void)timeout_ms; (void)error;
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_udp_bind(const char *host, int port, vigil_socket_t *out_sock, vigil_error_t *error) {
+    (void)host; (void)port;
+    if (out_sock) *out_sock = VIGIL_INVALID_SOCKET;
+    if (error) { error->type = VIGIL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_udp_new(vigil_socket_t *out_sock, vigil_error_t *error) {
+    if (out_sock) *out_sock = VIGIL_INVALID_SOCKET;
+    if (error) { error->type = VIGIL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_udp_send(
+    vigil_socket_t sock,
+    const char *host,
+    int port,
+    const void *data,
+    size_t len,
+    size_t *out_sent,
+    vigil_error_t *error
+) {
+    (void)sock; (void)host; (void)port; (void)data; (void)len;
+    if (out_sent) *out_sent = 0;
+    if (error) { error->type = VIGIL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+
+vigil_status_t vigil_platform_udp_recv(
+    vigil_socket_t sock,
+    void *buf,
+    size_t cap,
+    size_t *out_received,
+    vigil_error_t *error
+) {
+    (void)sock; (void)buf; (void)cap;
+    if (out_received) *out_received = 0;
+    if (error) { error->type = VIGIL_STATUS_UNSUPPORTED; error->value = "networking not supported on this platform"; error->length = 41; }
     return VIGIL_STATUS_UNSUPPORTED;
 }
 

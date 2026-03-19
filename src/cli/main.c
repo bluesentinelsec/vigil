@@ -360,7 +360,7 @@ static int register_source_tree(
             import_text = source_token_text(source, path_token, &import_length);
             if (import_text == NULL || import_length < 2U) break;
 
-            if (vigil_stdlib_is_native_module(import_text + 1U, import_length - 2U)) {
+            if (vigil_stdlib_is_known_module(import_text + 1U, import_length - 2U)) {
                 cursor++;
                 continue;
             }
@@ -1347,7 +1347,7 @@ static int cmd_doc_builtin(const char *name) {
             size_t count, i;
             const vigil_doc_entry_t *entries = vigil_doc_list_module(name, &count);
             if (entries != NULL && count > 1) {
-                printf("\nFunctions:\n");
+                printf("\nSymbols:\n");
                 for (i = 1; i < count; i++) {  /* Skip module entry itself */
                     printf("  %-20s %s\n", entries[i].name, entries[i].summary);
                 }
@@ -1899,7 +1899,7 @@ static int run_one_test(
                         size_t import_len;
                         const char *import_text = source_token_text(source, path_tok, &import_len);
                         if (import_text && import_len >= 2 &&
-                            !vigil_stdlib_is_native_module(import_text + 1, import_len - 2)) {
+                            !vigil_stdlib_is_known_module(import_text + 1, import_len - 2)) {
                             vigil_string_t import_path;
                             vigil_string_init(&import_path, runtime);
                             if (resolve_import_path(runtime, vigil_string_c_str(&source->path),
@@ -2505,7 +2505,7 @@ static int repl_compile_and_run(
                          path_token->kind != VIGIL_TOKEN_RAW_STRING_LITERAL)) break;
                     import_text = source_token_text(source, path_token, &import_length);
                     if (!import_text || import_length < 2) break;
-                    if (!vigil_stdlib_is_native_module(import_text + 1, import_length - 2)) {
+                    if (!vigil_stdlib_is_known_module(import_text + 1, import_length - 2)) {
                         vigil_string_t import_path;
                         vigil_string_init(&import_path, runtime);
                         if (resolve_import_path(runtime, "<repl>",

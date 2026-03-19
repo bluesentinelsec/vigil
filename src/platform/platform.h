@@ -429,6 +429,12 @@ VIGIL_API void vigil_platform_thread_yield(void);
 /** Sleep for specified milliseconds. */
 VIGIL_API void vigil_platform_thread_sleep(uint64_t milliseconds);
 
+/** Wall-clock time in milliseconds since the Unix epoch. */
+VIGIL_API int64_t vigil_platform_now_ms(void);
+
+/** Wall-clock time in nanoseconds since the Unix epoch. */
+VIGIL_API int64_t vigil_platform_now_ns(void);
+
 /** Create a mutex. Caller must free with mutex_destroy. */
 VIGIL_API vigil_status_t vigil_platform_mutex_create(
     vigil_platform_mutex_t **out_mutex,
@@ -552,6 +558,34 @@ VIGIL_API vigil_status_t vigil_platform_tcp_close(
 /** Set read/write timeout on a TCP socket (milliseconds, 0 = no timeout). */
 VIGIL_API vigil_status_t vigil_platform_tcp_set_timeout(
     vigil_socket_t sock, int timeout_ms, vigil_error_t *error);
+
+/** Bind a UDP socket to host:port. Returns socket handle. */
+VIGIL_API vigil_status_t vigil_platform_udp_bind(
+    const char *host, int port, vigil_socket_t *out_sock, vigil_error_t *error);
+
+/** Create an unbound UDP socket. Returns socket handle. */
+VIGIL_API vigil_status_t vigil_platform_udp_new(
+    vigil_socket_t *out_sock, vigil_error_t *error);
+
+/** Send a UDP datagram to host:port. Returns bytes sent. */
+VIGIL_API vigil_status_t vigil_platform_udp_send(
+    vigil_socket_t sock,
+    const char *host,
+    int port,
+    const void *data,
+    size_t len,
+    size_t *out_sent,
+    vigil_error_t *error
+);
+
+/** Receive a UDP datagram. Returns bytes received (0 on timeout/EOF). */
+VIGIL_API vigil_status_t vigil_platform_udp_recv(
+    vigil_socket_t sock,
+    void *buf,
+    size_t cap,
+    size_t *out_received,
+    vigil_error_t *error
+);
 
 /* ── HTTP client (native library, runtime-loaded) ────────────────── */
 
