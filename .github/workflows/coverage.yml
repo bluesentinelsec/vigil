@@ -1,0 +1,66 @@
+name: Coverage
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install coverage dependencies
+        run: pip install gcovr pexpect
+
+      - name: Fetch main
+        run: git fetch origin main --depth=1
+
+      - name: Configure coverage build
+        run: >
+          cmake -S . -B build-coverage
+          -DVIGIL_BUILD_TESTS=ON
+          -DVIGIL_ENABLE_COVERAGE=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DVIGIL_STDLIB_FFI=ON
+          -DVIGIL_STDLIB_FS=ON
+          -DVIGIL_STDLIB_HTTP=ON
+          -DVIGIL_STDLIB_NET=ON
+          -DVIGIL_STDLIB_READLINE=ON
+          -DVIGIL_STDLIB_THREAD=ON
+          -DVIGIL_STDLIB_TIME=ON
+
+      - name: Build coverage binary
+        run: cmake --build build-coverage --config Debug
+
+      - name: Run test suite
+        run: ctest --test-dir build-coverage --output-on-failure -C Debug
+
+      - name: Audit test surface
+        run: python3 scripts/check_test_surface.py
+
+      - name: Generate coverage reports
+        run: scripts/generate_coverage_reports.sh build-coverage coverage-artifacts
+
+      - name: Check coverage thresholds
+        run: >
+          python3 scripts/check_coverage.py
+          --summary coverage-artifacts/coverage-summary.json
+          --details coverage-artifacts/coverage.json
+          --thresholds coverage/thresholds.json
+          --base-ref origin/main
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-artifacts
+          path: coverage-artifacts/

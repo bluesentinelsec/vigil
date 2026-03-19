@@ -1,0 +1,38 @@
+{
+  "global": {
+    "line_percent": 40.0
+  },
+  "changed_lines": {
+    "line_percent": 85.0
+  },
+  "rules": [
+    {
+      "pattern": "src/checker.c",
+      "line_percent": 90.0
+    },
+    {
+      "pattern": "src/compiler*.c",
+      "line_percent": 90.0
+    },
+    {
+      "pattern": "src/runtime.c",
+      "line_percent": 90.0
+    },
+    {
+      "pattern": "src/semantic.c",
+      "line_percent": 90.0
+    },
+    {
+      "pattern": "src/type.c",
+      "line_percent": 90.0
+    },
+    {
+      "pattern": "src/value.c",
+      "line_percent": 90.0
+    },
+    {
+      "pattern": "src/vm.c",
+      "line_percent": 90.0
+    }
+  ]
+}
