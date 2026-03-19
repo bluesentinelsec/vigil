@@ -23,8 +23,7 @@ test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 format:
-	find src include tests \( -name '*.c' -o -name '*.h' \) -print0 \
-		| xargs -0 clang-format -i
+	scripts/run_clang_format.sh --in-place
 
 clean:
 	cmake -E rm -rf $(BUILD_DIR)

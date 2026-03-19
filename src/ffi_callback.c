@@ -107,11 +107,17 @@ static intptr_t cb_invoke(int slot, intptr_t a0, intptr_t a1, intptr_t a2, intpt
     }
 
 CB_SLOT(0)
-CB_SLOT(1) CB_SLOT(2) CB_SLOT(3) CB_SLOT(4) CB_SLOT(5) CB_SLOT(6) CB_SLOT(7)
+CB_SLOT(1)
+CB_SLOT(2)
+CB_SLOT(3)
+CB_SLOT(4)
+CB_SLOT(5)
+CB_SLOT(6)
+CB_SLOT(7)
 
 #undef CB_SLOT
 
-    typedef intptr_t (*cb_fn_t)(intptr_t, intptr_t, intptr_t, intptr_t);
+typedef intptr_t (*cb_fn_t)(intptr_t, intptr_t, intptr_t, intptr_t);
 
 static cb_fn_t cb_table[VIGIL_FFI_MAX_CALLBACKS] = {
     cb_slot0, cb_slot1, cb_slot2, cb_slot3, cb_slot4, cb_slot5, cb_slot6, cb_slot7,
