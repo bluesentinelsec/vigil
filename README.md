@@ -69,6 +69,7 @@ src/                Compiler, VM, runtime, CLI, stdlib, platform layer
 tests/              Unit tests
 integration_tests/  CLI integration tests
 examples/           Example programs
+benchmarks/         Performance regression benchmark cases and thresholds
 docs/               Language and project documentation
 ```
 

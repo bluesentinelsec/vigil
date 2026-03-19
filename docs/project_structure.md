@@ -158,3 +158,9 @@ No relative paths (`../`) needed. No path configuration.
 - Tests go in `test/`. Mirror the `lib/` structure.
 - Dependencies go in `deps/`. Always gitignored.
 - `vigil.toml` is the single source of truth for project metadata.
+
+## Repository Tooling
+
+The VIGIL repository itself also keeps benchmark cases under `benchmarks/`.
+Those files are used by CI to detect material performance regressions in the
+compiler, CLI, and VM by comparing PR builds against `origin/main`.

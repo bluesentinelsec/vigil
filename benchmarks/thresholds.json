@@ -1,0 +1,21 @@
+{
+  "defaults": {
+    "time_regress_pct": 8.0,
+    "time_regress_abs_ms": 2.0,
+    "rss_regress_pct": 10.0,
+    "rss_regress_abs_kb": 512
+  },
+  "benchmarks": {
+    "check_checker_stress": {
+      "time_regress_abs_ms": 4.0,
+      "rss_regress_abs_kb": 1024
+    },
+    "run_parse_ops": {
+      "rss_regress_pct": 12.0,
+      "rss_regress_abs_kb": 768
+    },
+    "run_regex_scan": {
+      "time_regress_pct": 10.0
+    }
+  }
+}
