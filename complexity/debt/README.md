@@ -60,8 +60,24 @@ The first version of PR `#187` did not execute `clang-tidy` in CI because the
 runner script depended on `rg`, which is not installed on GitHub's Ubuntu
 runner image by default.
 
-This PR fixes that runner. The canonical readability inventory is now produced
-by the `complexity` workflow artifacts:
+This PR fixes that runner and also scopes analysis to the files present in the
+configured `compile_commands.json` database. That avoids Linux `clang-tidy`
+trying to parse Windows-only sources like `src/platform/platform_win32.c`.
+
+First real Linux inventory from the corrected workflow before the compile-db
+filter landed:
+
+- `361` diagnostics total
+- `350` `readability-function-cognitive-complexity`
+- `6` `readability-else-after-return`
+- `4` `bugprone-branch-clone`
+- `1` `clang-diagnostic-error` caused by Linux parsing `platform_win32.c`
+
+That means the current readability backlog is overwhelmingly cognitive
+complexity in large parser, VM, CLI, and test functions.
+
+The canonical readability inventory is produced by the `complexity` workflow
+artifacts:
 
 - `complexity-artifacts/clang-tidy-main.log`
 - `complexity-artifacts/clang-tidy-pr.log`

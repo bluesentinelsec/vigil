@@ -38,7 +38,43 @@ fi
 status=0
 
 cd "$source_root_abs"
-find src tests -type f -name '*.c' | LC_ALL=C sort > "$file_list"
+python3 - "$build_dir_abs/compile_commands.json" "$source_root_abs" > "$file_list" <<'PY'
+import json
+import os
+import sys
+
+compile_commands_path = sys.argv[1]
+source_root = os.path.realpath(sys.argv[2])
+seen = set()
+files = []
+
+with open(compile_commands_path, "r", encoding="utf-8") as handle:
+    compile_commands = json.load(handle)
+
+for entry in compile_commands:
+    path = entry.get("file")
+    if not path:
+        continue
+
+    abs_path = os.path.realpath(path)
+    if not abs_path.startswith(source_root + os.sep):
+        continue
+    if not abs_path.endswith(".c"):
+        continue
+
+    rel_path = os.path.relpath(abs_path, source_root)
+    if not (rel_path.startswith("src" + os.sep) or rel_path.startswith("tests" + os.sep)):
+        continue
+    if rel_path in seen:
+        continue
+
+    seen.add(rel_path)
+    files.append(rel_path)
+
+for rel_path in sorted(files):
+    print(rel_path)
+PY
+
 while IFS= read -r file; do
     if [ -n "$config_args" ]; then
         if ! "$clang_tidy_bin" \
