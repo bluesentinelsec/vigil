@@ -23,7 +23,8 @@ test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
 
 format:
-	@echo "Formatting is not configured yet for the C rewrite scaffold."
+	find src include tests \( -name '*.c' -o -name '*.h' \) -print0 \
+		| xargs -0 clang-format -i
 
 clean:
 	cmake -E rm -rf $(BUILD_DIR)
