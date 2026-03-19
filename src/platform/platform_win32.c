@@ -910,6 +910,26 @@ VIGIL_API void vigil_platform_thread_sleep(uint64_t milliseconds) {
     Sleep((DWORD)milliseconds);
 }
 
+VIGIL_API int64_t vigil_platform_now_ms(void) {
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (int64_t)((uli.QuadPart - 116444736000000000ULL) / 10000ULL);
+}
+
+VIGIL_API int64_t vigil_platform_now_ns(void) {
+    FILETIME ft;
+    ULARGE_INTEGER uli;
+
+    GetSystemTimeAsFileTime(&ft);
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (int64_t)((uli.QuadPart - 116444736000000000ULL) * 100ULL);
+}
+
 /* ── Mutex (using CRITICAL_SECTION for efficiency) ───────────────── */
 
 struct vigil_platform_mutex {
@@ -1164,6 +1184,8 @@ typedef SOCKET (WSAAPI *pAccept_t)(SOCKET, struct sockaddr *, int *);
 typedef int (WSAAPI *pConnect_t)(SOCKET, const struct sockaddr *, int);
 typedef int (WSAAPI *pSend_t)(SOCKET, const char *, int, int);
 typedef int (WSAAPI *pRecv_t)(SOCKET, char *, int, int);
+typedef int (WSAAPI *pSendto_t)(SOCKET, const char *, int, int, const struct sockaddr *, int);
+typedef int (WSAAPI *pRecvfrom_t)(SOCKET, char *, int, int, struct sockaddr *, int *);
 typedef int (WSAAPI *pClosesocket_t)(SOCKET);
 typedef int (WSAAPI *pSetsockopt_t)(SOCKET, int, int, const char *, int);
 typedef INT (WSAAPI *pGetaddrinfo_t)(PCSTR, PCSTR, const ADDRINFOA *, PADDRINFOA *);
@@ -1181,6 +1203,8 @@ static pAccept_t        p_accept = NULL;
 static pConnect_t       p_connect = NULL;
 static pSend_t          p_send = NULL;
 static pRecv_t          p_recv = NULL;
+static pSendto_t        p_sendto = NULL;
+static pRecvfrom_t      p_recvfrom = NULL;
 static pClosesocket_t   p_closesocket = NULL;
 static pSetsockopt_t    p_setsockopt = NULL;
 static pGetaddrinfo_t   p_getaddrinfo = NULL;
@@ -1204,6 +1228,8 @@ static int ws2_load(void) {
     vigil_platform_dlsym(g_ws2_lib, "connect", (void **)&p_connect, NULL);
     vigil_platform_dlsym(g_ws2_lib, "send", (void **)&p_send, NULL);
     vigil_platform_dlsym(g_ws2_lib, "recv", (void **)&p_recv, NULL);
+    vigil_platform_dlsym(g_ws2_lib, "sendto", (void **)&p_sendto, NULL);
+    vigil_platform_dlsym(g_ws2_lib, "recvfrom", (void **)&p_recvfrom, NULL);
     vigil_platform_dlsym(g_ws2_lib, "closesocket", (void **)&p_closesocket, NULL);
     vigil_platform_dlsym(g_ws2_lib, "setsockopt", (void **)&p_setsockopt, NULL);
     vigil_platform_dlsym(g_ws2_lib, "getaddrinfo", (void **)&p_getaddrinfo, NULL);
@@ -1213,12 +1239,30 @@ static int ws2_load(void) {
     vigil_platform_dlsym(g_ws2_lib, "htonl", (void **)&p_htonl, NULL);
 
     if (!p_socket || !p_bind || !p_listen || !p_accept || !p_connect ||
-        !p_send || !p_recv || !p_closesocket || !p_WSAStartup) return 0;
+        !p_send || !p_recv || !p_sendto || !p_recvfrom ||
+        !p_closesocket || !p_WSAStartup) return 0;
 
     WSADATA wsa;
     p_WSAStartup(MAKEWORD(2, 2), &wsa);
     ws2_loaded = 1;
     return 1;
+}
+
+static u_short vigil_ws2_htons(u_short value) {
+    if (p_htons != NULL) {
+        return p_htons(value);
+    }
+    return (u_short)(((value & 0x00ffU) << 8) | ((value & 0xff00U) >> 8));
+}
+
+static u_long vigil_ws2_htonl(u_long value) {
+    if (p_htonl != NULL) {
+        return p_htonl(value);
+    }
+    return ((value & 0x000000ffUL) << 24) |
+           ((value & 0x0000ff00UL) << 8) |
+           ((value & 0x00ff0000UL) >> 8) |
+           ((value & 0xff000000UL) >> 24);
 }
 
 VIGIL_API vigil_status_t vigil_platform_net_init(vigil_error_t *error) {
@@ -1252,9 +1296,9 @@ VIGIL_API vigil_status_t vigil_platform_tcp_listen(
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = p_htons ? p_htons((u_short)port) : htons((u_short)port);
+    addr.sin_port = vigil_ws2_htons((u_short)port);
     if (strcmp(host, "0.0.0.0") == 0) {
-        addr.sin_addr.s_addr = p_htonl ? p_htonl(INADDR_ANY) : htonl(INADDR_ANY);
+        addr.sin_addr.s_addr = vigil_ws2_htonl(INADDR_ANY);
     } else if (p_inet_pton) {
         p_inet_pton(AF_INET, host, &addr.sin_addr);
     }
@@ -1366,6 +1410,137 @@ VIGIL_API vigil_status_t vigil_platform_tcp_set_timeout(
     DWORD tv = (DWORD)timeout_ms;
     p_setsockopt((SOCKET)sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
     p_setsockopt((SOCKET)sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tv, sizeof(tv));
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_bind(
+    const char *host, int port, vigil_socket_t *out_sock, vigil_error_t *error
+) {
+    SOCKET fd;
+    struct sockaddr_in addr;
+
+    if (!host || !out_sock) {
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = VIGIL_INVALID_SOCKET;
+    if (!ws2_load()) return VIGIL_STATUS_UNSUPPORTED;
+
+    fd = p_socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == INVALID_SOCKET) {
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "socket() failed"; error->length = 15; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = vigil_ws2_htons((u_short)port);
+    if (host[0] == '\0' || strcmp(host, "0.0.0.0") == 0) {
+        addr.sin_addr.s_addr = vigil_ws2_htonl(INADDR_ANY);
+    } else if (!p_inet_pton || p_inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        p_closesocket(fd);
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "inet_pton() failed"; error->length = 18; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    if (p_bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        p_closesocket(fd);
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "bind() failed"; error->length = 13; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_sock = (vigil_socket_t)fd;
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_new(
+    vigil_socket_t *out_sock, vigil_error_t *error
+) {
+    SOCKET fd;
+
+    if (!out_sock) {
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = VIGIL_INVALID_SOCKET;
+    if (!ws2_load()) return VIGIL_STATUS_UNSUPPORTED;
+
+    fd = p_socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd == INVALID_SOCKET) {
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "socket() failed"; error->length = 15; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_sock = (vigil_socket_t)fd;
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_send(
+    vigil_socket_t sock,
+    const char *host,
+    int port,
+    const void *data,
+    size_t len,
+    size_t *out_sent,
+    vigil_error_t *error
+) {
+    struct addrinfo hints = {0};
+    struct addrinfo *res = NULL;
+    char port_str[16];
+    int sent;
+
+    if (!host || !data) {
+        if (out_sent) *out_sent = 0U;
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    if (!ws2_load()) return VIGIL_STATUS_UNSUPPORTED;
+
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    snprintf(port_str, sizeof(port_str), "%d", port);
+    if (!p_getaddrinfo || p_getaddrinfo(host, port_str, &hints, &res) != 0 || res == NULL) {
+        if (out_sent) *out_sent = 0U;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "getaddrinfo() failed"; error->length = 20; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    sent = p_sendto((SOCKET)sock, (const char *)data, (int)len, 0, res->ai_addr, (int)res->ai_addrlen);
+    p_freeaddrinfo(res);
+    if (sent < 0) {
+        if (out_sent) *out_sent = 0U;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "sendto() failed"; error->length = 16; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    if (out_sent) *out_sent = (size_t)sent;
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_recv(
+    vigil_socket_t sock,
+    void *buf,
+    size_t cap,
+    size_t *out_received,
+    vigil_error_t *error
+) {
+    int received;
+
+    if (!buf) {
+        if (out_received) *out_received = 0U;
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    if (!ws2_load()) return VIGIL_STATUS_UNSUPPORTED;
+
+    received = p_recvfrom((SOCKET)sock, (char *)buf, (int)cap, 0, NULL, NULL);
+    if (received < 0) {
+        if (out_received) *out_received = 0U;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "recvfrom() failed"; error->length = 18; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    if (out_received) *out_received = (size_t)received;
     return VIGIL_STATUS_OK;
 }
 

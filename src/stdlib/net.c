@@ -1,69 +1,37 @@
-/* VIGIL standard library: net module.
- *
- * TCP and UDP socket support with cross-platform compatibility.
- */
+/* VIGIL standard library: net module. */
 
-#ifdef _MSC_VER
-#define _CRT_SECURE_NO_WARNINGS
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
-#endif
-
+#include <limits.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "vigil/native_module.h"
+#include "vigil/runtime.h"
 #include "vigil/type.h"
 #include "vigil/value.h"
 #include "vigil/vm.h"
 
 #include "internal/vigil_nanbox.h"
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
-typedef SOCKET socket_t;
-#define INVALID_SOCK INVALID_SOCKET
-#define SOCK_ERR SOCKET_ERROR
-#define close_socket closesocket
-#else
-#include <sys/socket.h>
-#include <sys/select.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <errno.h>
-typedef int socket_t;
-#define INVALID_SOCK (-1)
-#define SOCK_ERR (-1)
-#define close_socket close
-#endif
+#include "platform/platform.h"
 
 /* ── Socket storage ──────────────────────────────────────────────── */
 
 #define MAX_SOCKETS 256
-static socket_t g_sockets[MAX_SOCKETS];
+static vigil_socket_t g_sockets[MAX_SOCKETS];
 static int g_socket_types[MAX_SOCKETS]; /* 0=unused, 1=tcp, 2=udp */
 static int g_initialized = 0;
 
-static void net_init(void) {
-    if (g_initialized) return;
-#ifdef _WIN32
-    WSADATA wsa;
-    WSAStartup(MAKEWORD(2, 2), &wsa);
-#endif
+static int net_init(vigil_error_t *error) {
+    if (g_initialized) return 1;
+    if (vigil_platform_net_init(error) != VIGIL_STATUS_OK) return 0;
     for (int i = 0; i < MAX_SOCKETS; i++) {
-        g_sockets[i] = INVALID_SOCK;
+        g_sockets[i] = VIGIL_INVALID_SOCKET;
         g_socket_types[i] = 0;
     }
     g_initialized = 1;
+    return 1;
 }
 
-static int64_t alloc_socket(socket_t s, int type) {
+static int64_t alloc_socket(vigil_socket_t s, int type) {
     for (int i = 0; i < MAX_SOCKETS; i++) {
         if (g_socket_types[i] == 0) {
             g_sockets[i] = s;
@@ -74,17 +42,17 @@ static int64_t alloc_socket(socket_t s, int type) {
     return -1;
 }
 
-static socket_t get_socket(int64_t handle) {
-    if (handle < 0 || handle >= MAX_SOCKETS) return INVALID_SOCK;
-    if (g_socket_types[handle] == 0) return INVALID_SOCK;
+static vigil_socket_t get_socket(int64_t handle) {
+    if (handle < 0 || handle >= MAX_SOCKETS) return VIGIL_INVALID_SOCKET;
+    if (g_socket_types[handle] == 0) return VIGIL_INVALID_SOCKET;
     return g_sockets[handle];
 }
 
 static void free_socket(int64_t handle) {
     if (handle < 0 || handle >= MAX_SOCKETS) return;
     if (g_socket_types[handle] != 0) {
-        close_socket(g_sockets[handle]);
-        g_sockets[handle] = INVALID_SOCK;
+        vigil_platform_tcp_close(g_sockets[handle], NULL);
+        g_sockets[handle] = VIGIL_INVALID_SOCKET;
         g_socket_types[handle] = 0;
     }
 }
@@ -123,6 +91,11 @@ static vigil_status_t push_i32(vigil_vm_t *vm, int32_t val, vigil_error_t *error
     return vigil_vm_stack_push(vm, &v, error);
 }
 
+static int32_t clamp_i32(size_t value) {
+    if (value > (size_t)INT32_MAX) return INT32_MAX;
+    return (int32_t)value;
+}
+
 static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
                                   vigil_error_t *error) {
     vigil_object_t *obj = NULL;
@@ -143,12 +116,13 @@ static vigil_status_t net_tcp_listen(vigil_vm_t *vm, size_t arg_count, vigil_err
     const char *host;
     size_t host_len;
     int32_t port;
-    socket_t sock;
-    struct sockaddr_in addr;
-    int opt = 1;
     char host_buf[256];
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
 
-    net_init();
+    if (!net_init(NULL)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_i64(vm, -1, error);
+    }
 
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -157,42 +131,17 @@ static vigil_status_t net_tcp_listen(vigil_vm_t *vm, size_t arg_count, vigil_err
     port = get_i32_arg(vm, base, 1);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == INVALID_SOCK) return push_i64(vm, -1, error);
-
-#ifdef _WIN32
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&opt, sizeof(opt));
-#else
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-#endif
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-
     if (host_len >= sizeof(host_buf)) host_len = sizeof(host_buf) - 1;
     memcpy(host_buf, host, host_len);
     host_buf[host_len] = '\0';
 
-    if (host_len == 0 || strcmp(host_buf, "0.0.0.0") == 0) {
-        addr.sin_addr.s_addr = INADDR_ANY;
-    } else {
-        addr.sin_addr.s_addr = inet_addr(host_buf);
-    }
-
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == SOCK_ERR) {
-        close_socket(sock);
-        return push_i64(vm, -1, error);
-    }
-
-    if (listen(sock, 128) == SOCK_ERR) {
-        close_socket(sock);
+    if (vigil_platform_tcp_listen(host_buf, (int)port, &sock, NULL) != VIGIL_STATUS_OK) {
         return push_i64(vm, -1, error);
     }
 
     int64_t handle = alloc_socket(sock, 1);
     if (handle < 0) {
-        close_socket(sock);
+        vigil_platform_tcp_close(sock, NULL);
         return push_i64(vm, -1, error);
     }
 
@@ -203,19 +152,18 @@ static vigil_status_t net_tcp_listen(vigil_vm_t *vm, size_t arg_count, vigil_err
 static vigil_status_t net_tcp_accept(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t listener = get_i64_arg(vm, base, 0);
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    socket_t listen_sock = get_socket(listener);
-    if (listen_sock == INVALID_SOCK) return push_i64(vm, -1, error);
-
-    struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
-    socket_t client = accept(listen_sock, (struct sockaddr *)&client_addr, &addr_len);
-    if (client == INVALID_SOCK) return push_i64(vm, -1, error);
+    vigil_socket_t listen_sock = get_socket(listener);
+    if (listen_sock == VIGIL_INVALID_SOCKET) return push_i64(vm, -1, error);
+    if (vigil_platform_tcp_accept(listen_sock, &client, NULL) != VIGIL_STATUS_OK) {
+        return push_i64(vm, -1, error);
+    }
 
     int64_t handle = alloc_socket(client, 1);
     if (handle < 0) {
-        close_socket(client);
+        vigil_platform_tcp_close(client, NULL);
         return push_i64(vm, -1, error);
     }
 
@@ -228,12 +176,13 @@ static vigil_status_t net_tcp_connect(vigil_vm_t *vm, size_t arg_count, vigil_er
     const char *host;
     size_t host_len;
     int32_t port;
-    socket_t sock;
-    struct sockaddr_in addr;
-    struct hostent *he;
     char host_buf[256];
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
 
-    net_init();
+    if (!net_init(NULL)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_i64(vm, -1, error);
+    }
 
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -246,33 +195,13 @@ static vigil_status_t net_tcp_connect(vigil_vm_t *vm, size_t arg_count, vigil_er
     memcpy(host_buf, host, host_len);
     host_buf[host_len] = '\0';
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == INVALID_SOCK) return push_i64(vm, -1, error);
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-
-    /* Try as IP address first */
-    addr.sin_addr.s_addr = inet_addr(host_buf);
-    if (addr.sin_addr.s_addr == INADDR_NONE) {
-        /* Resolve hostname */
-        he = gethostbyname(host_buf);
-        if (!he) {
-            close_socket(sock);
-            return push_i64(vm, -1, error);
-        }
-        memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
-    }
-
-    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) == SOCK_ERR) {
-        close_socket(sock);
+    if (vigil_platform_tcp_connect(host_buf, (int)port, &sock, NULL) != VIGIL_STATUS_OK) {
         return push_i64(vm, -1, error);
     }
 
     int64_t handle = alloc_socket(sock, 1);
     if (handle < 0) {
-        close_socket(sock);
+        vigil_platform_tcp_close(sock, NULL);
         return push_i64(vm, -1, error);
     }
 
@@ -284,25 +213,29 @@ static vigil_status_t net_read(vigil_vm_t *vm, size_t arg_count, vigil_error_t *
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int32_t max_bytes = get_i32_arg(vm, base, 1);
+    vigil_runtime_t *runtime = vigil_vm_runtime(vm);
+    void *memory = NULL;
+    size_t received = 0;
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    socket_t sock = get_socket(handle);
-    if (sock == INVALID_SOCK) return push_string(vm, "", 0, error);
+    vigil_socket_t sock = get_socket(handle);
+    if (sock == VIGIL_INVALID_SOCKET) return push_string(vm, "", 0, error);
 
     if (max_bytes <= 0) max_bytes = 4096;
     if (max_bytes > 1024 * 1024) max_bytes = 1024 * 1024;
 
-    char *buf = (char *)malloc((size_t)max_bytes);
-    if (!buf) return push_string(vm, "", 0, error);
+    if (vigil_runtime_alloc(runtime, (size_t)max_bytes, &memory, error) != VIGIL_STATUS_OK) {
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
 
-    int n = recv(sock, buf, (size_t)max_bytes, 0);
-    if (n <= 0) {
-        free(buf);
+    if (vigil_platform_tcp_recv(sock, memory, (size_t)max_bytes, &received, NULL) != VIGIL_STATUS_OK ||
+        received == 0U) {
+        vigil_runtime_free(runtime, &memory);
         return push_string(vm, "", 0, error);
     }
 
-    vigil_status_t s = push_string(vm, buf, (size_t)n, error);
-    free(buf);
+    vigil_status_t s = push_string(vm, (const char *)memory, received, error);
+    vigil_runtime_free(runtime, &memory);
     return s;
 }
 
@@ -319,11 +252,13 @@ static vigil_status_t net_write(vigil_vm_t *vm, size_t arg_count, vigil_error_t 
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    socket_t sock = get_socket(handle);
-    if (sock == INVALID_SOCK) return push_i32(vm, -1, error);
-
-    int n = send(sock, data, (int)data_len, 0);
-    return push_i32(vm, n, error);
+    vigil_socket_t sock = get_socket(handle);
+    size_t sent = 0U;
+    if (sock == VIGIL_INVALID_SOCKET) return push_i32(vm, -1, error);
+    if (vigil_platform_tcp_send(sock, data, data_len, &sent, NULL) != VIGIL_STATUS_OK) {
+        return push_i32(vm, -1, error);
+    }
+    return push_i32(vm, clamp_i32(sent), error);
 }
 
 /* net.close(sock: i64) */
@@ -344,11 +279,13 @@ static vigil_status_t net_udp_bind(vigil_vm_t *vm, size_t arg_count, vigil_error
     const char *host;
     size_t host_len;
     int32_t port;
-    socket_t sock;
-    struct sockaddr_in addr;
     char host_buf[256];
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
 
-    net_init();
+    if (!net_init(NULL)) {
+        vigil_vm_stack_pop_n(vm, arg_count);
+        return push_i64(vm, -1, error);
+    }
 
     if (!get_string_arg(vm, base, 0, &host, &host_len)) {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -357,31 +294,17 @@ static vigil_status_t net_udp_bind(vigil_vm_t *vm, size_t arg_count, vigil_error
     port = get_i32_arg(vm, base, 1);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == INVALID_SOCK) return push_i64(vm, -1, error);
-
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-
     if (host_len >= sizeof(host_buf)) host_len = sizeof(host_buf) - 1;
     memcpy(host_buf, host, host_len);
     host_buf[host_len] = '\0';
 
-    if (host_len == 0 || strcmp(host_buf, "0.0.0.0") == 0) {
-        addr.sin_addr.s_addr = INADDR_ANY;
-    } else {
-        addr.sin_addr.s_addr = inet_addr(host_buf);
-    }
-
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == SOCK_ERR) {
-        close_socket(sock);
+    if (vigil_platform_udp_bind(host_buf, (int)port, &sock, NULL) != VIGIL_STATUS_OK) {
         return push_i64(vm, -1, error);
     }
 
     int64_t handle = alloc_socket(sock, 2);
     if (handle < 0) {
-        close_socket(sock);
+        vigil_platform_tcp_close(sock, NULL);
         return push_i64(vm, -1, error);
     }
 
@@ -391,14 +314,13 @@ static vigil_status_t net_udp_bind(vigil_vm_t *vm, size_t arg_count, vigil_error
 /* net.udp_new() -> i64 */
 static vigil_status_t net_udp_new(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     (void)arg_count;
-    net_init();
-
-    socket_t sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock == INVALID_SOCK) return push_i64(vm, -1, error);
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
+    if (!net_init(NULL)) return push_i64(vm, -1, error);
+    if (vigil_platform_udp_new(&sock, NULL) != VIGIL_STATUS_OK) return push_i64(vm, -1, error);
 
     int64_t handle = alloc_socket(sock, 2);
     if (handle < 0) {
-        close_socket(sock);
+        vigil_platform_tcp_close(sock, NULL);
         return push_i64(vm, -1, error);
     }
 
@@ -412,8 +334,8 @@ static vigil_status_t net_udp_send(vigil_vm_t *vm, size_t arg_count, vigil_error
     const char *host, *data;
     size_t host_len, data_len;
     int32_t port;
-    struct sockaddr_in addr;
     char host_buf[256];
+    size_t sent = 0U;
 
     if (!get_string_arg(vm, base, 1, &host, &host_len) ||
         !get_string_arg(vm, base, 3, &data, &data_len)) {
@@ -423,26 +345,18 @@ static vigil_status_t net_udp_send(vigil_vm_t *vm, size_t arg_count, vigil_error
     port = get_i32_arg(vm, base, 2);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    socket_t sock = get_socket(handle);
-    if (sock == INVALID_SOCK) return push_i32(vm, -1, error);
+    vigil_socket_t sock = get_socket(handle);
+    if (sock == VIGIL_INVALID_SOCKET) return push_i32(vm, -1, error);
 
     if (host_len >= sizeof(host_buf)) host_len = sizeof(host_buf) - 1;
     memcpy(host_buf, host, host_len);
     host_buf[host_len] = '\0';
 
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    addr.sin_addr.s_addr = inet_addr(host_buf);
-
-    if (addr.sin_addr.s_addr == INADDR_NONE) {
-        struct hostent *he = gethostbyname(host_buf);
-        if (!he) return push_i32(vm, -1, error);
-        memcpy(&addr.sin_addr, he->h_addr_list[0], (size_t)he->h_length);
+    if (vigil_platform_udp_send(sock, host_buf, (int)port, data, data_len, &sent, NULL) !=
+        VIGIL_STATUS_OK) {
+        return push_i32(vm, -1, error);
     }
-
-    int n = sendto(sock, data, (int)data_len, 0, (struct sockaddr *)&addr, sizeof(addr));
-    return push_i32(vm, n, error);
+    return push_i32(vm, clamp_i32(sent), error);
 }
 
 /* net.udp_recv(sock: i64, max_bytes: i32) -> string */
@@ -450,27 +364,30 @@ static vigil_status_t net_udp_recv(vigil_vm_t *vm, size_t arg_count, vigil_error
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int64_t handle = get_i64_arg(vm, base, 0);
     int32_t max_bytes = get_i32_arg(vm, base, 1);
+    vigil_runtime_t *runtime = vigil_vm_runtime(vm);
+    void *memory = NULL;
+    size_t received = 0U;
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    socket_t sock = get_socket(handle);
-    if (sock == INVALID_SOCK) return push_string(vm, "", 0, error);
+    vigil_socket_t sock = get_socket(handle);
+    if (sock == VIGIL_INVALID_SOCKET) return push_string(vm, "", 0, error);
 
     if (max_bytes <= 0) max_bytes = 4096;
     if (max_bytes > 65536) max_bytes = 65536;
 
-    char *buf = (char *)malloc((size_t)max_bytes);
-    if (!buf) return push_string(vm, "", 0, error);
+    if (vigil_runtime_alloc(runtime, (size_t)max_bytes, &memory, error) != VIGIL_STATUS_OK) {
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
 
-    struct sockaddr_in from;
-    socklen_t from_len = sizeof(from);
-    int n = recvfrom(sock, buf, (size_t)max_bytes, 0, (struct sockaddr *)&from, &from_len);
-    if (n <= 0) {
-        free(buf);
+    if (vigil_platform_udp_recv(sock, memory, (size_t)max_bytes, &received, NULL) !=
+            VIGIL_STATUS_OK ||
+        received == 0U) {
+        vigil_runtime_free(runtime, &memory);
         return push_string(vm, "", 0, error);
     }
 
-    vigil_status_t s = push_string(vm, buf, (size_t)n, error);
-    free(buf);
+    vigil_status_t s = push_string(vm, (const char *)memory, received, error);
+    vigil_runtime_free(runtime, &memory);
     return s;
 }
 
@@ -481,27 +398,15 @@ static vigil_status_t net_set_timeout(vigil_vm_t *vm, size_t arg_count, vigil_er
     int32_t ms = get_i32_arg(vm, base, 1);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    socket_t sock = get_socket(handle);
-    if (sock == INVALID_SOCK) {
+    vigil_socket_t sock = get_socket(handle);
+    if (sock == VIGIL_INVALID_SOCKET) {
         vigil_value_t v;
         vigil_value_init_bool(&v, 0);
         return vigil_vm_stack_push(vm, &v, error);
     }
 
-#ifdef _WIN32
-    DWORD timeout = (DWORD)ms;
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout, sizeof(timeout));
-#else
-    struct timeval tv;
-    tv.tv_sec = ms / 1000;
-    tv.tv_usec = (ms % 1000) * 1000;
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-#endif
-
     vigil_value_t v;
-    vigil_value_init_bool(&v, 1);
+    vigil_value_init_bool(&v, vigil_platform_tcp_set_timeout(sock, ms, NULL) == VIGIL_STATUS_OK);
     return vigil_vm_stack_push(vm, &v, error);
 }
 

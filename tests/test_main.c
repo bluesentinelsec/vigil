@@ -15,8 +15,12 @@ extern void register_diagnostic_tests(void);
 extern void register_doc_tests(void);
 extern void register_ffi_tests(void);
 extern void register_fs_tests(void);
+#ifdef VIGIL_HAS_STDLIB_HTTP
 extern void register_http_tests(void);
+#endif
+#ifdef VIGIL_HAS_STDLIB_THREAD
 extern void register_thread_tests(void);
+#endif
 extern void register_unsafe_tests(void);
 extern void register_json_tests(void);
 extern void register_lexer_tests(void);
@@ -55,8 +59,12 @@ int main(void) {
     register_doc_tests();
     register_ffi_tests();
     register_fs_tests();
+#ifdef VIGIL_HAS_STDLIB_HTTP
     register_http_tests();
+#endif
+#ifdef VIGIL_HAS_STDLIB_THREAD
     register_thread_tests();
+#endif
     register_unsafe_tests();
     register_json_tests();
     register_lexer_tests();
@@ -81,4 +89,3 @@ int main(void) {
     register_vm_tests();
     return vigil_test_run_all_();
 }
-

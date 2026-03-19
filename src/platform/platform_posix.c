@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
 #include <termios.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -1006,6 +1007,24 @@ VIGIL_API void vigil_platform_thread_sleep(uint64_t milliseconds) {
     nanosleep(&ts, NULL);
 }
 
+VIGIL_API int64_t vigil_platform_now_ms(void) {
+    struct timeval tv;
+
+    if (gettimeofday(&tv, NULL) != 0) {
+        return 0;
+    }
+    return (int64_t)tv.tv_sec * 1000LL + (int64_t)(tv.tv_usec / 1000);
+}
+
+VIGIL_API int64_t vigil_platform_now_ns(void) {
+    struct timeval tv;
+
+    if (gettimeofday(&tv, NULL) != 0) {
+        return 0;
+    }
+    return (int64_t)tv.tv_sec * 1000000000LL + (int64_t)tv.tv_usec * 1000LL;
+}
+
 /* ── Mutex ───────────────────────────────────────────────────────── */
 
 struct vigil_platform_mutex {
@@ -1370,6 +1389,135 @@ VIGIL_API vigil_status_t vigil_platform_tcp_set_timeout(
     tv.tv_usec = (timeout_ms % 1000) * 1000;
     setsockopt((int)sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     setsockopt((int)sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_bind(
+    const char *host, int port, vigil_socket_t *out_sock, vigil_error_t *error
+) {
+    int fd;
+    struct sockaddr_in addr;
+
+    if (!host || !out_sock) {
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = VIGIL_INVALID_SOCKET;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "socket() failed"; error->length = 15; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    if (host[0] == '\0' || strcmp(host, "0.0.0.0") == 0) {
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    } else if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        close(fd);
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "inet_pton() failed"; error->length = 18; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "bind() failed"; error->length = 13; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_sock = (vigil_socket_t)fd;
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_new(
+    vigil_socket_t *out_sock, vigil_error_t *error
+) {
+    int fd;
+
+    if (!out_sock) {
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_sock = VIGIL_INVALID_SOCKET;
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "socket() failed"; error->length = 15; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_sock = (vigil_socket_t)fd;
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_send(
+    vigil_socket_t sock,
+    const char *host,
+    int port,
+    const void *data,
+    size_t len,
+    size_t *out_sent,
+    vigil_error_t *error
+) {
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    char port_str[16];
+    ssize_t sent;
+
+    if (!host || !data) {
+        if (out_sent) *out_sent = 0U;
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    snprintf(port_str, sizeof(port_str), "%d", port);
+
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || res == NULL) {
+        if (out_sent) *out_sent = 0U;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "getaddrinfo() failed"; error->length = 20; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    sent = sendto((int)sock, data, len, 0, res->ai_addr, (socklen_t)res->ai_addrlen);
+    freeaddrinfo(res);
+    if (sent < 0) {
+        if (out_sent) *out_sent = 0U;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "sendto() failed"; error->length = 16; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    if (out_sent) *out_sent = (size_t)sent;
+    return VIGIL_STATUS_OK;
+}
+
+VIGIL_API vigil_status_t vigil_platform_udp_recv(
+    vigil_socket_t sock,
+    void *buf,
+    size_t cap,
+    size_t *out_received,
+    vigil_error_t *error
+) {
+    ssize_t received;
+
+    if (!buf) {
+        if (out_received) *out_received = 0U;
+        if (error) { error->type = VIGIL_STATUS_INVALID_ARGUMENT; error->value = "null argument"; error->length = 13; }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    received = recvfrom((int)sock, buf, cap, 0, NULL, NULL);
+    if (received < 0) {
+        if (out_received) *out_received = 0U;
+        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "recvfrom() failed"; error->length = 18; }
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    if (out_received) *out_received = (size_t)received;
     return VIGIL_STATUS_OK;
 }
 

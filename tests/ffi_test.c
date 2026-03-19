@@ -397,7 +397,7 @@ TEST(FFIDlopen, CallViaLibffi) {
 /* These test ffi.open/bind/call/call_f/call_s through the actual
  * native module interface with a real VM and stack. */
 
-#if defined(FFI_TESTLIB_PATH) && defined(VIGIL_HAS_LIBFFI)
+#if defined(FFI_TESTLIB_PATH) && defined(VIGIL_HAS_LIBFFI) && defined(VIGIL_HAS_STDLIB_FFI)
 
 #include "vigil/vm.h"
 #include "vigil/runtime.h"
@@ -873,8 +873,7 @@ TEST(FFIModule, CallNegate) {
     fn_close(vm, 1, &error);
     ffi_vm_teardown(&rt, &vm);
 }
-
-#endif /* FFI_TESTLIB_PATH && VIGIL_HAS_LIBFFI */
+#endif /* FFI_TESTLIB_PATH && VIGIL_HAS_LIBFFI && VIGIL_HAS_STDLIB_FFI */
 
 /* ── Registration ────────────────────────────────────────────────── */
 
@@ -905,6 +904,8 @@ void register_ffi_tests(void) {
     REGISTER_TEST(FFIDlopen, OpenBadPath);
 #ifdef VIGIL_HAS_LIBFFI
     REGISTER_TEST(FFIDlopen, CallViaLibffi);
+#endif
+#if defined(VIGIL_HAS_LIBFFI) && defined(VIGIL_HAS_STDLIB_FFI)
     /* High-level module tests */
     REGISTER_TEST(FFIModule, OpenBindCallClose);
     REGISTER_TEST(FFIModule, CallVoidReturn);

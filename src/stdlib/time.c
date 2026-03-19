@@ -27,12 +27,6 @@
 #include "internal/vigil_nanbox.h"
 #include "platform/platform.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <sys/time.h>
-#endif
-
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
 static int64_t get_i64_arg(vigil_vm_t *vm, size_t base, size_t idx) {
@@ -94,42 +88,15 @@ static vigil_status_t time_now(vigil_vm_t *vm, size_t arg_count, vigil_error_t *
 /* ── time.now_ms() -> i64 ────────────────────────────────────────── */
 
 static vigil_status_t time_now_ms(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    int64_t ms;
     (void)arg_count;
-#ifdef _WIN32
-    FILETIME ft;
-    ULARGE_INTEGER uli;
-    GetSystemTimeAsFileTime(&ft);
-    uli.LowPart = ft.dwLowDateTime;
-    uli.HighPart = ft.dwHighDateTime;
-    /* FILETIME is 100ns intervals since 1601-01-01 */
-    ms = (int64_t)((uli.QuadPart - 116444736000000000ULL) / 10000);
-#else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    ms = (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-#endif
-    return push_i64(vm, ms, error);
+    return push_i64(vm, vigil_platform_now_ms(), error);
 }
 
 /* ── time.now_ns() -> i64 ────────────────────────────────────────── */
 
 static vigil_status_t time_now_ns(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    int64_t ns;
     (void)arg_count;
-#ifdef _WIN32
-    FILETIME ft;
-    ULARGE_INTEGER uli;
-    GetSystemTimeAsFileTime(&ft);
-    uli.LowPart = ft.dwLowDateTime;
-    uli.HighPart = ft.dwHighDateTime;
-    ns = (int64_t)((uli.QuadPart - 116444736000000000ULL) * 100);
-#else
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    ns = (int64_t)tv.tv_sec * 1000000000LL + (int64_t)tv.tv_usec * 1000;
-#endif
-    return push_i64(vm, ns, error);
+    return push_i64(vm, vigil_platform_now_ns(), error);
 }
 
 /* ── time.sleep(ms: i64) ─────────────────────────────────────────── */
