@@ -193,29 +193,41 @@ vigil_status_t vigil_parser_parse_embedded_expression(
     }
 
     for (token_index = 0U; token_index < tokens.count; token_index += 1U) {
-        tokens.items[token_index].span.source_id = state->program->source->id;
-        tokens.items[token_index].span.start_offset += absolute_offset;
-        tokens.items[token_index].span.end_offset += absolute_offset;
+        if (absolute_offset != 0U) {
+            tokens.items[token_index].span.source_id = state->program->source->id;
+            tokens.items[token_index].span.start_offset += absolute_offset;
+            tokens.items[token_index].span.end_offset += absolute_offset;
+        }
     }
 
     program = (vigil_program_state_t *)state->program;
     previous_tokens = program->tokens;
     program->tokens = &tokens;
-    nested = *state;
-    nested.current = 0U;
-    nested.body_end = vigil_token_list_count(&tokens);
-    vigil_expression_result_clear(&nested_result);
-    status = vigil_parser_parse_expression(&nested, &nested_result);
-    if (status == VIGIL_STATUS_OK && !vigil_parser_check(&nested, VIGIL_TOKEN_EOF)) {
-        status = vigil_parser_report(
-            &nested,
-            vigil_parser_peek(&nested) == NULL ? error_span : vigil_parser_peek(&nested)->span,
-            "expected end of f-string interpolation expression"
-        );
-    }
-    if (status == VIGIL_STATUS_OK) {
-        state->chunk = nested.chunk;
-        *out_result = nested_result;
+    {
+        const vigil_source_file_t *previous_source = NULL;
+        if (absolute_offset == 0U) {
+            previous_source = program->source;
+            program->source = source;
+        }
+        nested = *state;
+        nested.current = 0U;
+        nested.body_end = vigil_token_list_count(&tokens);
+        vigil_expression_result_clear(&nested_result);
+        status = vigil_parser_parse_expression(&nested, &nested_result);
+        if (status == VIGIL_STATUS_OK && !vigil_parser_check(&nested, VIGIL_TOKEN_EOF)) {
+            status = vigil_parser_report(
+                &nested,
+                vigil_parser_peek(&nested) == NULL ? error_span : vigil_parser_peek(&nested)->span,
+                "expected end of f-string interpolation expression"
+            );
+        }
+        if (status == VIGIL_STATUS_OK) {
+            state->chunk = nested.chunk;
+            *out_result = nested_result;
+        }
+        if (absolute_offset == 0U) {
+            program->source = previous_source;
+        }
     }
     program->tokens = previous_tokens;
     vigil_token_list_free(&tokens);
@@ -367,6 +379,29 @@ vigil_status_t vigil_parser_parse_fstring_literal(
         brace_depth = 0U;
         cursor = expression_start;
         while (cursor < length - 1U) {
+            if (text[cursor] == '\\' && cursor + 1U < length - 1U &&
+                (text[cursor + 1U] == '"' || text[cursor + 1U] == '\'' || text[cursor + 1U] == '`')) {
+                /* Escaped quote starts a string literal inside the interpolation.
+                   Skip \<quote> ... \<quote> as a unit. */
+                char delim = text[cursor + 1U];
+                cursor += 2U; /* skip \<quote> */
+                while (cursor + 1U < length - 1U) {
+                    if (text[cursor] == '\\' && text[cursor + 1U] == delim) {
+                        cursor += 2U; /* skip closing \<quote> */
+                        break;
+                    }
+                    if (text[cursor] == '\\' && cursor + 1U < length - 1U) {
+                        cursor += 2U;
+                        continue;
+                    }
+                    cursor += 1U;
+                }
+                continue;
+            }
+            if (text[cursor] == '\\' && cursor + 1U < length - 1U) {
+                cursor += 2U;
+                continue;
+            }
             if (text[cursor] == '"' || text[cursor] == '\'' || text[cursor] == '`') {
                 cursor = vigil_program_skip_quoted_text(text, length - 1U, cursor, text[cursor]);
                 continue;
@@ -419,14 +454,57 @@ vigil_status_t vigil_parser_parse_fstring_literal(
 
         absolute_offset = token->span.start_offset + trim_start;
         vigil_expression_result_clear(&expression_result);
-        status = vigil_parser_parse_embedded_expression(
-            state,
-            text + trim_start,
-            trim_end - trim_start,
-            absolute_offset,
-            token->span,
-            &expression_result
-        );
+
+        /* Decode escape sequences in the expression text so that e.g.
+           f"sizeof({\"i32\"})" passes "i32" to the embedded parser.
+           When decoding changes the text length, pass offset 0 so the
+           embedded parser reads token values from its own copy. */
+        {
+            const char *expr_text = text + trim_start;
+            size_t expr_len = trim_end - trim_start;
+            vigil_string_t decoded_expr;
+            int has_escapes = 0;
+            size_t ei;
+
+            for (ei = 0; ei < expr_len && !has_escapes; ei++) {
+                if (expr_text[ei] == '\\') has_escapes = 1;
+            }
+
+            if (has_escapes) {
+                vigil_string_init(&decoded_expr, state->program->registry->runtime);
+                for (ei = 0; ei < expr_len; ei++) {
+                    if (expr_text[ei] == '\\' && ei + 1U < expr_len) {
+                        char next = expr_text[ei + 1U];
+                        if (next == '"' || next == '\'' || next == '\\') {
+                            vigil_string_append(&decoded_expr, &next, 1U,
+                                                state->program->error);
+                            ei++;
+                            continue;
+                        }
+                    }
+                    vigil_string_append(&decoded_expr, expr_text + ei, 1U,
+                                        state->program->error);
+                }
+                status = vigil_parser_parse_embedded_expression(
+                    state,
+                    vigil_string_c_str(&decoded_expr),
+                    vigil_string_length(&decoded_expr),
+                    0U,
+                    token->span,
+                    &expression_result
+                );
+                vigil_string_free(&decoded_expr);
+            } else {
+                status = vigil_parser_parse_embedded_expression(
+                    state,
+                    expr_text,
+                    expr_len,
+                    absolute_offset,
+                    token->span,
+                    &expression_result
+                );
+            }
+        }
         if (status != VIGIL_STATUS_OK) {
             vigil_string_free(&segment);
             return status;

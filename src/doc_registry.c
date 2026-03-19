@@ -1024,6 +1024,49 @@ static const vigil_doc_entry_t http_docs[] = {
 
 #define HTTP_COUNT (sizeof(http_docs) / sizeof(http_docs[0]))
 
+/* ── ffi module ──────────────────────────────────────────────────── */
+
+static const vigil_doc_entry_t ffi_docs[] = {
+    {"ffi", NULL, "Foreign function interface.", "Load shared libraries and call C functions at runtime.", NULL},
+    {"ffi.open", "ffi.open(path: string) -> i64", "Open a shared library.", "Returns a library handle or 0 on failure.", "i64 lib = ffi.open(\"libm.so\")"},
+    {"ffi.sym", "ffi.sym(lib: i64, name: string) -> i64", "Look up a symbol.", "Returns a function pointer address or 0 if not found.", "i64 fn = ffi.sym(lib, \"sqrt\")"},
+    {"ffi.close", "ffi.close(lib: i64) -> void", "Close a shared library.", "Releases the library handle.", "ffi.close(lib)"},
+    {"ffi.bind", "ffi.bind(lib: i64, name: string, signature: string) -> i64", "Bind a C function by signature.", "Signature format: \"ret_type(param_types)\". Returns a callable handle.", "i64 fn = ffi.bind(lib, \"sqrt\", \"f64(f64)\")"},
+    {"ffi.call", "ffi.call(fn: i64, a1-a6: i64) -> i64", "Call a bound function returning i64.", "Pass up to 6 integer/pointer arguments.", "i64 r = ffi.call(fn, arg1, arg2, 0, 0, 0, 0)"},
+    {"ffi.call_f", "ffi.call_f(fn: i64, a1: f64, a2: f64) -> f64", "Call a bound function returning f64.", "For functions that take and return floating-point values.", "f64 r = ffi.call_f(fn, 2.0, 0.0)"},
+    {"ffi.call_s", "ffi.call_s(fn: i64, a1: i64, a2: i64) -> string", "Call a bound function returning a string.", "Reads a null-terminated C string from the returned pointer.", "string s = ffi.call_s(fn, ptr, len)"},
+};
+
+#define FFI_COUNT (sizeof(ffi_docs) / sizeof(ffi_docs[0]))
+
+/* ── unsafe module ───────────────────────────────────────────────── */
+
+static const vigil_doc_entry_t unsafe_docs[] = {
+    {"unsafe", NULL, "Low-level memory operations.", "Allocate, read, and write raw memory buffers. Use with care.", NULL},
+    {"unsafe.alloc", "unsafe.alloc(size: i32) -> i64", "Allocate a buffer.", "Returns a handle to a zero-initialized buffer.", "i64 buf = unsafe.alloc(256)"},
+    {"unsafe.realloc", "unsafe.realloc(buf: i64, size: i32) -> i64", "Resize a buffer.", "Returns the (possibly new) handle.", "buf = unsafe.realloc(buf, 512)"},
+    {"unsafe.free", "unsafe.free(buf: i64) -> void", "Free a buffer.", "Releases the buffer memory.", "unsafe.free(buf)"},
+    {"unsafe.ptr", "unsafe.ptr(buf: i64) -> i64", "Get raw pointer.", "Returns the underlying C pointer for FFI use.", "i64 p = unsafe.ptr(buf)"},
+    {"unsafe.len", "unsafe.len(buf: i64) -> i32", "Get buffer length.", "Returns the allocated size in bytes.", "i32 n = unsafe.len(buf)"},
+    {"unsafe.get", "unsafe.get(buf: i64, offset: i32) -> i32", "Read a byte.", "Returns the byte value at the given offset.", "i32 b = unsafe.get(buf, 0)"},
+    {"unsafe.set", "unsafe.set(buf: i64, offset: i32, value: i32) -> void", "Write a byte.", "Sets the byte at the given offset.", "unsafe.set(buf, 0, 0xFF)"},
+    {"unsafe.get_i32", "unsafe.get_i32(buf: i64, offset: i32) -> i32", "Read a 32-bit integer.", "Reads a native-endian i32 at the given byte offset.", "i32 v = unsafe.get_i32(buf, 0)"},
+    {"unsafe.set_i32", "unsafe.set_i32(buf: i64, offset: i32, value: i32) -> void", "Write a 32-bit integer.", "Writes a native-endian i32 at the given byte offset.", "unsafe.set_i32(buf, 0, 42)"},
+    {"unsafe.get_i64", "unsafe.get_i64(buf: i64, offset: i32) -> i64", "Read a 64-bit integer.", "Reads a native-endian i64 at the given byte offset.", "i64 v = unsafe.get_i64(buf, 0)"},
+    {"unsafe.set_i64", "unsafe.set_i64(buf: i64, offset: i32, value: i64) -> void", "Write a 64-bit integer.", "Writes a native-endian i64 at the given byte offset.", "unsafe.set_i64(buf, 0, 100)"},
+    {"unsafe.get_f64", "unsafe.get_f64(buf: i64, offset: i32) -> f64", "Read a 64-bit float.", "Reads a native-endian f64 at the given byte offset.", "f64 v = unsafe.get_f64(buf, 0)"},
+    {"unsafe.set_f64", "unsafe.set_f64(buf: i64, offset: i32, value: f64) -> void", "Write a 64-bit float.", "Writes a native-endian f64 at the given byte offset.", "unsafe.set_f64(buf, 0, 3.14)"},
+    {"unsafe.null", "unsafe.null() -> i64", "Get null pointer.", "Returns 0 (null pointer constant).", "i64 p = unsafe.null()"},
+    {"unsafe.sizeof", "unsafe.sizeof(type: string) -> i32", "Get type size.", "Returns the size in bytes of a C type name.", "i32 n = unsafe.sizeof(\"int\")"},
+    {"unsafe.sizeof_ptr", "unsafe.sizeof_ptr() -> i32", "Get pointer size.", "Returns the size of a pointer on this platform (4 or 8).", "i32 n = unsafe.sizeof_ptr()"},
+    {"unsafe.errno", "unsafe.errno() -> i32", "Get errno.", "Returns the current C errno value.", "i32 e = unsafe.errno()"},
+    {"unsafe.set_errno", "unsafe.set_errno(value: i32) -> void", "Set errno.", "Sets the C errno value.", "unsafe.set_errno(0)"},
+    {"unsafe.str", "unsafe.str(ptr: i64) -> string", "Read C string.", "Reads a null-terminated string from a raw pointer.", "string s = unsafe.str(ptr)"},
+    {"unsafe.copy", "unsafe.copy(dst: i64, dst_off: i32, src: i64, src_off: i32, len: i32) -> void", "Copy bytes between buffers.", "Copies len bytes from src+src_off to dst+dst_off.", "unsafe.copy(dst, 0, src, 0, 64)"},
+};
+
+#define UNSAFE_COUNT (sizeof(unsafe_docs) / sizeof(unsafe_docs[0]))
+
 /* ── Module List ──────────────────────────────────────────── */
 
 static const char *module_names[] = {
@@ -1031,6 +1074,7 @@ static const char *module_names[] = {
     "compress",
     "crypto",
     "csv",
+    "ffi",
     "fmt",
     "fs",
     "http",
@@ -1043,6 +1087,7 @@ static const char *module_names[] = {
     "regex",
     "random",
     "time",
+    "unsafe",
     "url",
     "yaml",
     "thread",
@@ -1199,6 +1244,20 @@ const vigil_doc_entry_t *vigil_doc_lookup(const char *name) {
         }
     }
 
+    /* Check ffi */
+    for (i = 0; i < FFI_COUNT; i++) {
+        if (strcmp(ffi_docs[i].name, name) == 0) {
+            return &ffi_docs[i];
+        }
+    }
+
+    /* Check unsafe */
+    for (i = 0; i < UNSAFE_COUNT; i++) {
+        if (strcmp(unsafe_docs[i].name, name) == 0) {
+            return &unsafe_docs[i];
+        }
+    }
+
     (void)len;
     return NULL;
 }
@@ -1295,6 +1354,14 @@ const vigil_doc_entry_t *vigil_doc_list_module(
     if (strcmp(module_name, "time") == 0) {
         if (count) *count = TIME_COUNT;
         return time_docs;
+    }
+    if (strcmp(module_name, "ffi") == 0) {
+        if (count) *count = FFI_COUNT;
+        return ffi_docs;
+    }
+    if (strcmp(module_name, "unsafe") == 0) {
+        if (count) *count = UNSAFE_COUNT;
+        return unsafe_docs;
     }
 
     return NULL;

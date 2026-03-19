@@ -382,6 +382,11 @@ static int register_source_tree(
                 return 0;
             }
             vigil_string_free(&import_path);
+
+            /* The recursive register_source_tree call above may have grown
+               the source registry, invalidating our |source| pointer.
+               Re-fetch it so subsequent iterations read valid memory. */
+            source = vigil_source_registry_get(registry, source_id);
         }
         cursor++;
     }

@@ -1137,11 +1137,12 @@ static const int http_i64_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING };
 static const int http_i64_str_str[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
 static const int http_i64_i64[] = { VIGIL_TYPE_I64, VIGIL_TYPE_I64 };
 static const int http_handle_p[] = { VIGIL_TYPE_I64, VIGIL_TYPE_STRING, VIGIL_TYPE_OBJECT };
+static const int http_ret_get[] = { VIGIL_TYPE_I32, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
 
 static const vigil_native_module_function_t http_functions[] = {
-    { "get", 3, http_get, 1, http_1str, VIGIL_TYPE_I32, 3, NULL, 0, NULL, NULL },
-    { "post", 4, http_post, 2, http_2str, VIGIL_TYPE_I32, 3, NULL, 0, NULL, NULL },
-    { "request", 7, http_request, 2, http_2str, VIGIL_TYPE_I32, 3, NULL, 0, NULL, NULL },
+    { "get", 3, http_get, 1, http_1str, VIGIL_TYPE_I32, 3, http_ret_get, 0, NULL, NULL },
+    { "post", 4, http_post, 2, http_2str, VIGIL_TYPE_I32, 3, http_ret_get, 0, NULL, NULL },
+    { "request", 7, http_request, 2, http_2str, VIGIL_TYPE_I32, 3, http_ret_get, 0, NULL, NULL },
     { "listen", 6, http_listen, 2, http_str_i32, VIGIL_TYPE_I64, 1, NULL, 0, NULL, NULL },
     { "accept", 6, http_accept, 1, http_i64, VIGIL_TYPE_I64, 1, NULL, 0, NULL, NULL },
     { "handle", 6, http_handle, 3, http_handle_p, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL },
