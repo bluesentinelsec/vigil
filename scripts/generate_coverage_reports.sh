@@ -20,14 +20,17 @@ common_args="
 "
 
 python3 -m gcovr $common_args \
-    --json-pretty "$output_dir/coverage.json"
+    --json-pretty \
+    --json "$output_dir/coverage.json"
 
 python3 -m gcovr $common_args \
-    --json-summary-pretty "$output_dir/coverage-summary.json" \
+    --json-summary-pretty \
+    --json-summary "$output_dir/coverage-summary.json" \
     --print-summary
 
 python3 -m gcovr $common_args \
-    --cobertura-pretty "$output_dir/coverage.xml"
+    --cobertura-pretty \
+    --cobertura "$output_dir/coverage.xml"
 
 python3 -m gcovr $common_args \
     --html-details "$output_dir/coverage.html"
