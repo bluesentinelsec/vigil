@@ -45,6 +45,36 @@ static vigil_status_t push_empty_bytes(vigil_vm_t *vm, vigil_error_t *error) {
     return push_bytes(vm, "", 0, error);
 }
 
+static int clamp_level(int level) {
+    if (level < 0) return 0;
+    if (level > 10) return 10;
+    return level;
+}
+
+/* ── CRC32 / Adler32 ────────────────────────────────────────────── */
+
+static vigil_status_t crc32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    size_t src_len;
+    const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    mz_uint32 crc = (mz_uint32)mz_crc32(MZ_CRC32_INIT, (const unsigned char *)(src ? src : ""), src_len);
+    vigil_value_t v;
+    vigil_value_init_int(&v, (int64_t)crc);
+    return vigil_vm_stack_push(vm, &v, error);
+}
+
+static vigil_status_t adler32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    size_t src_len;
+    const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    mz_ulong a = mz_adler32(MZ_ADLER32_INIT, (const unsigned char *)(src ? src : ""), src_len);
+    vigil_value_t v;
+    vigil_value_init_int(&v, (int64_t)a);
+    return vigil_vm_stack_push(vm, &v, error);
+}
+
 /* ── Zlib ────────────────────────────────────────────────────────── */
 
 static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
@@ -76,6 +106,30 @@ static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     }
 
     ret = push_bytes(vm, dst, dst_len, error);
+    free(dst);
+    return ret;
+}
+
+static vigil_status_t zlib_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    size_t src_len;
+    const char *src;
+    int level;
+
+    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    level = clamp_level((int)vigil_nanbox_decode_int(vigil_vm_stack_get(vm, base + 1)));
+    vigil_vm_stack_pop_n(vm, arg_count);
+
+    if (!src || src_len == 0) return push_empty_bytes(vm, error);
+
+    mz_ulong dst_len = mz_compressBound((mz_ulong)src_len);
+    unsigned char *dst = (unsigned char *)malloc(dst_len);
+    if (!dst) return push_empty_bytes(vm, error);
+
+    int status = mz_compress2(dst, &dst_len, (const unsigned char *)src, (mz_ulong)src_len, level);
+    if (status != MZ_OK) { free(dst); return push_empty_bytes(vm, error); }
+
+    vigil_status_t ret = push_bytes(vm, dst, dst_len, error);
     free(dst);
     return ret;
 }
@@ -132,43 +186,53 @@ static vigil_status_t zlib_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil
 
 /* ── Deflate (raw) ───────────────────────────────────────────────── */
 
+static vigil_status_t deflate_compress_impl(vigil_vm_t *vm, const char *src, size_t src_len, int level, vigil_error_t *error) {
+    if (!src || src_len == 0) return push_empty_bytes(vm, error);
+
+    mz_ulong bound = mz_deflateBound(NULL, (mz_ulong)src_len);
+    unsigned char *dst = (unsigned char *)malloc(bound);
+    if (!dst) return push_empty_bytes(vm, error);
+
+    mz_stream stream;
+    memset(&stream, 0, sizeof(stream));
+    stream.next_in = (const unsigned char *)src;
+    stream.avail_in = (mz_uint32)src_len;
+    stream.next_out = dst;
+    stream.avail_out = (mz_uint32)bound;
+
+    /* Use negative window bits for raw deflate (no zlib header/trailer) */
+    if (mz_deflateInit2(&stream, level, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK) {
+        free(dst);
+        return push_empty_bytes(vm, error);
+    }
+    if (mz_deflate(&stream, MZ_FINISH) != MZ_STREAM_END) {
+        mz_deflateEnd(&stream);
+        free(dst);
+        return push_empty_bytes(vm, error);
+    }
+    size_t out_len = stream.total_out;
+    mz_deflateEnd(&stream);
+
+    vigil_status_t ret = push_bytes(vm, dst, out_len, error);
+    free(dst);
+    return ret;
+}
+
 static vigil_status_t deflate_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
-    const char *src;
-    mz_ulong dst_len;
-    unsigned char *dst;
-    int status;
-    vigil_status_t ret;
-
-    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
+    return deflate_compress_impl(vm, src, src_len, MZ_DEFAULT_COMPRESSION, error);
+}
 
-    if (!src || src_len == 0) {
-        return push_empty_bytes(vm, error);
-    }
-
-    dst_len = mz_compressBound((mz_ulong)src_len);
-    dst = (unsigned char *)malloc(dst_len);
-    if (!dst) {
-        return push_empty_bytes(vm, error);
-    }
-
-    status = mz_compress(dst, &dst_len, (const unsigned char *)src, (mz_ulong)src_len);
-    if (status != MZ_OK) {
-        free(dst);
-        return push_empty_bytes(vm, error);
-    }
-
-    /* Strip zlib header (2 bytes) and trailer (4 bytes) to get raw deflate */
-    if (dst_len > 6) {
-        ret = push_bytes(vm, dst + 2, dst_len - 6, error);
-        free(dst);
-        return ret;
-    }
-
-    free(dst);
-    return push_empty_bytes(vm, error);
+static vigil_status_t deflate_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    size_t src_len;
+    const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    int level = clamp_level((int)vigil_nanbox_decode_int(vigil_vm_stack_get(vm, base + 1)));
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return deflate_compress_impl(vm, src, src_len, level, error);
 }
 
 static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
@@ -236,10 +300,7 @@ static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vi
 
 /* ── Gzip ────────────────────────────────────────────────────────── */
 
-static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
-    size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    size_t src_len;
-    const char *src;
+static vigil_status_t gzip_compress_impl(vigil_vm_t *vm, const char *src, size_t src_len, int level, vigil_error_t *error) {
     mz_ulong bound;
     unsigned char *out;
     size_t out_len;
@@ -247,16 +308,7 @@ static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     mz_uint32 crc;
     vigil_status_t ret;
 
-    /* Gzip header */
-    static const unsigned char gzip_hdr[] = {
-        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03
-    };
-
-    src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
-    vigil_vm_stack_pop_n(vm, arg_count);
-
     if (!src || src_len == 0) {
-        /* Minimal valid gzip for empty */
         static const unsigned char empty_gz[] = {
             0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
             0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -266,11 +318,13 @@ static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
 
     bound = mz_deflateBound(NULL, (mz_ulong)src_len);
     out = (unsigned char *)malloc(10 + bound + 8);
-    if (!out) {
-        return push_empty_bytes(vm, error);
-    }
+    if (!out) return push_empty_bytes(vm, error);
 
-    memcpy(out, gzip_hdr, 10);
+    /* Gzip header with proper XFL byte */
+    out[0] = 0x1f; out[1] = 0x8b; out[2] = 0x08; out[3] = 0x00;
+    out[4] = 0x00; out[5] = 0x00; out[6] = 0x00; out[7] = 0x00;
+    out[8] = (level >= 9) ? 0x02 : (level <= 1) ? 0x04 : 0x00; /* XFL */
+    out[9] = 0x03; /* OS = Unix */
 
     memset(&stream, 0, sizeof(stream));
     stream.next_in = (const unsigned char *)src;
@@ -278,11 +332,10 @@ static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     stream.next_out = out + 10;
     stream.avail_out = (mz_uint32)bound;
 
-    if (mz_deflateInit2(&stream, MZ_DEFAULT_COMPRESSION, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK) {
+    if (mz_deflateInit2(&stream, level, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK) {
         free(out);
         return push_empty_bytes(vm, error);
     }
-
     if (mz_deflate(&stream, MZ_FINISH) != MZ_STREAM_END) {
         mz_deflateEnd(&stream);
         free(out);
@@ -292,7 +345,6 @@ static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     out_len = 10 + stream.total_out;
     mz_deflateEnd(&stream);
 
-    /* Append CRC32 and original size */
     crc = (mz_uint32)mz_crc32(MZ_CRC32_INIT, (const unsigned char *)src, src_len);
     out[out_len++] = (unsigned char)(crc & 0xff);
     out[out_len++] = (unsigned char)((crc >> 8) & 0xff);
@@ -306,6 +358,23 @@ static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     ret = push_bytes(vm, out, out_len, error);
     free(out);
     return ret;
+}
+
+static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    size_t src_len;
+    const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return gzip_compress_impl(vm, src, src_len, MZ_DEFAULT_COMPRESSION, error);
+}
+
+static vigil_status_t gzip_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+    size_t base = vigil_vm_stack_depth(vm) - arg_count;
+    size_t src_len;
+    const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
+    int level = clamp_level((int)vigil_nanbox_decode_int(vigil_vm_stack_get(vm, base + 1)));
+    vigil_vm_stack_pop_n(vm, arg_count);
+    return gzip_compress_impl(vm, src, src_len, level, error);
 }
 
 static vigil_status_t gzip_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
@@ -921,6 +990,8 @@ static const int bytes_param[] = { VIGIL_TYPE_STRING };
 static const int two_bytes_param[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
 static const int two_arrays_param[] = { VIGIL_TYPE_OBJECT, VIGIL_TYPE_OBJECT };
 
+static const int bytes_int_param[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_I32 };
+
 /* Extended type info for functions that take array<string> parameters */
 static const vigil_native_type_t create_params_ext[] = {
     VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
@@ -932,13 +1003,18 @@ static const vigil_native_type_t array_string_return = VIGIL_NATIVE_TYPE_ARRAY(V
 
 static const vigil_native_module_function_t compress_functions[] = {
     {"deflate_compress", 16U, deflate_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"deflate_compress_level", 22U, deflate_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"deflate_decompress", 18U, deflate_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"zlib_compress", 13U, zlib_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zlib_compress_level", 19U, zlib_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"zlib_decompress", 15U, zlib_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"gzip_compress", 13U, gzip_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"gzip_compress_level", 19U, gzip_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"gzip_decompress", 15U, gzip_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"lz4_compress", 12U, lz4_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"lz4_decompress", 14U, lz4_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"crc32", 5U, crc32_fn, 1U, bytes_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
+    {"adler32", 7U, adler32_fn, 1U, bytes_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
     {"zip_list", 8U, zip_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, &array_string_return},
     {"zip_read", 8U, zip_read_fn, 2U, two_bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"zip_create", 10U, zip_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
