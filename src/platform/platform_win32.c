@@ -1248,6 +1248,23 @@ static int ws2_load(void) {
     return 1;
 }
 
+static u_short vigil_ws2_htons(u_short value) {
+    if (p_htons != NULL) {
+        return p_htons(value);
+    }
+    return (u_short)(((value & 0x00ffU) << 8) | ((value & 0xff00U) >> 8));
+}
+
+static u_long vigil_ws2_htonl(u_long value) {
+    if (p_htonl != NULL) {
+        return p_htonl(value);
+    }
+    return ((value & 0x000000ffUL) << 24) |
+           ((value & 0x0000ff00UL) << 8) |
+           ((value & 0x00ff0000UL) >> 8) |
+           ((value & 0xff000000UL) >> 24);
+}
+
 VIGIL_API vigil_status_t vigil_platform_net_init(vigil_error_t *error) {
     if (ws2_load()) return VIGIL_STATUS_OK;
     if (error) { error->type = VIGIL_STATUS_UNSUPPORTED; error->value = "ws2_32.dll not found"; error->length = 20; }
@@ -1279,9 +1296,9 @@ VIGIL_API vigil_status_t vigil_platform_tcp_listen(
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = p_htons ? p_htons((u_short)port) : htons((u_short)port);
+    addr.sin_port = vigil_ws2_htons((u_short)port);
     if (strcmp(host, "0.0.0.0") == 0) {
-        addr.sin_addr.s_addr = p_htonl ? p_htonl(INADDR_ANY) : htonl(INADDR_ANY);
+        addr.sin_addr.s_addr = vigil_ws2_htonl(INADDR_ANY);
     } else if (p_inet_pton) {
         p_inet_pton(AF_INET, host, &addr.sin_addr);
     }
@@ -1417,9 +1434,9 @@ VIGIL_API vigil_status_t vigil_platform_udp_bind(
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_port = p_htons ? p_htons((u_short)port) : htons((u_short)port);
+    addr.sin_port = vigil_ws2_htons((u_short)port);
     if (host[0] == '\0' || strcmp(host, "0.0.0.0") == 0) {
-        addr.sin_addr.s_addr = p_htonl ? p_htonl(INADDR_ANY) : htonl(INADDR_ANY);
+        addr.sin_addr.s_addr = vigil_ws2_htonl(INADDR_ANY);
     } else if (!p_inet_pton || p_inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
         p_closesocket(fd);
         if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "inet_pton() failed"; error->length = 18; }

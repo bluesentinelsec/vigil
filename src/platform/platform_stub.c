@@ -1,5 +1,7 @@
 #include "platform.h"
 
+#include <string.h>
+
 #include "internal/vigil_internal.h"
 
 /* Stub implementation — returns VIGIL_STATUS_UNSUPPORTED for all operations. */
