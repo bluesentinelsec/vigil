@@ -2,6 +2,7 @@
 #define VIGIL_BINDING_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "vigil/runtime.h"
 #include "vigil/source.h"
@@ -28,7 +29,7 @@ typedef struct vigil_binding_type
     size_t object_index;
 } vigil_binding_type_t;
 
-#define VIGIL_BINDING_INVALID_CLASS_INDEX ((size_t)-1)
+#define VIGIL_BINDING_INVALID_CLASS_INDEX SIZE_MAX
 
 typedef struct vigil_binding_function_param
 {

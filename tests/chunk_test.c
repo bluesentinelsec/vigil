@@ -46,6 +46,25 @@ static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_
     return span;
 }
 
+static vigil_status_t AppendOpcode(vigil_chunk_t *chunk, vigil_opcode_t opcode, vigil_error_t *error)
+{
+    return vigil_chunk_write_opcode(chunk, opcode, Span(1U, 0U, 0U), error);
+}
+
+static vigil_status_t AppendOpcodeU32(vigil_chunk_t *chunk, vigil_opcode_t opcode, uint32_t operand,
+                                      vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = AppendOpcode(chunk, opcode, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    return vigil_chunk_write_u32(chunk, operand, Span(1U, 0U, 0U), error);
+}
+
 TEST(VigilChunkTest, InitStartsEmpty)
 {
     vigil_chunk_t chunk;
@@ -181,6 +200,112 @@ TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilChunkTest, DisassembleFormatsOperandInstructions)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_chunk_t chunk;
+    vigil_string_t output;
+    const char *text;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_chunk_init(&chunk, runtime);
+    vigil_string_init(&output, runtime);
+
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL, 7U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL_VALUE, 9U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_CLOSURE, 5U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 3U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CALL_INTERFACE, 1U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 4U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_INSTANCE, 6U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 1U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_NEW_ARRAY, 8U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(1U, 0U, 0U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_GET_LOCAL, 11U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_RETURN, 1U, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_OK);
+    text = vigil_string_c_str(&output);
+    ASSERT_NE(text, NULL);
+    EXPECT_NE(strstr(text, "CALL 7 2"), NULL);
+    EXPECT_NE(strstr(text, "CALL_VALUE 9"), NULL);
+    EXPECT_NE(strstr(text, "NEW_CLOSURE 5 3"), NULL);
+    EXPECT_NE(strstr(text, "CALL_INTERFACE 1 2 4"), NULL);
+    EXPECT_NE(strstr(text, "NEW_INSTANCE 6 1"), NULL);
+    EXPECT_NE(strstr(text, "NEW_ARRAY 8 2"), NULL);
+    EXPECT_NE(strstr(text, "GET_LOCAL 11"), NULL);
+    EXPECT_NE(strstr(text, "RETURN 1"), NULL);
+
+    vigil_string_free(&output);
+    vigil_chunk_free(&chunk);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_chunk_t chunk;
+    vigil_string_t output;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_chunk_init(&chunk, runtime);
+    vigil_string_init(&output, runtime);
+
+    ASSERT_EQ(AppendOpcode(&chunk, VIGIL_OPCODE_RETURN, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_OK);
+    EXPECT_STREQ(vigil_string_c_str(&output), "0000 RETURN\n");
+
+    vigil_string_free(&output);
+    vigil_chunk_free(&chunk);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilChunkTest, DisassembleRejectsTruncatedOperandInstructions)
+{
+    struct
+    {
+        vigil_opcode_t opcode;
+        const char *message;
+    } cases[] = {
+        {VIGIL_OPCODE_CALL, "truncated call instruction"},
+        {VIGIL_OPCODE_CALL_VALUE, "truncated indirect call instruction"},
+        {VIGIL_OPCODE_NEW_CLOSURE, "truncated closure instruction"},
+        {VIGIL_OPCODE_CALL_INTERFACE, "truncated interface call instruction"},
+        {VIGIL_OPCODE_NEW_INSTANCE, "truncated constructor instruction"},
+        {VIGIL_OPCODE_NEW_ARRAY, "truncated collection instruction"},
+        {VIGIL_OPCODE_GET_LOCAL, "truncated constant instruction"},
+    };
+    size_t i;
+
+    for (i = 0U; i < sizeof(cases) / sizeof(cases[0]); ++i)
+    {
+        vigil_runtime_t *runtime = NULL;
+        vigil_error_t error = {0};
+        vigil_chunk_t chunk;
+        vigil_string_t output;
+
+        ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+        vigil_chunk_init(&chunk, runtime);
+        vigil_string_init(&output, runtime);
+
+        ASSERT_EQ(AppendOpcode(&chunk, cases[i].opcode, &error), VIGIL_STATUS_OK);
+        EXPECT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_INTERNAL);
+        EXPECT_EQ(error.type, VIGIL_STATUS_INTERNAL);
+        ASSERT_NE(error.value, NULL);
+        EXPECT_STREQ(error.value, cases[i].message);
+
+        vigil_error_clear(&error);
+        vigil_string_free(&output);
+        vigil_chunk_free(&chunk);
+        vigil_runtime_close(&runtime);
+    }
+}
+
 TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode)
 {
     EXPECT_STREQ(vigil_opcode_name(VIGIL_OPCODE_RETURN), "RETURN");
@@ -266,6 +391,9 @@ void register_chunk_tests(void)
     REGISTER_TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree);
     REGISTER_TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants);
+    REGISTER_TEST(VigilChunkTest, DisassembleFormatsOperandInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedOperandInstructions);
     REGISTER_TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode);
     REGISTER_TEST(VigilChunkTest, UsesRuntimeAllocatorHooks);
     REGISTER_TEST(VigilChunkTest, RejectsMissingRuntimeForMutation);
