@@ -125,12 +125,14 @@ static vigil_status_t push_i32(vigil_vm_t *vm, int32_t val, vigil_error_t *error
 
 static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
                                   vigil_error_t *error) {
-    vigil_object_t *obj;
+    vigil_object_t *obj = NULL;
     vigil_value_t v;
     vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
     if (s != VIGIL_STATUS_OK) return s;
-    v = vigil_nanbox_encode_object(obj);
-    return vigil_vm_stack_push(vm, &v, error);
+    vigil_value_init_object(&v, &obj);
+    s = vigil_vm_stack_push(vm, &v, error);
+    vigil_value_release(&v);
+    return s;
 }
 
 /* ── TCP Functions ───────────────────────────────────────────────── */
