@@ -6,18 +6,21 @@
 
 /* ── Fixture ─────────────────────────────────────────────────────── */
 
-typedef struct TomlTest {
+typedef struct TomlTest
+{
     vigil_toml_value_t *root;
     vigil_error_t error;
 } TomlTest;
 
-void TomlTest_SetUp(void *p) {
+void TomlTest_SetUp(void *p)
+{
     TomlTest *self = (TomlTest *)p;
     self->root = NULL;
     memset(&self->error, 0, sizeof(self->error));
 }
 
-void TomlTest_TearDown(void *p) {
+void TomlTest_TearDown(void *p)
+{
     TomlTest *self = (TomlTest *)p;
     vigil_toml_free(&self->root);
     vigil_error_clear(&self->error);
@@ -25,16 +28,15 @@ void TomlTest_TearDown(void *p) {
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static void toml_parse_helper(TomlTest *self, const char *input,
-                              int *vigil_test_failed_) {
-    ASSERT_EQ(VIGIL_STATUS_OK,
-              vigil_toml_parse(NULL, input, strlen(input),
-                              &self->root, &self->error));
+static void toml_parse_helper(TomlTest *self, const char *input, int *vigil_test_failed_)
+{
+    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_parse(NULL, input, strlen(input), &self->root, &self->error));
 }
 
 /* ── Basic key/value ─────────────────────────────────────────────── */
 
-TEST_F(TomlTest, StringValue) {
+TEST_F(TomlTest, StringValue)
+{
     toml_parse_helper(FIXTURE(TomlTest), "name = \"vigil\"", vigil_test_failed_);
     const vigil_toml_value_t *v = vigil_toml_table_get(FIXTURE(TomlTest)->root, "name");
     ASSERT_NE(v, NULL);
@@ -42,7 +44,8 @@ TEST_F(TomlTest, StringValue) {
     EXPECT_STREQ(vigil_toml_string_value(v), "vigil");
 }
 
-TEST_F(TomlTest, IntegerValue) {
+TEST_F(TomlTest, IntegerValue)
+{
     toml_parse_helper(FIXTURE(TomlTest), "port = 8080", vigil_test_failed_);
     const vigil_toml_value_t *v = vigil_toml_table_get(FIXTURE(TomlTest)->root, "port");
     ASSERT_NE(v, NULL);
@@ -50,24 +53,28 @@ TEST_F(TomlTest, IntegerValue) {
     EXPECT_EQ(vigil_toml_integer_value(v), 8080);
 }
 
-TEST_F(TomlTest, NegativeInteger) {
+TEST_F(TomlTest, NegativeInteger)
+{
     toml_parse_helper(FIXTURE(TomlTest), "offset = -42", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "offset")), -42);
 }
 
-TEST_F(TomlTest, HexOctBin) {
+TEST_F(TomlTest, HexOctBin)
+{
     toml_parse_helper(FIXTURE(TomlTest), "hex = 0xDEAD\noct = 0o755\nbin = 0b11010110", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "hex")), 0xDEAD);
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "oct")), 0755);
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "bin")), 0xD6);
 }
 
-TEST_F(TomlTest, IntegerUnderscores) {
+TEST_F(TomlTest, IntegerUnderscores)
+{
     toml_parse_helper(FIXTURE(TomlTest), "big = 1_000_000", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "big")), 1000000);
 }
 
-TEST_F(TomlTest, FloatValue) {
+TEST_F(TomlTest, FloatValue)
+{
     toml_parse_helper(FIXTURE(TomlTest), "pi = 3.14159", vigil_test_failed_);
     const vigil_toml_value_t *v = vigil_toml_table_get(FIXTURE(TomlTest)->root, "pi");
     ASSERT_NE(v, NULL);
@@ -75,19 +82,22 @@ TEST_F(TomlTest, FloatValue) {
     EXPECT_DOUBLE_EQ(vigil_toml_float_value(v), 3.14159);
 }
 
-TEST_F(TomlTest, FloatExponent) {
+TEST_F(TomlTest, FloatExponent)
+{
     toml_parse_helper(FIXTURE(TomlTest), "big = 5e+22", vigil_test_failed_);
     EXPECT_DOUBLE_EQ(vigil_toml_float_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "big")), 5e+22);
 }
 
-TEST_F(TomlTest, FloatInfNan) {
+TEST_F(TomlTest, FloatInfNan)
+{
     toml_parse_helper(FIXTURE(TomlTest), "pos_inf = inf\nneg_inf = -inf\nnan_val = nan", vigil_test_failed_);
     EXPECT_DOUBLE_EQ(vigil_toml_float_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "pos_inf")), HUGE_VAL);
     EXPECT_DOUBLE_EQ(vigil_toml_float_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "neg_inf")), -HUGE_VAL);
     EXPECT_TRUE(isnan(vigil_toml_float_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "nan_val"))));
 }
 
-TEST_F(TomlTest, BoolValues) {
+TEST_F(TomlTest, BoolValues)
+{
     toml_parse_helper(FIXTURE(TomlTest), "enabled = true\ndisabled = false", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_bool_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "enabled")), 1);
     EXPECT_EQ(vigil_toml_bool_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "disabled")), 0);
@@ -95,37 +105,44 @@ TEST_F(TomlTest, BoolValues) {
 
 /* ── Strings ─────────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, BasicStringEscapes) {
+TEST_F(TomlTest, BasicStringEscapes)
+{
     toml_parse_helper(FIXTURE(TomlTest), "s = \"hello\\tworld\\n\"", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "hello\tworld\n");
 }
 
-TEST_F(TomlTest, UnicodeEscape) {
+TEST_F(TomlTest, UnicodeEscape)
+{
     toml_parse_helper(FIXTURE(TomlTest), "s = \"\\u0041\\U00000042\"", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "AB");
 }
 
-TEST_F(TomlTest, LiteralString) {
+TEST_F(TomlTest, LiteralString)
+{
     toml_parse_helper(FIXTURE(TomlTest), "s = 'C:\\Users\\path'", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "C:\\Users\\path");
 }
 
-TEST_F(TomlTest, MultilineBasicString) {
+TEST_F(TomlTest, MultilineBasicString)
+{
     toml_parse_helper(FIXTURE(TomlTest), "s = \"\"\"\nhello\nworld\"\"\"", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "hello\nworld");
 }
 
-TEST_F(TomlTest, MultilineLiteralString) {
+TEST_F(TomlTest, MultilineLiteralString)
+{
     toml_parse_helper(FIXTURE(TomlTest), "s = '''\nhello\nworld'''", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "hello\nworld");
 }
 
-TEST_F(TomlTest, MultilineLineContinuation) {
+TEST_F(TomlTest, MultilineLineContinuation)
+{
     toml_parse_helper(FIXTURE(TomlTest), "s = \"\"\"\nhello \\\n  world\"\"\"", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "hello world");
 }
 
-TEST_F(TomlTest, EmptyStrings) {
+TEST_F(TomlTest, EmptyStrings)
+{
     toml_parse_helper(FIXTURE(TomlTest), "a = \"\"\nb = ''", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "a")), "");
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "b")), "");
@@ -133,7 +150,8 @@ TEST_F(TomlTest, EmptyStrings) {
 
 /* ── Tables ──────────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, SimpleTable) {
+TEST_F(TomlTest, SimpleTable)
+{
     toml_parse_helper(FIXTURE(TomlTest), "[server]\nhost = \"localhost\"\nport = 9090", vigil_test_failed_);
     const vigil_toml_value_t *server = vigil_toml_table_get(FIXTURE(TomlTest)->root, "server");
     ASSERT_NE(server, NULL);
@@ -142,21 +160,24 @@ TEST_F(TomlTest, SimpleTable) {
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(server, "port")), 9090);
 }
 
-TEST_F(TomlTest, NestedTable) {
+TEST_F(TomlTest, NestedTable)
+{
     toml_parse_helper(FIXTURE(TomlTest), "[a.b.c]\nval = 1", vigil_test_failed_);
     const vigil_toml_value_t *c = vigil_toml_table_get_path(FIXTURE(TomlTest)->root, "a.b.c");
     ASSERT_NE(c, NULL);
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(c, "val")), 1);
 }
 
-TEST_F(TomlTest, DottedKeys) {
+TEST_F(TomlTest, DottedKeys)
+{
     toml_parse_helper(FIXTURE(TomlTest), "a.b.c = 42", vigil_test_failed_);
     const vigil_toml_value_t *v = vigil_toml_table_get_path(FIXTURE(TomlTest)->root, "a.b.c");
     ASSERT_NE(v, NULL);
     EXPECT_EQ(vigil_toml_integer_value(v), 42);
 }
 
-TEST_F(TomlTest, InlineTable) {
+TEST_F(TomlTest, InlineTable)
+{
     toml_parse_helper(FIXTURE(TomlTest), "point = { x = 1, y = 2 }", vigil_test_failed_);
     const vigil_toml_value_t *pt = vigil_toml_table_get(FIXTURE(TomlTest)->root, "point");
     ASSERT_NE(pt, NULL);
@@ -164,14 +185,16 @@ TEST_F(TomlTest, InlineTable) {
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(pt, "y")), 2);
 }
 
-TEST_F(TomlTest, QuotedKey) {
+TEST_F(TomlTest, QuotedKey)
+{
     toml_parse_helper(FIXTURE(TomlTest), "\"key with spaces\" = true", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_bool_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "key with spaces")), 1);
 }
 
 /* ── Arrays ──────────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, SimpleArray) {
+TEST_F(TomlTest, SimpleArray)
+{
     toml_parse_helper(FIXTURE(TomlTest), "ports = [80, 443, 8080]", vigil_test_failed_);
     const vigil_toml_value_t *arr = vigil_toml_table_get(FIXTURE(TomlTest)->root, "ports");
     ASSERT_NE(arr, NULL);
@@ -182,19 +205,22 @@ TEST_F(TomlTest, SimpleArray) {
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_array_get(arr, 2)), 8080);
 }
 
-TEST_F(TomlTest, StringArray) {
+TEST_F(TomlTest, StringArray)
+{
     toml_parse_helper(FIXTURE(TomlTest), "names = [\"alice\", \"bob\"]", vigil_test_failed_);
     const vigil_toml_value_t *arr = vigil_toml_table_get(FIXTURE(TomlTest)->root, "names");
     EXPECT_EQ(vigil_toml_array_count(arr), 2);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_array_get(arr, 0)), "alice");
 }
 
-TEST_F(TomlTest, MultilineArray) {
+TEST_F(TomlTest, MultilineArray)
+{
     toml_parse_helper(FIXTURE(TomlTest), "a = [\n  1,\n  2,\n  3,\n]", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_array_count(vigil_toml_table_get(FIXTURE(TomlTest)->root, "a")), 3);
 }
 
-TEST_F(TomlTest, NestedArray) {
+TEST_F(TomlTest, NestedArray)
+{
     toml_parse_helper(FIXTURE(TomlTest), "a = [[1, 2], [3, 4]]", vigil_test_failed_);
     const vigil_toml_value_t *a = vigil_toml_table_get(FIXTURE(TomlTest)->root, "a");
     EXPECT_EQ(vigil_toml_array_count(a), 2);
@@ -203,21 +229,22 @@ TEST_F(TomlTest, NestedArray) {
 
 /* ── Array of tables ─────────────────────────────────────────────── */
 
-TEST_F(TomlTest, ArrayOfTables) {
-    toml_parse_helper(FIXTURE(TomlTest), "[[products]]\nname = \"hammer\"\n\n[[products]]\nname = \"nail\"", vigil_test_failed_);
+TEST_F(TomlTest, ArrayOfTables)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "[[products]]\nname = \"hammer\"\n\n[[products]]\nname = \"nail\"",
+                      vigil_test_failed_);
     const vigil_toml_value_t *arr = vigil_toml_table_get(FIXTURE(TomlTest)->root, "products");
     ASSERT_NE(arr, NULL);
     EXPECT_EQ(vigil_toml_type(arr), VIGIL_TOML_ARRAY);
     EXPECT_EQ(vigil_toml_array_count(arr), 2);
-    EXPECT_STREQ(vigil_toml_string_value(
-        vigil_toml_table_get(vigil_toml_array_get(arr, 0), "name")), "hammer");
-    EXPECT_STREQ(vigil_toml_string_value(
-        vigil_toml_table_get(vigil_toml_array_get(arr, 1), "name")), "nail");
+    EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(vigil_toml_array_get(arr, 0), "name")), "hammer");
+    EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(vigil_toml_array_get(arr, 1), "name")), "nail");
 }
 
 /* ── DateTime ────────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, OffsetDateTime) {
+TEST_F(TomlTest, OffsetDateTime)
+{
     toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15T10:30:00Z", vigil_test_failed_);
     const vigil_toml_value_t *v = vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt");
     ASSERT_NE(v, NULL);
@@ -235,13 +262,15 @@ TEST_F(TomlTest, OffsetDateTime) {
     EXPECT_EQ(dt->offset_minutes, 0);
 }
 
-TEST_F(TomlTest, OffsetDateTimeWithOffset) {
+TEST_F(TomlTest, OffsetDateTimeWithOffset)
+{
     toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15T10:30:00-05:00", vigil_test_failed_);
     const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt"));
     EXPECT_EQ(dt->offset_minutes, -300);
 }
 
-TEST_F(TomlTest, LocalDateTime) {
+TEST_F(TomlTest, LocalDateTime)
+{
     toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15T10:30:00", vigil_test_failed_);
     const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt"));
     EXPECT_TRUE(dt->has_date);
@@ -249,7 +278,8 @@ TEST_F(TomlTest, LocalDateTime) {
     EXPECT_FALSE(dt->has_offset);
 }
 
-TEST_F(TomlTest, LocalDate) {
+TEST_F(TomlTest, LocalDate)
+{
     toml_parse_helper(FIXTURE(TomlTest), "d = 2024-01-15", vigil_test_failed_);
     const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "d"));
     EXPECT_TRUE(dt->has_date);
@@ -259,7 +289,8 @@ TEST_F(TomlTest, LocalDate) {
     EXPECT_EQ(dt->day, 15);
 }
 
-TEST_F(TomlTest, LocalTime) {
+TEST_F(TomlTest, LocalTime)
+{
     toml_parse_helper(FIXTURE(TomlTest), "t = 10:30:00", vigil_test_failed_);
     const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "t"));
     EXPECT_FALSE(dt->has_date);
@@ -268,7 +299,8 @@ TEST_F(TomlTest, LocalTime) {
     EXPECT_EQ(dt->minute, 30);
 }
 
-TEST_F(TomlTest, FractionalSeconds) {
+TEST_F(TomlTest, FractionalSeconds)
+{
     toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15T10:30:00.123456789Z", vigil_test_failed_);
     const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt"));
     EXPECT_EQ(dt->nanosecond, 123456789);
@@ -276,30 +308,30 @@ TEST_F(TomlTest, FractionalSeconds) {
 
 /* ── Comments ────────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, Comments) {
+TEST_F(TomlTest, Comments)
+{
     toml_parse_helper(FIXTURE(TomlTest), "# full line comment\nkey = \"value\" # inline comment\n", vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "key")), "value");
 }
 
 /* ── Error cases ─────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, DuplicateKeyError) {
-    vigil_status_t s = vigil_toml_parse(NULL, "a = 1\na = 2", 11,
-                                      &FIXTURE(TomlTest)->root,
-                                      &FIXTURE(TomlTest)->error);
+TEST_F(TomlTest, DuplicateKeyError)
+{
+    vigil_status_t s = vigil_toml_parse(NULL, "a = 1\na = 2", 11, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
     EXPECT_NE(s, VIGIL_STATUS_OK);
 }
 
-TEST_F(TomlTest, UnterminatedString) {
-    vigil_status_t s = vigil_toml_parse(NULL, "a = \"hello", 10,
-                                      &FIXTURE(TomlTest)->root,
-                                      &FIXTURE(TomlTest)->error);
+TEST_F(TomlTest, UnterminatedString)
+{
+    vigil_status_t s = vigil_toml_parse(NULL, "a = \"hello", 10, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
     EXPECT_NE(s, VIGIL_STATUS_OK);
 }
 
 /* ── Emitter ─────────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, EmitRoundTrip) {
+TEST_F(TomlTest, EmitRoundTrip)
+{
     toml_parse_helper(FIXTURE(TomlTest), "name = \"vigil\"\nversion = \"0.1.0\"", vigil_test_failed_);
     char *out = NULL;
     size_t len = 0;
@@ -310,8 +342,10 @@ TEST_F(TomlTest, EmitRoundTrip) {
     free(out);
 }
 
-TEST_F(TomlTest, EmitTable) {
-    toml_parse_helper(FIXTURE(TomlTest), "[deps]\njson = \"1.0\"\nhttp = \"2.0\"\nlog = \"0.5\"\ntest = \"1.1\"", vigil_test_failed_);
+TEST_F(TomlTest, EmitTable)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "[deps]\njson = \"1.0\"\nhttp = \"2.0\"\nlog = \"0.5\"\ntest = \"1.1\"",
+                      vigil_test_failed_);
     char *out = NULL;
     size_t len = 0;
     ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_emit(FIXTURE(TomlTest)->root, &out, &len, &FIXTURE(TomlTest)->error));
@@ -323,13 +357,13 @@ TEST_F(TomlTest, EmitTable) {
 
 /* ── vigil.toml realistic test ────────────────────────────────────── */
 
-TEST_F(TomlTest, VigilToml) {
-    const char *input =
-        "name = \"myproject\"\n"
-        "version = \"0.1.0\"\n"
-        "\n"
-        "[deps]\n"
-        "json_schema = \"1.2.0\"\n";
+TEST_F(TomlTest, VigilToml)
+{
+    const char *input = "name = \"myproject\"\n"
+                        "version = \"0.1.0\"\n"
+                        "\n"
+                        "[deps]\n"
+                        "json_schema = \"1.2.0\"\n";
     toml_parse_helper(FIXTURE(TomlTest), input, vigil_test_failed_);
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "name")), "myproject");
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "version")), "0.1.0");
@@ -340,7 +374,8 @@ TEST_F(TomlTest, VigilToml) {
 
 /* ── Constructors ────────────────────────────────────────────────── */
 
-TEST_F(TomlTest, ManualConstruction) {
+TEST_F(TomlTest, ManualConstruction)
+{
     vigil_toml_value_t *tbl = NULL;
     vigil_toml_value_t *str = NULL;
     vigil_toml_value_t *num = NULL;
@@ -362,19 +397,33 @@ TEST_F(TomlTest, ManualConstruction) {
 static size_t alloc_count = 0;
 static size_t dealloc_count = 0;
 
-static void *test_alloc(void *ctx, size_t size) { (void)ctx; alloc_count++; return malloc(size); }
-static void *test_realloc(void *ctx, void *p, size_t size) { (void)ctx; alloc_count++; return realloc(p, size); }
-static void test_dealloc(void *ctx, void *p) { (void)ctx; dealloc_count++; free(p); }
+static void *test_alloc(void *ctx, size_t size)
+{
+    (void)ctx;
+    alloc_count++;
+    return malloc(size);
+}
+static void *test_realloc(void *ctx, void *p, size_t size)
+{
+    (void)ctx;
+    alloc_count++;
+    return realloc(p, size);
+}
+static void test_dealloc(void *ctx, void *p)
+{
+    (void)ctx;
+    dealloc_count++;
+    free(p);
+}
 
-TEST_F(TomlTest, CustomAllocator) {
+TEST_F(TomlTest, CustomAllocator)
+{
     alloc_count = 0;
     dealloc_count = 0;
     vigil_allocator_t alloc = {NULL, test_alloc, test_realloc, test_dealloc};
     const char *input = "key = \"value\"";
     ASSERT_EQ(VIGIL_STATUS_OK,
-              vigil_toml_parse(&alloc, input, strlen(input),
-                              &FIXTURE(TomlTest)->root,
-                              &FIXTURE(TomlTest)->error));
+              vigil_toml_parse(&alloc, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error));
     EXPECT_GT(alloc_count, 0);
     vigil_toml_free(&FIXTURE(TomlTest)->root);
     EXPECT_GT(dealloc_count, 0);
@@ -382,7 +431,8 @@ TEST_F(TomlTest, CustomAllocator) {
 
 /* ── Table entry iteration ───────────────────────────────────────── */
 
-TEST_F(TomlTest, TableIteration) {
+TEST_F(TomlTest, TableIteration)
+{
     toml_parse_helper(FIXTURE(TomlTest), "a = 1\nb = 2\nc = 3", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_table_count(FIXTURE(TomlTest)->root), 3);
     const char *key = NULL;
@@ -396,12 +446,14 @@ TEST_F(TomlTest, TableIteration) {
 
 /* ── Dotted key path convenience ─────────────────────────────────── */
 
-TEST_F(TomlTest, GetPathMissing) {
+TEST_F(TomlTest, GetPathMissing)
+{
     toml_parse_helper(FIXTURE(TomlTest), "a = 1", vigil_test_failed_);
     EXPECT_EQ(vigil_toml_table_get_path(FIXTURE(TomlTest)->root, "x.y.z"), NULL);
 }
 
-void register_toml_tests(void) {
+void register_toml_tests(void)
+{
     REGISTER_TEST_F(TomlTest, StringValue);
     REGISTER_TEST_F(TomlTest, IntegerValue);
     REGISTER_TEST_F(TomlTest, NegativeInteger);

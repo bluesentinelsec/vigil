@@ -9,7 +9,8 @@
 #include "vigil/value.h"
 #include "vigil/vm.h"
 
-typedef struct DebugInfoFixture {
+typedef struct DebugInfoFixture
+{
     vigil_runtime_t *runtime;
     vigil_error_t error;
     vigil_source_registry_t registry;
@@ -18,7 +19,8 @@ typedef struct DebugInfoFixture {
     vigil_debug_symbol_table_t symbols;
 } DebugInfoFixture;
 
-static void dif_init(DebugInfoFixture *f) {
+static void dif_init(DebugInfoFixture *f)
+{
     memset(f, 0, sizeof(*f));
     vigil_runtime_open(&f->runtime, NULL, &f->error);
     vigil_source_registry_init(&f->registry, f->runtime);
@@ -28,7 +30,8 @@ static void dif_init(DebugInfoFixture *f) {
     vigil_debug_symbol_table_init(&f->symbols, f->runtime);
 }
 
-static void dif_free(DebugInfoFixture *f) {
+static void dif_free(DebugInfoFixture *f)
+{
     vigil_debug_symbol_table_free(&f->symbols);
     vigil_diagnostic_list_free(&f->diagnostics);
     vigil_native_registry_free(&f->natives);
@@ -36,36 +39,38 @@ static void dif_free(DebugInfoFixture *f) {
     vigil_runtime_close(&f->runtime);
 }
 
-static vigil_object_t *dif_compile(DebugInfoFixture *f, const char *source_text) {
+static vigil_object_t *dif_compile(DebugInfoFixture *f, const char *source_text)
+{
     vigil_source_id_t source_id = 0U;
     vigil_object_t *function = NULL;
-    if (vigil_source_registry_register_cstr(
-            &f->registry, "main.vigil", source_text, &source_id, &f->error) != VIGIL_STATUS_OK)
+    if (vigil_source_registry_register_cstr(&f->registry, "main.vigil", source_text, &source_id, &f->error) !=
+        VIGIL_STATUS_OK)
         return NULL;
-    if (vigil_compile_source_with_debug_info(
-            &f->registry, source_id, &f->natives, &function,
-            &f->diagnostics, &f->symbols, &f->error) != VIGIL_STATUS_OK)
+    if (vigil_compile_source_with_debug_info(&f->registry, source_id, &f->natives, &function, &f->diagnostics,
+                                             &f->symbols, &f->error) != VIGIL_STATUS_OK)
         return NULL;
     return function;
 }
 
-TEST(VigilDebugInfoTest, SymbolTableContainsMainFunction) {
+TEST(VigilDebugInfoTest, SymbolTableContainsMainFunction)
+{
     DebugInfoFixture f;
     dif_init(&f);
     vigil_object_t *fn = dif_compile(&f, "\n"
-        "fn main() -> i32 {\n"
-        "    return 0;\n"
-        "}\n"
-        "    ");
+                                         "fn main() -> i32 {\n"
+                                         "    return 0;\n"
+                                         "}\n"
+                                         "    ");
 
     ASSERT_NE(fn, NULL);
     EXPECT_GE(vigil_debug_symbol_table_count(&f.symbols), 1U);
 
     int found_main = false;
-    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++) {
+    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++)
+    {
         const vigil_debug_symbol_t *sym = vigil_debug_symbol_table_get(&f.symbols, i);
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_FUNCTION &&
-            sym->name_length == 4 && memcmp(sym->name, "main", 4) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_FUNCTION && sym->name_length == 4 && memcmp(sym->name, "main", 4) == 0)
+        {
             found_main = true;
         }
     }
@@ -74,23 +79,24 @@ TEST(VigilDebugInfoTest, SymbolTableContainsMainFunction) {
     dif_free(&f);
 }
 
-TEST(VigilDebugInfoTest, SymbolTableContainsClassAndMembers) {
+TEST(VigilDebugInfoTest, SymbolTableContainsClassAndMembers)
+{
     DebugInfoFixture f;
     dif_init(&f);
     vigil_object_t *fn = dif_compile(&f, "\n"
-        "class Point {\n"
-        "    pub i32 x;\n"
-        "    pub i32 y;\n"
-        "\n"
-        "    pub fn distance() -> f64 {\n"
-        "        return 0.0;\n"
-        "    }\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    return 0;\n"
-        "}\n"
-        "    ");
+                                         "class Point {\n"
+                                         "    pub i32 x;\n"
+                                         "    pub i32 y;\n"
+                                         "\n"
+                                         "    pub fn distance() -> f64 {\n"
+                                         "        return 0.0;\n"
+                                         "    }\n"
+                                         "}\n"
+                                         "\n"
+                                         "fn main() -> i32 {\n"
+                                         "    return 0;\n"
+                                         "}\n"
+                                         "    ");
 
     ASSERT_NE(fn, NULL);
 
@@ -99,20 +105,21 @@ TEST(VigilDebugInfoTest, SymbolTableContainsClassAndMembers) {
     int found_method = false;
     size_t class_idx = SIZE_MAX;
 
-    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++) {
+    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++)
+    {
         const vigil_debug_symbol_t *sym = vigil_debug_symbol_table_get(&f.symbols, i);
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_CLASS &&
-            sym->name_length == 5 && memcmp(sym->name, "Point", 5) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_CLASS && sym->name_length == 5 && memcmp(sym->name, "Point", 5) == 0)
+        {
             found_class = true;
             class_idx = i;
         }
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_FIELD &&
-            sym->name_length == 1 && sym->name[0] == 'x') {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_FIELD && sym->name_length == 1 && sym->name[0] == 'x')
+        {
             found_field_x = true;
             EXPECT_EQ(sym->parent_index, class_idx);
         }
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_METHOD &&
-            sym->name_length == 8 && memcmp(sym->name, "distance", 8) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_METHOD && sym->name_length == 8 && memcmp(sym->name, "distance", 8) == 0)
+        {
             found_method = true;
             EXPECT_EQ(sym->parent_index, class_idx);
         }
@@ -124,20 +131,21 @@ TEST(VigilDebugInfoTest, SymbolTableContainsClassAndMembers) {
     dif_free(&f);
 }
 
-TEST(VigilDebugInfoTest, SymbolTableContainsEnumAndMembers) {
+TEST(VigilDebugInfoTest, SymbolTableContainsEnumAndMembers)
+{
     DebugInfoFixture f;
     dif_init(&f);
     vigil_object_t *fn = dif_compile(&f, "\n"
-        "enum Color {\n"
-        "    Red,\n"
-        "    Green,\n"
-        "    Blue\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    return 0;\n"
-        "}\n"
-        "    ");
+                                         "enum Color {\n"
+                                         "    Red,\n"
+                                         "    Green,\n"
+                                         "    Blue\n"
+                                         "}\n"
+                                         "\n"
+                                         "fn main() -> i32 {\n"
+                                         "    return 0;\n"
+                                         "}\n"
+                                         "    ");
 
     ASSERT_NE(fn, NULL);
 
@@ -145,15 +153,16 @@ TEST(VigilDebugInfoTest, SymbolTableContainsEnumAndMembers) {
     int found_red = false;
     size_t enum_idx = SIZE_MAX;
 
-    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++) {
+    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++)
+    {
         const vigil_debug_symbol_t *sym = vigil_debug_symbol_table_get(&f.symbols, i);
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_ENUM &&
-            sym->name_length == 5 && memcmp(sym->name, "Color", 5) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_ENUM && sym->name_length == 5 && memcmp(sym->name, "Color", 5) == 0)
+        {
             found_enum = true;
             enum_idx = i;
         }
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_ENUM_MEMBER &&
-            sym->name_length == 3 && memcmp(sym->name, "Red", 3) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_ENUM_MEMBER && sym->name_length == 3 && memcmp(sym->name, "Red", 3) == 0)
+        {
             found_red = true;
             EXPECT_EQ(sym->parent_index, enum_idx);
         }
@@ -164,31 +173,33 @@ TEST(VigilDebugInfoTest, SymbolTableContainsEnumAndMembers) {
     dif_free(&f);
 }
 
-TEST(VigilDebugInfoTest, SymbolTableContainsGlobals) {
+TEST(VigilDebugInfoTest, SymbolTableContainsGlobals)
+{
     DebugInfoFixture f;
     dif_init(&f);
     vigil_object_t *fn = dif_compile(&f, "\n"
-        "const i32 MAX = 100;\n"
-        "i32 counter = 0;\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    return MAX;\n"
-        "}\n"
-        "    ");
+                                         "const i32 MAX = 100;\n"
+                                         "i32 counter = 0;\n"
+                                         "\n"
+                                         "fn main() -> i32 {\n"
+                                         "    return MAX;\n"
+                                         "}\n"
+                                         "    ");
 
     ASSERT_NE(fn, NULL);
 
     int found_const = false;
     int found_var = false;
 
-    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++) {
+    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++)
+    {
         const vigil_debug_symbol_t *sym = vigil_debug_symbol_table_get(&f.symbols, i);
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_GLOBAL_CONST &&
-            sym->name_length == 3 && memcmp(sym->name, "MAX", 3) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_GLOBAL_CONST && sym->name_length == 3 && memcmp(sym->name, "MAX", 3) == 0)
+        {
             found_const = true;
         }
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_GLOBAL_VAR &&
-            sym->name_length == 7 && memcmp(sym->name, "counter", 7) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_GLOBAL_VAR && sym->name_length == 7 && memcmp(sym->name, "counter", 7) == 0)
+        {
             found_var = true;
         }
     }
@@ -198,7 +209,8 @@ TEST(VigilDebugInfoTest, SymbolTableContainsGlobals) {
     dif_free(&f);
 }
 
-TEST(VigilDebugInfoTest, LocalTableBasic) {
+TEST(VigilDebugInfoTest, LocalTableBasic)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_debug_local_table_t table;
@@ -232,16 +244,17 @@ TEST(VigilDebugInfoTest, LocalTableBasic) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilDebugInfoTest, ChunkContainsDebugLocals) {
+TEST(VigilDebugInfoTest, ChunkContainsDebugLocals)
+{
     DebugInfoFixture f;
     dif_init(&f);
     vigil_object_t *fn = dif_compile(&f, "\n"
-        "fn main() -> i32 {\n"
-        "    i32 x = 10;\n"
-        "    i32 y = 20;\n"
-        "    return x + y;\n"
-        "}\n"
-        "    ");
+                                         "fn main() -> i32 {\n"
+                                         "    i32 x = 10;\n"
+                                         "    i32 y = 20;\n"
+                                         "    return x + y;\n"
+                                         "}\n"
+                                         "    ");
 
     ASSERT_NE(fn, NULL);
 
@@ -261,32 +274,34 @@ TEST(VigilDebugInfoTest, ChunkContainsDebugLocals) {
     dif_free(&f);
 }
 
-TEST(VigilDebugInfoTest, SymbolTableContainsInterface) {
+TEST(VigilDebugInfoTest, SymbolTableContainsInterface)
+{
     DebugInfoFixture f;
     dif_init(&f);
     vigil_object_t *fn = dif_compile(&f, "\n"
-        "interface Drawable {\n"
-        "    fn draw() -> void;\n"
-        "}\n"
-        "\n"
-        "class Circle implements Drawable {\n"
-        "    pub i32 radius;\n"
-        "\n"
-        "    pub fn draw() -> void {}\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    return 0;\n"
-        "}\n"
-        "    ");
+                                         "interface Drawable {\n"
+                                         "    fn draw() -> void;\n"
+                                         "}\n"
+                                         "\n"
+                                         "class Circle implements Drawable {\n"
+                                         "    pub i32 radius;\n"
+                                         "\n"
+                                         "    pub fn draw() -> void {}\n"
+                                         "}\n"
+                                         "\n"
+                                         "fn main() -> i32 {\n"
+                                         "    return 0;\n"
+                                         "}\n"
+                                         "    ");
 
     ASSERT_NE(fn, NULL);
 
     int found_interface = false;
-    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++) {
+    for (size_t i = 0; i < vigil_debug_symbol_table_count(&f.symbols); i++)
+    {
         const vigil_debug_symbol_t *sym = vigil_debug_symbol_table_get(&f.symbols, i);
-        if (sym->kind == VIGIL_DEBUG_SYMBOL_INTERFACE &&
-            sym->name_length == 8 && memcmp(sym->name, "Drawable", 8) == 0) {
+        if (sym->kind == VIGIL_DEBUG_SYMBOL_INTERFACE && sym->name_length == 8 && memcmp(sym->name, "Drawable", 8) == 0)
+        {
             found_interface = true;
         }
     }
@@ -295,7 +310,8 @@ TEST(VigilDebugInfoTest, SymbolTableContainsInterface) {
     dif_free(&f);
 }
 
-void register_debug_info_tests(void) {
+void register_debug_info_tests(void)
+{
     REGISTER_TEST(VigilDebugInfoTest, SymbolTableContainsMainFunction);
     REGISTER_TEST(VigilDebugInfoTest, SymbolTableContainsClassAndMembers);
     REGISTER_TEST(VigilDebugInfoTest, SymbolTableContainsEnumAndMembers);

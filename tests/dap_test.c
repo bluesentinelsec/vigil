@@ -6,7 +6,6 @@
 #pragma warning(disable : 4996)
 #endif
 
-
 #include "vigil/dap.h"
 #include "vigil/json.h"
 #include "vigil/jsonrpc.h"
@@ -19,12 +18,14 @@
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
 /* Write a DAP request as a Content-Length framed message to a FILE. */
-static void write_message(FILE *f, const char *json) {
+static void write_message(FILE *f, const char *json)
+{
     fprintf(f, "Content-Length: %zu\r\n\r\n%s", strlen(json), json);
 }
 
 /* Read all content from a FILE into a string. */
-static char *read_all(FILE *f) {
+static char *read_all(FILE *f)
+{
     long size;
     char *buf;
     size_t n;
@@ -39,7 +40,8 @@ static char *read_all(FILE *f) {
 
 /* ── JSON-RPC transport tests ────────────────────────────────────── */
 
-TEST(VigilJsonRpcTest, ReadWriteRoundtrip) {
+TEST(VigilJsonRpcTest, ReadWriteRoundtrip)
+{
     FILE *pipe = tmpfile();
     ASSERT_NE(pipe, NULL);
 
@@ -73,7 +75,8 @@ TEST(VigilJsonRpcTest, ReadWriteRoundtrip) {
     fclose(pipe);
 }
 
-TEST(VigilJsonRpcTest, ReadMultipleMessages) {
+TEST(VigilJsonRpcTest, ReadMultipleMessages)
+{
     FILE *pipe = tmpfile();
     ASSERT_NE(pipe, NULL);
 
@@ -97,7 +100,8 @@ TEST(VigilJsonRpcTest, ReadMultipleMessages) {
     fclose(pipe);
 }
 
-TEST(VigilJsonRpcTest, ReadEofReturnsError) {
+TEST(VigilJsonRpcTest, ReadEofReturnsError)
+{
     FILE *pipe = tmpfile();
     ASSERT_NE(pipe, NULL);
     fseek(pipe, 0, SEEK_SET);
@@ -114,7 +118,8 @@ TEST(VigilJsonRpcTest, ReadEofReturnsError) {
 
 /* ── DAP server tests ────────────────────────────────────────────── */
 
-TEST(VigilDapTest, CreateAndDestroy) {
+TEST(VigilDapTest, CreateAndDestroy)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_error_t error = {0};
@@ -129,7 +134,8 @@ TEST(VigilDapTest, CreateAndDestroy) {
     fclose(out);
 }
 
-TEST(VigilDapTest, InitializeAndDisconnect) {
+TEST(VigilDapTest, InitializeAndDisconnect)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_error_t error = {0};
@@ -170,7 +176,8 @@ TEST(VigilDapTest, InitializeAndDisconnect) {
     fclose(out);
 }
 
-TEST(VigilDapTest, LaunchAndBreakpoint) {
+TEST(VigilDapTest, LaunchAndBreakpoint)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_error_t error = {0};
@@ -190,21 +197,17 @@ TEST(VigilDapTest, LaunchAndBreakpoint) {
     vigil_stdlib_register_all(&natives, &error);
 
     vigil_source_id_t source_id = 0;
-    vigil_source_registry_register_cstr(
-        &registry, "main.vigil",
-        "fn main() -> i32 {\n"
-        "    i32 x = 10;\n"
-        "    i32 y = 20;\n"
-        "    return x + y;\n"
-        "}\n",
-        &source_id, &error);
+    vigil_source_registry_register_cstr(&registry, "main.vigil",
+                                        "fn main() -> i32 {\n"
+                                        "    i32 x = 10;\n"
+                                        "    i32 y = 20;\n"
+                                        "    return x + y;\n"
+                                        "}\n",
+                                        &source_id, &error);
 
     vigil_object_t *function = NULL;
-    ASSERT_EQ(
-        vigil_compile_source_with_natives(
-            &registry, source_id, &natives, &function,
-            &diagnostics, &error),
-        VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_compile_source_with_natives(&registry, source_id, &natives, &function, &diagnostics, &error),
+              VIGIL_STATUS_OK);
 
     /* Write DAP sequence: initialize, setBreakpoints on line 3,
        configurationDone, launch, then continue + disconnect when stopped. */
@@ -252,7 +255,8 @@ TEST(VigilDapTest, LaunchAndBreakpoint) {
     fclose(out);
 }
 
-void register_dap_tests(void) {
+void register_dap_tests(void)
+{
     REGISTER_TEST(VigilJsonRpcTest, ReadWriteRoundtrip);
     REGISTER_TEST(VigilJsonRpcTest, ReadMultipleMessages);
     REGISTER_TEST(VigilJsonRpcTest, ReadEofReturnsError);

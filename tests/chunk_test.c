@@ -3,37 +3,41 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct AllocatorStats {
+struct AllocatorStats
+{
     int allocate_calls;
     int reallocate_calls;
     int deallocate_calls;
 };
 
-static void *CountedAllocate(void *user_data, size_t size) {
+static void *CountedAllocate(void *user_data, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
     return calloc(1U, size);
 }
 
-static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+static void *CountedReallocate(void *user_data, void *memory, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
     return realloc(memory, size);
 }
 
-static void CountedDeallocate(void *user_data, void *memory) {
+static void CountedDeallocate(void *user_data, void *memory)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
     free(memory);
 }
 
-static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_t end) {
+static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_t end)
+{
     vigil_source_span_t span = {0};
 
     span.source_id = source_id;
@@ -42,8 +46,8 @@ static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_
     return span;
 }
 
-
-TEST(VigilChunkTest, InitStartsEmpty) {
+TEST(VigilChunkTest, InitStartsEmpty)
+{
     vigil_chunk_t chunk;
 
     vigil_chunk_init(&chunk, NULL);
@@ -56,7 +60,8 @@ TEST(VigilChunkTest, InitStartsEmpty) {
     EXPECT_EQ(vigil_chunk_span_at(&chunk, 0U).source_id, 0U);
 }
 
-TEST(VigilChunkTest, WriteOpcodeAndBytesTrackSourceSpans) {
+TEST(VigilChunkTest, WriteOpcodeAndBytesTrackSourceSpans)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -67,14 +72,8 @@ TEST(VigilChunkTest, WriteOpcodeAndBytesTrackSourceSpans) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_chunk_init(&chunk, runtime);
 
-    ASSERT_EQ(
-        vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, opcode_span, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_chunk_write_u32(&chunk, 0x78563412U, operand_span, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, opcode_span, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0x78563412U, operand_span, &error), VIGIL_STATUS_OK);
 
     code = vigil_chunk_code(&chunk);
     ASSERT_NE(code, NULL);
@@ -92,7 +91,8 @@ TEST(VigilChunkTest, WriteOpcodeAndBytesTrackSourceSpans) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
+TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -103,18 +103,12 @@ TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_chunk_init(&chunk, runtime);
-    ASSERT_EQ(
-        vigil_string_object_new_cstr(runtime, "hello", &object, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "hello", &object, &error), VIGIL_STATUS_OK);
 
     vigil_value_init_object(&value, &object);
     ASSERT_EQ(object, NULL);
 
-    ASSERT_EQ(
-        vigil_chunk_add_constant(&chunk, &value, &index, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_chunk_add_constant(&chunk, &value, &index, &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(index, 0U);
     EXPECT_EQ(vigil_chunk_constant_count(&chunk), 1U);
@@ -122,10 +116,7 @@ TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
     ASSERT_NE(stored, NULL);
     ASSERT_NE(vigil_value_as_object(stored), NULL);
     EXPECT_EQ(vigil_object_ref_count(vigil_value_as_object(stored)), 2U);
-    EXPECT_STREQ(
-        vigil_string_object_c_str(vigil_value_as_object(stored)),
-        "hello"
-    );
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(stored)), "hello");
 
     vigil_value_release(&value);
     EXPECT_EQ(vigil_object_ref_count(vigil_value_as_object(stored)), 1U);
@@ -134,7 +125,8 @@ TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex) {
+TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -146,10 +138,7 @@ TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex) {
     vigil_chunk_init(&chunk, runtime);
     vigil_value_init_int(&value, 42);
 
-    ASSERT_EQ(
-        vigil_chunk_write_constant(&chunk, &value, Span(7U, 20U, 25U), &index, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &value, Span(7U, 20U, 25U), &index, &error), VIGIL_STATUS_OK);
 
     ASSERT_EQ(index, 0U);
     ASSERT_EQ(vigil_chunk_code_size(&chunk), 5U);
@@ -167,7 +156,8 @@ TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants) {
+TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -179,14 +169,8 @@ TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants) {
     vigil_string_init(&output, runtime);
     vigil_value_init_int(&value, 123);
 
-    ASSERT_EQ(
-        vigil_chunk_write_constant(&chunk, &value, Span(1U, 0U, 3U), NULL, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(1U, 4U, 5U), &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &value, Span(1U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(1U, 4U, 5U), &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_OK);
 
     EXPECT_NE(strstr(vigil_string_c_str(&output), "0000 CONSTANT 0 123"), NULL);
@@ -197,7 +181,8 @@ TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilChunkTest, UsesRuntimeAllocatorHooks) {
+TEST(VigilChunkTest, UsesRuntimeAllocatorHooks)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -217,14 +202,8 @@ TEST(VigilChunkTest, UsesRuntimeAllocatorHooks) {
     vigil_chunk_init(&chunk, runtime);
     vigil_value_init_int(&value, 1);
 
-    ASSERT_EQ(
-        vigil_chunk_write_constant(&chunk, &value, Span(1U, 0U, 1U), NULL, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(1U, 2U, 3U), &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &value, Span(1U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(1U, 2U, 3U), &error), VIGIL_STATUS_OK);
 
     EXPECT_GE(stats.allocate_calls, 3);
 
@@ -233,7 +212,8 @@ TEST(VigilChunkTest, UsesRuntimeAllocatorHooks) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilChunkTest, RejectsMissingRuntimeForMutation) {
+TEST(VigilChunkTest, RejectsMissingRuntimeForMutation)
+{
     vigil_chunk_t chunk;
     vigil_error_t error = {0};
     vigil_value_t value;
@@ -241,21 +221,17 @@ TEST(VigilChunkTest, RejectsMissingRuntimeForMutation) {
     vigil_chunk_init(&chunk, NULL);
     vigil_value_init_nil(&value);
 
-    EXPECT_EQ(
-        vigil_chunk_add_constant(&chunk, &value, NULL, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_chunk_add_constant(&chunk, &value, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "chunk runtime must not be null"), 0);
 
-    EXPECT_EQ(
-        vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(0U, 0U, 0U), &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(0U, 0U, 0U), &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
 }
 
-TEST(VigilChunkTest, RejectsMissingArguments) {
+TEST(VigilChunkTest, RejectsMissingArguments)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -267,23 +243,18 @@ TEST(VigilChunkTest, RejectsMissingArguments) {
     vigil_string_init(&output, runtime);
     vigil_value_init_nil(&value);
 
-    EXPECT_EQ(
-        vigil_chunk_add_constant(&chunk, NULL, NULL, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_chunk_add_constant(&chunk, NULL, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
-    EXPECT_EQ(
-        strcmp(error.value, "chunk constant requires value and out_index"),
-        0
-    );
+    EXPECT_EQ(strcmp(error.value, "chunk constant requires value and out_index"), 0);
 
     vigil_string_free(&output);
     vigil_chunk_free(&chunk);
     vigil_runtime_close(&runtime);
 }
 
-void register_chunk_tests(void) {
+void register_chunk_tests(void)
+{
     REGISTER_TEST(VigilChunkTest, InitStartsEmpty);
     REGISTER_TEST(VigilChunkTest, WriteOpcodeAndBytesTrackSourceSpans);
     REGISTER_TEST(VigilChunkTest, AddConstantCopiesOwnedValueAndReleasesOnFree);

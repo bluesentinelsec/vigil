@@ -10,7 +10,8 @@
 #include "vigil/type.h"
 #include "vigil/value.h"
 
-typedef enum vigil_binding_object_kind {
+typedef enum vigil_binding_object_kind
+{
     VIGIL_BINDING_OBJECT_NONE = 0,
     VIGIL_BINDING_OBJECT_CLASS = 1,
     VIGIL_BINDING_OBJECT_INTERFACE = 2,
@@ -20,21 +21,24 @@ typedef enum vigil_binding_object_kind {
     VIGIL_BINDING_OBJECT_FUNCTION = 6
 } vigil_binding_object_kind_t;
 
-typedef struct vigil_binding_type {
+typedef struct vigil_binding_type
+{
     vigil_type_kind_t kind;
     vigil_binding_object_kind_t object_kind;
     size_t object_index;
 } vigil_binding_type_t;
 
 #define VIGIL_BINDING_INVALID_CLASS_INDEX ((size_t)-1)
-typedef struct vigil_binding_function_param {
+typedef struct vigil_binding_function_param
+{
     const char *name;
     size_t length;
     vigil_binding_type_t type;
     vigil_source_span_t span;
 } vigil_binding_function_param_t;
 
-typedef struct vigil_binding_capture {
+typedef struct vigil_binding_capture
+{
     const char *name;
     size_t name_length;
     vigil_binding_type_t type;
@@ -42,7 +46,8 @@ typedef struct vigil_binding_capture {
     int source_is_capture;
 } vigil_binding_capture_t;
 
-typedef struct vigil_binding_function {
+typedef struct vigil_binding_function
+{
     const char *name;
     size_t name_length;
     vigil_source_span_t name_span;
@@ -66,7 +71,8 @@ typedef struct vigil_binding_function {
     int is_local;
 } vigil_binding_function_t;
 
-typedef struct vigil_binding_function_table {
+typedef struct vigil_binding_function_table
+{
     vigil_runtime_t *runtime;
     vigil_binding_function_t *functions;
     size_t count;
@@ -75,7 +81,8 @@ typedef struct vigil_binding_function_table {
     int has_main;
 } vigil_binding_function_table_t;
 
-typedef struct vigil_binding_local {
+typedef struct vigil_binding_local
+{
     const char *name;
     size_t length;
     size_t depth;
@@ -83,7 +90,8 @@ typedef struct vigil_binding_local {
     int is_const;
 } vigil_binding_local_t;
 
-typedef struct vigil_binding_scope_stack {
+typedef struct vigil_binding_scope_stack
+{
     vigil_runtime_t *runtime;
     vigil_binding_local_t *locals;
     size_t local_count;
@@ -103,95 +111,46 @@ VIGIL_API int vigil_binding_type_is_valid(vigil_binding_type_t type);
 VIGIL_API int vigil_binding_type_equal(vigil_binding_type_t left, vigil_binding_type_t right);
 
 VIGIL_API void vigil_binding_function_init(vigil_binding_function_t *function);
-VIGIL_API void vigil_binding_function_free(
-    vigil_runtime_t *runtime,
-    vigil_binding_function_t *function
-);
-VIGIL_API vigil_status_t vigil_binding_function_add_param(
-    vigil_runtime_t *runtime,
-    vigil_binding_function_t *function,
-    const char *name,
-    size_t name_length,
-    vigil_source_span_t span,
-    vigil_binding_type_t type,
-    vigil_error_t *error
-);
-VIGIL_API vigil_status_t vigil_binding_function_add_return_type(
-    vigil_runtime_t *runtime,
-    vigil_binding_function_t *function,
-    vigil_binding_type_t type,
-    vigil_error_t *error
-);
+VIGIL_API void vigil_binding_function_free(vigil_runtime_t *runtime, vigil_binding_function_t *function);
+VIGIL_API vigil_status_t vigil_binding_function_add_param(vigil_runtime_t *runtime, vigil_binding_function_t *function,
+                                                          const char *name, size_t name_length,
+                                                          vigil_source_span_t span, vigil_binding_type_t type,
+                                                          vigil_error_t *error);
+VIGIL_API vigil_status_t vigil_binding_function_add_return_type(vigil_runtime_t *runtime,
+                                                                vigil_binding_function_t *function,
+                                                                vigil_binding_type_t type, vigil_error_t *error);
 
-VIGIL_API void vigil_binding_function_table_init(
-    vigil_binding_function_table_t *table,
-    vigil_runtime_t *runtime
-);
+VIGIL_API void vigil_binding_function_table_init(vigil_binding_function_table_t *table, vigil_runtime_t *runtime);
 VIGIL_API void vigil_binding_function_table_free(vigil_binding_function_table_t *table);
-VIGIL_API vigil_status_t vigil_binding_function_table_append(
-    vigil_binding_function_table_t *table,
-    vigil_binding_function_t *function,
-    size_t *out_index,
-    vigil_error_t *error
-);
-VIGIL_API int vigil_binding_function_table_find(
-    const vigil_binding_function_table_t *table,
-    const char *name,
-    size_t name_length,
-    size_t *out_index,
-    const vigil_binding_function_t **out_function
-);
-VIGIL_API const vigil_binding_function_t *vigil_binding_function_table_get(
-    const vigil_binding_function_table_t *table,
-    size_t index
-);
-VIGIL_API vigil_binding_function_t *vigil_binding_function_table_get_mutable(
-    vigil_binding_function_table_t *table,
-    size_t index
-);
+VIGIL_API vigil_status_t vigil_binding_function_table_append(vigil_binding_function_table_t *table,
+                                                             vigil_binding_function_t *function, size_t *out_index,
+                                                             vigil_error_t *error);
+VIGIL_API int vigil_binding_function_table_find(const vigil_binding_function_table_t *table, const char *name,
+                                                size_t name_length, size_t *out_index,
+                                                const vigil_binding_function_t **out_function);
+VIGIL_API const vigil_binding_function_t *vigil_binding_function_table_get(const vigil_binding_function_table_t *table,
+                                                                           size_t index);
+VIGIL_API vigil_binding_function_t *vigil_binding_function_table_get_mutable(vigil_binding_function_table_t *table,
+                                                                             size_t index);
 
-VIGIL_API void vigil_binding_scope_stack_init(
-    vigil_binding_scope_stack_t *stack,
-    vigil_runtime_t *runtime
-);
+VIGIL_API void vigil_binding_scope_stack_init(vigil_binding_scope_stack_t *stack, vigil_runtime_t *runtime);
 VIGIL_API void vigil_binding_scope_stack_free(vigil_binding_scope_stack_t *stack);
 VIGIL_API void vigil_binding_scope_stack_begin_scope(vigil_binding_scope_stack_t *stack);
-VIGIL_API void vigil_binding_scope_stack_end_scope(
-    vigil_binding_scope_stack_t *stack,
-    size_t *out_popped_count
-);
+VIGIL_API void vigil_binding_scope_stack_end_scope(vigil_binding_scope_stack_t *stack, size_t *out_popped_count);
 VIGIL_API size_t vigil_binding_scope_stack_depth(const vigil_binding_scope_stack_t *stack);
 VIGIL_API size_t vigil_binding_scope_stack_count(const vigil_binding_scope_stack_t *stack);
-VIGIL_API size_t vigil_binding_scope_stack_count_above_depth(
-    const vigil_binding_scope_stack_t *stack,
-    size_t target_depth
-);
-VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_local(
-    vigil_binding_scope_stack_t *stack,
-    const char *name,
-    size_t name_length,
-    vigil_binding_type_t type,
-    int is_const,
-    size_t *out_index,
-    vigil_error_t *error
-);
-VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_hidden_local(
-    vigil_binding_scope_stack_t *stack,
-    vigil_binding_type_t type,
-    int is_const,
-    size_t *out_index,
-    vigil_error_t *error
-);
-VIGIL_API int vigil_binding_scope_stack_find_local(
-    const vigil_binding_scope_stack_t *stack,
-    const char *name,
-    size_t name_length,
-    size_t *out_index,
-    vigil_binding_type_t *out_type
-);
-VIGIL_API const vigil_binding_local_t *vigil_binding_scope_stack_local_at(
-    const vigil_binding_scope_stack_t *stack,
-    size_t index
-);
+VIGIL_API size_t vigil_binding_scope_stack_count_above_depth(const vigil_binding_scope_stack_t *stack,
+                                                             size_t target_depth);
+VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack_t *stack, const char *name,
+                                                                 size_t name_length, vigil_binding_type_t type,
+                                                                 int is_const, size_t *out_index, vigil_error_t *error);
+VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_hidden_local(vigil_binding_scope_stack_t *stack,
+                                                                        vigil_binding_type_t type, int is_const,
+                                                                        size_t *out_index, vigil_error_t *error);
+VIGIL_API int vigil_binding_scope_stack_find_local(const vigil_binding_scope_stack_t *stack, const char *name,
+                                                   size_t name_length, size_t *out_index,
+                                                   vigil_binding_type_t *out_type);
+VIGIL_API const vigil_binding_local_t *vigil_binding_scope_stack_local_at(const vigil_binding_scope_stack_t *stack,
+                                                                          size_t index);
 
 #endif

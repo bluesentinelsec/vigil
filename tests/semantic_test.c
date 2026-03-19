@@ -1,16 +1,18 @@
-#include "vigil_test.h"
-#include "vigil/semantic.h"
 #include "vigil/runtime.h"
+#include "vigil/semantic.h"
 #include "vigil/source.h"
+#include "vigil_test.h"
 
 /* ── Type utilities ───────────────────────────────────────── */
 
-TEST(SemanticTest, TypeInvalid) {
+TEST(SemanticTest, TypeInvalid)
+{
     vigil_semantic_type_t type = vigil_semantic_type_invalid();
     ASSERT_TRUE(!vigil_semantic_type_is_valid(type));
 }
 
-TEST(SemanticTest, TypePrimitive) {
+TEST(SemanticTest, TypePrimitive)
+{
     vigil_semantic_type_t i32_type = vigil_semantic_type_primitive(VIGIL_TYPE_I32);
     vigil_semantic_type_t str_type = vigil_semantic_type_primitive(VIGIL_TYPE_STRING);
 
@@ -20,7 +22,8 @@ TEST(SemanticTest, TypePrimitive) {
     ASSERT_EQ(str_type.kind, VIGIL_TYPE_STRING);
 }
 
-TEST(SemanticTest, TypeEqual) {
+TEST(SemanticTest, TypeEqual)
+{
     vigil_semantic_type_t a = vigil_semantic_type_primitive(VIGIL_TYPE_I32);
     vigil_semantic_type_t b = vigil_semantic_type_primitive(VIGIL_TYPE_I32);
     vigil_semantic_type_t c = vigil_semantic_type_primitive(VIGIL_TYPE_STRING);
@@ -31,7 +34,8 @@ TEST(SemanticTest, TypeEqual) {
 
 /* ── File creation/destruction ────────────────────────────── */
 
-TEST(SemanticTest, FileCreateDestroy) {
+TEST(SemanticTest, FileCreateDestroy)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_semantic_file_t *file = NULL;
     vigil_error_t error = {0};
@@ -48,7 +52,8 @@ TEST(SemanticTest, FileCreateDestroy) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(SemanticTest, FileNodeAtEmpty) {
+TEST(SemanticTest, FileNodeAtEmpty)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_semantic_file_t *file = NULL;
     vigil_error_t error = {0};
@@ -66,7 +71,8 @@ TEST(SemanticTest, FileNodeAtEmpty) {
 
 /* ── Index creation/destruction ───────────────────────────── */
 
-TEST(SemanticTest, IndexCreateDestroy) {
+TEST(SemanticTest, IndexCreateDestroy)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_source_registry_t registry;
     vigil_semantic_index_t *index = NULL;
@@ -86,7 +92,8 @@ TEST(SemanticTest, IndexCreateDestroy) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(SemanticTest, IndexGetFileNotFound) {
+TEST(SemanticTest, IndexGetFileNotFound)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_source_registry_t registry;
     vigil_semantic_index_t *index = NULL;
@@ -107,7 +114,8 @@ TEST(SemanticTest, IndexGetFileNotFound) {
 
 /* ── Type to string ───────────────────────────────────────── */
 
-TEST(SemanticTest, TypeToString) {
+TEST(SemanticTest, TypeToString)
+{
     vigil_semantic_type_t i32_type = vigil_semantic_type_primitive(VIGIL_TYPE_I32);
     char *str = vigil_semantic_type_to_string(NULL, i32_type);
 
@@ -117,7 +125,8 @@ TEST(SemanticTest, TypeToString) {
     free(str);
 }
 
-TEST(SemanticTest, TypeToStringInvalid) {
+TEST(SemanticTest, TypeToStringInvalid)
+{
     vigil_semantic_type_t invalid = vigil_semantic_type_invalid();
     char *str = vigil_semantic_type_to_string(NULL, invalid);
 
@@ -129,7 +138,8 @@ TEST(SemanticTest, TypeToStringInvalid) {
 
 /* ── Index analysis ───────────────────────────────────────── */
 
-TEST(SemanticTest, AnalyzeValidSource) {
+TEST(SemanticTest, AnalyzeValidSource)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_source_registry_t registry;
     vigil_semantic_index_t *index = NULL;
@@ -141,11 +151,7 @@ TEST(SemanticTest, AnalyzeValidSource) {
     vigil_source_registry_init(&registry, runtime);
 
     /* Register a simple valid source. */
-    vigil_source_registry_register_cstr(
-        &registry, "test.vigil",
-        "fn main() -> i32 { return 0; }",
-        &source_id, &error
-    );
+    vigil_source_registry_register_cstr(&registry, "test.vigil", "fn main() -> i32 { return 0; }", &source_id, &error);
 
     vigil_semantic_index_create(&index, runtime, &registry, &error);
 
@@ -168,7 +174,8 @@ TEST(SemanticTest, AnalyzeValidSource) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(SemanticTest, AnalyzeInvalidSource) {
+TEST(SemanticTest, AnalyzeInvalidSource)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_source_registry_t registry;
     vigil_semantic_index_t *index = NULL;
@@ -180,11 +187,8 @@ TEST(SemanticTest, AnalyzeInvalidSource) {
     vigil_source_registry_init(&registry, runtime);
 
     /* Register source with syntax error. */
-    vigil_source_registry_register_cstr(
-        &registry, "test.vigil",
-        "fn main() -> i32 { return }",  /* missing expression */
-        &source_id, &error
-    );
+    vigil_source_registry_register_cstr(&registry, "test.vigil", "fn main() -> i32 { return }", /* missing expression */
+                                        &source_id, &error);
 
     vigil_semantic_index_create(&index, runtime, &registry, &error);
 
@@ -205,7 +209,8 @@ TEST(SemanticTest, AnalyzeInvalidSource) {
 
 /* ── Test registration ────────────────────────────────────── */
 
-void register_semantic_tests(void) {
+void register_semantic_tests(void)
+{
     REGISTER_TEST(SemanticTest, TypeInvalid);
     REGISTER_TEST(SemanticTest, TypePrimitive);
     REGISTER_TEST(SemanticTest, TypeEqual);

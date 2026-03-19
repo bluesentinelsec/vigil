@@ -2,7 +2,6 @@
 #include <math.h>
 #include <string.h>
 
-
 #include "vigil/json.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
@@ -10,19 +9,26 @@
 static size_t g_alloc_count = 0;
 static size_t g_dealloc_count = 0;
 
-static void *tracking_alloc(void *ud, size_t size) {
-    (void)ud; g_alloc_count++;
+static void *tracking_alloc(void *ud, size_t size)
+{
+    (void)ud;
+    g_alloc_count++;
     return calloc(1, size);
 }
-static void *tracking_realloc(void *ud, void *p, size_t size) {
-    (void)ud; return realloc(p, size);
+static void *tracking_realloc(void *ud, void *p, size_t size)
+{
+    (void)ud;
+    return realloc(p, size);
 }
-static void tracking_dealloc(void *ud, void *p) {
-    (void)ud; g_dealloc_count++;
+static void tracking_dealloc(void *ud, void *p)
+{
+    (void)ud;
+    g_dealloc_count++;
     free(p);
 }
 
-static vigil_allocator_t tracking_allocator(void) {
+static vigil_allocator_t tracking_allocator(void)
+{
     vigil_allocator_t a;
     a.user_data = NULL;
     a.allocate = tracking_alloc;
@@ -32,7 +38,8 @@ static vigil_allocator_t tracking_allocator(void) {
 }
 
 /* Parse helper that uses default allocator. */
-static vigil_json_value_t *parse(int *vigil_test_failed_, const char *input) {
+static vigil_json_value_t *parse(int *vigil_test_failed_, const char *input)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     vigil_status_t s = vigil_json_parse(NULL, input, strlen(input), &v, &error);
@@ -41,7 +48,8 @@ static vigil_json_value_t *parse(int *vigil_test_failed_, const char *input) {
 }
 
 /* Parse that expects failure. */
-static void parse_fail(int *vigil_test_failed_, const char *input) {
+static void parse_fail(int *vigil_test_failed_, const char *input)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     vigil_status_t s = vigil_json_parse(NULL, input, strlen(input), &v, &error);
@@ -50,13 +58,15 @@ static void parse_fail(int *vigil_test_failed_, const char *input) {
 }
 
 /* Emit helper. */
-static char *emit_json(int *vigil_test_failed_, const vigil_json_value_t *v) {
+static char *emit_json(int *vigil_test_failed_, const vigil_json_value_t *v)
+{
     static char result[4096];
     char *str = NULL;
     size_t len = 0;
     vigil_error_t error = {0};
     EXPECT_EQ(vigil_json_emit(v, &str, &len, &error), VIGIL_STATUS_OK);
-    if (len >= sizeof(result)) len = sizeof(result) - 1;
+    if (len >= sizeof(result))
+        len = sizeof(result) - 1;
     memcpy(result, str, len);
     result[len] = '\0';
     free(str);
@@ -65,7 +75,8 @@ static char *emit_json(int *vigil_test_failed_, const vigil_json_value_t *v) {
 
 /* ── Scalar constructors ─────────────────────────────────────────── */
 
-TEST(VigilJsonTest, NullValue) {
+TEST(VigilJsonTest, NullValue)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_null_new(NULL, &v, &error), VIGIL_STATUS_OK);
@@ -75,7 +86,8 @@ TEST(VigilJsonTest, NullValue) {
     EXPECT_EQ(v, NULL);
 }
 
-TEST(VigilJsonTest, BoolValues) {
+TEST(VigilJsonTest, BoolValues)
+{
     vigil_json_value_t *t = NULL, *f = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_bool_new(NULL, 1, &t, &error), VIGIL_STATUS_OK);
@@ -89,7 +101,8 @@ TEST(VigilJsonTest, BoolValues) {
     vigil_json_free(&f);
 }
 
-TEST(VigilJsonTest, NumberValues) {
+TEST(VigilJsonTest, NumberValues)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_number_new(NULL, 42.0, &v, &error), VIGIL_STATUS_OK);
@@ -107,7 +120,8 @@ TEST(VigilJsonTest, NumberValues) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, StringValue) {
+TEST(VigilJsonTest, StringValue)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_string_new(NULL, "hello", 5, &v, &error), VIGIL_STATUS_OK);
@@ -118,7 +132,8 @@ TEST(VigilJsonTest, StringValue) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, StringWithEmbeddedNull) {
+TEST(VigilJsonTest, StringWithEmbeddedNull)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_string_new(NULL, "a\0b", 3, &v, &error), VIGIL_STATUS_OK);
@@ -129,7 +144,8 @@ TEST(VigilJsonTest, StringWithEmbeddedNull) {
 
 /* ── Array operations ────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, EmptyArray) {
+TEST(VigilJsonTest, EmptyArray)
+{
     vigil_json_value_t *a = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_array_new(NULL, &a, &error), VIGIL_STATUS_OK);
@@ -139,7 +155,8 @@ TEST(VigilJsonTest, EmptyArray) {
     vigil_json_free(&a);
 }
 
-TEST(VigilJsonTest, ArrayPushAndGet) {
+TEST(VigilJsonTest, ArrayPushAndGet)
+{
     vigil_json_value_t *a = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_array_new(NULL, &a, &error), VIGIL_STATUS_OK);
@@ -160,7 +177,8 @@ TEST(VigilJsonTest, ArrayPushAndGet) {
 
 /* ── Object operations ───────────────────────────────────────────── */
 
-TEST(VigilJsonTest, EmptyObject) {
+TEST(VigilJsonTest, EmptyObject)
+{
     vigil_json_value_t *o = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_object_new(NULL, &o, &error), VIGIL_STATUS_OK);
@@ -170,7 +188,8 @@ TEST(VigilJsonTest, EmptyObject) {
     vigil_json_free(&o);
 }
 
-TEST(VigilJsonTest, ObjectSetAndGet) {
+TEST(VigilJsonTest, ObjectSetAndGet)
+{
     vigil_json_value_t *o = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_object_new(NULL, &o, &error), VIGIL_STATUS_OK);
@@ -187,7 +206,8 @@ TEST(VigilJsonTest, ObjectSetAndGet) {
     vigil_json_free(&o);
 }
 
-TEST(VigilJsonTest, ObjectReplaceKey) {
+TEST(VigilJsonTest, ObjectReplaceKey)
+{
     vigil_json_value_t *o = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_object_new(NULL, &o, &error), VIGIL_STATUS_OK);
@@ -203,7 +223,8 @@ TEST(VigilJsonTest, ObjectReplaceKey) {
     vigil_json_free(&o);
 }
 
-TEST(VigilJsonTest, ObjectEntryIteration) {
+TEST(VigilJsonTest, ObjectEntryIteration)
+{
     vigil_json_value_t *o = NULL;
     vigil_error_t error = {0};
     ASSERT_EQ(vigil_json_object_new(NULL, &o, &error), VIGIL_STATUS_OK);
@@ -224,14 +245,16 @@ TEST(VigilJsonTest, ObjectEntryIteration) {
 
 /* ── Parse: scalars ──────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, ParseNull) {
+TEST(VigilJsonTest, ParseNull)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "null");
     ASSERT_NE(v, NULL);
     EXPECT_EQ(vigil_json_type(v), VIGIL_JSON_NULL);
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseBool) {
+TEST(VigilJsonTest, ParseBool)
+{
     vigil_json_value_t *t = parse(vigil_test_failed_, "true");
     vigil_json_value_t *f = parse(vigil_test_failed_, "false");
     EXPECT_EQ(vigil_json_bool_value(t), 1);
@@ -240,7 +263,8 @@ TEST(VigilJsonTest, ParseBool) {
     vigil_json_free(&f);
 }
 
-TEST(VigilJsonTest, ParseIntegers) {
+TEST(VigilJsonTest, ParseIntegers)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "0");
     EXPECT_DOUBLE_EQ(vigil_json_number_value(v), 0.0);
     vigil_json_free(&v);
@@ -254,7 +278,8 @@ TEST(VigilJsonTest, ParseIntegers) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseFloats) {
+TEST(VigilJsonTest, ParseFloats)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "3.14");
     EXPECT_NEAR(vigil_json_number_value(v), 3.14, 1e-10);
     vigil_json_free(&v);
@@ -264,7 +289,8 @@ TEST(VigilJsonTest, ParseFloats) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseExponent) {
+TEST(VigilJsonTest, ParseExponent)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "1e10");
     EXPECT_DOUBLE_EQ(vigil_json_number_value(v), 1e10);
     vigil_json_free(&v);
@@ -278,7 +304,8 @@ TEST(VigilJsonTest, ParseExponent) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseString) {
+TEST(VigilJsonTest, ParseString)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"hello world\"");
     ASSERT_NE(v, NULL);
     EXPECT_EQ(vigil_json_type(v), VIGIL_JSON_STRING);
@@ -287,27 +314,31 @@ TEST(VigilJsonTest, ParseString) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseEmptyString) {
+TEST(VigilJsonTest, ParseEmptyString)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"\"");
     EXPECT_EQ(vigil_json_string_length(v), 0U);
     EXPECT_STREQ(vigil_json_string_value(v), "");
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseStringEscapes) {
+TEST(VigilJsonTest, ParseStringEscapes)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"a\\nb\\tc\\\\d\\\"e\\/f\"");
     EXPECT_STREQ(vigil_json_string_value(v), "a\nb\tc\\d\"e/f");
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseStringUnicodeEscape) {
+TEST(VigilJsonTest, ParseStringUnicodeEscape)
+{
     /* \u0041 = 'A' */
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"\\u0041\"");
     EXPECT_STREQ(vigil_json_string_value(v), "A");
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseStringUnicodeMultibyte) {
+TEST(VigilJsonTest, ParseStringUnicodeMultibyte)
+{
     /* \u00E9 = 'é' (2-byte UTF-8: 0xC3 0xA9) */
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"\\u00e9\"");
     EXPECT_EQ(vigil_json_string_length(v), 2U);
@@ -316,14 +347,16 @@ TEST(VigilJsonTest, ParseStringUnicodeMultibyte) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseStringUnicode3Byte) {
+TEST(VigilJsonTest, ParseStringUnicode3Byte)
+{
     /* \u4E16 = '世' (3-byte UTF-8) */
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"\\u4e16\"");
     EXPECT_EQ(vigil_json_string_length(v), 3U);
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseStringSurrogatePair) {
+TEST(VigilJsonTest, ParseStringSurrogatePair)
+{
     /* \uD83D\uDE00 = U+1F600 '😀' (4-byte UTF-8) */
     vigil_json_value_t *v = parse(vigil_test_failed_, "\"\\uD83D\\uDE00\"");
     EXPECT_EQ(vigil_json_string_length(v), 4U);
@@ -336,14 +369,16 @@ TEST(VigilJsonTest, ParseStringSurrogatePair) {
 
 /* ── Parse: arrays ───────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, ParseEmptyArray) {
+TEST(VigilJsonTest, ParseEmptyArray)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "[]");
     EXPECT_EQ(vigil_json_type(v), VIGIL_JSON_ARRAY);
     EXPECT_EQ(vigil_json_array_count(v), 0U);
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseArray) {
+TEST(VigilJsonTest, ParseArray)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "[1, \"two\", true, null]");
     ASSERT_EQ(vigil_json_array_count(v), 4U);
     EXPECT_DOUBLE_EQ(vigil_json_number_value(vigil_json_array_get(v, 0)), 1.0);
@@ -353,7 +388,8 @@ TEST(VigilJsonTest, ParseArray) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseNestedArray) {
+TEST(VigilJsonTest, ParseNestedArray)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "[[1,2],[3]]");
     ASSERT_EQ(vigil_json_array_count(v), 2U);
     EXPECT_EQ(vigil_json_array_count(vigil_json_array_get(v, 0)), 2U);
@@ -363,14 +399,16 @@ TEST(VigilJsonTest, ParseNestedArray) {
 
 /* ── Parse: objects ──────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, ParseEmptyObject) {
+TEST(VigilJsonTest, ParseEmptyObject)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "{}");
     EXPECT_EQ(vigil_json_type(v), VIGIL_JSON_OBJECT);
     EXPECT_EQ(vigil_json_object_count(v), 0U);
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseObject) {
+TEST(VigilJsonTest, ParseObject)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "{\"name\": \"vigil\", \"version\": 1}");
     ASSERT_EQ(vigil_json_object_count(v), 2U);
     EXPECT_STREQ(vigil_json_string_value(vigil_json_object_get(v, "name")), "vigil");
@@ -378,7 +416,8 @@ TEST(VigilJsonTest, ParseObject) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, ParseNestedObject) {
+TEST(VigilJsonTest, ParseNestedObject)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "{\"a\":{\"b\":true}}");
     const vigil_json_value_t *inner = vigil_json_object_get(v, "a");
     ASSERT_NE(inner, NULL);
@@ -388,7 +427,8 @@ TEST(VigilJsonTest, ParseNestedObject) {
 
 /* ── Parse: whitespace ───────────────────────────────────────────── */
 
-TEST(VigilJsonTest, ParseWhitespace) {
+TEST(VigilJsonTest, ParseWhitespace)
+{
     vigil_json_value_t *v = parse(vigil_test_failed_, "  \n\t { \n \"x\" : 1 \n } \n ");
     EXPECT_EQ(vigil_json_type(v), VIGIL_JSON_OBJECT);
     EXPECT_DOUBLE_EQ(vigil_json_number_value(vigil_json_object_get(v, "x")), 1.0);
@@ -397,19 +437,56 @@ TEST(VigilJsonTest, ParseWhitespace) {
 
 /* ── Parse: errors ───────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, ParseErrorEmpty) { parse_fail(vigil_test_failed_, ""); }
-TEST(VigilJsonTest, ParseErrorTrailing) { parse_fail(vigil_test_failed_, "true false"); }
-TEST(VigilJsonTest, ParseErrorBadToken) { parse_fail(vigil_test_failed_, "undefined"); }
-TEST(VigilJsonTest, ParseErrorUntermString) { parse_fail(vigil_test_failed_, "\"hello"); }
-TEST(VigilJsonTest, ParseErrorBadEscape) { parse_fail(vigil_test_failed_, "\"\\x\""); }
-TEST(VigilJsonTest, ParseErrorBadUnicode) { parse_fail(vigil_test_failed_, "\"\\u00GG\""); }
-TEST(VigilJsonTest, ParseErrorMissingSurrogate) { parse_fail(vigil_test_failed_, "\"\\uD83D\""); }
-TEST(VigilJsonTest, ParseErrorBadSurrogate) { parse_fail(vigil_test_failed_, "\"\\uD83D\\u0041\""); }
-TEST(VigilJsonTest, ParseErrorArrayNoClose) { parse_fail(vigil_test_failed_, "[1, 2"); }
-TEST(VigilJsonTest, ParseErrorObjectNoClose) { parse_fail(vigil_test_failed_, "{\"a\": 1"); }
-TEST(VigilJsonTest, ParseErrorObjectNoColon) { parse_fail(vigil_test_failed_, "{\"a\" 1}"); }
-TEST(VigilJsonTest, ParseErrorObjectBadKey) { parse_fail(vigil_test_failed_, "{1: 2}"); }
-TEST(VigilJsonTest, ParseErrorNumberLeadingZero) {
+TEST(VigilJsonTest, ParseErrorEmpty)
+{
+    parse_fail(vigil_test_failed_, "");
+}
+TEST(VigilJsonTest, ParseErrorTrailing)
+{
+    parse_fail(vigil_test_failed_, "true false");
+}
+TEST(VigilJsonTest, ParseErrorBadToken)
+{
+    parse_fail(vigil_test_failed_, "undefined");
+}
+TEST(VigilJsonTest, ParseErrorUntermString)
+{
+    parse_fail(vigil_test_failed_, "\"hello");
+}
+TEST(VigilJsonTest, ParseErrorBadEscape)
+{
+    parse_fail(vigil_test_failed_, "\"\\x\"");
+}
+TEST(VigilJsonTest, ParseErrorBadUnicode)
+{
+    parse_fail(vigil_test_failed_, "\"\\u00GG\"");
+}
+TEST(VigilJsonTest, ParseErrorMissingSurrogate)
+{
+    parse_fail(vigil_test_failed_, "\"\\uD83D\"");
+}
+TEST(VigilJsonTest, ParseErrorBadSurrogate)
+{
+    parse_fail(vigil_test_failed_, "\"\\uD83D\\u0041\"");
+}
+TEST(VigilJsonTest, ParseErrorArrayNoClose)
+{
+    parse_fail(vigil_test_failed_, "[1, 2");
+}
+TEST(VigilJsonTest, ParseErrorObjectNoClose)
+{
+    parse_fail(vigil_test_failed_, "{\"a\": 1");
+}
+TEST(VigilJsonTest, ParseErrorObjectNoColon)
+{
+    parse_fail(vigil_test_failed_, "{\"a\" 1}");
+}
+TEST(VigilJsonTest, ParseErrorObjectBadKey)
+{
+    parse_fail(vigil_test_failed_, "{1: 2}");
+}
+TEST(VigilJsonTest, ParseErrorNumberLeadingZero)
+{
     /* Leading zeros are not valid JSON: 01 should fail. */
     /* Actually, our parser accepts "01" as "0" then trailing "1".
        That's caught by the trailing-content check. */
@@ -418,8 +495,10 @@ TEST(VigilJsonTest, ParseErrorNumberLeadingZero) {
 
 /* ── Roundtrip ───────────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, RoundtripComplex) {
-    const char *input = "{\"name\":\"vigil\",\"version\":1,\"features\":[\"vm\",\"debugger\"],\"config\":{\"debug\":true,\"opt\":null}}";
+TEST(VigilJsonTest, RoundtripComplex)
+{
+    const char *input = "{\"name\":\"vigil\",\"version\":1,\"features\":[\"vm\",\"debugger\"],\"config\":{\"debug\":"
+                        "true,\"opt\":null}}";
     vigil_json_value_t *v = parse(vigil_test_failed_, input);
     ASSERT_NE(v, NULL);
     char *output = emit_json(vigil_test_failed_, v);
@@ -427,7 +506,8 @@ TEST(VigilJsonTest, RoundtripComplex) {
     vigil_json_free(&v);
 }
 
-TEST(VigilJsonTest, RoundtripEscapes) {
+TEST(VigilJsonTest, RoundtripEscapes)
+{
     const char *input = "\"line1\\nline2\\ttab\\\\backslash\\\"quote\"";
     vigil_json_value_t *v = parse(vigil_test_failed_, input);
     char *output = emit_json(vigil_test_failed_, v);
@@ -437,7 +517,8 @@ TEST(VigilJsonTest, RoundtripEscapes) {
 
 /* ── Custom allocator ────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, CustomAllocator) {
+TEST(VigilJsonTest, CustomAllocator)
+{
     g_alloc_count = 0;
     g_dealloc_count = 0;
     vigil_allocator_t a = tracking_allocator();
@@ -466,7 +547,8 @@ TEST(VigilJsonTest, CustomAllocator) {
 
 /* ── Null safety ─────────────────────────────────────────────────── */
 
-TEST(VigilJsonTest, NullSafety) {
+TEST(VigilJsonTest, NullSafety)
+{
     /* These should not crash. */
     vigil_json_free(NULL);
     vigil_json_value_t *null_val = NULL;
@@ -483,7 +565,8 @@ TEST(VigilJsonTest, NullSafety) {
     EXPECT_EQ(vigil_json_object_get(NULL, "x"), NULL);
 }
 
-TEST(VigilJsonTest, InvalidArguments) {
+TEST(VigilJsonTest, InvalidArguments)
+{
     vigil_error_t error = {0};
     EXPECT_EQ(vigil_json_null_new(NULL, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(vigil_json_parse(NULL, NULL, 0, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
@@ -492,7 +575,8 @@ TEST(VigilJsonTest, InvalidArguments) {
 
 /* ── Emit: control character escaping ────────────────────────────── */
 
-TEST(VigilJsonTest, EmitControlCharacters) {
+TEST(VigilJsonTest, EmitControlCharacters)
+{
     vigil_json_value_t *v = NULL;
     vigil_error_t error = {0};
     /* String with a control character (0x01). */
@@ -502,7 +586,8 @@ TEST(VigilJsonTest, EmitControlCharacters) {
     vigil_json_free(&v);
 }
 
-void register_json_tests(void) {
+void register_json_tests(void)
+{
     REGISTER_TEST(VigilJsonTest, NullValue);
     REGISTER_TEST(VigilJsonTest, BoolValues);
     REGISTER_TEST(VigilJsonTest, NumberValues);

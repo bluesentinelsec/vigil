@@ -3,25 +3,19 @@
 #include <stdio.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-static vigil_source_id_t RegisterSource(int *vigil_test_failed_,
-    vigil_source_registry_t *registry,
-    const char *path,
-    const char *text,
-    vigil_error_t *error
-) {
+static vigil_source_id_t RegisterSource(int *vigil_test_failed_, vigil_source_registry_t *registry, const char *path,
+                                        const char *text, vigil_error_t *error)
+{
     vigil_source_id_t source_id = 0U;
 
-    EXPECT_EQ(
-        vigil_source_registry_register_cstr(registry, path, text, &source_id, error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_source_registry_register_cstr(registry, path, text, &source_id, error), VIGIL_STATUS_OK);
     return source_id;
 }
 
-static const vigil_token_t *TokenAt(int *vigil_test_failed_, const vigil_token_list_t *tokens, size_t index) {
+static const vigil_token_t *TokenAt(int *vigil_test_failed_, const vigil_token_list_t *tokens, size_t index)
+{
     const vigil_token_t *token;
 
     token = vigil_token_list_get(tokens, index);
@@ -29,8 +23,8 @@ static const vigil_token_t *TokenAt(int *vigil_test_failed_, const vigil_token_l
     return token;
 }
 
-
-TEST(VigilLexerTest, TokenizesSimpleFunction) {
+TEST(VigilLexerTest, TokenizesSimpleFunction)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -42,17 +36,9 @@ TEST(VigilLexerTest, TokenizesSimpleFunction) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
     vigil_token_list_init(&tokens, runtime);
-    source_id = RegisterSource(
-        vigil_test_failed_, &registry,
-        "simple.vigil",
-        "fn main() -> i32 { return 0; }",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "simple.vigil", "fn main() -> i32 { return 0; }", &error);
 
-    ASSERT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 0)->kind, VIGIL_TOKEN_FN);
@@ -74,7 +60,8 @@ TEST(VigilLexerTest, TokenizesSimpleFunction) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLexerTest, SkipsCommentsAndWhitespace) {
+TEST(VigilLexerTest, SkipsCommentsAndWhitespace)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -86,17 +73,10 @@ TEST(VigilLexerTest, SkipsCommentsAndWhitespace) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
     vigil_token_list_init(&tokens, runtime);
-    source_id = RegisterSource(
-        vigil_test_failed_, &registry,
-        "comments.vigil",
-        "// leading\nimport /* inner */ \"fmt\";\n",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "comments.vigil",
+                               "// leading\nimport /* inner */ \"fmt\";\n", &error);
 
-    ASSERT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 0)->kind, VIGIL_TOKEN_IMPORT);
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 1)->kind, VIGIL_TOKEN_STRING_LITERAL);
@@ -109,7 +89,8 @@ TEST(VigilLexerTest, SkipsCommentsAndWhitespace) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLexerTest, TokenizesNumericAndStringLiteralForms) {
+TEST(VigilLexerTest, TokenizesNumericAndStringLiteralForms)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -121,17 +102,10 @@ TEST(VigilLexerTest, TokenizesNumericAndStringLiteralForms) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
     vigil_token_list_init(&tokens, runtime);
-    source_id = RegisterSource(
-        vigil_test_failed_, &registry,
-        "literals.vigil",
-        "0 0xFF 0b10 0o7 3.14 1e6 \"x\" `y` 'z' f\"hi {name}\"",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "literals.vigil",
+                               "0 0xFF 0b10 0o7 3.14 1e6 \"x\" `y` 'z' f\"hi {name}\"", &error);
 
-    ASSERT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 0)->kind, VIGIL_TOKEN_INT_LITERAL);
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 1)->kind, VIGIL_TOKEN_INT_LITERAL);
@@ -151,7 +125,8 @@ TEST(VigilLexerTest, TokenizesNumericAndStringLiteralForms) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLexerTest, ReportsUnexpectedCharacter) {
+TEST(VigilLexerTest, ReportsUnexpectedCharacter)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -166,10 +141,7 @@ TEST(VigilLexerTest, ReportsUnexpectedCharacter) {
     vigil_token_list_init(&tokens, runtime);
     source_id = RegisterSource(vigil_test_failed_, &registry, "bad.vigil", "@", &error);
 
-    EXPECT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     EXPECT_EQ(error.type, VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "unexpected character"), 0);
@@ -188,7 +160,8 @@ TEST(VigilLexerTest, ReportsUnexpectedCharacter) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLexerTest, ReportsUnterminatedStringAndBlockComment) {
+TEST(VigilLexerTest, ReportsUnterminatedStringAndBlockComment)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -202,27 +175,17 @@ TEST(VigilLexerTest, ReportsUnterminatedStringAndBlockComment) {
     vigil_token_list_init(&tokens, runtime);
 
     source_id = RegisterSource(vigil_test_failed_, &registry, "string.vigil", "\"unterminated", &error);
-    EXPECT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unterminated string literal"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "unterminated string literal");
 
     vigil_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(vigil_test_failed_, &registry, "comment.vigil", "/* never closes", &error);
-    EXPECT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unterminated block comment"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "unterminated block comment");
 
     vigil_token_list_free(&tokens);
     vigil_diagnostic_list_free(&diagnostics);
@@ -230,7 +193,8 @@ TEST(VigilLexerTest, ReportsUnterminatedStringAndBlockComment) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLexerTest, ReportsInvalidPrefixedNumericLiterals) {
+TEST(VigilLexerTest, ReportsInvalidPrefixedNumericLiterals)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -244,39 +208,24 @@ TEST(VigilLexerTest, ReportsInvalidPrefixedNumericLiterals) {
     vigil_token_list_init(&tokens, runtime);
 
     source_id = RegisterSource(vigil_test_failed_, &registry, "badnum1.vigil", "0x", &error);
-    EXPECT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "expected digits after numeric base prefix"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "expected digits after numeric base prefix");
 
     vigil_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(vigil_test_failed_, &registry, "badnum2.vigil", "0b129", &error);
-    EXPECT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "invalid digits for numeric base prefix"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "invalid digits for numeric base prefix");
 
     vigil_diagnostic_list_clear(&diagnostics);
     source_id = RegisterSource(vigil_test_failed_, &registry, "badnum3.vigil", "0o78", &error);
-    EXPECT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "invalid digits for numeric base prefix"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "invalid digits for numeric base prefix");
 
     vigil_token_list_free(&tokens);
     vigil_diagnostic_list_free(&diagnostics);
@@ -284,7 +233,8 @@ TEST(VigilLexerTest, ReportsInvalidPrefixedNumericLiterals) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLexerTest, TokenizesNilKeyword) {
+TEST(VigilLexerTest, TokenizesNilKeyword)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -298,10 +248,7 @@ TEST(VigilLexerTest, TokenizesNilKeyword) {
     vigil_token_list_init(&tokens, runtime);
     source_id = RegisterSource(vigil_test_failed_, &registry, "nil.vigil", "nil", &error);
 
-    ASSERT_EQ(
-        vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 0)->kind, VIGIL_TOKEN_NIL);
     EXPECT_EQ(TokenAt(vigil_test_failed_, &tokens, 1)->kind, VIGIL_TOKEN_EOF);
 
@@ -311,7 +258,8 @@ TEST(VigilLexerTest, TokenizesNilKeyword) {
     vigil_runtime_close(&runtime);
 }
 
-void register_lexer_tests(void) {
+void register_lexer_tests(void)
+{
     REGISTER_TEST(VigilLexerTest, TokenizesSimpleFunction);
     REGISTER_TEST(VigilLexerTest, SkipsCommentsAndWhitespace);
     REGISTER_TEST(VigilLexerTest, TokenizesNumericAndStringLiteralForms);

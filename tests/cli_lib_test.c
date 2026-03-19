@@ -1,18 +1,20 @@
 #include "vigil_test.h"
 #include <string.h>
 
-
 #include "vigil/cli_lib.h"
 
 /* Helper to build argv from a string literal list. */
-#define ARGV(...) \
-    (char *[]){__VA_ARGS__}
-#define ARGC(...) \
-    (int)(sizeof(ARGV(__VA_ARGS__)) / sizeof(char *))
+#define ARGV(...)                                                                                                      \
+    (char *[])                                                                                                         \
+    {                                                                                                                  \
+        __VA_ARGS__                                                                                                    \
+    }
+#define ARGC(...) (int)(sizeof(ARGV(__VA_ARGS__)) / sizeof(char *))
 
 /* ── Basic lifecycle ─────────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, InitAndFree) {
+TEST(VigilCliLibTest, InitAndFree)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "test", "A test program");
     EXPECT_STREQ(cli.program_name, "test");
@@ -21,7 +23,8 @@ TEST(VigilCliLibTest, InitAndFree) {
 
 /* ── Subcommand matching ─────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, MatchesSubcommand) {
+TEST(VigilCliLibTest, MatchesSubcommand)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_add_command(&cli, "run", "Run a script");
@@ -35,7 +38,8 @@ TEST(VigilCliLibTest, MatchesSubcommand) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, UnknownCommandFails) {
+TEST(VigilCliLibTest, UnknownCommandFails)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_add_command(&cli, "run", "Run");
@@ -48,7 +52,8 @@ TEST(VigilCliLibTest, UnknownCommandFails) {
 
 /* ── Boolean flags ───────────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, BoolFlagLong) {
+TEST(VigilCliLibTest, BoolFlagLong)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -62,7 +67,8 @@ TEST(VigilCliLibTest, BoolFlagLong) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, BoolFlagShort) {
+TEST(VigilCliLibTest, BoolFlagShort)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -78,7 +84,8 @@ TEST(VigilCliLibTest, BoolFlagShort) {
 
 /* ── String flags ────────────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, StringFlagWithEquals) {
+TEST(VigilCliLibTest, StringFlagWithEquals)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -93,7 +100,8 @@ TEST(VigilCliLibTest, StringFlagWithEquals) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, StringFlagWithSpace) {
+TEST(VigilCliLibTest, StringFlagWithSpace)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -107,7 +115,8 @@ TEST(VigilCliLibTest, StringFlagWithSpace) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, ShortStringFlagAttached) {
+TEST(VigilCliLibTest, ShortStringFlagAttached)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -121,7 +130,8 @@ TEST(VigilCliLibTest, ShortStringFlagAttached) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, ShortStringFlagSeparate) {
+TEST(VigilCliLibTest, ShortStringFlagSeparate)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -137,7 +147,8 @@ TEST(VigilCliLibTest, ShortStringFlagSeparate) {
 
 /* ── Positional args ─────────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, PositionalArg) {
+TEST(VigilCliLibTest, PositionalArg)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -151,7 +162,8 @@ TEST(VigilCliLibTest, PositionalArg) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, PositionalAndFlags) {
+TEST(VigilCliLibTest, PositionalAndFlags)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -170,7 +182,8 @@ TEST(VigilCliLibTest, PositionalAndFlags) {
 
 /* ── Global flags ────────────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, GlobalFlag) {
+TEST(VigilCliLibTest, GlobalFlag)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     int verbose = 0;
@@ -186,7 +199,8 @@ TEST(VigilCliLibTest, GlobalFlag) {
 
 /* ── Global positionals (no subcommands) ─────────────────────────── */
 
-TEST(VigilCliLibTest, GlobalPositionalNoSubcommands) {
+TEST(VigilCliLibTest, GlobalPositionalNoSubcommands)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     const char *file = NULL;
@@ -201,7 +215,8 @@ TEST(VigilCliLibTest, GlobalPositionalNoSubcommands) {
 
 /* ── Double dash stops flag parsing ──────────────────────────────── */
 
-TEST(VigilCliLibTest, DoubleDashStopsFlagParsing) {
+TEST(VigilCliLibTest, DoubleDashStopsFlagParsing)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -217,7 +232,8 @@ TEST(VigilCliLibTest, DoubleDashStopsFlagParsing) {
 
 /* ── Error cases ─────────────────────────────────────────────────── */
 
-TEST(VigilCliLibTest, UnknownFlagFails) {
+TEST(VigilCliLibTest, UnknownFlagFails)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_add_command(&cli, "run", "Run");
@@ -228,7 +244,8 @@ TEST(VigilCliLibTest, UnknownFlagFails) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, MissingFlagValueFails) {
+TEST(VigilCliLibTest, MissingFlagValueFails)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -241,7 +258,8 @@ TEST(VigilCliLibTest, MissingFlagValueFails) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, ExtraPositionalFails) {
+TEST(VigilCliLibTest, ExtraPositionalFails)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_command_t *run = vigil_cli_add_command(&cli, "run", "Run");
@@ -256,7 +274,8 @@ TEST(VigilCliLibTest, ExtraPositionalFails) {
 
 /* ── Help flag doesn't error ─────────────────────────────────────── */
 
-TEST(VigilCliLibTest, HelpFlagReturnsOk) {
+TEST(VigilCliLibTest, HelpFlagReturnsOk)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_add_command(&cli, "run", "Run");
@@ -267,7 +286,8 @@ TEST(VigilCliLibTest, HelpFlagReturnsOk) {
     vigil_cli_free(&cli);
 }
 
-TEST(VigilCliLibTest, CommandHelpFlagReturnsOk) {
+TEST(VigilCliLibTest, CommandHelpFlagReturnsOk)
+{
     vigil_cli_t cli;
     vigil_cli_init(&cli, "vigil", "test");
     vigil_cli_add_command(&cli, "run", "Run a script");
@@ -281,11 +301,26 @@ TEST(VigilCliLibTest, CommandHelpFlagReturnsOk) {
 /* ── Custom allocator ────────────────────────────────────────────── */
 
 static size_t g_cli_allocs = 0;
-static void *tracking_cli_alloc(void *ud, size_t s) { (void)ud; g_cli_allocs++; return calloc(1, s); }
-static void *tracking_cli_realloc(void *ud, void *p, size_t s) { (void)ud; g_cli_allocs++; return realloc(p, s); }
-static void tracking_cli_dealloc(void *ud, void *p) { (void)ud; free(p); }
+static void *tracking_cli_alloc(void *ud, size_t s)
+{
+    (void)ud;
+    g_cli_allocs++;
+    return calloc(1, s);
+}
+static void *tracking_cli_realloc(void *ud, void *p, size_t s)
+{
+    (void)ud;
+    g_cli_allocs++;
+    return realloc(p, s);
+}
+static void tracking_cli_dealloc(void *ud, void *p)
+{
+    (void)ud;
+    free(p);
+}
 
-TEST(VigilCliLibTest, CustomAllocator) {
+TEST(VigilCliLibTest, CustomAllocator)
+{
     g_cli_allocs = 0;
     vigil_allocator_t a = {NULL, tracking_cli_alloc, tracking_cli_realloc, tracking_cli_dealloc};
     vigil_cli_t cli;
@@ -297,7 +332,8 @@ TEST(VigilCliLibTest, CustomAllocator) {
     vigil_cli_free(&cli);
 }
 
-void register_cli_lib_tests(void) {
+void register_cli_lib_tests(void)
+{
     REGISTER_TEST(VigilCliLibTest, InitAndFree);
     REGISTER_TEST(VigilCliLibTest, MatchesSubcommand);
     REGISTER_TEST(VigilCliLibTest, UnknownCommandFails);

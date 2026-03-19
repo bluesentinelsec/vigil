@@ -3,38 +3,41 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct AllocatorStats {
+struct AllocatorStats
+{
     int allocate_calls;
     int reallocate_calls;
     int deallocate_calls;
 };
 
-static void *CountedAllocate(void *user_data, size_t size) {
+static void *CountedAllocate(void *user_data, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
     return calloc(1U, size);
 }
 
-static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+static void *CountedReallocate(void *user_data, void *memory, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
     return realloc(memory, size);
 }
 
-static void CountedDeallocate(void *user_data, void *memory) {
+static void CountedDeallocate(void *user_data, void *memory)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
     free(memory);
 }
 
-
-TEST(VigilSymbolTest, InitStartsEmpty) {
+TEST(VigilSymbolTest, InitStartsEmpty)
+{
     vigil_symbol_table_t table;
 
     vigil_symbol_table_init(&table, NULL);
@@ -49,7 +52,8 @@ TEST(VigilSymbolTest, InitStartsEmpty) {
     EXPECT_EQ(vigil_symbol_table_length(&table, VIGIL_SYMBOL_INVALID), 0U);
 }
 
-TEST(VigilSymbolTest, InternReturnsStableSymbolForSameText) {
+TEST(VigilSymbolTest, InternReturnsStableSymbolForSameText)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_symbol_table_t table;
@@ -59,14 +63,8 @@ TEST(VigilSymbolTest, InternReturnsStableSymbolForSameText) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_symbol_table_init(&table, runtime);
 
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "alpha", &first, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "alpha", &second, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "alpha", &first, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "alpha", &second, &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(first, second);
     EXPECT_EQ(first, 1U);
@@ -80,7 +78,8 @@ TEST(VigilSymbolTest, InternReturnsStableSymbolForSameText) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup) {
+TEST(VigilSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_symbol_table_t table;
@@ -90,14 +89,8 @@ TEST(VigilSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_symbol_table_init(&table, runtime);
 
-    ASSERT_EQ(
-        vigil_symbol_table_intern(&table, "alpha", 5U, &alpha, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_symbol_table_intern(&table, "beta", 4U, &beta, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_symbol_table_intern(&table, "alpha", 5U, &alpha, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_symbol_table_intern(&table, "beta", 4U, &beta, &error), VIGIL_STATUS_OK);
 
     EXPECT_NE(alpha, beta);
     EXPECT_EQ(alpha, 1U);
@@ -112,7 +105,8 @@ TEST(VigilSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilSymbolTest, ClearKeepsTableReusable) {
+TEST(VigilSymbolTest, ClearKeepsTableReusable)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_symbol_table_t table;
@@ -122,14 +116,8 @@ TEST(VigilSymbolTest, ClearKeepsTableReusable) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_symbol_table_init(&table, runtime);
 
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "alpha", &symbol, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "beta", &symbol, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "alpha", &symbol, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "beta", &symbol, &error), VIGIL_STATUS_OK);
     capacity = table.capacity;
 
     vigil_symbol_table_clear(&table);
@@ -137,10 +125,7 @@ TEST(VigilSymbolTest, ClearKeepsTableReusable) {
     EXPECT_EQ(table.capacity, capacity);
     EXPECT_EQ(vigil_symbol_table_c_str(&table, 1U), NULL);
 
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "gamma", &symbol, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "gamma", &symbol, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(symbol, 1U);
     EXPECT_STREQ(vigil_symbol_table_c_str(&table, symbol), "gamma");
 
@@ -148,7 +133,8 @@ TEST(VigilSymbolTest, ClearKeepsTableReusable) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilSymbolTest, GrowthPreservesInternedNames) {
+TEST(VigilSymbolTest, GrowthPreservesInternedNames)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_symbol_table_t table;
@@ -158,18 +144,17 @@ TEST(VigilSymbolTest, GrowthPreservesInternedNames) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_symbol_table_init(&table, runtime);
 
-    for (index = 0U; index < 128U; index += 1U) {
+    for (index = 0U; index < 128U; index += 1U)
+    {
         vigil_symbol_t symbol;
 
         snprintf(name, sizeof(name), "name-%zu", index);
-        ASSERT_EQ(
-            vigil_symbol_table_intern_cstr(&table, name, &symbol, &error),
-            VIGIL_STATUS_OK
-        );
+        ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, name, &symbol, &error), VIGIL_STATUS_OK);
         EXPECT_EQ(symbol, index + 1U);
     }
 
-    for (index = 0U; index < 128U; index += 1U) {
+    for (index = 0U; index < 128U; index += 1U)
+    {
         vigil_symbol_t symbol;
 
         snprintf(name, sizeof(name), "name-%zu", index);
@@ -182,7 +167,8 @@ TEST(VigilSymbolTest, GrowthPreservesInternedNames) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilSymbolTest, UsesRuntimeAllocatorHooks) {
+TEST(VigilSymbolTest, UsesRuntimeAllocatorHooks)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_symbol_table_t table;
@@ -201,14 +187,8 @@ TEST(VigilSymbolTest, UsesRuntimeAllocatorHooks) {
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
     vigil_symbol_table_init(&table, runtime);
 
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "alpha", &symbol, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "beta", &symbol, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "alpha", &symbol, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_symbol_table_intern_cstr(&table, "beta", &symbol, &error), VIGIL_STATUS_OK);
 
     EXPECT_GE(stats.allocate_calls, 4);
 
@@ -217,31 +197,27 @@ TEST(VigilSymbolTest, UsesRuntimeAllocatorHooks) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilSymbolTest, RejectsMissingRuntimeAndInvalidArguments) {
+TEST(VigilSymbolTest, RejectsMissingRuntimeAndInvalidArguments)
+{
     vigil_symbol_table_t table;
     vigil_error_t error = {0};
     vigil_symbol_t symbol;
 
     vigil_symbol_table_init(&table, NULL);
 
-    EXPECT_EQ(
-        vigil_symbol_table_intern_cstr(&table, "alpha", &symbol, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_symbol_table_intern_cstr(&table, "alpha", &symbol, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "symbol table runtime must not be null"), 0);
 
-    EXPECT_EQ(
-        vigil_symbol_table_intern(NULL, "alpha", 5U, &symbol, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_symbol_table_intern(NULL, "alpha", 5U, &symbol, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "symbol table must not be null"), 0);
 }
 
-void register_symbol_tests(void) {
+void register_symbol_tests(void)
+{
     REGISTER_TEST(VigilSymbolTest, InitStartsEmpty);
     REGISTER_TEST(VigilSymbolTest, InternReturnsStableSymbolForSameText);
     REGISTER_TEST(VigilSymbolTest, DistinctSymbolsGetDistinctIdsAndReverseLookup);

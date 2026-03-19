@@ -8,16 +8,13 @@
 #include "vigil/token.h"
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-VIGIL_API vigil_status_t vigil_lex_source(
-    const vigil_source_registry_t *registry,
-    vigil_source_id_t source_id,
-    vigil_token_list_t *tokens,
-    vigil_diagnostic_list_t *diagnostics,
-    vigil_error_t *error
-);
+    VIGIL_API vigil_status_t vigil_lex_source(const vigil_source_registry_t *registry, vigil_source_id_t source_id,
+                                              vigil_token_list_t *tokens, vigil_diagnostic_list_t *diagnostics,
+                                              vigil_error_t *error);
 
 #ifdef __cplusplus
 }

@@ -6,42 +6,46 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "internal/vigil_nanbox.h"
 #include "vigil/native_module.h"
 #include "vigil/runtime.h"
 #include "vigil/stdlib.h"
 #include "vigil/vm.h"
-#include "internal/vigil_nanbox.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static void unsafe_vm_setup(vigil_runtime_t **rt, vigil_vm_t **vm,
-                             vigil_error_t *error) {
+static void unsafe_vm_setup(vigil_runtime_t **rt, vigil_vm_t **vm, vigil_error_t *error)
+{
     vigil_runtime_open(rt, NULL, error);
     vigil_vm_open(vm, *rt, NULL, error);
 }
 
-static void unsafe_vm_teardown(vigil_runtime_t **rt, vigil_vm_t **vm) {
+static void unsafe_vm_teardown(vigil_runtime_t **rt, vigil_vm_t **vm)
+{
     vigil_vm_close(vm);
     vigil_runtime_close(rt);
 }
 
-static void u_push_i64(vigil_vm_t *vm, int64_t v, vigil_error_t *e) {
+static void u_push_i64(vigil_vm_t *vm, int64_t v, vigil_error_t *e)
+{
     vigil_value_t val = vigil_nanbox_encode_int(v);
     vigil_vm_stack_push(vm, &val, e);
 }
 
-static void u_push_i32(vigil_vm_t *vm, int32_t v, vigil_error_t *e) {
+static void u_push_i32(vigil_vm_t *vm, int32_t v, vigil_error_t *e)
+{
     vigil_value_t val = vigil_nanbox_encode_i32(v);
     vigil_vm_stack_push(vm, &val, e);
 }
 
-static void u_push_f64(vigil_vm_t *vm, double v, vigil_error_t *e) {
+static void u_push_f64(vigil_vm_t *vm, double v, vigil_error_t *e)
+{
     vigil_value_t val = vigil_nanbox_encode_double(v);
     vigil_vm_stack_push(vm, &val, e);
 }
 
-static void u_push_str(vigil_vm_t *vm, vigil_runtime_t *rt, const char *s,
-                        vigil_error_t *e) {
+static void u_push_str(vigil_vm_t *vm, vigil_runtime_t *rt, const char *s, vigil_error_t *e)
+{
     vigil_object_t *obj = NULL;
     vigil_string_object_new_cstr(rt, s, &obj, e);
     vigil_value_t val;
@@ -50,46 +54,50 @@ static void u_push_str(vigil_vm_t *vm, vigil_runtime_t *rt, const char *s,
     vigil_value_release(&val);
 }
 
-static int64_t u_pop_i64(vigil_vm_t *vm) {
-    int64_t v = vigil_nanbox_decode_int(
-        vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1));
+static int64_t u_pop_i64(vigil_vm_t *vm)
+{
+    int64_t v = vigil_nanbox_decode_int(vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1));
     vigil_vm_stack_pop_n(vm, 1);
     return v;
 }
 
-static int32_t u_pop_i32(vigil_vm_t *vm) {
-    int32_t v = vigil_nanbox_decode_i32(
-        vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1));
+static int32_t u_pop_i32(vigil_vm_t *vm)
+{
+    int32_t v = vigil_nanbox_decode_i32(vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1));
     vigil_vm_stack_pop_n(vm, 1);
     return v;
 }
 
-static double u_pop_f64(vigil_vm_t *vm) {
-    double v = vigil_nanbox_decode_double(
-        vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1));
+static double u_pop_f64(vigil_vm_t *vm)
+{
+    double v = vigil_nanbox_decode_double(vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1));
     vigil_vm_stack_pop_n(vm, 1);
     return v;
 }
 
-static vigil_native_fn_t find_unsafe_fn(const char *name) {
-    for (size_t i = 0; i < vigil_stdlib_unsafe.function_count; i++) {
+static vigil_native_fn_t find_unsafe_fn(const char *name)
+{
+    for (size_t i = 0; i < vigil_stdlib_unsafe.function_count; i++)
+    {
         if (strcmp(vigil_stdlib_unsafe.functions[i].name, name) == 0)
             return vigil_stdlib_unsafe.functions[i].native_fn;
     }
     return NULL;
 }
 
-#define CALL_OK(fn, vm, n, e) ASSERT_EQ((int)(fn)((vm),(n),(e)), (int)VIGIL_STATUS_OK)
+#define CALL_OK(fn, vm, n, e) ASSERT_EQ((int)(fn)((vm), (n), (e)), (int)VIGIL_STATUS_OK)
 
 /* ── Buffer alloc/free/len ───────────────────────────────────────── */
 
-TEST(Unsafe, AllocFreeLen) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, AllocFreeLen)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_free  = find_unsafe_fn("free");
-    vigil_native_fn_t fn_len   = find_unsafe_fn("len");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
+    vigil_native_fn_t fn_len = find_unsafe_fn("len");
 
     u_push_i32(vm, 64, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -105,8 +113,10 @@ TEST(Unsafe, AllocFreeLen) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, AllocZeroFails) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, AllocZeroFails)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
@@ -119,14 +129,16 @@ TEST(Unsafe, AllocZeroFails) {
 
 /* ── Realloc ─────────────────────────────────────────────────────── */
 
-TEST(Unsafe, Realloc) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, Realloc)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc   = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
     vigil_native_fn_t fn_realloc = find_unsafe_fn("realloc");
-    vigil_native_fn_t fn_len     = find_unsafe_fn("len");
-    vigil_native_fn_t fn_free    = find_unsafe_fn("free");
+    vigil_native_fn_t fn_len = find_unsafe_fn("len");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -149,23 +161,28 @@ TEST(Unsafe, Realloc) {
 
 /* ── Byte get/set ────────────────────────────────────────────────── */
 
-TEST(Unsafe, GetSetByte) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, GetSetByte)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_set   = find_unsafe_fn("set");
-    vigil_native_fn_t fn_get   = find_unsafe_fn("get");
-    vigil_native_fn_t fn_free  = find_unsafe_fn("free");
+    vigil_native_fn_t fn_set = find_unsafe_fn("set");
+    vigil_native_fn_t fn_get = find_unsafe_fn("get");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 8, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 3, &e); u_push_i32(vm, 0xAB, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 3, &e);
+    u_push_i32(vm, 0xAB, &e);
     CALL_OK(fn_set, vm, 3, &e);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 3, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 3, &e);
     CALL_OK(fn_get, vm, 2, &e);
     EXPECT_EQ(0xAB, u_pop_i32(vm));
 
@@ -174,19 +191,22 @@ TEST(Unsafe, GetSetByte) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, GetOutOfBounds) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, GetOutOfBounds)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_get   = find_unsafe_fn("get");
-    vigil_native_fn_t fn_free  = find_unsafe_fn("free");
+    vigil_native_fn_t fn_get = find_unsafe_fn("get");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 4, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 10, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 10, &e);
     vigil_status_t s = fn_get(vm, 2, &e);
     EXPECT_TRUE(s != VIGIL_STATUS_OK);
 
@@ -197,23 +217,28 @@ TEST(Unsafe, GetOutOfBounds) {
 
 /* ── Typed get/set: i32, i64, f32, f64 ───────────────────────────── */
 
-TEST(Unsafe, GetSetI32) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, GetSetI32)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc   = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
     vigil_native_fn_t fn_set_i32 = find_unsafe_fn("set_i32");
     vigil_native_fn_t fn_get_i32 = find_unsafe_fn("get_i32");
-    vigil_native_fn_t fn_free    = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 4, &e); u_push_i32(vm, 12345, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 4, &e);
+    u_push_i32(vm, 12345, &e);
     CALL_OK(fn_set_i32, vm, 3, &e);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 4, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 4, &e);
     CALL_OK(fn_get_i32, vm, 2, &e);
     EXPECT_EQ(12345, u_pop_i32(vm));
 
@@ -222,24 +247,29 @@ TEST(Unsafe, GetSetI32) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, GetSetI64) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, GetSetI64)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc   = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
     vigil_native_fn_t fn_set_i64 = find_unsafe_fn("set_i64");
     vigil_native_fn_t fn_get_i64 = find_unsafe_fn("get_i64");
-    vigil_native_fn_t fn_free    = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
     int64_t big = 0x123456789ABCLL;
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e); u_push_i64(vm, big, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_i64(vm, big, &e);
     CALL_OK(fn_set_i64, vm, 3, &e);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_get_i64, vm, 2, &e);
     EXPECT_EQ(big, u_pop_i64(vm));
 
@@ -248,23 +278,28 @@ TEST(Unsafe, GetSetI64) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, GetSetF32) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, GetSetF32)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc   = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
     vigil_native_fn_t fn_set_f32 = find_unsafe_fn("set_f32");
     vigil_native_fn_t fn_get_f32 = find_unsafe_fn("get_f32");
-    vigil_native_fn_t fn_free    = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e); u_push_f64(vm, 3.14, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_f64(vm, 3.14, &e);
     CALL_OK(fn_set_f32, vm, 3, &e);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_get_f32, vm, 2, &e);
     EXPECT_NEAR(3.14, u_pop_f64(vm), 0.01);
 
@@ -273,23 +308,28 @@ TEST(Unsafe, GetSetF32) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, GetSetF64) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, GetSetF64)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc   = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
     vigil_native_fn_t fn_set_f64 = find_unsafe_fn("set_f64");
     vigil_native_fn_t fn_get_f64 = find_unsafe_fn("get_f64");
-    vigil_native_fn_t fn_free    = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e); u_push_f64(vm, 2.718281828, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_f64(vm, 2.718281828, &e);
     CALL_OK(fn_set_f64, vm, 3, &e);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_get_f64, vm, 2, &e);
     EXPECT_NEAR(2.718281828, u_pop_f64(vm), 0.0001);
 
@@ -300,14 +340,16 @@ TEST(Unsafe, GetSetF64) {
 
 /* ── Ptr, Null, Copy, WriteStr ───────────────────────────────────── */
 
-TEST(Unsafe, PtrAndNull) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PtrAndNull)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr   = find_unsafe_fn("ptr");
-    vigil_native_fn_t fn_null  = find_unsafe_fn("null");
-    vigil_native_fn_t fn_free  = find_unsafe_fn("free");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_null = find_unsafe_fn("null");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     /* null returns 0 */
     CALL_OK(fn_null, vm, 0, &e);
@@ -328,15 +370,17 @@ TEST(Unsafe, PtrAndNull) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, Copy) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, Copy)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_set   = find_unsafe_fn("set");
-    vigil_native_fn_t fn_get   = find_unsafe_fn("get");
-    vigil_native_fn_t fn_copy  = find_unsafe_fn("copy");
-    vigil_native_fn_t fn_free  = find_unsafe_fn("free");
+    vigil_native_fn_t fn_set = find_unsafe_fn("set");
+    vigil_native_fn_t fn_get = find_unsafe_fn("get");
+    vigil_native_fn_t fn_copy = find_unsafe_fn("copy");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     /* Alloc src and dst */
     u_push_i32(vm, 8, &e);
@@ -348,67 +392,84 @@ TEST(Unsafe, Copy) {
     int64_t dst = u_pop_i64(vm);
 
     /* Write 0xAA to src[0..3] */
-    for (int i = 0; i < 4; i++) {
-        u_push_i64(vm, src, &e); u_push_i32(vm, i, &e); u_push_i32(vm, 0xAA, &e);
+    for (int i = 0; i < 4; i++)
+    {
+        u_push_i64(vm, src, &e);
+        u_push_i32(vm, i, &e);
+        u_push_i32(vm, 0xAA, &e);
         CALL_OK(fn_set, vm, 3, &e);
     }
 
     /* copy(dst, 0, src, 0, 4) */
-    u_push_i64(vm, dst, &e); u_push_i32(vm, 0, &e);
-    u_push_i64(vm, src, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, dst, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_i64(vm, src, &e);
+    u_push_i32(vm, 0, &e);
     u_push_i32(vm, 4, &e);
     CALL_OK(fn_copy, vm, 5, &e);
 
     /* Verify dst[2] == 0xAA */
-    u_push_i64(vm, dst, &e); u_push_i32(vm, 2, &e);
+    u_push_i64(vm, dst, &e);
+    u_push_i32(vm, 2, &e);
     CALL_OK(fn_get, vm, 2, &e);
     EXPECT_EQ(0xAA, u_pop_i32(vm));
 
-    u_push_i64(vm, src, &e); CALL_OK(fn_free, vm, 1, &e);
-    u_push_i64(vm, dst, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, src, &e);
+    CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, dst, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, WriteStr) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, WriteStr)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc     = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
     vigil_native_fn_t fn_write_str = find_unsafe_fn("write_str");
-    vigil_native_fn_t fn_get       = find_unsafe_fn("get");
-    vigil_native_fn_t fn_free      = find_unsafe_fn("free");
+    vigil_native_fn_t fn_get = find_unsafe_fn("get");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 32, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
     int64_t buf = u_pop_i64(vm);
 
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
     u_push_str(vm, rt, "Hi", &e);
     CALL_OK(fn_write_str, vm, 3, &e);
 
     /* Check 'H' at offset 0 */
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_get, vm, 2, &e);
     EXPECT_EQ('H', u_pop_i32(vm));
 
     /* Check 'i' at offset 1 */
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 1, &e);
     CALL_OK(fn_get, vm, 2, &e);
     EXPECT_EQ('i', u_pop_i32(vm));
 
     /* Check NUL at offset 2 */
-    u_push_i64(vm, buf, &e); u_push_i32(vm, 2, &e);
+    u_push_i64(vm, buf, &e);
+    u_push_i32(vm, 2, &e);
     CALL_OK(fn_get, vm, 2, &e);
     EXPECT_EQ(0, u_pop_i32(vm));
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
 /* ── Str (read C string from raw pointer) ────────────────────────── */
 
-TEST(Unsafe, StrFromPointer) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, StrFromPointer)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_str = find_unsafe_fn("str");
@@ -427,15 +488,17 @@ TEST(Unsafe, StrFromPointer) {
 
 /* ── Peek/Poke (raw pointer operations) ──────────────────────────── */
 
-TEST(Unsafe, PeekPokeU8) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PeekPokeU8)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc   = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr     = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
     vigil_native_fn_t fn_poke_u8 = find_unsafe_fn("poke_u8");
     vigil_native_fn_t fn_peek_u8 = find_unsafe_fn("peek_u8");
-    vigil_native_fn_t fn_free    = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 8, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -445,26 +508,32 @@ TEST(Unsafe, PeekPokeU8) {
     CALL_OK(fn_ptr, vm, 1, &e);
     int64_t raw = u_pop_i64(vm);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 2, &e); u_push_i32(vm, 0xFE, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 2, &e);
+    u_push_i32(vm, 0xFE, &e);
     CALL_OK(fn_poke_u8, vm, 3, &e);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 2, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 2, &e);
     CALL_OK(fn_peek_u8, vm, 2, &e);
     EXPECT_EQ(0xFE, u_pop_i32(vm));
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, PeekPokeI32) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PeekPokeI32)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc    = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr      = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
     vigil_native_fn_t fn_poke_i32 = find_unsafe_fn("poke_i32");
     vigil_native_fn_t fn_peek_i32 = find_unsafe_fn("peek_i32");
-    vigil_native_fn_t fn_free     = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -473,26 +542,32 @@ TEST(Unsafe, PeekPokeI32) {
     CALL_OK(fn_ptr, vm, 1, &e);
     int64_t raw = u_pop_i64(vm);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 4, &e); u_push_i32(vm, -99999, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 4, &e);
+    u_push_i32(vm, -99999, &e);
     CALL_OK(fn_poke_i32, vm, 3, &e);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 4, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 4, &e);
     CALL_OK(fn_peek_i32, vm, 2, &e);
     EXPECT_EQ(-99999, u_pop_i32(vm));
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, PeekPokeI64) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PeekPokeI64)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc    = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr      = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
     vigil_native_fn_t fn_poke_i64 = find_unsafe_fn("poke_i64");
     vigil_native_fn_t fn_peek_i64 = find_unsafe_fn("peek_i64");
-    vigil_native_fn_t fn_free     = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -502,26 +577,32 @@ TEST(Unsafe, PeekPokeI64) {
     int64_t raw = u_pop_i64(vm);
 
     int64_t big = 0x00001234ABCD5678LL; /* fits in 48-bit, bit 47 clear */
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e); u_push_i64(vm, big, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_i64(vm, big, &e);
     CALL_OK(fn_poke_i64, vm, 3, &e);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_peek_i64, vm, 2, &e);
     EXPECT_EQ(big, u_pop_i64(vm));
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, PeekPokeF32) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PeekPokeF32)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc    = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr      = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
     vigil_native_fn_t fn_poke_f32 = find_unsafe_fn("poke_f32");
     vigil_native_fn_t fn_peek_f32 = find_unsafe_fn("peek_f32");
-    vigil_native_fn_t fn_free     = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -530,26 +611,32 @@ TEST(Unsafe, PeekPokeF32) {
     CALL_OK(fn_ptr, vm, 1, &e);
     int64_t raw = u_pop_i64(vm);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e); u_push_f64(vm, 1.5, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_f64(vm, 1.5, &e);
     CALL_OK(fn_poke_f32, vm, 3, &e);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_peek_f32, vm, 2, &e);
     EXPECT_NEAR(1.5, u_pop_f64(vm), 0.001);
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, PeekPokeF64) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PeekPokeF64)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc    = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr      = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
     vigil_native_fn_t fn_poke_f64 = find_unsafe_fn("poke_f64");
     vigil_native_fn_t fn_peek_f64 = find_unsafe_fn("peek_f64");
-    vigil_native_fn_t fn_free     = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 16, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -558,26 +645,32 @@ TEST(Unsafe, PeekPokeF64) {
     CALL_OK(fn_ptr, vm, 1, &e);
     int64_t raw = u_pop_i64(vm);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e); u_push_f64(vm, 9.87654321, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_f64(vm, 9.87654321, &e);
     CALL_OK(fn_poke_f64, vm, 3, &e);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_peek_f64, vm, 2, &e);
     EXPECT_NEAR(9.87654321, u_pop_f64(vm), 0.0001);
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, PeekPokePtr) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, PeekPokePtr)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_alloc    = find_unsafe_fn("alloc");
-    vigil_native_fn_t fn_ptr      = find_unsafe_fn("ptr");
+    vigil_native_fn_t fn_alloc = find_unsafe_fn("alloc");
+    vigil_native_fn_t fn_ptr = find_unsafe_fn("ptr");
     vigil_native_fn_t fn_poke_ptr = find_unsafe_fn("poke_ptr");
     vigil_native_fn_t fn_peek_ptr = find_unsafe_fn("peek_ptr");
-    vigil_native_fn_t fn_free     = find_unsafe_fn("free");
+    vigil_native_fn_t fn_free = find_unsafe_fn("free");
 
     u_push_i32(vm, 32, &e);
     CALL_OK(fn_alloc, vm, 1, &e);
@@ -587,22 +680,28 @@ TEST(Unsafe, PeekPokePtr) {
     int64_t raw = u_pop_i64(vm);
 
     /* Store a known pointer value and read it back */
-    int64_t fake_ptr = (int64_t)(intptr_t)"hello";
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e); u_push_i64(vm, fake_ptr, &e);
+    int64_t fake_ptr = (int64_t)(intptr_t) "hello";
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
+    u_push_i64(vm, fake_ptr, &e);
     CALL_OK(fn_poke_ptr, vm, 3, &e);
 
-    u_push_i64(vm, raw, &e); u_push_i32(vm, 0, &e);
+    u_push_i64(vm, raw, &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_peek_ptr, vm, 2, &e);
     EXPECT_EQ(fake_ptr, u_pop_i64(vm));
 
-    u_push_i64(vm, buf, &e); CALL_OK(fn_free, vm, 1, &e);
+    u_push_i64(vm, buf, &e);
+    CALL_OK(fn_free, vm, 1, &e);
     unsafe_vm_teardown(&rt, &vm);
 }
 
 /* ── Sizeof, Alignof, Offsetof, StructSize ───────────────────────── */
 
-TEST(Unsafe, Sizeof) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, Sizeof)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_sizeof = find_unsafe_fn("sizeof");
@@ -634,8 +733,10 @@ TEST(Unsafe, Sizeof) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, SizeofUnknownFails) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, SizeofUnknownFails)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_sizeof = find_unsafe_fn("sizeof");
@@ -647,8 +748,10 @@ TEST(Unsafe, SizeofUnknownFails) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, SizeofPtr) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, SizeofPtr)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn = find_unsafe_fn("sizeof_ptr");
@@ -659,8 +762,10 @@ TEST(Unsafe, SizeofPtr) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, Alignof) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, Alignof)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_alignof = find_unsafe_fn("alignof");
@@ -676,49 +781,60 @@ TEST(Unsafe, Alignof) {
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, Offsetof) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, Offsetof)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_offsetof = find_unsafe_fn("offsetof");
 
     /* struct { i32, f64 } — f64 at offset 8 due to alignment */
-    u_push_str(vm, rt, "i32,f64", &e); u_push_i32(vm, 0, &e);
+    u_push_str(vm, rt, "i32,f64", &e);
+    u_push_i32(vm, 0, &e);
     CALL_OK(fn_offsetof, vm, 2, &e);
     EXPECT_EQ(0, u_pop_i32(vm));
 
-    u_push_str(vm, rt, "i32,f64", &e); u_push_i32(vm, 1, &e);
+    u_push_str(vm, rt, "i32,f64", &e);
+    u_push_i32(vm, 1, &e);
     CALL_OK(fn_offsetof, vm, 2, &e);
     EXPECT_EQ(8, u_pop_i32(vm));
 
     /* struct { u8, i32 } — i32 at offset 4 */
-    u_push_str(vm, rt, "u8,i32", &e); u_push_i32(vm, 1, &e);
+    u_push_str(vm, rt, "u8,i32", &e);
+    u_push_i32(vm, 1, &e);
     CALL_OK(fn_offsetof, vm, 2, &e);
     EXPECT_EQ(4, u_pop_i32(vm));
 
     /* struct { f32, f32, ptr } — ptr at offset 8 */
-    u_push_str(vm, rt, "f32,f32,ptr", &e); u_push_i32(vm, 2, &e);
+    u_push_str(vm, rt, "f32,f32,ptr", &e);
+    u_push_i32(vm, 2, &e);
     CALL_OK(fn_offsetof, vm, 2, &e);
     EXPECT_EQ(8, u_pop_i32(vm));
 
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, OffsetofOutOfRange) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, OffsetofOutOfRange)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_offsetof = find_unsafe_fn("offsetof");
 
-    u_push_str(vm, rt, "i32,i32", &e); u_push_i32(vm, 5, &e);
+    u_push_str(vm, rt, "i32,i32", &e);
+    u_push_i32(vm, 5, &e);
     vigil_status_t s = fn_offsetof(vm, 2, &e);
     EXPECT_TRUE(s != VIGIL_STATUS_OK);
 
     unsafe_vm_teardown(&rt, &vm);
 }
 
-TEST(Unsafe, StructSize) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, StructSize)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
     vigil_native_fn_t fn_struct_size = find_unsafe_fn("struct_size");
@@ -748,11 +864,13 @@ TEST(Unsafe, StructSize) {
 
 /* ── Errno ───────────────────────────────────────────────────────── */
 
-TEST(Unsafe, Errno) {
-    vigil_runtime_t *rt = NULL; vigil_vm_t *vm = NULL;
+TEST(Unsafe, Errno)
+{
+    vigil_runtime_t *rt = NULL;
+    vigil_vm_t *vm = NULL;
     vigil_error_t e = {0};
     unsafe_vm_setup(&rt, &vm, &e);
-    vigil_native_fn_t fn_errno     = find_unsafe_fn("errno");
+    vigil_native_fn_t fn_errno = find_unsafe_fn("errno");
     vigil_native_fn_t fn_set_errno = find_unsafe_fn("set_errno");
 
     /* Set errno to 0, read it back */
@@ -778,7 +896,8 @@ TEST(Unsafe, Errno) {
 
 /* ── Registration ────────────────────────────────────────────────── */
 
-void register_unsafe_tests(void) {
+void register_unsafe_tests(void)
+{
     REGISTER_TEST(Unsafe, AllocFreeLen);
     REGISTER_TEST(Unsafe, AllocZeroFails);
     REGISTER_TEST(Unsafe, Realloc);

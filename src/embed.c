@@ -16,78 +16,104 @@
 
 /* ── dynamic buffer ──────────────────────────────────────────────── */
 
-typedef struct {
+typedef struct
+{
     char *data;
     size_t len;
     size_t cap;
 } buf_t;
 
-static void buf_init(buf_t *b) { b->data = NULL; b->len = 0; b->cap = 0; }
+static void buf_init(buf_t *b)
+{
+    b->data = NULL;
+    b->len = 0;
+    b->cap = 0;
+}
 
-static void buf_grow(buf_t *b, size_t need) {
-    if (b->len + need <= b->cap) return;
+static void buf_grow(buf_t *b, size_t need)
+{
+    if (b->len + need <= b->cap)
+        return;
     size_t cap = b->cap ? b->cap : 256;
-    while (cap < b->len + need) cap *= 2;
+    while (cap < b->len + need)
+        cap *= 2;
     b->data = realloc(b->data, cap);
     b->cap = cap;
 }
 
-static void buf_write(buf_t *b, const char *s, size_t n) {
+static void buf_write(buf_t *b, const char *s, size_t n)
+{
     buf_grow(b, n);
     memcpy(b->data + b->len, s, n);
     b->len += n;
 }
 
-static void buf_puts(buf_t *b, const char *s) { buf_write(b, s, strlen(s)); }
+static void buf_puts(buf_t *b, const char *s)
+{
+    buf_write(b, s, strlen(s));
+}
 
-static void buf_printf(buf_t *b, const char *fmt, ...) {
+static void buf_printf(buf_t *b, const char *fmt, ...)
+{
     va_list ap;
     char tmp[512];
     va_start(ap, fmt);
     int n = vsnprintf(tmp, sizeof(tmp), fmt, ap);
     va_end(ap);
-    if (n > 0) buf_write(b, tmp, (size_t)n);
+    if (n > 0)
+        buf_write(b, tmp, (size_t)n);
 }
 
 /* Extract just the filename from a path. */
-static const char *basename_of(const char *path) {
+static const char *basename_of(const char *path)
+{
     const char *base = path;
-    for (const char *p = path; *p; p++) {
-        if (*p == '/' || *p == '\\') base = p + 1;
+    for (const char *p = path; *p; p++)
+    {
+        if (*p == '/' || *p == '\\')
+            base = p + 1;
     }
     return base;
 }
 
 /* ── escape a string for VIGIL string literal ─────────────────────── */
 
-static void buf_write_quoted(buf_t *b, const char *s, size_t len) {
+static void buf_write_quoted(buf_t *b, const char *s, size_t len)
+{
     buf_puts(b, "\"");
-    for (size_t i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++)
+    {
         char c = s[i];
-        if (c == '"') buf_puts(b, "\\\"");
-        else if (c == '\\') buf_puts(b, "\\\\");
-        else if (c == '\n') buf_puts(b, "\\n");
-        else if (c == '\r') buf_puts(b, "\\r");
-        else if (c == '\t') buf_puts(b, "\\t");
-        else { buf_grow(b, 1); b->data[b->len++] = c; }
+        if (c == '"')
+            buf_puts(b, "\\\"");
+        else if (c == '\\')
+            buf_puts(b, "\\\\");
+        else if (c == '\n')
+            buf_puts(b, "\\n");
+        else if (c == '\r')
+            buf_puts(b, "\\r");
+        else if (c == '\t')
+            buf_puts(b, "\\t");
+        else
+        {
+            buf_grow(b, 1);
+            b->data[b->len++] = c;
+        }
     }
     buf_puts(b, "\"");
 }
 
 /* ── single file embed ───────────────────────────────────────────── */
 
-vigil_status_t vigil_embed_single(
-    const char *file_path,
-    char **out_text,
-    size_t *out_length,
-    vigil_error_t *error
-) {
+vigil_status_t vigil_embed_single(const char *file_path, char **out_text, size_t *out_length, vigil_error_t *error)
+{
     char *file_data = NULL;
     size_t file_len = 0;
     vigil_status_t status;
 
     status = vigil_platform_read_file(NULL, file_path, &file_data, &file_len, error);
-    if (status != VIGIL_STATUS_OK) return status;
+    if (status != VIGIL_STATUS_OK)
+        return status;
 
     const char *base = basename_of(file_path);
 
@@ -99,13 +125,16 @@ vigil_status_t vigil_embed_single(
     buf_write_quoted(&out, base, strlen(base));
     buf_puts(&out, ";\n");
     buf_printf(&out, "pub i32 size = %zu;\n\n", file_len);
-    
+
     /* Store as byte array like xxd -i */
     buf_puts(&out, "pub array<i32> data = [\n    ");
-    for (size_t i = 0; i < file_len; i++) {
-        if (i > 0) {
+    for (size_t i = 0; i < file_len; i++)
+    {
+        if (i > 0)
+        {
             buf_puts(&out, ", ");
-            if (i % 12 == 0) buf_puts(&out, "\n    ");
+            if (i % 12 == 0)
+                buf_puts(&out, "\n    ");
         }
         buf_printf(&out, "0x%02x", (unsigned char)file_data[i]);
     }
@@ -122,32 +151,37 @@ vigil_status_t vigil_embed_single(
 
 /* ── multi file embed ────────────────────────────────────────────── */
 
-vigil_status_t vigil_embed_multi(
-    const char **file_paths,
-    const char **rel_paths,
-    size_t file_count,
-    char **out_text,
-    size_t *out_length,
-    vigil_error_t *error
-) {
+vigil_status_t vigil_embed_multi(const char **file_paths, const char **rel_paths, size_t file_count, char **out_text,
+                                 size_t *out_length, vigil_error_t *error)
+{
     buf_t out;
     buf_init(&out);
 
     /* Read all files. */
     char **file_datas = calloc(file_count, sizeof(char *));
     size_t *sizes = calloc(file_count, sizeof(size_t));
-    if (!file_datas || !sizes) {
-        free(file_datas); free(sizes);
-        if (error) { error->type = VIGIL_STATUS_INTERNAL; error->value = "out of memory"; error->length = strlen("out of memory"); };
+    if (!file_datas || !sizes)
+    {
+        free(file_datas);
+        free(sizes);
+        if (error)
+        {
+            error->type = VIGIL_STATUS_INTERNAL;
+            error->value = "out of memory";
+            error->length = strlen("out of memory");
+        };
         return VIGIL_STATUS_INTERNAL;
     }
 
-    for (size_t i = 0; i < file_count; i++) {
-        vigil_status_t status = vigil_platform_read_file(
-            NULL, file_paths[i], &file_datas[i], &sizes[i], error);
-        if (status != VIGIL_STATUS_OK) {
-            for (size_t j = 0; j < i; j++) free(file_datas[j]);
-            free(file_datas); free(sizes);
+    for (size_t i = 0; i < file_count; i++)
+    {
+        vigil_status_t status = vigil_platform_read_file(NULL, file_paths[i], &file_datas[i], &sizes[i], error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            for (size_t j = 0; j < i; j++)
+                free(file_datas[j]);
+            free(file_datas);
+            free(sizes);
             return status;
         }
     }
@@ -157,12 +191,16 @@ vigil_status_t vigil_embed_multi(
     buf_printf(&out, "// source: %zu files\n\n", file_count);
 
     /* Byte array variables like xxd -i */
-    for (size_t i = 0; i < file_count; i++) {
+    for (size_t i = 0; i < file_count; i++)
+    {
         buf_printf(&out, "array<i32> _%zu = [\n    ", i);
-        for (size_t j = 0; j < sizes[i]; j++) {
-            if (j > 0) {
+        for (size_t j = 0; j < sizes[i]; j++)
+        {
+            if (j > 0)
+            {
                 buf_puts(&out, ", ");
-                if (j % 12 == 0) buf_puts(&out, "\n    ");
+                if (j % 12 == 0)
+                    buf_puts(&out, "\n    ");
             }
             buf_printf(&out, "0x%02x", (unsigned char)file_datas[i][j]);
         }
@@ -172,7 +210,8 @@ vigil_status_t vigil_embed_multi(
 
     /* get(path) function - returns byte array directly. */
     buf_puts(&out, "pub fn get(string path) -> (array<i32>, err) {\n");
-    for (size_t i = 0; i < file_count; i++) {
+    for (size_t i = 0; i < file_count; i++)
+    {
         buf_puts(&out, "    if path == ");
         buf_write_quoted(&out, rel_paths[i], strlen(rel_paths[i]));
         buf_puts(&out, " {\n");
@@ -186,8 +225,10 @@ vigil_status_t vigil_embed_multi(
     /* list() function. */
     buf_puts(&out, "pub fn list() -> array<string> {\n");
     buf_puts(&out, "    return [");
-    for (size_t i = 0; i < file_count; i++) {
-        if (i > 0) buf_puts(&out, ", ");
+    for (size_t i = 0; i < file_count; i++)
+    {
+        if (i > 0)
+            buf_puts(&out, ", ");
         buf_write_quoted(&out, rel_paths[i], strlen(rel_paths[i]));
     }
     buf_puts(&out, "];\n");
@@ -196,7 +237,8 @@ vigil_status_t vigil_embed_multi(
     buf_printf(&out, "pub i32 count = %zu;\n", file_count);
 
     /* Cleanup. */
-    for (size_t i = 0; i < file_count; i++) free(file_datas[i]);
+    for (size_t i = 0; i < file_count; i++)
+        free(file_datas[i]);
     free(file_datas);
     free(sizes);
 

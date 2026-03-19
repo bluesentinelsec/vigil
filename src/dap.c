@@ -3,15 +3,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "internal/vigil_internal.h"
 #include "vigil/dap.h"
 #include "vigil/json.h"
 #include "vigil/jsonrpc.h"
 #include "vigil/type.h"
-#include "internal/vigil_internal.h"
 
 /* ── Internal state ──────────────────────────────────────────────── */
 
-struct vigil_dap_server {
+struct vigil_dap_server
+{
     vigil_jsonrpc_transport_t transport;
     vigil_allocator_t allocator;
     vigil_vm_t *vm;
@@ -25,66 +26,73 @@ struct vigil_dap_server {
 
 /* ── JSON helpers ────────────────────────────────────────────────── */
 
-static const vigil_allocator_t *ap(vigil_dap_server_t *s) {
+static const vigil_allocator_t *ap(vigil_dap_server_t *s)
+{
     return &s->allocator;
 }
 
-static vigil_status_t jset_str(
-    vigil_json_value_t *o, const char *k, const char *v,
-    const vigil_allocator_t *a, vigil_error_t *e
-) {
+static vigil_status_t jset_str(vigil_json_value_t *o, const char *k, const char *v, const vigil_allocator_t *a,
+                               vigil_error_t *e)
+{
     vigil_json_value_t *val = NULL;
     vigil_status_t s = vigil_json_string_new(a, v, strlen(v), &val, e);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     return vigil_json_object_set(o, k, strlen(k), val, e);
 }
 
-static vigil_status_t jset_int(
-    vigil_json_value_t *o, const char *k, int64_t v,
-    const vigil_allocator_t *a, vigil_error_t *e
-) {
+static vigil_status_t jset_int(vigil_json_value_t *o, const char *k, int64_t v, const vigil_allocator_t *a,
+                               vigil_error_t *e)
+{
     vigil_json_value_t *val = NULL;
     vigil_status_t s = vigil_json_number_new(a, (double)v, &val, e);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     return vigil_json_object_set(o, k, strlen(k), val, e);
 }
 
-static vigil_status_t jset_bool(
-    vigil_json_value_t *o, const char *k, int v,
-    const vigil_allocator_t *a, vigil_error_t *e
-) {
+static vigil_status_t jset_bool(vigil_json_value_t *o, const char *k, int v, const vigil_allocator_t *a,
+                                vigil_error_t *e)
+{
     vigil_json_value_t *val = NULL;
     vigil_status_t s = vigil_json_bool_new(a, v, &val, e);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     return vigil_json_object_set(o, k, strlen(k), val, e);
 }
 
-static const char *jget_str(const vigil_json_value_t *o, const char *k) {
+static const char *jget_str(const vigil_json_value_t *o, const char *k)
+{
     const vigil_json_value_t *v = vigil_json_object_get(o, k);
     return v ? vigil_json_string_value(v) : "";
 }
 
-static int jget_int(const vigil_json_value_t *o, const char *k) {
+static int jget_int(const vigil_json_value_t *o, const char *k)
+{
     const vigil_json_value_t *v = vigil_json_object_get(o, k);
     return v ? (int)vigil_json_number_value(v) : 0;
 }
 
 /* ── Response / event builders ───────────────────────────────────── */
 
-static vigil_status_t send_response(
-    vigil_dap_server_t *s, int req_seq, const char *cmd,
-    vigil_json_value_t *body, vigil_error_t *error
-) {
+static vigil_status_t send_response(vigil_dap_server_t *s, int req_seq, const char *cmd, vigil_json_value_t *body,
+                                    vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *msg = NULL;
     vigil_status_t st = vigil_json_object_new(a, &msg, error);
-    if (st != VIGIL_STATUS_OK) { vigil_json_free(&body); return st; }
+    if (st != VIGIL_STATUS_OK)
+    {
+        vigil_json_free(&body);
+        return st;
+    }
     jset_int(msg, "seq", ++s->seq, a, error);
     jset_str(msg, "type", "response", a, error);
     jset_int(msg, "request_seq", req_seq, a, error);
     jset_bool(msg, "success", 1, a, error);
     jset_str(msg, "command", cmd, a, error);
-    if (body != NULL) {
+    if (body != NULL)
+    {
         vigil_json_object_set(msg, "body", 4, body, error);
     }
     st = vigil_jsonrpc_write(&s->transport, msg, error);
@@ -92,18 +100,22 @@ static vigil_status_t send_response(
     return st;
 }
 
-static vigil_status_t send_event(
-    vigil_dap_server_t *s, const char *event,
-    vigil_json_value_t *body, vigil_error_t *error
-) {
+static vigil_status_t send_event(vigil_dap_server_t *s, const char *event, vigil_json_value_t *body,
+                                 vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *msg = NULL;
     vigil_status_t st = vigil_json_object_new(a, &msg, error);
-    if (st != VIGIL_STATUS_OK) { vigil_json_free(&body); return st; }
+    if (st != VIGIL_STATUS_OK)
+    {
+        vigil_json_free(&body);
+        return st;
+    }
     jset_int(msg, "seq", ++s->seq, a, error);
     jset_str(msg, "type", "event", a, error);
     jset_str(msg, "event", event, a, error);
-    if (body != NULL) {
+    if (body != NULL)
+    {
         vigil_json_object_set(msg, "body", 4, body, error);
     }
     st = vigil_jsonrpc_write(&s->transport, msg, error);
@@ -113,28 +125,26 @@ static vigil_status_t send_event(
 
 /* ── DAP request handlers ────────────────────────────────────────── */
 
-static vigil_status_t handle_initialize(
-    vigil_dap_server_t *s, int req_seq, vigil_error_t *error
-) {
+static vigil_status_t handle_initialize(vigil_dap_server_t *s, int req_seq, vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *body = NULL;
     vigil_json_object_new(a, &body, error);
     jset_bool(body, "supportsConfigurationDoneRequest", 1, a, error);
     jset_bool(body, "supportsSingleThreadExecutionRequests", 1, a, error);
     vigil_status_t st = send_response(s, req_seq, "initialize", body, error);
-    if (st != VIGIL_STATUS_OK) return st;
+    if (st != VIGIL_STATUS_OK)
+        return st;
     return send_event(s, "initialized", NULL, error);
 }
 
-static vigil_status_t handle_launch(
-    vigil_dap_server_t *s, int req_seq, vigil_error_t *error
-) {
+static vigil_status_t handle_launch(vigil_dap_server_t *s, int req_seq, vigil_error_t *error)
+{
     return send_response(s, req_seq, "launch", NULL, error);
 }
 
-static vigil_status_t handle_threads(
-    vigil_dap_server_t *s, int req_seq, vigil_error_t *error
-) {
+static vigil_status_t handle_threads(vigil_dap_server_t *s, int req_seq, vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *body = NULL, *threads = NULL, *thread = NULL;
     vigil_json_object_new(a, &body, error);
@@ -147,10 +157,9 @@ static vigil_status_t handle_threads(
     return send_response(s, req_seq, "threads", body, error);
 }
 
-static vigil_status_t handle_set_breakpoints(
-    vigil_dap_server_t *s, int req_seq,
-    const vigil_json_value_t *args, vigil_error_t *error
-) {
+static vigil_status_t handle_set_breakpoints(vigil_dap_server_t *s, int req_seq, const vigil_json_value_t *args,
+                                             vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
 
     /* Clear existing breakpoints — DAP sends the full set each time. */
@@ -166,7 +175,8 @@ static vigil_status_t handle_set_breakpoints(
     /* Use the program's source_id. */
     vigil_source_id_t source_id = s->source_id;
 
-    for (size_t i = 0; i < count; i++) {
+    for (size_t i = 0; i < count; i++)
+    {
         const vigil_json_value_t *bp = vigil_json_array_get(bps, i);
         int line = jget_int(bp, "line");
         size_t bp_id = 0;
@@ -183,16 +193,16 @@ static vigil_status_t handle_set_breakpoints(
     return send_response(s, req_seq, "setBreakpoints", body, error);
 }
 
-static vigil_status_t handle_stack_trace(
-    vigil_dap_server_t *s, int req_seq, vigil_error_t *error
-) {
+static vigil_status_t handle_stack_trace(vigil_dap_server_t *s, int req_seq, vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *body = NULL, *frames = NULL;
     vigil_json_object_new(a, &body, error);
     vigil_json_array_new(a, &frames, error);
 
     size_t count = vigil_debugger_frame_count(s->debugger);
-    for (size_t i = 0; i < count; i++) {
+    for (size_t i = 0; i < count; i++)
+    {
         const char *name = NULL;
         size_t name_len = 0;
         vigil_source_id_t src = 0;
@@ -226,9 +236,8 @@ static vigil_status_t handle_stack_trace(
     return send_response(s, req_seq, "stackTrace", body, error);
 }
 
-static vigil_status_t handle_scopes(
-    vigil_dap_server_t *s, int req_seq, int frame_id, vigil_error_t *error
-) {
+static vigil_status_t handle_scopes(vigil_dap_server_t *s, int req_seq, int frame_id, vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *body = NULL, *scopes = NULL, *scope = NULL;
     vigil_json_object_new(a, &body, error);
@@ -244,23 +253,23 @@ static vigil_status_t handle_scopes(
     return send_response(s, req_seq, "scopes", body, error);
 }
 
-static vigil_status_t handle_variables(
-    vigil_dap_server_t *s, int req_seq, int var_ref, vigil_error_t *error
-) {
+static vigil_status_t handle_variables(vigil_dap_server_t *s, int req_seq, int var_ref, vigil_error_t *error)
+{
     const vigil_allocator_t *a = ap(s);
     vigil_json_value_t *body = NULL, *vars = NULL;
     vigil_json_object_new(a, &body, error);
     vigil_json_array_new(a, &vars, error);
 
-    if (var_ref > 0) {
+    if (var_ref > 0)
+    {
         size_t frame_idx = (size_t)(var_ref - 1);
         const char *names[32];
         size_t name_lens[32];
         vigil_value_t values[32];
-        size_t count = vigil_debugger_frame_locals(
-            s->debugger, frame_idx, names, name_lens, values, 32);
+        size_t count = vigil_debugger_frame_locals(s->debugger, frame_idx, names, name_lens, values, 32);
 
-        for (size_t i = 0; i < count; i++) {
+        for (size_t i = 0; i < count; i++)
+        {
             vigil_json_value_t *var = NULL;
             vigil_json_object_new(a, &var, error);
 
@@ -272,7 +281,8 @@ static vigil_status_t handle_variables(
 
             /* Format value as string. */
             char vbuf[64];
-            switch (vigil_value_kind(&values[i])) {
+            switch (vigil_value_kind(&values[i]))
+            {
             case VIGIL_VALUE_INT:
                 snprintf(vbuf, sizeof(vbuf), "%" PRId64, vigil_value_as_int(&values[i]));
                 jset_str(var, "value", vbuf, a, error);
@@ -309,11 +319,8 @@ static vigil_status_t handle_variables(
 
 /* ── Debug callback (runs while VM is paused) ────────────────────── */
 
-static vigil_debug_action_t dap_on_stop(
-    vigil_debugger_t *debugger,
-    vigil_debug_stop_reason_t reason,
-    void *userdata
-) {
+static vigil_debug_action_t dap_on_stop(vigil_debugger_t *debugger, vigil_debug_stop_reason_t reason, void *userdata)
+{
     vigil_dap_server_t *s = (vigil_dap_server_t *)userdata;
     vigil_error_t error;
     memset(&error, 0, sizeof(error));
@@ -323,16 +330,20 @@ static vigil_debug_action_t dap_on_stop(
     vigil_json_value_t *body = NULL;
     vigil_json_object_new(a, &body, &error);
     const char *reason_str = "breakpoint";
-    if (reason == VIGIL_DEBUG_STOP_STEP) reason_str = "step";
-    else if (reason == VIGIL_DEBUG_STOP_ENTRY) reason_str = "entry";
+    if (reason == VIGIL_DEBUG_STOP_STEP)
+        reason_str = "step";
+    else if (reason == VIGIL_DEBUG_STOP_ENTRY)
+        reason_str = "entry";
     jset_str(body, "reason", reason_str, a, &error);
     jset_int(body, "threadId", 1, a, &error);
     send_event(s, "stopped", body, &error);
 
     /* Process DAP requests while paused. */
-    for (;;) {
+    for (;;)
+    {
         vigil_json_value_t *msg = NULL;
-        if (vigil_jsonrpc_read(&s->transport, &msg, &error) != VIGIL_STATUS_OK) {
+        if (vigil_jsonrpc_read(&s->transport, &msg, &error) != VIGIL_STATUS_OK)
+        {
             s->running = 0;
             return VIGIL_DEBUG_CONTINUE;
         }
@@ -341,44 +352,59 @@ static vigil_debug_action_t dap_on_stop(
         int req_seq = jget_int(msg, "seq");
         const vigil_json_value_t *args = vigil_json_object_get(msg, "arguments");
 
-        if (strcmp(cmd, "continue") == 0) {
+        if (strcmp(cmd, "continue") == 0)
+        {
             vigil_debugger_continue(debugger);
             send_response(s, req_seq, cmd, NULL, &error);
             vigil_json_free(&msg);
             return VIGIL_DEBUG_CONTINUE;
         }
-        if (strcmp(cmd, "next") == 0) {
+        if (strcmp(cmd, "next") == 0)
+        {
             vigil_debugger_step_over(debugger);
             send_response(s, req_seq, cmd, NULL, &error);
             vigil_json_free(&msg);
             return VIGIL_DEBUG_CONTINUE;
         }
-        if (strcmp(cmd, "stepIn") == 0) {
+        if (strcmp(cmd, "stepIn") == 0)
+        {
             vigil_debugger_step_into(debugger);
             send_response(s, req_seq, cmd, NULL, &error);
             vigil_json_free(&msg);
             return VIGIL_DEBUG_CONTINUE;
         }
-        if (strcmp(cmd, "stepOut") == 0) {
+        if (strcmp(cmd, "stepOut") == 0)
+        {
             vigil_debugger_step_out(debugger);
             send_response(s, req_seq, cmd, NULL, &error);
             vigil_json_free(&msg);
             return VIGIL_DEBUG_CONTINUE;
         }
-        if (strcmp(cmd, "stackTrace") == 0) {
+        if (strcmp(cmd, "stackTrace") == 0)
+        {
             handle_stack_trace(s, req_seq, &error);
-        } else if (strcmp(cmd, "scopes") == 0) {
+        }
+        else if (strcmp(cmd, "scopes") == 0)
+        {
             handle_scopes(s, req_seq, args ? jget_int(args, "frameId") : 0, &error);
-        } else if (strcmp(cmd, "variables") == 0) {
+        }
+        else if (strcmp(cmd, "variables") == 0)
+        {
             handle_variables(s, req_seq, args ? jget_int(args, "variablesReference") : 0, &error);
-        } else if (strcmp(cmd, "threads") == 0) {
+        }
+        else if (strcmp(cmd, "threads") == 0)
+        {
             handle_threads(s, req_seq, &error);
-        } else if (strcmp(cmd, "disconnect") == 0) {
+        }
+        else if (strcmp(cmd, "disconnect") == 0)
+        {
             send_response(s, req_seq, cmd, NULL, &error);
             s->running = 0;
             vigil_json_free(&msg);
             return VIGIL_DEBUG_CONTINUE;
-        } else {
+        }
+        else
+        {
             /* Unknown request while paused — respond OK. */
             send_response(s, req_seq, cmd, NULL, &error);
         }
@@ -388,27 +414,22 @@ static vigil_debug_action_t dap_on_stop(
 
 /* ── Public API ──────────────────────────────────────────────────── */
 
-vigil_status_t vigil_dap_server_create(
-    vigil_dap_server_t **out,
-    FILE *in,
-    FILE *out_stream,
-    const vigil_allocator_t *allocator,
-    vigil_error_t *error
-) {
-    if (out == NULL || in == NULL || out_stream == NULL) {
-        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
-                               "dap: invalid arguments");
+vigil_status_t vigil_dap_server_create(vigil_dap_server_t **out, FILE *in, FILE *out_stream,
+                                       const vigil_allocator_t *allocator, vigil_error_t *error)
+{
+    if (out == NULL || in == NULL || out_stream == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "dap: invalid arguments");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    vigil_allocator_t a = (allocator != NULL && vigil_allocator_is_valid(allocator))
-                             ? *allocator
-                             : vigil_default_allocator();
+    vigil_allocator_t a =
+        (allocator != NULL && vigil_allocator_is_valid(allocator)) ? *allocator : vigil_default_allocator();
 
     vigil_dap_server_t *s = (vigil_dap_server_t *)a.allocate(a.user_data, sizeof(*s));
-    if (s == NULL) {
-        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY,
-                               "dap: allocation failed");
+    if (s == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY, "dap: allocation failed");
         return VIGIL_STATUS_OUT_OF_MEMORY;
     }
     memset(s, 0, sizeof(*s));
@@ -418,10 +439,13 @@ vigil_status_t vigil_dap_server_create(
     return VIGIL_STATUS_OK;
 }
 
-void vigil_dap_server_destroy(vigil_dap_server_t **server) {
-    if (server == NULL || *server == NULL) return;
+void vigil_dap_server_destroy(vigil_dap_server_t **server)
+{
+    if (server == NULL || *server == NULL)
+        return;
     vigil_dap_server_t *s = *server;
-    if (s->debugger != NULL) {
+    if (s->debugger != NULL)
+    {
         vigil_debugger_detach(s->debugger);
         vigil_debugger_destroy(&s->debugger);
     }
@@ -430,15 +454,12 @@ void vigil_dap_server_destroy(vigil_dap_server_t **server) {
     *server = NULL;
 }
 
-vigil_status_t vigil_dap_server_set_runtime(
-    vigil_dap_server_t *server,
-    vigil_vm_t *vm,
-    const vigil_source_registry_t *sources,
-    vigil_error_t *error
-) {
-    if (server == NULL || vm == NULL || sources == NULL) {
-        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
-                               "dap: invalid arguments");
+vigil_status_t vigil_dap_server_set_runtime(vigil_dap_server_t *server, vigil_vm_t *vm,
+                                            const vigil_source_registry_t *sources, vigil_error_t *error)
+{
+    if (server == NULL || vm == NULL || sources == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "dap: invalid arguments");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
     server->vm = vm;
@@ -446,24 +467,20 @@ vigil_status_t vigil_dap_server_set_runtime(
     return vigil_debugger_create(&server->debugger, vm, sources, error);
 }
 
-void vigil_dap_server_set_program(
-    vigil_dap_server_t *server,
-    vigil_object_t *function,
-    vigil_source_id_t source_id
-) {
-    if (server != NULL) {
+void vigil_dap_server_set_program(vigil_dap_server_t *server, vigil_object_t *function, vigil_source_id_t source_id)
+{
+    if (server != NULL)
+    {
         server->program = function;
         server->source_id = source_id;
     }
 }
 
-vigil_status_t vigil_dap_server_run(
-    vigil_dap_server_t *server,
-    vigil_error_t *error
-) {
-    if (server == NULL || server->debugger == NULL) {
-        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
-                               "dap: server not configured");
+vigil_status_t vigil_dap_server_run(vigil_dap_server_t *server, vigil_error_t *error)
+{
+    if (server == NULL || server->debugger == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "dap: server not configured");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
@@ -473,29 +490,34 @@ vigil_status_t vigil_dap_server_run(
     server->seq = 0;
 
     /* Main message loop — process requests until launch, then run VM. */
-    while (server->running) {
+    while (server->running)
+    {
         vigil_json_value_t *msg = NULL;
         vigil_status_t st = vigil_jsonrpc_read(&server->transport, &msg, error);
-        if (st != VIGIL_STATUS_OK) break;
+        if (st != VIGIL_STATUS_OK)
+            break;
 
         const char *cmd = jget_str(msg, "command");
         int req_seq = jget_int(msg, "seq");
         const vigil_json_value_t *args = vigil_json_object_get(msg, "arguments");
 
-        if (strcmp(cmd, "initialize") == 0) {
+        if (strcmp(cmd, "initialize") == 0)
+        {
             handle_initialize(server, req_seq, error);
-        } else if (strcmp(cmd, "launch") == 0) {
+        }
+        else if (strcmp(cmd, "launch") == 0)
+        {
             handle_launch(server, req_seq, error);
 
             /* Execute the program — the debug callback handles
                all interaction while the VM is running. */
-            if (server->program != NULL) {
+            if (server->program != NULL)
+            {
                 vigil_value_t result;
                 vigil_value_init_nil(&result);
                 vigil_error_t exec_error;
                 memset(&exec_error, 0, sizeof(exec_error));
-                vigil_vm_execute_function(server->vm, server->program,
-                                         &result, &exec_error);
+                vigil_vm_execute_function(server->vm, server->program, &result, &exec_error);
                 vigil_value_release(&result);
 
                 /* Send terminated + exited events. */
@@ -505,16 +527,26 @@ vigil_status_t vigil_dap_server_run(
                 jset_int(exit_body, "exitCode", 0, ap(server), error);
                 send_event(server, "exited", exit_body, error);
             }
-        } else if (strcmp(cmd, "setBreakpoints") == 0) {
+        }
+        else if (strcmp(cmd, "setBreakpoints") == 0)
+        {
             handle_set_breakpoints(server, req_seq, args, error);
-        } else if (strcmp(cmd, "configurationDone") == 0) {
+        }
+        else if (strcmp(cmd, "configurationDone") == 0)
+        {
             send_response(server, req_seq, cmd, NULL, error);
-        } else if (strcmp(cmd, "threads") == 0) {
+        }
+        else if (strcmp(cmd, "threads") == 0)
+        {
             handle_threads(server, req_seq, error);
-        } else if (strcmp(cmd, "disconnect") == 0) {
+        }
+        else if (strcmp(cmd, "disconnect") == 0)
+        {
             send_response(server, req_seq, cmd, NULL, error);
             server->running = 0;
-        } else {
+        }
+        else
+        {
             /* Unknown — respond OK. */
             send_response(server, req_seq, cmd, NULL, error);
         }

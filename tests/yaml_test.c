@@ -1,21 +1,23 @@
 /* Unit tests for VIGIL YAML parsing library. */
-#include "vigil_test.h"
-#include "vigil/yaml.h"
 #include "vigil/json.h"
+#include "vigil/yaml.h"
+#include "vigil_test.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 /* ── Helper ──────────────────────────────────────────────────────── */
 
-static char *yaml_to_json(const char *yaml) {
+static char *yaml_to_json(const char *yaml)
+{
     vigil_json_value_t *json = NULL;
     char *out = NULL;
     size_t len = 0;
-    
+
     if (vigil_yaml_parse(yaml, strlen(yaml), NULL, &json, NULL) != VIGIL_STATUS_OK)
         return NULL;
-    if (vigil_json_emit(json, &out, &len, NULL) != VIGIL_STATUS_OK) {
+    if (vigil_json_emit(json, &out, &len, NULL) != VIGIL_STATUS_OK)
+    {
         vigil_json_free(&json);
         return NULL;
     }
@@ -25,21 +27,24 @@ static char *yaml_to_json(const char *yaml) {
 
 /* ── Scalar Tests ────────────────────────────────────────────────── */
 
-TEST(VigilYamlTest, ParseString) {
+TEST(VigilYamlTest, ParseString)
+{
     char *json = yaml_to_json("name: test");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"name\":\"test\"}");
     free(json);
 }
 
-TEST(VigilYamlTest, ParseNumber) {
+TEST(VigilYamlTest, ParseNumber)
+{
     char *json = yaml_to_json("count: 42");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"count\":42}");
     free(json);
 }
 
-TEST(VigilYamlTest, ParseFloat) {
+TEST(VigilYamlTest, ParseFloat)
+{
     char *json = yaml_to_json("pi: 3.14");
     ASSERT_NE(json, NULL);
     /* Float may have precision artifacts, just check it starts correctly */
@@ -47,14 +52,16 @@ TEST(VigilYamlTest, ParseFloat) {
     free(json);
 }
 
-TEST(VigilYamlTest, ParseBool) {
+TEST(VigilYamlTest, ParseBool)
+{
     char *json = yaml_to_json("enabled: true\ndisabled: false");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"enabled\":true,\"disabled\":false}");
     free(json);
 }
 
-TEST(VigilYamlTest, ParseNull) {
+TEST(VigilYamlTest, ParseNull)
+{
     char *json = yaml_to_json("empty: null\ntilde: ~");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"empty\":null,\"tilde\":null}");
@@ -63,14 +70,16 @@ TEST(VigilYamlTest, ParseNull) {
 
 /* ── Sequence Tests ──────────────────────────────────────────────── */
 
-TEST(VigilYamlTest, ParseSequence) {
+TEST(VigilYamlTest, ParseSequence)
+{
     char *json = yaml_to_json("- apple\n- banana");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "[\"apple\",\"banana\"]");
     free(json);
 }
 
-TEST(VigilYamlTest, ParseNestedSequence) {
+TEST(VigilYamlTest, ParseNestedSequence)
+{
     char *json = yaml_to_json("items:\n  - a\n  - b");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"items\":[\"a\",\"b\"]}");
@@ -79,14 +88,16 @@ TEST(VigilYamlTest, ParseNestedSequence) {
 
 /* ── Mapping Tests ───────────────────────────────────────────────── */
 
-TEST(VigilYamlTest, ParseMapping) {
+TEST(VigilYamlTest, ParseMapping)
+{
     char *json = yaml_to_json("name: test\ncount: 42");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"name\":\"test\",\"count\":42}");
     free(json);
 }
 
-TEST(VigilYamlTest, ParseNestedMapping) {
+TEST(VigilYamlTest, ParseNestedMapping)
+{
     char *json = yaml_to_json("server:\n  host: localhost\n  port: 8080");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"server\":{\"host\":\"localhost\",\"port\":8080}}");
@@ -95,14 +106,16 @@ TEST(VigilYamlTest, ParseNestedMapping) {
 
 /* ── Quoted String Tests ─────────────────────────────────────────── */
 
-TEST(VigilYamlTest, ParseDoubleQuoted) {
+TEST(VigilYamlTest, ParseDoubleQuoted)
+{
     char *json = yaml_to_json("msg: \"hello world\"");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"msg\":\"hello world\"}");
     free(json);
 }
 
-TEST(VigilYamlTest, ParseSingleQuoted) {
+TEST(VigilYamlTest, ParseSingleQuoted)
+{
     char *json = yaml_to_json("msg: 'hello world'");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"msg\":\"hello world\"}");
@@ -111,7 +124,8 @@ TEST(VigilYamlTest, ParseSingleQuoted) {
 
 /* ── Comment Tests ───────────────────────────────────────────────── */
 
-TEST(VigilYamlTest, ParseWithComments) {
+TEST(VigilYamlTest, ParseWithComments)
+{
     char *json = yaml_to_json("# comment\nname: test  # inline");
     ASSERT_NE(json, NULL);
     EXPECT_STREQ(json, "{\"name\":\"test\"}");
@@ -120,7 +134,8 @@ TEST(VigilYamlTest, ParseWithComments) {
 
 /* ── Test Registration ───────────────────────────────────────────── */
 
-void register_yaml_tests(void) {
+void register_yaml_tests(void)
+{
     REGISTER_TEST(VigilYamlTest, ParseString);
     REGISTER_TEST(VigilYamlTest, ParseNumber);
     REGISTER_TEST(VigilYamlTest, ParseFloat);

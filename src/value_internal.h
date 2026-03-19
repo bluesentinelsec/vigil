@@ -8,18 +8,20 @@
 #ifndef VIGIL_VALUE_INTERNAL_H
 #define VIGIL_VALUE_INTERNAL_H
 
-#include "vigil/value.h"
 #include "vigil/chunk.h"
 #include "vigil/string.h"
+#include "vigil/value.h"
 
 /* Mirror of the opaque vigil_object struct from value.c. */
-struct vigil_object_internal {
+struct vigil_object_internal
+{
     vigil_runtime_t *runtime;
     vigil_object_type_t type;
-    volatile int64_t ref_count;  /* Atomic for thread safety */
+    volatile int64_t ref_count; /* Atomic for thread safety */
 };
 
-struct vigil_function_object_internal {
+struct vigil_function_object_internal
+{
     struct vigil_object_internal base;
     vigil_string_t name;
     size_t arity;
@@ -32,12 +34,11 @@ struct vigil_function_object_internal {
 /*
  * Inline sibling lookup — equivalent to vigil_function_object_sibling().
  */
-static inline const vigil_object_t *vigil_vm_function_sibling(
-    const vigil_object_t *function, size_t index
-) {
-    const struct vigil_function_object_internal *fo =
-        (const struct vigil_function_object_internal *)function;
-    if (fo->functions == NULL || index >= fo->function_count) {
+static inline const vigil_object_t *vigil_vm_function_sibling(const vigil_object_t *function, size_t index)
+{
+    const struct vigil_function_object_internal *fo = (const struct vigil_function_object_internal *)function;
+    if (fo->functions == NULL || index >= fo->function_count)
+    {
         return NULL;
     }
     return fo->functions[index];
@@ -46,11 +47,9 @@ static inline const vigil_object_t *vigil_vm_function_sibling(
 /*
  * Inline chunk accessor — equivalent to vigil_function_object_chunk().
  */
-static inline const vigil_chunk_t *vigil_vm_function_chunk(
-    const vigil_object_t *function
-) {
-    const struct vigil_function_object_internal *fo =
-        (const struct vigil_function_object_internal *)function;
+static inline const vigil_chunk_t *vigil_vm_function_chunk(const vigil_object_t *function)
+{
+    const struct vigil_function_object_internal *fo = (const struct vigil_function_object_internal *)function;
     return &fo->chunk;
 }
 

@@ -1,9 +1,9 @@
 #include "vigil_test.h"
 
-
 #include "vigil/vigil.h"
 
-TEST(VigilTokenTest, KindNamesAreStable) {
+TEST(VigilTokenTest, KindNamesAreStable)
+{
     EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_EOF), "eof");
     EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_FN), "fn");
     EXPECT_STREQ(vigil_token_kind_name(VIGIL_TOKEN_NIL), "nil");
@@ -12,7 +12,8 @@ TEST(VigilTokenTest, KindNamesAreStable) {
     EXPECT_STREQ(vigil_token_kind_name((vigil_token_kind_t)999), "unknown");
 }
 
-TEST(VigilTokenTest, ListInitAndFreeResetState) {
+TEST(VigilTokenTest, ListInitAndFreeResetState)
+{
     vigil_token_list_t list;
 
     vigil_token_list_init(&list, NULL);
@@ -28,7 +29,8 @@ TEST(VigilTokenTest, ListInitAndFreeResetState) {
     EXPECT_EQ(list.capacity, 0U);
 }
 
-void register_token_tests(void) {
+void register_token_tests(void)
+{
     REGISTER_TEST(VigilTokenTest, KindNamesAreStable);
     REGISTER_TEST(VigilTokenTest, ListInitAndFreeResetState);
 }
