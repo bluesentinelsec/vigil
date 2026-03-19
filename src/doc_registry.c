@@ -143,6 +143,20 @@ static const vigil_doc_entry_t math_docs[] = {
         "math.ceil(3.2)   // 4\nmath.ceil(-3.7)  // -3"
     },
     {
+        "math.round",
+        "math.round(x: f64) -> f64",
+        "Return x rounded to the nearest integer value.",
+        NULL,
+        "math.round(3.6)  // 4.0"
+    },
+    {
+        "math.trunc",
+        "math.trunc(x: f64) -> f64",
+        "Return x with the fractional part removed.",
+        NULL,
+        "math.trunc(-3.7)  // -3.0"
+    },
+    {
         "math.pow",
         "math.pow(base: float, exp: float) -> float",
         "Return base raised to the power exp.",
@@ -185,11 +199,123 @@ static const vigil_doc_entry_t math_docs[] = {
         "math.exp(1.0)  // ~2.718"
     },
     {
+        "math.pi",
+        "math.pi() -> f64",
+        "Return pi (approximately 3.141593).",
+        NULL,
+        "math.pi()  // 3.141592..."
+    },
+    {
+        "math.e",
+        "math.e() -> f64",
+        "Return Euler's number (approximately 2.718282).",
+        NULL,
+        "math.e()  // 2.718281..."
+    },
+    {
         "math.cbrt",
         "math.cbrt(x: f64) -> f64",
         "Return the cube root of x.",
         NULL,
         "math.cbrt(27.0)  // 3.0"
+    },
+    {
+        "math.sign",
+        "math.sign(x: f64) -> f64",
+        "Return the sign of x as -1.0, 0.0, or 1.0.",
+        NULL,
+        "math.sign(-42.0)  // -1.0"
+    },
+    {
+        "math.asin",
+        "math.asin(x: f64) -> f64",
+        "Return the arc sine of x in radians.",
+        NULL,
+        "math.asin(0.0)  // 0.0"
+    },
+    {
+        "math.acos",
+        "math.acos(x: f64) -> f64",
+        "Return the arc cosine of x in radians.",
+        NULL,
+        "math.acos(1.0)  // 0.0"
+    },
+    {
+        "math.atan",
+        "math.atan(x: f64) -> f64",
+        "Return the arc tangent of x in radians.",
+        NULL,
+        "math.atan(1.0)  // ~0.785398"
+    },
+    {
+        "math.log2",
+        "math.log2(x: f64) -> f64",
+        "Return the base-2 logarithm of x.",
+        NULL,
+        "math.log2(8.0)  // 3.0"
+    },
+    {
+        "math.log10",
+        "math.log10(x: f64) -> f64",
+        "Return the base-10 logarithm of x.",
+        NULL,
+        "math.log10(1000.0)  // 3.0"
+    },
+    {
+        "math.deg2rad",
+        "math.deg2rad(x: f64) -> f64",
+        "Convert degrees to radians.",
+        NULL,
+        "math.deg2rad(180.0)  // 3.141592..."
+    },
+    {
+        "math.rad2deg",
+        "math.rad2deg(x: f64) -> f64",
+        "Convert radians to degrees.",
+        NULL,
+        "math.rad2deg(math.pi())  // 180.0"
+    },
+    {
+        "math.min",
+        "math.min(a: f64, b: f64) -> f64",
+        "Return the smaller of two values.",
+        NULL,
+        "math.min(2.0, 5.0)  // 2.0"
+    },
+    {
+        "math.max",
+        "math.max(a: f64, b: f64) -> f64",
+        "Return the larger of two values.",
+        NULL,
+        "math.max(2.0, 5.0)  // 5.0"
+    },
+    {
+        "math.atan2",
+        "math.atan2(y: f64, x: f64) -> f64",
+        "Return the angle of the vector (x, y) in radians.",
+        NULL,
+        "math.atan2(1.0, 1.0)  // ~0.785398"
+    },
+    {
+        "math.hypot",
+        "math.hypot(a: f64, b: f64) -> f64",
+        "Return the Euclidean length sqrt(a*a + b*b).",
+        NULL,
+        "math.hypot(3.0, 4.0)  // 5.0"
+    },
+    {
+        "math.fmod",
+        "math.fmod(a: f64, b: f64) -> f64",
+        "Return the floating-point remainder of a / b.",
+        NULL,
+        "math.fmod(7.5, 2.0)  // 1.5"
+    },
+    {
+        "math.step",
+        "math.step(edge: f64, x: f64) -> f64",
+        "Return 0.0 when x is below edge, otherwise 1.0.",
+        NULL,
+        "math.step(0.5, 0.7)  // 1.0"
     },
     {
         "math.tau",
@@ -226,6 +352,55 @@ static const vigil_doc_entry_t math_docs[] = {
         NULL,
         "math.isFinite(42.0)  // true"
     },
+    {
+        "math.clamp",
+        "math.clamp(x: f64, lo: f64, hi: f64) -> f64",
+        "Clamp x into the inclusive range [lo, hi].",
+        NULL,
+        "math.clamp(12.0, 0.0, 10.0)  // 10.0"
+    },
+    {
+        "math.lerp",
+        "math.lerp(a: f64, b: f64, t: f64) -> f64",
+        "Linearly interpolate between a and b.",
+        NULL,
+        "math.lerp(10.0, 20.0, 0.25)  // 12.5"
+    },
+    {
+        "math.inverseLerp",
+        "math.inverseLerp(a: f64, b: f64, x: f64) -> f64",
+        "Return the interpolation factor t such that lerp(a, b, t) == x.",
+        NULL,
+        "math.inverseLerp(10.0, 20.0, 15.0)  // 0.5"
+    },
+    {
+        "math.smoothstep",
+        "math.smoothstep(lo: f64, hi: f64, x: f64) -> f64",
+        "Smoothly interpolate from 0.0 to 1.0 across the range [lo, hi].",
+        NULL,
+        "math.smoothstep(0.0, 1.0, 0.5)  // 0.5"
+    },
+    {
+        "math.normalize",
+        "math.normalize(x: f64, lo: f64, hi: f64) -> f64",
+        "Map x from [lo, hi] into the normalized range [0.0, 1.0].",
+        NULL,
+        "math.normalize(15.0, 10.0, 20.0)  // 0.5"
+    },
+    {
+        "math.wrap",
+        "math.wrap(x: f64, lo: f64, hi: f64) -> f64",
+        "Wrap x into the half-open interval [lo, hi).",
+        NULL,
+        "math.wrap(13.0, 0.0, 10.0)  // 3.0"
+    },
+    {
+        "math.remap",
+        "math.remap(x: f64, in_lo: f64, in_hi: f64, out_lo: f64, out_hi: f64) -> f64",
+        "Map x from one numeric range into another.",
+        NULL,
+        "math.remap(5.0, 0.0, 10.0, 0.0, 100.0)  // 50.0"
+    },
 };
 
 #define MATH_COUNT (sizeof(math_docs) / sizeof(math_docs[0]))
@@ -241,11 +416,18 @@ static const vigil_doc_entry_t args_docs[] = {
         NULL
     },
     {
-        "args.get",
-        "args.get() -> [string]",
-        "Return the command-line arguments as an array of strings.",
-        NULL,
-        "let argv = args.get()\nfor arg in argv { println(arg) }"
+        "args.count",
+        "args.count() -> i32",
+        "Return the number of command-line arguments.",
+        "Counts the script arguments passed after the program name.",
+        "i32 argc = args.count()"
+    },
+    {
+        "args.at",
+        "args.at(index: i32) -> string",
+        "Return a command-line argument by index.",
+        "Returns an empty string if the index is out of range.",
+        "string first = args.at(0)"
     },
 };
 
@@ -796,21 +978,26 @@ static const vigil_doc_entry_t thread_docs[] = {
     },
     {"thread.current_id", "thread.current_id() -> i64", "Get current thread ID.", "Returns unique identifier for current thread.", "thread.current_id()"},
     {"thread.spawn", "thread.spawn(fn: function) -> i64", "Spawn a new thread.", "Runs a zero-argument function on a new OS thread. Returns a thread handle for join, or -1 on error.", "i64 t = thread.spawn(fn() -> void { fmt.println(\"hello\") })"},
-    {"thread.join", "thread.join(t: i64) -> bool", "Wait for thread to finish.", "Blocks until the spawned thread completes.", "thread.join(t)"},
+    {"thread.join", "thread.join(t: i64) -> i64", "Wait for thread to finish.", "Blocks until the spawned thread completes and returns its i64 result. Returns INT64_MIN on invalid handle or join failure.", "i64 result = thread.join(t)"},
+    {"thread.detach", "thread.detach(t: i64) -> bool", "Detach a thread.", "Marks a spawned thread as detached so its resources are released without joining.", "thread.detach(t)"},
     {"thread.yield", "thread.yield() -> bool", "Yield to other threads.", "Hints scheduler to run other threads.", "thread.yield()"},
     {"thread.sleep", "thread.sleep(ms: i64) -> bool", "Sleep for milliseconds.", "Pauses current thread for specified duration.", "thread.sleep(100)"},
-    {"thread.mutex", "thread.mutex() -> Mutex", "Create a mutex.", "Creates a mutual exclusion lock.", "thread.Mutex m = thread.mutex()"},
-    {"thread.lock", "thread.lock(m: Mutex) -> bool", "Lock a mutex.", "Acquires mutex, blocking if held.", "thread.lock(m)"},
-    {"thread.unlock", "thread.unlock(m: Mutex) -> bool", "Unlock a mutex.", "Releases a held mutex.", "thread.unlock(m)"},
-    {"thread.try_lock", "thread.try_lock(m: Mutex) -> bool", "Try to lock mutex.", "Attempts to acquire without blocking.", "if (thread.try_lock(m)) { ... }"},
-    {"thread.cond", "thread.cond() -> Cond", "Create condition variable.", "Creates a condition variable for signaling.", "thread.Cond c = thread.cond()"},
-    {"thread.wait", "thread.wait(c: Cond, m: Mutex) -> bool", "Wait on condition.", "Releases mutex and waits for signal.", "thread.wait(c, m)"},
-    {"thread.signal", "thread.signal(c: Cond) -> bool", "Signal one waiter.", "Wakes one thread waiting on condition.", "thread.signal(c)"},
-    {"thread.broadcast", "thread.broadcast(c: Cond) -> bool", "Signal all waiters.", "Wakes all threads waiting on condition.", "thread.broadcast(c)"},
-    {"thread.rwlock", "thread.rwlock() -> RWLock", "Create read-write lock.", "Creates lock allowing multiple readers or one writer.", "thread.RWLock rw = thread.rwlock()"},
-    {"thread.read_lock", "thread.read_lock(rw: RWLock) -> bool", "Acquire read lock.", "Acquires shared read access.", "thread.read_lock(rw)"},
-    {"thread.write_lock", "thread.write_lock(rw: RWLock) -> bool", "Acquire write lock.", "Acquires exclusive write access.", "thread.write_lock(rw)"},
-    {"thread.rw_unlock", "thread.rw_unlock(rw: RWLock) -> bool", "Release read-write lock.", "Releases read or write lock.", "thread.rw_unlock(rw)"},
+    {"thread.mutex", "thread.mutex() -> i64", "Create a mutex.", "Creates a mutual exclusion lock and returns its handle.", "i64 m = thread.mutex()"},
+    {"thread.lock", "thread.lock(m: i64) -> bool", "Lock a mutex.", "Acquires a mutex handle, blocking if it is already held.", "thread.lock(m)"},
+    {"thread.unlock", "thread.unlock(m: i64) -> bool", "Unlock a mutex.", "Releases a held mutex handle.", "thread.unlock(m)"},
+    {"thread.try_lock", "thread.try_lock(m: i64) -> bool", "Try to lock a mutex.", "Attempts to acquire a mutex without blocking.", "if (thread.try_lock(m)) { /* critical section */ }"},
+    {"thread.mutex_destroy", "thread.mutex_destroy(m: i64) -> bool", "Destroy a mutex.", "Destroys a mutex handle and releases its underlying platform resource.", "thread.mutex_destroy(m)"},
+    {"thread.cond", "thread.cond() -> i64", "Create a condition variable.", "Creates a condition variable handle for signaling between threads.", "i64 c = thread.cond()"},
+    {"thread.wait", "thread.wait(c: i64, m: i64) -> bool", "Wait on a condition variable.", "Atomically releases the mutex and waits until the condition variable is signaled.", "thread.wait(c, m)"},
+    {"thread.wait_timeout", "thread.wait_timeout(c: i64, m: i64, ms: i64) -> bool", "Wait on a condition variable with timeout.", "Waits until signaled or the timeout expires. Returns false on timeout or invalid handles.", "thread.wait_timeout(c, m, 5000)"},
+    {"thread.signal", "thread.signal(c: i64) -> bool", "Signal one waiter.", "Wakes one thread waiting on the condition variable.", "thread.signal(c)"},
+    {"thread.broadcast", "thread.broadcast(c: i64) -> bool", "Signal all waiters.", "Wakes all threads waiting on the condition variable.", "thread.broadcast(c)"},
+    {"thread.cond_destroy", "thread.cond_destroy(c: i64) -> bool", "Destroy a condition variable.", "Destroys a condition-variable handle and releases its underlying platform resource.", "thread.cond_destroy(c)"},
+    {"thread.rwlock", "thread.rwlock() -> i64", "Create a read-write lock.", "Creates a read-write lock handle allowing multiple readers or one writer.", "i64 rw = thread.rwlock()"},
+    {"thread.read_lock", "thread.read_lock(rw: i64) -> bool", "Acquire read lock.", "Acquires shared read access on a read-write lock handle.", "thread.read_lock(rw)"},
+    {"thread.write_lock", "thread.write_lock(rw: i64) -> bool", "Acquire write lock.", "Acquires exclusive write access on a read-write lock handle.", "thread.write_lock(rw)"},
+    {"thread.rw_unlock", "thread.rw_unlock(rw: i64) -> bool", "Release read-write lock.", "Releases either a read or write lock previously acquired on the handle.", "thread.rw_unlock(rw)"},
+    {"thread.rwlock_destroy", "thread.rwlock_destroy(rw: i64) -> bool", "Destroy a read-write lock.", "Destroys a read-write lock handle and releases its underlying platform resource.", "thread.rwlock_destroy(rw)"},
 };
 
 #define THREAD_COUNT (sizeof(thread_docs) / sizeof(thread_docs[0]))
@@ -826,14 +1013,19 @@ static const vigil_doc_entry_t atomic_docs[] = {
         "for thread-safe programming without mutexes.",
         NULL
     },
-    {"atomic.new", "atomic.new(initial: i64) -> Int", "Create atomic integer.", "Creates an atomic integer with initial value.", "atomic.Int a = atomic.new(0)"},
-    {"atomic.load", "atomic.load(a: Int) -> i64", "Atomically load value.", "Returns current value atomically.", "atomic.load(a)"},
-    {"atomic.store", "atomic.store(a: Int, val: i64) -> bool", "Atomically store value.", "Sets value atomically.", "atomic.store(a, 42)"},
-    {"atomic.add", "atomic.add(a: Int, val: i64) -> i64", "Atomically add.", "Adds to value, returns previous.", "atomic.add(a, 1)"},
-    {"atomic.sub", "atomic.sub(a: Int, val: i64) -> i64", "Atomically subtract.", "Subtracts from value, returns previous.", "atomic.sub(a, 1)"},
-    {"atomic.inc", "atomic.inc(a: Int) -> i64", "Atomically increment.", "Increments by 1, returns previous.", "atomic.inc(a)"},
-    {"atomic.dec", "atomic.dec(a: Int) -> i64", "Atomically decrement.", "Decrements by 1, returns previous.", "atomic.dec(a)"},
-    {"atomic.cas", "atomic.cas(a: Int, expected: i64, desired: i64) -> bool", "Compare and swap.", "Sets to desired if current equals expected.", "atomic.cas(a, 0, 1)"},
+    {"atomic.new", "atomic.new(initial: i64) -> i64", "Create atomic integer handle.", "Creates an atomic integer cell with the given initial value and returns its handle.", "i64 a = atomic.new(0)"},
+    {"atomic.load", "atomic.load(a: i64) -> i64", "Atomically load value.", "Returns the current value stored in the atomic cell handle.", "atomic.load(a)"},
+    {"atomic.store", "atomic.store(a: i64, val: i64) -> bool", "Atomically store value.", "Sets the atomic cell to the given value.", "atomic.store(a, 42)"},
+    {"atomic.add", "atomic.add(a: i64, val: i64) -> i64", "Atomically add.", "Adds val to the cell and returns the previous value.", "atomic.add(a, 1)"},
+    {"atomic.sub", "atomic.sub(a: i64, val: i64) -> i64", "Atomically subtract.", "Subtracts val from the cell and returns the previous value.", "atomic.sub(a, 1)"},
+    {"atomic.cas", "atomic.cas(a: i64, expected: i64, desired: i64) -> bool", "Compare and swap.", "Sets the cell to desired if the current value equals expected.", "atomic.cas(a, 0, 1)"},
+    {"atomic.exchange", "atomic.exchange(a: i64, val: i64) -> i64", "Atomically exchange value.", "Stores val in the cell and returns the previous value.", "i64 prev = atomic.exchange(a, 5)"},
+    {"atomic.fetch_or", "atomic.fetch_or(a: i64, val: i64) -> i64", "Atomically bitwise-OR value.", "Applies bitwise OR with val and returns the previous value.", "i64 prev = atomic.fetch_or(a, 0x10)"},
+    {"atomic.fetch_and", "atomic.fetch_and(a: i64, val: i64) -> i64", "Atomically bitwise-AND value.", "Applies bitwise AND with val and returns the previous value.", "i64 prev = atomic.fetch_and(a, 0xff)"},
+    {"atomic.fetch_xor", "atomic.fetch_xor(a: i64, val: i64) -> i64", "Atomically bitwise-XOR value.", "Applies bitwise XOR with val and returns the previous value.", "i64 prev = atomic.fetch_xor(a, 0x01)"},
+    {"atomic.inc", "atomic.inc(a: i64) -> i64", "Atomically increment.", "Increments the cell by 1 and returns the previous value.", "atomic.inc(a)"},
+    {"atomic.dec", "atomic.dec(a: i64) -> i64", "Atomically decrement.", "Decrements the cell by 1 and returns the previous value.", "atomic.dec(a)"},
+    {"atomic.fence", "atomic.fence() -> void", "Issue a full memory fence.", "Forces a full memory barrier for ordering surrounding atomic operations.", "atomic.fence()"},
 };
 
 #define ATOMIC_COUNT (sizeof(atomic_docs) / sizeof(atomic_docs[0]))
@@ -1056,15 +1248,35 @@ static const vigil_doc_entry_t unsafe_docs[] = {
     {"unsafe.set_i32", "unsafe.set_i32(buf: i64, offset: i32, value: i32) -> void", "Write a 32-bit integer.", "Writes a native-endian i32 at the given byte offset.", "unsafe.set_i32(buf, 0, 42)"},
     {"unsafe.get_i64", "unsafe.get_i64(buf: i64, offset: i32) -> i64", "Read a 64-bit integer.", "Reads a native-endian i64 at the given byte offset.", "i64 v = unsafe.get_i64(buf, 0)"},
     {"unsafe.set_i64", "unsafe.set_i64(buf: i64, offset: i32, value: i64) -> void", "Write a 64-bit integer.", "Writes a native-endian i64 at the given byte offset.", "unsafe.set_i64(buf, 0, 100)"},
+    {"unsafe.get_f32", "unsafe.get_f32(buf: i64, offset: i32) -> f64", "Read a 32-bit float.", "Reads a native-endian f32 at the given byte offset and returns it as f64.", "f64 v = unsafe.get_f32(buf, 0)"},
+    {"unsafe.set_f32", "unsafe.set_f32(buf: i64, offset: i32, value: f64) -> void", "Write a 32-bit float.", "Writes a native-endian f32 value at the given byte offset.", "unsafe.set_f32(buf, 0, 3.5)"},
     {"unsafe.get_f64", "unsafe.get_f64(buf: i64, offset: i32) -> f64", "Read a 64-bit float.", "Reads a native-endian f64 at the given byte offset.", "f64 v = unsafe.get_f64(buf, 0)"},
     {"unsafe.set_f64", "unsafe.set_f64(buf: i64, offset: i32, value: f64) -> void", "Write a 64-bit float.", "Writes a native-endian f64 at the given byte offset.", "unsafe.set_f64(buf, 0, 3.14)"},
+    {"unsafe.write_str", "unsafe.write_str(buf: i64, offset: i32, value: string) -> void", "Write a string into a buffer.", "Copies the string bytes into the buffer starting at the given byte offset.", "unsafe.write_str(buf, 0, \"hello\")"},
+    {"unsafe.peek_u8", "unsafe.peek_u8(ptr: i64, offset: i32) -> i32", "Read a byte from a raw pointer.", "Reads an unchecked u8 from ptr + offset.", "i32 b = unsafe.peek_u8(ptr, 0)"},
+    {"unsafe.peek_i32", "unsafe.peek_i32(ptr: i64, offset: i32) -> i32", "Read a 32-bit integer from a raw pointer.", "Reads an unchecked native-endian i32 from ptr + offset.", "i32 v = unsafe.peek_i32(ptr, 0)"},
+    {"unsafe.peek_i64", "unsafe.peek_i64(ptr: i64, offset: i32) -> i64", "Read a 64-bit integer from a raw pointer.", "Reads an unchecked native-endian i64 from ptr + offset.", "i64 v = unsafe.peek_i64(ptr, 0)"},
+    {"unsafe.peek_f32", "unsafe.peek_f32(ptr: i64, offset: i32) -> f64", "Read a 32-bit float from a raw pointer.", "Reads an unchecked native-endian f32 from ptr + offset and returns it as f64.", "f64 v = unsafe.peek_f32(ptr, 0)"},
+    {"unsafe.peek_f64", "unsafe.peek_f64(ptr: i64, offset: i32) -> f64", "Read a 64-bit float from a raw pointer.", "Reads an unchecked native-endian f64 from ptr + offset.", "f64 v = unsafe.peek_f64(ptr, 0)"},
+    {"unsafe.peek_ptr", "unsafe.peek_ptr(ptr: i64, offset: i32) -> i64", "Read a pointer from a raw pointer.", "Reads an unchecked pointer-sized value from ptr + offset.", "i64 p = unsafe.peek_ptr(ptr, 0)"},
+    {"unsafe.poke_u8", "unsafe.poke_u8(ptr: i64, offset: i32, value: i32) -> void", "Write a byte to a raw pointer.", "Writes an unchecked u8 value to ptr + offset.", "unsafe.poke_u8(ptr, 0, 0xff)"},
+    {"unsafe.poke_i32", "unsafe.poke_i32(ptr: i64, offset: i32, value: i32) -> void", "Write a 32-bit integer to a raw pointer.", "Writes an unchecked native-endian i32 to ptr + offset.", "unsafe.poke_i32(ptr, 0, 42)"},
+    {"unsafe.poke_i64", "unsafe.poke_i64(ptr: i64, offset: i32, value: i64) -> void", "Write a 64-bit integer to a raw pointer.", "Writes an unchecked native-endian i64 to ptr + offset.", "unsafe.poke_i64(ptr, 0, 99)"},
+    {"unsafe.poke_f32", "unsafe.poke_f32(ptr: i64, offset: i32, value: f64) -> void", "Write a 32-bit float to a raw pointer.", "Writes an unchecked native-endian f32 to ptr + offset.", "unsafe.poke_f32(ptr, 0, 1.5)"},
+    {"unsafe.poke_f64", "unsafe.poke_f64(ptr: i64, offset: i32, value: f64) -> void", "Write a 64-bit float to a raw pointer.", "Writes an unchecked native-endian f64 to ptr + offset.", "unsafe.poke_f64(ptr, 0, 1.5)"},
+    {"unsafe.poke_ptr", "unsafe.poke_ptr(ptr: i64, offset: i32, value: i64) -> void", "Write a pointer to a raw pointer.", "Writes an unchecked pointer-sized value to ptr + offset.", "unsafe.poke_ptr(ptr, 0, other_ptr)"},
     {"unsafe.null", "unsafe.null() -> i64", "Get null pointer.", "Returns 0 (null pointer constant).", "i64 p = unsafe.null()"},
     {"unsafe.sizeof", "unsafe.sizeof(type: string) -> i32", "Get type size.", "Returns the size in bytes of a C type name.", "i32 n = unsafe.sizeof(\"int\")"},
     {"unsafe.sizeof_ptr", "unsafe.sizeof_ptr() -> i32", "Get pointer size.", "Returns the size of a pointer on this platform (4 or 8).", "i32 n = unsafe.sizeof_ptr()"},
+    {"unsafe.alignof", "unsafe.alignof(type: string) -> i32", "Get type alignment.", "Returns the alignment requirement in bytes of a C type name.", "i32 n = unsafe.alignof(\"double\")"},
+    {"unsafe.offsetof", "unsafe.offsetof(type: string, field: i32) -> i32", "Get field offset.", "Returns the byte offset of a generated struct field index within the named C struct layout.", "i32 off = unsafe.offsetof(\"sockaddr_in\", 0)"},
+    {"unsafe.struct_size", "unsafe.struct_size(type: string) -> i32", "Get struct size.", "Returns the size in bytes of a named C struct layout.", "i32 n = unsafe.struct_size(\"sockaddr_in\")"},
     {"unsafe.errno", "unsafe.errno() -> i32", "Get errno.", "Returns the current C errno value.", "i32 e = unsafe.errno()"},
     {"unsafe.set_errno", "unsafe.set_errno(value: i32) -> void", "Set errno.", "Sets the C errno value.", "unsafe.set_errno(0)"},
     {"unsafe.str", "unsafe.str(ptr: i64) -> string", "Read C string.", "Reads a null-terminated string from a raw pointer.", "string s = unsafe.str(ptr)"},
     {"unsafe.copy", "unsafe.copy(dst: i64, dst_off: i32, src: i64, src_off: i32, len: i32) -> void", "Copy bytes between buffers.", "Copies len bytes from src+src_off to dst+dst_off.", "unsafe.copy(dst, 0, src, 0, 64)"},
+    {"unsafe.cb_alloc", "unsafe.cb_alloc() -> i64", "Allocate a callback slot.", "Returns an FFI callback slot handle for advanced unsafe callback plumbing.", "i64 slot = unsafe.cb_alloc()"},
+    {"unsafe.cb_free", "unsafe.cb_free(slot: i32) -> void", "Free a callback slot.", "Releases a callback slot previously allocated with unsafe.cb_alloc.", "unsafe.cb_free(0)"},
 };
 
 #define UNSAFE_COUNT (sizeof(unsafe_docs) / sizeof(unsafe_docs[0]))
@@ -1089,6 +1301,9 @@ static const vigil_doc_entry_t readline_docs[] = {
     {"readline.history_add", "readline.history_add(line: string) -> void", "Add a line to history.", "Stores the line for recall with history_get.", "readline.history_add(line)"},
     {"readline.history_get", "readline.history_get(index: i32) -> string", "Get a history entry.", "Returns the history entry at the given index.", "string h = readline.history_get(0)"},
     {"readline.history_length", "readline.history_length() -> i32", "Get history length.", "Returns the number of entries in the history.", "i32 n = readline.history_length()"},
+    {"readline.history_clear", "readline.history_clear() -> void", "Clear line history.", "Removes all entries from the in-memory history list.", "readline.history_clear()"},
+    {"readline.history_load", "readline.history_load(path: string) -> void", "Load history from a file.", "Loads previously saved history entries from the given file path.", "readline.history_load(\".vigil_history\")"},
+    {"readline.history_save", "readline.history_save(path: string) -> void", "Save history to a file.", "Writes the current in-memory history entries to the given file path.", "readline.history_save(\".vigil_history\")"},
 };
 
 #define READLINE_COUNT (sizeof(readline_docs) / sizeof(readline_docs[0]))
