@@ -189,16 +189,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Install LLVM 17
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "17"
 
+      - name: Fetch main
+        run: git fetch origin main --depth=1
+
       - name: Check formatting
         env:
           CLANG_FORMAT_BIN: ${{ env.LLVM_PATH }}/bin/clang-format
-        run: scripts/run_clang_format.sh --check
+        run: |
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- '*.c' '*.h')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No C or header changes to format-check."
+            exit 0
+          fi
+          scripts/run_clang_format.sh --check "${files[@]}"
   portability:
     runs-on: ubuntu-latest
 

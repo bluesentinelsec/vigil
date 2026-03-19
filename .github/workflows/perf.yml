@@ -53,6 +53,12 @@ jobs:
           --manifest $PWD/benchmarks/manifest.json
           --output $PWD/../vigil-main/build-perf/benchmarks.json
 
+      - name: Stage benchmark artifacts
+        run: |
+          mkdir -p perf-artifacts
+          cp build-pr/benchmarks.json perf-artifacts/pr-benchmarks.json
+          cp ../vigil-main/build-perf/benchmarks.json perf-artifacts/main-benchmarks.json
+
       - name: Compare benchmark results
         run: >
           python3 scripts/compare_benchmarks.py
@@ -65,6 +71,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: |
-            build-pr/benchmarks.json
-            ../vigil-main/build-perf/benchmarks.json
+          path: perf-artifacts/
