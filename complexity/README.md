@@ -21,6 +21,7 @@ overall debt curve downward over time.
 ## Files
 
 - `thresholds.json`: hard limits used by the `lizard` comparison script
+- `debt/`: checked-in snapshot of the current inherited complexity debt
 
 ## Local Usage
 

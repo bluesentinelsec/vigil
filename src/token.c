@@ -3,6 +3,82 @@
 #include "internal/vigil_internal.h"
 #include "vigil/token.h"
 
+static const char *const kVigilTokenNames[VIGIL_TOKEN_EXTERN + 1] = {
+    [VIGIL_TOKEN_EOF] = "eof",
+    [VIGIL_TOKEN_IDENTIFIER] = "identifier",
+    [VIGIL_TOKEN_INT_LITERAL] = "int_literal",
+    [VIGIL_TOKEN_FLOAT_LITERAL] = "float_literal",
+    [VIGIL_TOKEN_STRING_LITERAL] = "string_literal",
+    [VIGIL_TOKEN_RAW_STRING_LITERAL] = "raw_string_literal",
+    [VIGIL_TOKEN_FSTRING_LITERAL] = "fstring_literal",
+    [VIGIL_TOKEN_CHAR_LITERAL] = "char_literal",
+    [VIGIL_TOKEN_IMPORT] = "import",
+    [VIGIL_TOKEN_AS] = "as",
+    [VIGIL_TOKEN_PUB] = "pub",
+    [VIGIL_TOKEN_FN] = "fn",
+    [VIGIL_TOKEN_CLASS] = "class",
+    [VIGIL_TOKEN_INTERFACE] = "interface",
+    [VIGIL_TOKEN_ENUM] = "enum",
+    [VIGIL_TOKEN_CONST] = "const",
+    [VIGIL_TOKEN_RETURN] = "return",
+    [VIGIL_TOKEN_DEFER] = "defer",
+    [VIGIL_TOKEN_IF] = "if",
+    [VIGIL_TOKEN_ELSE] = "else",
+    [VIGIL_TOKEN_FOR] = "for",
+    [VIGIL_TOKEN_WHILE] = "while",
+    [VIGIL_TOKEN_SWITCH] = "switch",
+    [VIGIL_TOKEN_GUARD] = "guard",
+    [VIGIL_TOKEN_CASE] = "case",
+    [VIGIL_TOKEN_DEFAULT] = "default",
+    [VIGIL_TOKEN_BREAK] = "break",
+    [VIGIL_TOKEN_CONTINUE] = "continue",
+    [VIGIL_TOKEN_IN] = "in",
+    [VIGIL_TOKEN_NIL] = "nil",
+    [VIGIL_TOKEN_TRUE] = "true",
+    [VIGIL_TOKEN_FALSE] = "false",
+    [VIGIL_TOKEN_LPAREN] = "left_paren",
+    [VIGIL_TOKEN_RPAREN] = "right_paren",
+    [VIGIL_TOKEN_LBRACE] = "left_brace",
+    [VIGIL_TOKEN_RBRACE] = "right_brace",
+    [VIGIL_TOKEN_LBRACKET] = "left_bracket",
+    [VIGIL_TOKEN_RBRACKET] = "right_bracket",
+    [VIGIL_TOKEN_COMMA] = "comma",
+    [VIGIL_TOKEN_DOT] = "dot",
+    [VIGIL_TOKEN_SEMICOLON] = "semicolon",
+    [VIGIL_TOKEN_COLON] = "colon",
+    [VIGIL_TOKEN_QUESTION] = "question",
+    [VIGIL_TOKEN_ARROW] = "arrow",
+    [VIGIL_TOKEN_ASSIGN] = "assign",
+    [VIGIL_TOKEN_PLUS] = "plus",
+    [VIGIL_TOKEN_MINUS] = "minus",
+    [VIGIL_TOKEN_STAR] = "star",
+    [VIGIL_TOKEN_SLASH] = "slash",
+    [VIGIL_TOKEN_PERCENT] = "percent",
+    [VIGIL_TOKEN_PLUS_PLUS] = "plus_plus",
+    [VIGIL_TOKEN_MINUS_MINUS] = "minus_minus",
+    [VIGIL_TOKEN_PLUS_ASSIGN] = "plus_assign",
+    [VIGIL_TOKEN_MINUS_ASSIGN] = "minus_assign",
+    [VIGIL_TOKEN_STAR_ASSIGN] = "star_assign",
+    [VIGIL_TOKEN_SLASH_ASSIGN] = "slash_assign",
+    [VIGIL_TOKEN_PERCENT_ASSIGN] = "percent_assign",
+    [VIGIL_TOKEN_EQUAL_EQUAL] = "equal_equal",
+    [VIGIL_TOKEN_BANG] = "bang",
+    [VIGIL_TOKEN_BANG_EQUAL] = "bang_equal",
+    [VIGIL_TOKEN_LESS] = "less",
+    [VIGIL_TOKEN_LESS_EQUAL] = "less_equal",
+    [VIGIL_TOKEN_GREATER] = "greater",
+    [VIGIL_TOKEN_GREATER_EQUAL] = "greater_equal",
+    [VIGIL_TOKEN_AMPERSAND] = "ampersand",
+    [VIGIL_TOKEN_AMPERSAND_AMPERSAND] = "ampersand_ampersand",
+    [VIGIL_TOKEN_PIPE] = "pipe",
+    [VIGIL_TOKEN_PIPE_PIPE] = "pipe_pipe",
+    [VIGIL_TOKEN_CARET] = "caret",
+    [VIGIL_TOKEN_TILDE] = "tilde",
+    [VIGIL_TOKEN_SHIFT_LEFT] = "shift_left",
+    [VIGIL_TOKEN_SHIFT_RIGHT] = "shift_right",
+    [VIGIL_TOKEN_EXTERN] = "extern",
+};
+
 static int vigil_token_list_validate_mutable(const vigil_token_list_t *list, vigil_error_t *error)
 {
     vigil_error_clear(error);
@@ -165,155 +241,15 @@ vigil_status_t vigil_token_list_append(vigil_token_list_t *list, vigil_token_kin
 
 const char *vigil_token_kind_name(vigil_token_kind_t kind)
 {
-    switch (kind)
+    if (kind > VIGIL_TOKEN_EXTERN)
     {
-    case VIGIL_TOKEN_EOF:
-        return "eof";
-    case VIGIL_TOKEN_IDENTIFIER:
-        return "identifier";
-    case VIGIL_TOKEN_INT_LITERAL:
-        return "int_literal";
-    case VIGIL_TOKEN_FLOAT_LITERAL:
-        return "float_literal";
-    case VIGIL_TOKEN_STRING_LITERAL:
-        return "string_literal";
-    case VIGIL_TOKEN_RAW_STRING_LITERAL:
-        return "raw_string_literal";
-    case VIGIL_TOKEN_FSTRING_LITERAL:
-        return "fstring_literal";
-    case VIGIL_TOKEN_CHAR_LITERAL:
-        return "char_literal";
-    case VIGIL_TOKEN_IMPORT:
-        return "import";
-    case VIGIL_TOKEN_AS:
-        return "as";
-    case VIGIL_TOKEN_PUB:
-        return "pub";
-    case VIGIL_TOKEN_FN:
-        return "fn";
-    case VIGIL_TOKEN_CLASS:
-        return "class";
-    case VIGIL_TOKEN_INTERFACE:
-        return "interface";
-    case VIGIL_TOKEN_ENUM:
-        return "enum";
-    case VIGIL_TOKEN_CONST:
-        return "const";
-    case VIGIL_TOKEN_RETURN:
-        return "return";
-    case VIGIL_TOKEN_DEFER:
-        return "defer";
-    case VIGIL_TOKEN_IF:
-        return "if";
-    case VIGIL_TOKEN_ELSE:
-        return "else";
-    case VIGIL_TOKEN_FOR:
-        return "for";
-    case VIGIL_TOKEN_WHILE:
-        return "while";
-    case VIGIL_TOKEN_SWITCH:
-        return "switch";
-    case VIGIL_TOKEN_GUARD:
-        return "guard";
-    case VIGIL_TOKEN_CASE:
-        return "case";
-    case VIGIL_TOKEN_DEFAULT:
-        return "default";
-    case VIGIL_TOKEN_BREAK:
-        return "break";
-    case VIGIL_TOKEN_CONTINUE:
-        return "continue";
-    case VIGIL_TOKEN_IN:
-        return "in";
-    case VIGIL_TOKEN_NIL:
-        return "nil";
-    case VIGIL_TOKEN_TRUE:
-        return "true";
-    case VIGIL_TOKEN_FALSE:
-        return "false";
-    case VIGIL_TOKEN_LPAREN:
-        return "left_paren";
-    case VIGIL_TOKEN_RPAREN:
-        return "right_paren";
-    case VIGIL_TOKEN_LBRACE:
-        return "left_brace";
-    case VIGIL_TOKEN_RBRACE:
-        return "right_brace";
-    case VIGIL_TOKEN_LBRACKET:
-        return "left_bracket";
-    case VIGIL_TOKEN_RBRACKET:
-        return "right_bracket";
-    case VIGIL_TOKEN_COMMA:
-        return "comma";
-    case VIGIL_TOKEN_DOT:
-        return "dot";
-    case VIGIL_TOKEN_SEMICOLON:
-        return "semicolon";
-    case VIGIL_TOKEN_COLON:
-        return "colon";
-    case VIGIL_TOKEN_QUESTION:
-        return "question";
-    case VIGIL_TOKEN_ARROW:
-        return "arrow";
-    case VIGIL_TOKEN_ASSIGN:
-        return "assign";
-    case VIGIL_TOKEN_PLUS:
-        return "plus";
-    case VIGIL_TOKEN_MINUS:
-        return "minus";
-    case VIGIL_TOKEN_STAR:
-        return "star";
-    case VIGIL_TOKEN_SLASH:
-        return "slash";
-    case VIGIL_TOKEN_PERCENT:
-        return "percent";
-    case VIGIL_TOKEN_PLUS_PLUS:
-        return "plus_plus";
-    case VIGIL_TOKEN_MINUS_MINUS:
-        return "minus_minus";
-    case VIGIL_TOKEN_PLUS_ASSIGN:
-        return "plus_assign";
-    case VIGIL_TOKEN_MINUS_ASSIGN:
-        return "minus_assign";
-    case VIGIL_TOKEN_STAR_ASSIGN:
-        return "star_assign";
-    case VIGIL_TOKEN_SLASH_ASSIGN:
-        return "slash_assign";
-    case VIGIL_TOKEN_PERCENT_ASSIGN:
-        return "percent_assign";
-    case VIGIL_TOKEN_EQUAL_EQUAL:
-        return "equal_equal";
-    case VIGIL_TOKEN_BANG:
-        return "bang";
-    case VIGIL_TOKEN_BANG_EQUAL:
-        return "bang_equal";
-    case VIGIL_TOKEN_LESS:
-        return "less";
-    case VIGIL_TOKEN_LESS_EQUAL:
-        return "less_equal";
-    case VIGIL_TOKEN_GREATER:
-        return "greater";
-    case VIGIL_TOKEN_GREATER_EQUAL:
-        return "greater_equal";
-    case VIGIL_TOKEN_AMPERSAND:
-        return "ampersand";
-    case VIGIL_TOKEN_AMPERSAND_AMPERSAND:
-        return "ampersand_ampersand";
-    case VIGIL_TOKEN_PIPE:
-        return "pipe";
-    case VIGIL_TOKEN_PIPE_PIPE:
-        return "pipe_pipe";
-    case VIGIL_TOKEN_CARET:
-        return "caret";
-    case VIGIL_TOKEN_TILDE:
-        return "tilde";
-    case VIGIL_TOKEN_SHIFT_LEFT:
-        return "shift_left";
-    case VIGIL_TOKEN_SHIFT_RIGHT:
-        return "shift_right";
-    case VIGIL_TOKEN_EXTERN:
-        return "extern";
-    default:
         return "unknown";
     }
+
+    if (kVigilTokenNames[kind] == NULL)
+    {
+        return "unknown";
+    }
+
+    return kVigilTokenNames[kind];
 }

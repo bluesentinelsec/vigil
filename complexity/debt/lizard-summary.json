@@ -1,0 +1,56 @@
+{
+  "debt_count": 126,
+  "function_count": 2981,
+  "metric_counts": {
+    "ccn": 66,
+    "length": 82,
+    "param": 37
+  },
+  "thresholds": {
+    "ccn": 30,
+    "length": 120,
+    "param": 6
+  },
+  "top_files": [
+    {
+      "count": 33,
+      "file": "src/compiler.c"
+    },
+    {
+      "count": 11,
+      "file": "src/cli/main.c"
+    },
+    {
+      "count": 7,
+      "file": "src/stdlib/regex_engine.c"
+    },
+    {
+      "count": 5,
+      "file": "src/toml.c"
+    },
+    {
+      "count": 5,
+      "file": "src/value.c"
+    },
+    {
+      "count": 5,
+      "file": "src/vm.c"
+    },
+    {
+      "count": 4,
+      "file": "src/compiler_declarations.c"
+    },
+    {
+      "count": 4,
+      "file": "src/doc.c"
+    },
+    {
+      "count": 3,
+      "file": "src/cli_lib.c"
+    },
+    {
+      "count": 3,
+      "file": "src/compiler_builtins.c"
+    }
+  ]
+}
