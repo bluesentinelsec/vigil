@@ -1384,6 +1384,36 @@ static int cmd_lsp(void)
     return 0;
 }
 
+static int debug_register_sources(vigil_source_registry_t *registry, const char *script_path,
+                                  vigil_source_id_t *out_source_id, vigil_error_t *error)
+{
+    char proj_root[4096];
+    const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
+
+    if (register_source_tree(registry, script_path, root, out_source_id, error))
+    {
+        return 1;
+    }
+
+    fprintf(stderr, "failed to register source: %s\n", vigil_error_message(error));
+    return 0;
+}
+
+static vigil_status_t debug_compile_source(vigil_source_registry_t *registry, vigil_source_id_t source_id,
+                                           vigil_object_t **out_function, vigil_diagnostic_list_t *diagnostics,
+                                           vigil_debug_symbol_table_t *symbols, vigil_error_t *error)
+{
+    vigil_native_registry_t natives;
+    vigil_status_t status;
+
+    vigil_native_registry_init(&natives);
+    vigil_stdlib_register_all(&natives, error);
+    status =
+        vigil_compile_source_with_debug_info(registry, source_id, &natives, out_function, diagnostics, symbols, error);
+    vigil_native_registry_free(&natives);
+    return status;
+}
+
 static int cmd_debug_interactive(const char *script_path)
 {
     vigil_runtime_t *runtime = NULL;
@@ -1419,26 +1449,13 @@ static int cmd_debug_interactive(const char *script_path)
     symbols_initialized = 1;
     vigil_line_history_init(&history, 100);
 
+    if (!debug_register_sources(&registry, script_path, &source_id, &error))
     {
-        char proj_root[4096];
-        const char *root = find_project_root(script_path, proj_root, sizeof(proj_root)) ? proj_root : NULL;
-        if (!register_source_tree(&registry, script_path, root, &source_id, &error))
-        {
-            fprintf(stderr, "failed to register source: %s\n", vigil_error_message(&error));
-            exit_code = 1;
-            goto cleanup;
-        }
+        exit_code = 1;
+        goto cleanup;
     }
 
-    /* Compile with debug info. */
-    {
-        vigil_native_registry_t natives;
-        vigil_native_registry_init(&natives);
-        vigil_stdlib_register_all(&natives, &error);
-        status = vigil_compile_source_with_debug_info(&registry, source_id, &natives, &function, &diagnostics, &symbols,
-                                                      &error);
-        vigil_native_registry_free(&natives);
-    }
+    status = debug_compile_source(&registry, source_id, &function, &diagnostics, &symbols, &error);
     if (status != VIGIL_STATUS_OK)
     {
         if (vigil_diagnostic_list_count(&diagnostics) != 0U)
@@ -2123,9 +2140,8 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     vigil_object_t *function = NULL;
     vigil_status_t status;
     int exit_code = 0;
-
-    /* Build synthetic source: original + main() that calls the test function. */
     char wrapper[512];
+
     snprintf(wrapper, sizeof(wrapper),
              "\nfn main() -> i32 {\n"
              "    test.T t = test.T();\n"
@@ -2164,7 +2180,6 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     vigil_diagnostic_list_init(&diagnostics, runtime);
     vigil_value_init_nil(&result);
 
-    /* Register the combined source under the test file's path so imports resolve. */
     if (vigil_source_registry_register(&registry, test_file_path, strlen(test_file_path), combined, total_len,
                                        &source_id, &error) != VIGIL_STATUS_OK)
     {
@@ -2173,7 +2188,6 @@ static int run_one_test(const char *test_file_path, const char *original_source,
         goto cleanup;
     }
 
-    /* Recursively register imports. */
     {
         const vigil_source_file_t *source = vigil_source_registry_get(&registry, source_id);
         vigil_token_list_t tokens;
@@ -3400,31 +3414,104 @@ static int cmd_get(int argc, char **argv)
 
 /* ── package command ─────────────────────────────────────────────── */
 
+static int package_inspect_mode(const char *entry_path, const char *output_path, vigil_error_t *error)
+{
+    const char *target = entry_path != NULL ? entry_path : output_path;
+    vigil_package_bundle_t bundle;
+    size_t index;
+
+    if (target == NULL)
+    {
+        fprintf(stderr, "error: --inspect requires a binary path\n");
+        return 2;
+    }
+    if (vigil_package_read(target, &bundle, error) != VIGIL_STATUS_OK)
+    {
+        fprintf(stderr, "error[package]: %s\n", vigil_error_message(error));
+        return 1;
+    }
+
+    printf("ENTRY\n  entry.vigil\n\nFILES\n");
+    for (index = 0; index < bundle.file_count; index++)
+    {
+        printf("  %s\n", bundle.paths[index]);
+    }
+    vigil_package_bundle_free(&bundle);
+    return 0;
+}
+
+static void package_default_output_path(const char *script_path, char *out_path, size_t out_path_size)
+{
+    const char *base = script_path;
+    const char *cursor;
+    size_t base_length;
+
+    for (cursor = script_path; *cursor != '\0'; cursor++)
+    {
+        if (*cursor == '/' || *cursor == '\\')
+        {
+            base = cursor + 1;
+        }
+    }
+
+    base_length = strlen(base);
+    if (base_length > 6 && memcmp(base + base_length - 6, ".vigil", 6) == 0)
+    {
+        base_length -= 6;
+    }
+    snprintf(out_path, out_path_size, "%.*s", (int)base_length, base);
+}
+
+static vigil_package_file_t *package_collect_files(const vigil_source_registry_t *registry, vigil_source_id_t source_id,
+                                                   size_t *out_count)
+{
+    vigil_package_file_t *pkg_files;
+    size_t pkg_count = 0;
+    size_t pkg_cap;
+    size_t index;
+
+    *out_count = 0U;
+    pkg_cap = vigil_source_registry_count(registry) + 1;
+    pkg_files = (vigil_package_file_t *)calloc(pkg_cap, sizeof(vigil_package_file_t));
+    if (pkg_files == NULL)
+    {
+        return NULL;
+    }
+
+    for (index = 1; index <= vigil_source_registry_count(registry); index++)
+    {
+        const vigil_source_file_t *src = vigil_source_registry_get(registry, (vigil_source_id_t)index);
+        if (src == NULL)
+        {
+            continue;
+        }
+
+        if ((vigil_source_id_t)index == source_id)
+        {
+            pkg_files[pkg_count].path = "entry.vigil";
+            pkg_files[pkg_count].path_length = 11;
+        }
+        else
+        {
+            pkg_files[pkg_count].path = vigil_string_c_str(&src->path);
+            pkg_files[pkg_count].path_length = vigil_string_length(&src->path);
+        }
+        pkg_files[pkg_count].data = vigil_string_c_str(&src->text);
+        pkg_files[pkg_count].data_length = vigil_string_length(&src->text);
+        pkg_count++;
+    }
+
+    *out_count = pkg_count;
+    return pkg_files;
+}
+
 static int cmd_package(const char *entry_path, const char *output_path, const char *key, int inspect)
 {
     vigil_error_t error = {0};
 
     if (inspect)
     {
-        /* Inspect mode. */
-        const char *target = entry_path ? entry_path : output_path;
-        vigil_package_bundle_t bundle;
-        size_t i;
-        if (target == NULL)
-        {
-            fprintf(stderr, "error: --inspect requires a binary path\n");
-            return 2;
-        }
-        if (vigil_package_read(target, &bundle, &error) != VIGIL_STATUS_OK)
-        {
-            fprintf(stderr, "error[package]: %s\n", vigil_error_message(&error));
-            return 1;
-        }
-        printf("ENTRY\n  entry.vigil\n\nFILES\n");
-        for (i = 0; i < bundle.file_count; i++)
-            printf("  %s\n", bundle.paths[i]);
-        vigil_package_bundle_free(&bundle);
-        return 0;
+        return package_inspect_mode(entry_path, output_path, &error);
     }
 
     /* Build mode. */
@@ -3436,8 +3523,6 @@ static int cmd_package(const char *entry_path, const char *output_path, const ch
         char out_path[4096];
         vigil_package_file_t *pkg_files = NULL;
         size_t pkg_count = 0;
-        size_t pkg_cap = 8;
-        size_t i;
 
         script_path = entry_path ? entry_path : "main.vigil";
 
@@ -3447,19 +3532,7 @@ static int cmd_package(const char *entry_path, const char *output_path, const ch
         }
         else
         {
-            /* Derive from script name. */
-            const char *base = script_path;
-            const char *p;
-            size_t blen;
-            for (p = script_path; *p; p++)
-            {
-                if (*p == '/' || *p == '\\')
-                    base = p + 1;
-            }
-            blen = strlen(base);
-            if (blen > 6 && memcmp(base + blen - 6, ".vigil", 6) == 0)
-                blen -= 6;
-            snprintf(out_path, sizeof(out_path), "%.*s", (int)blen, base);
+            package_default_output_path(script_path, out_path, sizeof(out_path));
         }
 
         if (vigil_runtime_open(&runtime, NULL, &error) != VIGIL_STATUS_OK)
@@ -3483,35 +3556,12 @@ static int cmd_package(const char *entry_path, const char *output_path, const ch
             }
         }
 
-        /* Collect all registered sources as package files. */
-        pkg_cap = vigil_source_registry_count(&registry) + 1;
-        pkg_files = (vigil_package_file_t *)calloc(pkg_cap, sizeof(vigil_package_file_t));
+        pkg_files = package_collect_files(&registry, source_id, &pkg_count);
         if (pkg_files == NULL)
         {
             vigil_source_registry_free(&registry);
             vigil_runtime_close(&runtime);
             return 1;
-        }
-
-        for (i = 1; i <= vigil_source_registry_count(&registry); i++)
-        {
-            const vigil_source_file_t *src = vigil_source_registry_get(&registry, (vigil_source_id_t)i);
-            if (src == NULL)
-                continue;
-
-            if ((vigil_source_id_t)i == source_id)
-            {
-                pkg_files[pkg_count].path = "entry.vigil";
-                pkg_files[pkg_count].path_length = 11;
-            }
-            else
-            {
-                pkg_files[pkg_count].path = vigil_string_c_str(&src->path);
-                pkg_files[pkg_count].path_length = vigil_string_length(&src->path);
-            }
-            pkg_files[pkg_count].data = vigil_string_c_str(&src->text);
-            pkg_files[pkg_count].data_length = vigil_string_length(&src->text);
-            pkg_count++;
         }
 
         if (vigil_package_build(out_path, pkg_files, pkg_count, key, key ? strlen(key) : 0, &error) != VIGIL_STATUS_OK)

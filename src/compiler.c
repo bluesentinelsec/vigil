@@ -2094,10 +2094,14 @@ vigil_status_t vigil_program_add_param(vigil_program_state_t *program, vigil_fun
     vigil_status_t status;
     const char *name;
     size_t name_length;
+    vigil_binding_function_param_spec_t param_spec = {0};
 
     name = vigil_program_token_text(program, name_token, &name_length);
-    status = vigil_binding_function_add_param(program->registry->runtime, decl, name, name_length, name_token->span,
-                                              type, program->error);
+    param_spec.name = name;
+    param_spec.name_length = name_length;
+    param_spec.span = name_token->span;
+    param_spec.type = type;
+    status = vigil_binding_function_add_param(program->registry->runtime, decl, &param_spec, program->error);
     if (status == VIGIL_STATUS_INVALID_ARGUMENT)
     {
         return vigil_compile_report(program, name_token->span, "function parameter is already declared");
@@ -5853,10 +5857,14 @@ static vigil_status_t vigil_parser_declare_local_symbol(vigil_parser_state_t *st
     const char *name;
     size_t name_length;
     size_t slot;
+    vigil_binding_local_spec_t local_spec = {0};
 
     name = vigil_parser_token_text(state, name_token, &name_length);
-    status = vigil_binding_scope_stack_declare_local(&state->locals, name, name_length, type, is_const, out_index,
-                                                     state->program->error);
+    local_spec.name = name;
+    local_spec.name_length = name_length;
+    local_spec.type = type;
+    local_spec.is_const = is_const;
+    status = vigil_binding_scope_stack_declare_local(&state->locals, &local_spec, out_index, state->program->error);
     if (status == VIGIL_STATUS_INVALID_ARGUMENT)
     {
         return vigil_parser_report(state, name_token->span, "local variable is already declared in this scope");
@@ -13362,8 +13370,13 @@ static vigil_status_t vigil_compile_seed_parameter_symbols(vigil_parser_state_t 
         if (decl->owner_class_index != VIGIL_BINDING_INVALID_CLASS_INDEX && i == 0U && decl->params[i].length == 4U &&
             memcmp(decl->params[i].name, "self", 4U) == 0)
         {
-            status = vigil_binding_scope_stack_declare_local(&state->locals, "self", 4U, decl->params[i].type, 0, NULL,
-                                                             state->program->error);
+            vigil_binding_local_spec_t local_spec = {0};
+
+            local_spec.name = "self";
+            local_spec.name_length = 4U;
+            local_spec.type = decl->params[i].type;
+            local_spec.is_const = 0;
+            status = vigil_binding_scope_stack_declare_local(&state->locals, &local_spec, NULL, state->program->error);
         }
         else
         {

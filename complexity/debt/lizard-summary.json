@@ -1,10 +1,10 @@
 {
-  "debt_count": 126,
-  "function_count": 2981,
+  "debt_count": 120,
+  "function_count": 3006,
   "metric_counts": {
-    "ccn": 66,
-    "length": 82,
-    "param": 37
+    "ccn": 64,
+    "length": 80,
+    "param": 33
   },
   "thresholds": {
     "ccn": 30,
@@ -46,11 +46,11 @@
     },
     {
       "count": 3,
-      "file": "src/cli_lib.c"
+      "file": "src/compiler_builtins.c"
     },
     {
       "count": 3,
-      "file": "src/compiler_builtins.c"
+      "file": "src/platform/platform_win32.c"
     }
   ]
 }

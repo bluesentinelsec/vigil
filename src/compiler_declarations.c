@@ -18,6 +18,20 @@ int vigil_program_token_is_identifier_text(const vigil_program_state_t *program,
     token_text = vigil_program_token_text(program, token, &token_length);
     return vigil_program_names_equal(token_text, token_length, text, text_length);
 }
+
+static vigil_status_t vigil_program_add_binding_param(vigil_program_state_t *program, vigil_function_decl_t *function,
+                                                      const char *name, size_t name_length, vigil_source_span_t span,
+                                                      vigil_parser_type_t type)
+{
+    vigil_binding_function_param_spec_t param_spec = {0};
+
+    param_spec.name = name;
+    param_spec.name_length = name_length;
+    param_spec.span = span;
+    param_spec.type = type;
+    return vigil_binding_function_add_param(program->registry->runtime, function, &param_spec, program->error);
+}
+
 vigil_status_t vigil_enum_decl_grow_members(vigil_program_state_t *program, vigil_enum_decl_t *decl,
                                             size_t minimum_capacity)
 {
@@ -1014,10 +1028,9 @@ vigil_status_t vigil_program_synthesize_class_constructor(vigil_program_state_t 
 
     for (param_index = 1U; param_index < init_decl->param_count; param_index += 1U)
     {
-        status =
-            vigil_binding_function_add_param(program->registry->runtime, ctor_decl, init_decl->params[param_index].name,
-                                             init_decl->params[param_index].length, init_decl->params[param_index].span,
-                                             init_decl->params[param_index].type, program->error);
+        status = vigil_program_add_binding_param(
+            program, ctor_decl, init_decl->params[param_index].name, init_decl->params[param_index].length,
+            init_decl->params[param_index].span, init_decl->params[param_index].type);
         if (status != VIGIL_STATUS_OK)
         {
             vigil_binding_function_free(program->registry->runtime, ctor_decl);
@@ -1217,9 +1230,8 @@ vigil_status_t vigil_program_parse_class_declaration(vigil_program_state_t *prog
             method_decl->tokens = program->tokens;
             cursor[0] += 1U;
 
-            status =
-                vigil_binding_function_add_param(program->registry->runtime, method_decl, "self", 4U, name_token->span,
-                                                 vigil_binding_type_class(class_index), program->error);
+            status = vigil_program_add_binding_param(program, method_decl, "self", 4U, name_token->span,
+                                                     vigil_binding_type_class(class_index));
             if (status != VIGIL_STATUS_OK)
             {
                 return status;

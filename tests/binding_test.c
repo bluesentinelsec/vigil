@@ -43,18 +43,20 @@ TEST(VigilBindingTest, FunctionParametersRejectDuplicates)
     vigil_binding_function_t function = {0};
     vigil_error_t error = {0};
     vigil_source_span_t span = {0};
+    vigil_binding_function_param_spec_t param_spec = {0};
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_binding_function_init(&function);
     function.name = "sum";
     function.name_length = 3U;
 
-    ASSERT_EQ(vigil_binding_function_add_param(runtime, &function, "left", 4U, span,
-                                               vigil_binding_type_primitive(VIGIL_TYPE_I32), &error),
-              VIGIL_STATUS_OK);
-    EXPECT_EQ(vigil_binding_function_add_param(runtime, &function, "left", 4U, span,
-                                               vigil_binding_type_primitive(VIGIL_TYPE_I32), &error),
-              VIGIL_STATUS_INVALID_ARGUMENT);
+    param_spec.name = "left";
+    param_spec.name_length = 4U;
+    param_spec.span = span;
+    param_spec.type = vigil_binding_type_primitive(VIGIL_TYPE_I32);
+
+    ASSERT_EQ(vigil_binding_function_add_param(runtime, &function, &param_spec, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_binding_function_add_param(runtime, &function, &param_spec, &error), VIGIL_STATUS_INVALID_ARGUMENT);
 
     vigil_binding_function_free(runtime, &function);
     vigil_runtime_close(&runtime);
@@ -68,20 +70,24 @@ TEST(VigilBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals)
     size_t index = 0U;
     size_t popped_count = 0U;
     vigil_binding_type_t local_type = vigil_binding_type_invalid();
+    vigil_binding_local_spec_t local_spec = {0};
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_binding_scope_stack_init(&stack, runtime);
 
-    ASSERT_EQ(vigil_binding_scope_stack_declare_local(&stack, "value", 5U, vigil_binding_type_primitive(VIGIL_TYPE_I32),
-                                                      0, &index, &error),
-              VIGIL_STATUS_OK);
+    local_spec.name = "value";
+    local_spec.name_length = 5U;
+    local_spec.type = vigil_binding_type_primitive(VIGIL_TYPE_I32);
+    local_spec.is_const = 0;
+
+    ASSERT_EQ(vigil_binding_scope_stack_declare_local(&stack, &local_spec, &index, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(index, 0U);
     EXPECT_EQ(vigil_binding_scope_stack_count(&stack), 1U);
 
     vigil_binding_scope_stack_begin_scope(&stack);
-    ASSERT_EQ(vigil_binding_scope_stack_declare_local(&stack, "value", 5U,
-                                                      vigil_binding_type_primitive(VIGIL_TYPE_BOOL), 1, &index, &error),
-              VIGIL_STATUS_OK);
+    local_spec.type = vigil_binding_type_primitive(VIGIL_TYPE_BOOL);
+    local_spec.is_const = 1;
+    ASSERT_EQ(vigil_binding_scope_stack_declare_local(&stack, &local_spec, &index, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_binding_scope_stack_depth(&stack), 1U);
     EXPECT_EQ(vigil_binding_scope_stack_count_above_depth(&stack, 0U), 1U);
     EXPECT_TRUE(vigil_binding_scope_stack_find_local(&stack, "value", 5U, &index, &local_type));
@@ -94,8 +100,9 @@ TEST(VigilBindingTest, ScopeStackTracksDepthShadowingAndPoppedLocals)
     EXPECT_TRUE(vigil_binding_scope_stack_find_local(&stack, "value", 5U, &index, &local_type));
     EXPECT_TRUE(vigil_binding_type_equal(local_type, vigil_binding_type_primitive(VIGIL_TYPE_I32)));
 
-    EXPECT_EQ(vigil_binding_scope_stack_declare_local(&stack, "value", 5U,
-                                                      vigil_binding_type_primitive(VIGIL_TYPE_BOOL), 0, &index, &error),
+    local_spec.type = vigil_binding_type_primitive(VIGIL_TYPE_BOOL);
+    local_spec.is_const = 0;
+    EXPECT_EQ(vigil_binding_scope_stack_declare_local(&stack, &local_spec, &index, &error),
               VIGIL_STATUS_INVALID_ARGUMENT);
 
     vigil_binding_scope_stack_free(&stack);

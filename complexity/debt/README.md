@@ -8,20 +8,20 @@ enforcement check.
 
 Snapshot source:
 
-- branch: `feature/complexity-gate`
+- branch: `feature/complexity-burndown`
 - thresholds:
   - cyclomatic complexity (`ccn`): `30`
   - function length: `120`
   - parameter count: `6`
 
-Current state after the first cleanup pass in PR `#187`:
+Current state after the first cleanup tranche on this branch:
 
-- first-party C functions analyzed: `2981`
-- inherited above-threshold functions: `126`
+- first-party C functions analyzed: `3006`
+- inherited above-threshold functions: `120`
 - metric overages:
-  - `66` `ccn` violations
-  - `82` function-length violations
-  - `37` parameter-count violations
+  - `64` `ccn` violations
+  - `80` function-length violations
+  - `33` parameter-count violations
 
 Highest-debt files:
 
@@ -33,12 +33,11 @@ Highest-debt files:
 - `src/vm.c`: `5`
 - `src/compiler_declarations.c`: `4`
 - `src/doc.c`: `4`
-- `src/cli_lib.c`: `3`
 - `src/compiler_builtins.c`: `3`
+- `src/platform/platform_win32.c`: `3`
 
 Highest-priority functions to split next:
 
-- `src/chunk.c:686` `vigil_chunk_disassemble` (`ccn=94`, `length=330`)
 - `src/cli/main.c:3059` `cmd_repl` (`ccn=44`, `length=243`)
 - `src/cli/main.c:3536` `main` (`ccn=46`, `length=230`)
 - `src/cli/main.c:1176` `debug_cli_callback` (`ccn=53`, `length=183`)
@@ -49,10 +48,12 @@ Highest-priority functions to split next:
 - `src/stdlib/regex_engine.c:643` `parse_quantifier`
 - `src/vm.c:2728` `vigil_vm_execute_function`
 
-Debt reduced in this PR so far:
+Debt reduced on this branch so far:
 
-- `vigil_opcode_name()` is no longer above threshold
-- the inherited lizard debt count dropped from `128` to `126`
+- `src/chunk.c` no longer carries inherited lizard debt
+- `src/cli_lib.c` no longer carries inherited lizard debt
+- `src/binding.c` no longer carries inherited lizard debt
+- the inherited lizard debt count dropped from `126` to `120`
 
 ## Clang-Tidy Snapshot
 
