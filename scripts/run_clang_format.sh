@@ -7,11 +7,12 @@ usage() {
     exit 1
 }
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -lt 1 ]; then
     usage
 fi
 
 mode="$1"
+shift
 
 if [ -n "${CLANG_FORMAT_BIN:-}" ]; then
     clang_format="$CLANG_FORMAT_BIN"
@@ -38,5 +39,9 @@ esac
 
 echo "using $clang_format: $("$clang_format" --version)" >&2
 
-find src include tests \( -name '*.c' -o -name '*.h' \) -print0 \
-    | xargs -0 "$clang_format" $format_args
+if [ "$#" -gt 0 ]; then
+    "$clang_format" $format_args "$@"
+else
+    find src include tests \( -name '*.c' -o -name '*.h' \) -print0 \
+        | xargs -0 "$clang_format" $format_args
+fi

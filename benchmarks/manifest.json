@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "benchmarks": [
+    {
+      "name": "check_checker_stress",
+      "command": [
+        "check",
+        "benchmarks/cases/check_checker_stress.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
+    },
+    {
+      "name": "run_vm_arith",
+      "command": [
+        "run",
+        "benchmarks/cases/run_vm_arith.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
+    },
+    {
+      "name": "run_parse_ops",
+      "command": [
+        "run",
+        "benchmarks/cases/run_parse_ops.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
+    },
+    {
+      "name": "run_regex_scan",
+      "command": [
+        "run",
+        "benchmarks/cases/run_regex_scan.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
+    },
+    {
+      "name": "run_csv_roundtrip",
+      "command": [
+        "run",
+        "benchmarks/cases/run_csv_roundtrip.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
+    },
+    {
+      "name": "run_math_ops",
+      "command": [
+        "run",
+        "benchmarks/cases/run_math_ops.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
+    }
+  ]
+}

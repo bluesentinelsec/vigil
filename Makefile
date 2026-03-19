@@ -1,6 +1,6 @@
 BUILD_DIR ?= build
 
-.PHONY: all build test clean format configure-dev configure-release build-dev build-release
+.PHONY: all build test clean format configure-dev configure-release build-dev build-release perf
 
 all: build
 
@@ -21,6 +21,12 @@ build-release: configure-release
 
 test: build
 	ctest --test-dir $(BUILD_DIR) --output-on-failure
+
+perf: build-release
+	python3 scripts/run_benchmarks.py \
+		--vigil-bin $(BUILD_DIR)/vigil \
+		--manifest benchmarks/manifest.json \
+		--output $(BUILD_DIR)/benchmarks.json
 
 format:
 	scripts/run_clang_format.sh --in-place

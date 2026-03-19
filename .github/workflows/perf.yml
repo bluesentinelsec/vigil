@@ -1,0 +1,74 @@
+name: Performance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-perf:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build PR head
+        run: >
+          cmake -S . -B build-pr
+          -DVIGIL_BUILD_TESTS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile PR head
+        run: cmake --build build-pr --config Release
+
+      - name: Run PR benchmarks
+        run: >
+          python3 scripts/run_benchmarks.py
+          --vigil-bin $PWD/build-pr/vigil
+          --manifest $PWD/benchmarks/manifest.json
+          --output $PWD/build-pr/benchmarks.json
+
+      - name: Prepare origin/main worktree
+        run: git worktree add ../vigil-main origin/main
+
+      - name: Build origin/main
+        run: >
+          cmake -S ../vigil-main -B ../vigil-main/build-perf
+          -DVIGIL_BUILD_TESTS=OFF
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile origin/main
+        run: cmake --build ../vigil-main/build-perf --config Release
+
+      - name: Run origin/main benchmarks
+        run: >
+          python3 scripts/run_benchmarks.py
+          --vigil-bin $PWD/../vigil-main/build-perf/vigil
+          --manifest $PWD/benchmarks/manifest.json
+          --output $PWD/../vigil-main/build-perf/benchmarks.json
+
+      - name: Stage benchmark artifacts
+        run: |
+          mkdir -p perf-artifacts
+          cp build-pr/benchmarks.json perf-artifacts/pr-benchmarks.json
+          cp ../vigil-main/build-perf/benchmarks.json perf-artifacts/main-benchmarks.json
+
+      - name: Compare benchmark results
+        run: >
+          python3 scripts/compare_benchmarks.py
+          --baseline $PWD/../vigil-main/build-perf/benchmarks.json
+          --candidate $PWD/build-pr/benchmarks.json
+          --thresholds $PWD/benchmarks/thresholds.json
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: perf-artifacts/
