@@ -110,17 +110,18 @@ class TestVigilTest(unittest.TestCase):
         self.assertIn("PASS: 1 passed", r.stdout)
 
     def test_imported_helper_module(self):
-        self._write("helper.vigil",
+        self._write("vigil.toml", '[project]\nname = "importproj"\n')
+        self._write("lib/helper.vigil",
             'pub fn message() -> string {\n'
             '    return "ok";\n'
             '}\n')
-        self._write("import_test.vigil",
+        self._write("test/import_test.vigil",
             'import "test";\n'
             'import "helper";\n'
             'fn test_import(test.T t) -> void {\n'
             '    t.assert(helper.message() == "ok", "import should resolve");\n'
             '}\n')
-        r = run_test(os.path.join(self.tmpdir, "import_test.vigil"))
+        r = run_test(cwd=self.tmpdir)
         self.assertEqual(r.returncode, 0)
         self.assertIn("PASS: 1 passed", r.stdout)
 
