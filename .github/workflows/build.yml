@@ -192,17 +192,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install LLVM 17
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "17"
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format-18
 
       - name: Fetch main
         run: git fetch origin main --depth=1
 
       - name: Check formatting
         env:
-          CLANG_FORMAT_BIN: ${{ env.LLVM_PATH }}/bin/clang-format
+          CLANG_FORMAT_BIN: /usr/bin/clang-format-18
         run: |
           mapfile -t files < <(git diff --name-only --diff-filter=ACMR origin/main...HEAD -- '*.c' '*.h')
           if [ "${#files[@]}" -eq 0 ]; then

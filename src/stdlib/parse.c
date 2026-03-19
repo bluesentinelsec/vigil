@@ -38,7 +38,7 @@ static vigil_status_t push_ok_err(vigil_vm_t *vm, vigil_error_t *error)
     vigil_value_t v;
     vigil_value_init_object(&v, &obj);
     s = vigil_vm_stack_push(vm, &v, error);
-    vigil_object_release(&obj);
+    vigil_value_release(&v);
     return s;
 }
 
@@ -52,7 +52,7 @@ static vigil_status_t push_parse_err(vigil_vm_t *vm, const char *msg, vigil_erro
     vigil_value_t v;
     vigil_value_init_object(&v, &obj);
     s = vigil_vm_stack_push(vm, &v, error);
-    vigil_object_release(&obj);
+    vigil_value_release(&v);
     return s;
 }
 

@@ -728,8 +728,8 @@ static int cmd_new(const char *name, int is_lib, int scaffold, const char *outpu
         /* Library project. */
         char lib_file[512];
         char test_file[512];
-        char lib_content[512];
-        char test_content[512];
+        char lib_content[1024];
+        char test_content[1024];
 
         snprintf(lib_file, sizeof(lib_file), "lib/%s.vigil", name);
         snprintf(test_file, sizeof(test_file), "test/%s_test.vigil", name);
@@ -766,9 +766,9 @@ static int cmd_new(const char *name, int is_lib, int scaffold, const char *outpu
             /* Create module + test scaffold. */
             char lib_file[512];
             char test_file[512];
-            char lib_content[512];
-            char test_content[512];
-            char main_content[512];
+            char lib_content[1024];
+            char test_content[1024];
+            char main_content[1024];
 
             snprintf(lib_file, sizeof(lib_file), "lib/%s.vigil", name);
             snprintf(test_file, sizeof(test_file), "test/%s_test.vigil", name);
