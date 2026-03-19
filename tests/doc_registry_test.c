@@ -77,20 +77,34 @@ TEST(DocRegistryTest, CoversAllStdlibModulesAndFunctions) {
         &vigil_stdlib_compress,
         &vigil_stdlib_crypto,
         &vigil_stdlib_csv,
+#ifdef VIGIL_HAS_STDLIB_FFI
         &vigil_stdlib_ffi,
+#endif
         &vigil_stdlib_fmt,
+#ifdef VIGIL_HAS_STDLIB_FS
         &vigil_stdlib_fs,
+#endif
+#ifdef VIGIL_HAS_STDLIB_HTTP
         &vigil_stdlib_http,
+#endif
         &vigil_stdlib_log,
         &vigil_stdlib_math,
+#ifdef VIGIL_HAS_STDLIB_NET
         &vigil_stdlib_net,
+#endif
         &vigil_stdlib_parse,
         &vigil_stdlib_random,
+#ifdef VIGIL_HAS_STDLIB_READLINE
         &vigil_stdlib_readline,
+#endif
         &vigil_stdlib_regex,
         &vigil_stdlib_test,
+#ifdef VIGIL_HAS_STDLIB_THREAD
         &vigil_stdlib_thread,
+#endif
+#ifdef VIGIL_HAS_STDLIB_TIME
         &vigil_stdlib_time,
+#endif
         &vigil_stdlib_unsafe,
         &vigil_stdlib_url,
         &vigil_stdlib_yaml,

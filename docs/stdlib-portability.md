@@ -1,239 +1,171 @@
 # Standard Library Portability Guide
 
-This document defines the rules for keeping VIGIL's standard library portable and optional at build time. Follow these guidelines when implementing any stdlib module.
+This document describes the portability contract VIGIL is working toward and the build knobs that enforce it today.
+
+The main goal is straightforward:
+
+1. `vigil_core` must stay pure C11.
+2. Platform-sensitive stdlib modules must be optional at build time.
+3. A reduced build must still compile cleanly and fail in VIGIL with clear diagnostics when unavailable modules are imported.
+
+## Current Status
+
+VIGIL now has two build profiles that matter for portability work:
+
+- Full desktop builds: all platform-sensitive stdlib modules enabled and tested on Linux, macOS, and Windows.
+- Reduced portability builds: platform-sensitive stdlib modules disabled so the codebase can still build cleanly on constrained or unusual targets.
+
+The implementation is not fully at the ideal end state yet. The most important remaining gaps are:
+
+- `src/stdlib/net.c` still includes socket headers directly instead of going entirely through `src/platform/`.
+- `src/stdlib/time.c` still includes `windows.h` / `sys/time.h` directly for wall-clock helpers.
+- Several stdlib modules still allocate with raw `malloc` / `free` in local helper code instead of consistently routing everything through runtime-owned allocation paths.
+- Emscripten currently uses `src/platform/platform_posix.c`, not the stub platform backend. Optional modules default `OFF` there, but the backend split is still incomplete.
+
+Those inconsistencies should be treated as follow-up portability debt, not design targets.
 
 ## Principles
 
-1. The core language (lexer, compiler, VM) must compile with only ISO C11 headers.
-2. Every stdlib module is a separate compilation unit gated by a CMake option.
-3. Platform-specific code lives behind a thin abstraction layer — never in the core.
-4. A VIGIL program that only uses tier 1 modules runs identically on every platform.
-5. Unsupported modules produce clear compile-time errors in VIGIL, not C build failures.
+1. The core language implementation must compile with only ISO C11 headers.
+2. Platform-sensitive stdlib modules must be individually switchable from CMake.
+3. Importing a known-but-disabled stdlib module must produce a VIGIL diagnostic such as:
 
-## Module Tiers
-
-### Tier 1 — Pure C11 (always available)
-
-These modules use only ISO C11 standard library functions and are unconditionally compiled.
-
-| Module   | Backing C APIs                          |
-|----------|-----------------------------------------|
-| `fmt`    | `snprintf`, `fputs`, `fprintf`          |
-| `parse`  | `strtoll`, `strtoull`, `strtod`         |
-| `math`   | `<math.h>` functions                    |
-| `bytes`  | `memcpy`, `memset`, `memmove`           |
-
-Tier 1 modules must not include any header outside of: `<stddef.h>`, `<stdint.h>`, `<stdbool.h>`, `<stdio.h>`, `<stdlib.h>`, `<string.h>`, `<ctype.h>`, `<errno.h>`, `<limits.h>`, `<math.h>`.
-
-### Tier 2 — Platform abstraction required (on by default)
-
-These modules need OS-specific APIs but are expected to work on most desktop systems. They are enabled by default and can be disabled for embedded or WASM targets.
-
-| Module | Needs                                              |
-|--------|----------------------------------------------------|
-| `fs`   | `stat`, `readdir`/`FindFirstFile`, `mkdir`, `unlink`, `symlink`/`lstat` |
-| `env`  | `getenv` (C11), `setenv`/`_putenv_s` (platform)   |
-| `time` | `time()` (C11), high-res timers (platform)         |
-
-### Tier 3 — Heavily platform-specific (off by default)
-
-These modules depend on APIs that may not exist on all targets. They are opt-in.
-
-| Module    | Needs                        |
-|-----------|------------------------------|
-| `net`     | BSD sockets / Winsock        |
-| `process` | `fork`/`exec` / `CreateProcess` |
-| `thread`  | pthreads / Win32 threads     |
-
-## File Layout
-
-```
-src/
-    stdlib/
-        stdlib_fmt.c          # tier 1
-        stdlib_parse.c        # tier 1
-        stdlib_math.c         # tier 1
-        stdlib_bytes.c        # tier 1
-        stdlib_fs.c           # tier 2
-        stdlib_env.c          # tier 2
-        stdlib_time.c         # tier 2
-        stdlib_net.c          # tier 3
-        stdlib_process.c      # tier 3
-        stdlib_thread.c       # tier 3
-    platform/
-        platform.h            # unified C API for OS operations
-        platform_posix.c      # Linux, macOS, BSD, etc.
-        platform_win32.c      # Windows
-        platform_stub.c       # fallback: returns VIGIL_STATUS_UNSUPPORTED
+```text
+error: stdlib module 'net' is not available in this build
 ```
 
-Stdlib modules call functions declared in `platform.h`. They never include `<unistd.h>`, `<windows.h>`, or any other platform header directly.
+4. Desktop CI must exercise both:
+   - all optional modules enabled
+   - all optional modules disabled
+5. New platform behavior belongs in `src/platform/` unless there is a strong reason otherwise.
 
-## CMake Integration
+## Module Groups
 
-### Options
+### Always available
+
+These modules are built in every configuration today:
+
+| Module | Notes |
+|--------|-------|
+| `args` | Pure runtime/module logic |
+| `atomic` | Uses C11 atomics |
+| `compress` | Vendored compression backends |
+| `crypto` | Vendored crypto backend |
+| `csv` | Pure parsing/formatting logic |
+| `fmt` | Printing/formatting |
+| `log` | Runtime logging helpers |
+| `math` | `<math.h>` and numeric helpers |
+| `parse` | String-to-number parsing |
+| `random` | Pseudorandom helpers |
+| `regex` | Vendored regex engine |
+| `test` | Test support module |
+| `unsafe` | Raw memory primitives |
+| `url` | URL parsing/formatting |
+| `yaml` | YAML parsing/formatting |
+
+### Optional, platform-sensitive modules
+
+These modules are build-time toggles. They default `ON` for desktop builds and `OFF` for Emscripten, iOS, Android, and unknown platforms.
+
+| Module | CMake option | Why it is optional |
+|--------|--------------|--------------------|
+| `ffi` | `VIGIL_STDLIB_FFI` | Dynamic loading / foreign-call support |
+| `fs` | `VIGIL_STDLIB_FS` | Filesystem and host path access |
+| `http` | `VIGIL_STDLIB_HTTP` | Host networking and HTTP client/server support |
+| `net` | `VIGIL_STDLIB_NET` | Raw sockets |
+| `readline` | `VIGIL_STDLIB_READLINE` | Interactive terminal editing/history |
+| `thread` | `VIGIL_STDLIB_THREAD` | Host threading primitives |
+| `time` | `VIGIL_STDLIB_TIME` | Host timers / wall-clock helpers |
+
+## Build Options
 
 ```cmake
-# Tier 1 — always built, no option needed
-
-# Tier 2 — on by default
-option(VIGIL_STDLIB_FILE    "Build file I/O module"       ON)
-option(VIGIL_STDLIB_ENV     "Build env module"            ON)
-option(VIGIL_STDLIB_TIME    "Build time module"            ON)
-
-# Tier 3 — off by default
-option(VIGIL_STDLIB_NET     "Build networking module"      OFF)
-option(VIGIL_STDLIB_PROCESS "Build process module"         OFF)
-option(VIGIL_STDLIB_THREAD  "Build thread module"          OFF)
+option(VIGIL_STDLIB_FFI "Build ffi stdlib module" ON)
+option(VIGIL_STDLIB_FS "Build fs stdlib module" ON)
+option(VIGIL_STDLIB_HTTP "Build http stdlib module" ON)
+option(VIGIL_STDLIB_NET "Build net stdlib module" ON)
+option(VIGIL_STDLIB_READLINE "Build readline stdlib module" ON)
+option(VIGIL_STDLIB_THREAD "Build thread stdlib module" ON)
+option(VIGIL_STDLIB_TIME "Build time stdlib module" ON)
 ```
 
-### Conditional compilation
+On non-desktop targets, the default for those options is `OFF`.
 
-```cmake
-# Tier 1 — unconditional
-target_sources(vigil PRIVATE
-    src/stdlib/stdlib_fmt.c
-    src/stdlib/stdlib_parse.c
-    src/stdlib/stdlib_math.c
-    src/stdlib/stdlib_bytes.c
-)
-
-# Tier 2 — conditional
-if(VIGIL_STDLIB_FILE)
-    target_sources(vigil PRIVATE src/stdlib/stdlib_file.c)
-    target_compile_definitions(vigil PRIVATE VIGIL_HAS_STDLIB_FILE)
-endif()
-
-# Platform layer — selected by OS
-if(WIN32)
-    target_sources(vigil PRIVATE src/platform/platform_win32.c)
-elseif(UNIX)
-    target_sources(vigil PRIVATE src/platform/platform_posix.c)
-else()
-    target_sources(vigil PRIVATE src/platform/platform_stub.c)
-endif()
-```
-
-### Import resolver gating
-
-When a VIGIL script imports a module, the compiler checks availability:
-
-```c
-#ifdef VIGIL_HAS_STDLIB_FILE
-    if (name_matches(module_name, "file")) {
-        return vigil_stdlib_file_register(program);
-    }
-#endif
-```
-
-If the module was not compiled in, the compiler reports:
-
-```
-error: stdlib module 'file' is not available in this build
-```
-
-## Platform Abstraction Layer
-
-### Rules
-
-1. `platform.h` declares a flat C API using only ISO C11 types.
-2. Each platform implementation file (`platform_posix.c`, `platform_win32.c`) includes its own OS headers internally.
-3. `platform_stub.c` implements every function by returning `VIGIL_STATUS_UNSUPPORTED`. This ensures the project always compiles, even on unknown platforms.
-4. All platform functions take a `vigil_runtime_t *` so they can use the custom allocator.
-
-### Example
-
-```c
-/* platform.h */
-#ifndef VIGIL_PLATFORM_H
-#define VIGIL_PLATFORM_H
-
-#include "vigil/runtime.h"
-#include "vigil/status.h"
-
-vigil_status_t vigil_platform_read_file(
-    vigil_runtime_t *runtime,
-    const char *path,
-    void **out_data,
-    size_t *out_length,
-    vigil_error_t *error
-);
-
-vigil_status_t vigil_platform_write_file(
-    vigil_runtime_t *runtime,
-    const char *path,
-    const void *data,
-    size_t length,
-    vigil_error_t *error
-);
-
-vigil_status_t vigil_platform_file_exists(
-    const char *path,
-    int *out_exists
-);
-
-vigil_status_t vigil_platform_mkdir(
-    const char *path,
-    vigil_error_t *error
-);
-
-#endif
-```
-
-```c
-/* platform_stub.c */
-#include "platform.h"
-
-vigil_status_t vigil_platform_read_file(
-    vigil_runtime_t *runtime, const char *path,
-    void **out_data, size_t *out_length, vigil_error_t *error
-) {
-    (void)runtime; (void)path; (void)out_data; (void)out_length;
-    vigil_error_set_literal(error, VIGIL_STATUS_UNSUPPORTED,
-        "file I/O is not supported on this platform");
-    return VIGIL_STATUS_UNSUPPORTED;
-}
-
-/* ... same pattern for all functions ... */
-```
-
-## Stdlib Module Implementation Rules
-
-1. **One file per module.** `stdlib_fmt.c` implements everything for `import "fmt"`.
-2. **Use the custom allocator.** All allocations go through `vigil_runtime_alloc` / `vigil_runtime_realloc` / `vigil_runtime_free`. Never call `malloc` or `free` directly.
-3. **No platform headers in stdlib files.** Call `platform.h` functions instead.
-4. **Register functions with the runtime.** Each module exposes a single `vigil_stdlib_<name>_register` function that the import resolver calls.
-5. **Return errors, don't crash.** Fallible operations return `(value, err)` tuples following VIGIL conventions.
-6. **Keep tier 1 modules dependency-free.** They must not call any platform layer function.
-
-## Testing
-
-- Tier 1 modules are tested in all CI configurations including Emscripten.
-- Tier 2 modules are tested on Linux, macOS, and Windows. Emscripten builds disable them.
-- Tier 3 modules are tested only on platforms where they are enabled.
-- The stub platform layer is tested by building with all tier 2+ modules enabled on a target that uses the stub. This verifies that `VIGIL_STATUS_UNSUPPORTED` is returned correctly.
-
-## Adding a New Module
-
-1. Decide the tier based on what C APIs it needs.
-2. Create `src/stdlib/stdlib_<name>.c`.
-3. If tier 2+, add any needed functions to `platform.h` and implement them in each platform file (including the stub).
-4. Add the CMake option, `target_sources`, and `target_compile_definitions`.
-5. Add the `#ifdef` gate in the import resolver.
-6. Add tests gated by the same CMake option.
-7. Document the module in `docs/stdlib/`.
-
-## Build Configurations
-
-| Target           | Tier 1 | Tier 2 | Tier 3 | Platform layer   |
-|------------------|--------|--------|--------|------------------|
-| Linux / macOS    | ✓      | ✓      | opt-in | `platform_posix.c` |
-| Windows          | ✓      | ✓      | opt-in | `platform_win32.c` |
-| Emscripten/WASM  | ✓      | ✗      | ✗      | `platform_stub.c`  |
-| Embedded / other | ✓      | opt-in | ✗      | `platform_stub.c`  |
-
-The default `cmake -S . -B build` on a desktop system builds tier 1 + tier 2 with no extra flags. Minimal builds use:
+Minimal portability build:
 
 ```bash
-cmake -S . -B build -DVIGIL_STDLIB_FILE=OFF -DVIGIL_STDLIB_ENV=OFF -DVIGIL_STDLIB_TIME=OFF
+cmake -S . -B build \
+  -DVIGIL_STDLIB_FFI=OFF \
+  -DVIGIL_STDLIB_FS=OFF \
+  -DVIGIL_STDLIB_HTTP=OFF \
+  -DVIGIL_STDLIB_NET=OFF \
+  -DVIGIL_STDLIB_READLINE=OFF \
+  -DVIGIL_STDLIB_THREAD=OFF \
+  -DVIGIL_STDLIB_TIME=OFF
 ```
+
+Full desktop build:
+
+```bash
+cmake -S . -B build \
+  -DVIGIL_STDLIB_FFI=ON \
+  -DVIGIL_STDLIB_FS=ON \
+  -DVIGIL_STDLIB_HTTP=ON \
+  -DVIGIL_STDLIB_NET=ON \
+  -DVIGIL_STDLIB_READLINE=ON \
+  -DVIGIL_STDLIB_THREAD=ON \
+  -DVIGIL_STDLIB_TIME=ON
+```
+
+## Import Resolver Rules
+
+The stdlib import helpers now distinguish between:
+
+- known stdlib modules
+- stdlib modules available in the current build
+
+That matters in two places:
+
+1. The CLI import scanner skips recursive source resolution for any known stdlib module, even if it is disabled.
+2. The compiler emits a specific “not available in this build” diagnostic for known-but-disabled stdlib modules.
+
+This prevents portability builds from failing with misleading errors such as `imported source is not registered`.
+
+## Platform Layer Expectations
+
+The intended layering remains:
+
+- `src/platform/platform_posix.c`
+- `src/platform/platform_win32.c`
+- `src/platform/platform_stub.c`
+
+Stdlib modules should prefer `platform/platform.h` instead of direct platform headers.
+
+Current exceptions that still need cleanup:
+
+- `src/stdlib/net.c`
+- `src/stdlib/time.c`
+
+If you touch those modules, prefer moving the platform split downward into `src/platform/` rather than adding more direct `#ifdef _WIN32` logic in the stdlib layer.
+
+## Testing And CI
+
+CI now covers two important desktop configurations on Linux, macOS, and Windows:
+
+1. Full-feature native build and test run with all optional modules enabled.
+2. Reduced native build and test run with all optional modules disabled.
+
+The full-feature matrix is also used for the Python integration suite so the opt-in modules are exercised in actual CLI execution, not just at link time.
+
+In reduced builds, module-specific integration tests are skipped automatically, and a dedicated availability test verifies that disabled stdlib imports fail with the expected diagnostic.
+
+## Guidance For New Modules
+
+When adding a stdlib module:
+
+1. Decide whether it is always-available or platform-sensitive.
+2. If it is platform-sensitive, add a CMake option and compile definition.
+3. Register it conditionally in `include/vigil/stdlib.h`.
+4. Ensure the compiler reports a language-level error when the module is imported but disabled.
+5. Gate module-specific tests using the same option.
+6. Update this document if the portability surface changes.

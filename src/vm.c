@@ -2928,15 +2928,36 @@ vigil_status_t vigil_vm_execute(
 /* ── CALL_EXTERN runtime handler ─────────────────────────────────── */
 
 /*
- * vigil_extern_call is implemented in ffi.c (which has libffi access).
- * The VM calls it through this declaration.
+ * vigil_extern_call is implemented in ffi.c when the ffi stdlib module
+ * is enabled. Reduced builds keep a stub here so the core VM does not
+ * depend on that optional module at link time.
  */
+#ifdef VIGIL_HAS_STDLIB_FFI
 extern vigil_status_t vigil_extern_call(
     vigil_vm_t *vm,
     const char *desc, size_t desc_len,
     size_t arg_count,
     vigil_error_t *error
 );
+#else
+static vigil_status_t vigil_extern_call(
+    vigil_vm_t *vm,
+    const char *desc, size_t desc_len,
+    size_t arg_count,
+    vigil_error_t *error
+) {
+    (void)vm;
+    (void)desc;
+    (void)desc_len;
+    (void)arg_count;
+    vigil_error_set_literal(
+        error,
+        VIGIL_STATUS_UNSUPPORTED,
+        "extern calls require a build with the ffi stdlib module enabled"
+    );
+    return VIGIL_STATUS_UNSUPPORTED;
+}
+#endif
 
 static vigil_status_t vigil_vm_call_extern(
     vigil_vm_t *vm,

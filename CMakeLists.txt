@@ -7,6 +7,22 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(VIGIL_BUILD_TESTS "Build VIGIL unit tests" ON)
 option(VIGIL_USE_LIBFFI "Build with vendored libffi for full FFI support" ON)
 
+set(VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT ON)
+if(EMSCRIPTEN
+   OR CMAKE_SYSTEM_NAME STREQUAL "iOS"
+   OR CMAKE_SYSTEM_NAME STREQUAL "Android"
+   OR (NOT WIN32 AND NOT UNIX))
+    set(VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT OFF)
+endif()
+
+option(VIGIL_STDLIB_FFI "Build ffi stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+option(VIGIL_STDLIB_FS "Build fs stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+option(VIGIL_STDLIB_HTTP "Build http stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+option(VIGIL_STDLIB_NET "Build net stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+option(VIGIL_STDLIB_READLINE "Build readline stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+option(VIGIL_STDLIB_THREAD "Build thread stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+option(VIGIL_STDLIB_TIME "Build time stdlib module" ${VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT})
+
 if(MSVC)
     add_compile_options(/W4 /WX)
 else()
@@ -82,31 +98,67 @@ set_target_properties(vigil_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # ── Public shared/static library ────────────────────────────────────
 # Today this is the core plus stdlib modules.  Stdlib modules may use
 # platform-specific headers; the core (vigil_core) stays pure C11.
-add_library(vigil ${VIGIL_LIBRARY_TYPE}
-    $<TARGET_OBJECTS:vigil_core>
+set(VIGIL_STDLIB_ALWAYS_SOURCES
     src/stdlib/args.c
     src/stdlib/atomic.c
     src/stdlib/compress.c
     src/stdlib/crypto.c
     src/stdlib/csv.c
-    src/stdlib/ffi.c
     src/stdlib/fmt.c
-    src/stdlib/fs.c
-    src/stdlib/http.c
     src/stdlib/log.c
     src/stdlib/math.c
-    src/stdlib/net.c
     src/stdlib/parse.c
     src/stdlib/random.c
-    src/stdlib/readline.c
     src/stdlib/regex.c
     src/stdlib/regex_engine.c
     src/stdlib/test.c
-    src/stdlib/thread.c
-    src/stdlib/time.c
     src/stdlib/unsafe.c
     src/stdlib/url.c
     src/stdlib/yaml.c
+)
+
+set(VIGIL_STDLIB_OPTIONAL_SOURCES)
+set(VIGIL_STDLIB_COMPILE_DEFINITIONS)
+
+if(VIGIL_STDLIB_FFI)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/ffi.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_FFI)
+endif()
+
+if(VIGIL_STDLIB_FS)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/fs.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_FS)
+endif()
+
+if(VIGIL_STDLIB_HTTP)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/http.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_HTTP)
+endif()
+
+if(VIGIL_STDLIB_NET)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/net.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_NET)
+endif()
+
+if(VIGIL_STDLIB_READLINE)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/readline.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_READLINE)
+endif()
+
+if(VIGIL_STDLIB_THREAD)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/thread.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_THREAD)
+endif()
+
+if(VIGIL_STDLIB_TIME)
+    list(APPEND VIGIL_STDLIB_OPTIONAL_SOURCES src/stdlib/time.c)
+    list(APPEND VIGIL_STDLIB_COMPILE_DEFINITIONS VIGIL_HAS_STDLIB_TIME)
+endif()
+
+add_library(vigil ${VIGIL_LIBRARY_TYPE}
+    $<TARGET_OBJECTS:vigil_core>
+    ${VIGIL_STDLIB_ALWAYS_SOURCES}
+    ${VIGIL_STDLIB_OPTIONAL_SOURCES}
     src/url.c
     src/yaml.c
 )
@@ -129,6 +181,8 @@ target_include_directories(vigil
 
 target_compile_features(vigil PUBLIC c_std_11)
 target_compile_definitions(vigil PUBLIC VIGIL_VERSION="${PROJECT_VERSION}")
+target_compile_definitions(vigil PUBLIC ${VIGIL_STDLIB_COMPILE_DEFINITIONS})
+target_compile_definitions(vigil_core PRIVATE ${VIGIL_STDLIB_COMPILE_DEFINITIONS})
 
 if(NOT EMSCRIPTEN)
     target_compile_definitions(vigil
@@ -205,7 +259,9 @@ if(VIGIL_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     # Expose http.c internals for unit testing.
-    target_compile_definitions(vigil PRIVATE VIGIL_HTTP_TESTING)
+    if(VIGIL_STDLIB_HTTP)
+        target_compile_definitions(vigil PRIVATE VIGIL_HTTP_TESTING)
+    endif()
 
     add_executable(vigil_tests
         tests/test_main.c
@@ -223,8 +279,6 @@ if(VIGIL_BUILD_TESTS)
         tests/diagnostic_test.c
         tests/ffi_test.c
         tests/fs_test.c
-        tests/http_test.c
-        tests/thread_test.c
         tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c
@@ -248,6 +302,14 @@ if(VIGIL_BUILD_TESTS)
         tests/value_test.c
         tests/vm_test.c
     )
+
+    if(VIGIL_STDLIB_HTTP)
+        target_sources(vigil_tests PRIVATE tests/http_test.c)
+    endif()
+
+    if(VIGIL_STDLIB_THREAD)
+        target_sources(vigil_tests PRIVATE tests/thread_test.c)
+    endif()
 
     target_link_libraries(vigil_tests PRIVATE vigil)
     target_include_directories(vigil_tests PRIVATE
@@ -290,6 +352,30 @@ if(VIGIL_BUILD_TESTS)
             )
         endfunction()
 
+        set(VIGIL_DISABLED_STDLIB_MODULES)
+        if(NOT VIGIL_STDLIB_FFI)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES ffi)
+        endif()
+        if(NOT VIGIL_STDLIB_FS)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES fs)
+        endif()
+        if(NOT VIGIL_STDLIB_HTTP)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES http)
+        endif()
+        if(NOT VIGIL_STDLIB_NET)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES net)
+        endif()
+        if(NOT VIGIL_STDLIB_READLINE)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES readline)
+        endif()
+        if(NOT VIGIL_STDLIB_THREAD)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES thread)
+        endif()
+        if(NOT VIGIL_STDLIB_TIME)
+            list(APPEND VIGIL_DISABLED_STDLIB_MODULES time)
+        endif()
+        list(JOIN VIGIL_DISABLED_STDLIB_MODULES "," VIGIL_DISABLED_STDLIB_ENV)
+
         vigil_add_integration_test(VigilArgsTest test_args.py)
         vigil_add_integration_test(VigilAtomicTest test_atomic.py)
         vigil_add_integration_test(VigilCompressTest test_compress.py)
@@ -299,10 +385,14 @@ if(VIGIL_BUILD_TESTS)
         vigil_add_integration_test(VigilDocTest test_doc.py)
         vigil_add_integration_test(VigilEmbedTest test_embed.py)
         vigil_add_integration_test(VigilFmtTest test_fmt.py)
-        vigil_add_integration_test(VigilFsTest test_fs.py)
+        if(VIGIL_STDLIB_FS)
+            vigil_add_integration_test(VigilFsTest test_fs.py)
+        endif()
         vigil_add_integration_test(VigilLogTest test_log.py)
         vigil_add_integration_test(VigilMathTest test_math.py)
-        vigil_add_integration_test(VigilNetTest test_net.py)
+        if(VIGIL_STDLIB_NET AND VIGIL_STDLIB_TIME)
+            vigil_add_integration_test(VigilNetTest test_net.py)
+        endif()
         vigil_add_integration_test(VigilPackageTest test_package.py)
         vigil_add_integration_test(VigilPkgTest test_pkg.py)
         vigil_add_integration_test(VigilRandomTest test_random.py)
@@ -310,10 +400,20 @@ if(VIGIL_BUILD_TESTS)
         vigil_add_integration_test(VigilRegressionTest test_regression.py)
         vigil_add_integration_test(VigilReplTest test_repl.py)
         vigil_add_integration_test(VigilStringMethodsTest test_string_methods.py)
+        vigil_add_integration_test(VigilStdlibAvailabilityTest test_stdlib_availability.py)
+        set_tests_properties(
+            VigilStdlibAvailabilityTest
+            PROPERTIES ENVIRONMENT
+                "VIGIL_BIN=$<TARGET_FILE:vigil_cli>;VIGIL_DISABLED_STDLIB=${VIGIL_DISABLED_STDLIB_ENV}"
+        )
         vigil_add_integration_test(VigilSyntaxIntegrationTest test_syntax_integration.py)
         vigil_add_integration_test(VigilTestTest test_test.py)
-        vigil_add_integration_test(VigilThreadTest test_thread.py)
-        vigil_add_integration_test(VigilTimeTest test_time.py)
+        if(VIGIL_STDLIB_THREAD AND VIGIL_STDLIB_TIME)
+            vigil_add_integration_test(VigilThreadTest test_thread.py)
+        endif()
+        if(VIGIL_STDLIB_TIME)
+            vigil_add_integration_test(VigilTimeTest test_time.py)
+        endif()
         vigil_add_integration_test(VigilUrlTest test_url.py)
         vigil_add_integration_test(VigilYamlTest test_yaml.py)
     endif()

@@ -37,20 +37,34 @@ extern VIGIL_API const vigil_native_module_t vigil_stdlib_atomic;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_compress;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_crypto;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_csv;
+#ifdef VIGIL_HAS_STDLIB_FFI
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_ffi;
+#endif
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_fmt;
+#ifdef VIGIL_HAS_STDLIB_FS
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_fs;
+#endif
+#ifdef VIGIL_HAS_STDLIB_HTTP
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_http;
+#endif
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_log;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_math;
+#ifdef VIGIL_HAS_STDLIB_NET
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_net;
+#endif
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_parse;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_random;
+#ifdef VIGIL_HAS_STDLIB_READLINE
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_readline;
+#endif
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_regex;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_test;
+#ifdef VIGIL_HAS_STDLIB_THREAD
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_thread;
+#endif
+#ifdef VIGIL_HAS_STDLIB_TIME
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_time;
+#endif
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_unsafe;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_url;
 extern VIGIL_API const vigil_native_module_t vigil_stdlib_yaml;
@@ -71,34 +85,48 @@ static inline vigil_status_t vigil_stdlib_register_all(
     if (status != VIGIL_STATUS_OK) return status;
     status = vigil_native_registry_add(registry, &vigil_stdlib_csv, error);
     if (status != VIGIL_STATUS_OK) return status;
+#ifdef VIGIL_HAS_STDLIB_FFI
     status = vigil_native_registry_add(registry, &vigil_stdlib_ffi, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
     status = vigil_native_registry_add(registry, &vigil_stdlib_fmt, error);
     if (status != VIGIL_STATUS_OK) return status;
+#ifdef VIGIL_HAS_STDLIB_FS
     status = vigil_native_registry_add(registry, &vigil_stdlib_fs, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
+#ifdef VIGIL_HAS_STDLIB_HTTP
     status = vigil_native_registry_add(registry, &vigil_stdlib_http, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
     status = vigil_native_registry_add(registry, &vigil_stdlib_log, error);
     if (status != VIGIL_STATUS_OK) return status;
     status = vigil_native_registry_add(registry, &vigil_stdlib_math, error);
     if (status != VIGIL_STATUS_OK) return status;
+#ifdef VIGIL_HAS_STDLIB_NET
     status = vigil_native_registry_add(registry, &vigil_stdlib_net, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
     status = vigil_native_registry_add(registry, &vigil_stdlib_parse, error);
     if (status != VIGIL_STATUS_OK) return status;
     status = vigil_native_registry_add(registry, &vigil_stdlib_random, error);
     if (status != VIGIL_STATUS_OK) return status;
+#ifdef VIGIL_HAS_STDLIB_READLINE
     status = vigil_native_registry_add(registry, &vigil_stdlib_readline, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
     status = vigil_native_registry_add(registry, &vigil_stdlib_regex, error);
     if (status != VIGIL_STATUS_OK) return status;
     status = vigil_native_registry_add(registry, &vigil_stdlib_test, error);
     if (status != VIGIL_STATUS_OK) return status;
+#ifdef VIGIL_HAS_STDLIB_THREAD
     status = vigil_native_registry_add(registry, &vigil_stdlib_thread, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
+#ifdef VIGIL_HAS_STDLIB_TIME
     status = vigil_native_registry_add(registry, &vigil_stdlib_time, error);
     if (status != VIGIL_STATUS_OK) return status;
+#endif
     status = vigil_native_registry_add(registry, &vigil_stdlib_unsafe, error);
     if (status != VIGIL_STATUS_OK) return status;
     status = vigil_native_registry_add(registry, &vigil_stdlib_url, error);
@@ -106,33 +134,97 @@ static inline vigil_status_t vigil_stdlib_register_all(
     return vigil_native_registry_add(registry, &vigil_stdlib_yaml, error);
 }
 
-/* Check if an import name is a native stdlib module. */
+static inline int vigil_stdlib_name_equals(
+    const char *name,
+    size_t name_length,
+    const char *literal,
+    size_t literal_length
+) {
+    return name_length == literal_length &&
+           memcmp(name, literal, literal_length) == 0;
+}
+
+/* Check if an import name refers to any known stdlib module. */
+static inline int vigil_stdlib_is_known_module(
+    const char *name,
+    size_t name_length
+) {
+    return vigil_stdlib_name_equals(name, name_length, "args", 4U) ||
+           vigil_stdlib_name_equals(name, name_length, "atomic", 6U) ||
+           vigil_stdlib_name_equals(name, name_length, "compress", 8U) ||
+           vigil_stdlib_name_equals(name, name_length, "crypto", 6U) ||
+           vigil_stdlib_name_equals(name, name_length, "csv", 3U) ||
+           vigil_stdlib_name_equals(name, name_length, "ffi", 3U) ||
+           vigil_stdlib_name_equals(name, name_length, "fmt", 3U) ||
+           vigil_stdlib_name_equals(name, name_length, "fs", 2U) ||
+           vigil_stdlib_name_equals(name, name_length, "http", 4U) ||
+           vigil_stdlib_name_equals(name, name_length, "log", 3U) ||
+           vigil_stdlib_name_equals(name, name_length, "math", 4U) ||
+           vigil_stdlib_name_equals(name, name_length, "net", 3U) ||
+           vigil_stdlib_name_equals(name, name_length, "parse", 5U) ||
+           vigil_stdlib_name_equals(name, name_length, "random", 6U) ||
+           vigil_stdlib_name_equals(name, name_length, "readline", 8U) ||
+           vigil_stdlib_name_equals(name, name_length, "regex", 5U) ||
+           vigil_stdlib_name_equals(name, name_length, "test", 4U) ||
+           vigil_stdlib_name_equals(name, name_length, "thread", 6U) ||
+           vigil_stdlib_name_equals(name, name_length, "time", 4U) ||
+           vigil_stdlib_name_equals(name, name_length, "unsafe", 6U) ||
+           vigil_stdlib_name_equals(name, name_length, "url", 3U) ||
+           vigil_stdlib_name_equals(name, name_length, "yaml", 4U);
+}
+
+/* Check if an import name is a stdlib module available in this build. */
+static inline int vigil_stdlib_is_available_module(
+    const char *name,
+    size_t name_length
+) {
+    if (vigil_stdlib_name_equals(name, name_length, "args", 4U) ||
+        vigil_stdlib_name_equals(name, name_length, "atomic", 6U) ||
+        vigil_stdlib_name_equals(name, name_length, "compress", 8U) ||
+        vigil_stdlib_name_equals(name, name_length, "crypto", 6U) ||
+        vigil_stdlib_name_equals(name, name_length, "csv", 3U) ||
+        vigil_stdlib_name_equals(name, name_length, "fmt", 3U) ||
+        vigil_stdlib_name_equals(name, name_length, "log", 3U) ||
+        vigil_stdlib_name_equals(name, name_length, "math", 4U) ||
+        vigil_stdlib_name_equals(name, name_length, "parse", 5U) ||
+        vigil_stdlib_name_equals(name, name_length, "random", 6U) ||
+        vigil_stdlib_name_equals(name, name_length, "regex", 5U) ||
+        vigil_stdlib_name_equals(name, name_length, "test", 4U) ||
+        vigil_stdlib_name_equals(name, name_length, "unsafe", 6U) ||
+        vigil_stdlib_name_equals(name, name_length, "url", 3U) ||
+        vigil_stdlib_name_equals(name, name_length, "yaml", 4U)) {
+        return 1;
+    }
+#ifdef VIGIL_HAS_STDLIB_FFI
+    if (vigil_stdlib_name_equals(name, name_length, "ffi", 3U)) return 1;
+#endif
+#ifdef VIGIL_HAS_STDLIB_FS
+    if (vigil_stdlib_name_equals(name, name_length, "fs", 2U)) return 1;
+#endif
+#ifdef VIGIL_HAS_STDLIB_HTTP
+    if (vigil_stdlib_name_equals(name, name_length, "http", 4U)) return 1;
+#endif
+#ifdef VIGIL_HAS_STDLIB_NET
+    if (vigil_stdlib_name_equals(name, name_length, "net", 3U)) return 1;
+#endif
+#ifdef VIGIL_HAS_STDLIB_READLINE
+    if (vigil_stdlib_name_equals(name, name_length, "readline", 8U)) return 1;
+#endif
+#ifdef VIGIL_HAS_STDLIB_THREAD
+    if (vigil_stdlib_name_equals(name, name_length, "thread", 6U)) return 1;
+#endif
+#ifdef VIGIL_HAS_STDLIB_TIME
+    if (vigil_stdlib_name_equals(name, name_length, "time", 4U)) return 1;
+#endif
+    return 0;
+}
+
+/* Backward-compatible alias for existing callers. */
 static inline int vigil_stdlib_is_native_module(
     const char *name,
     size_t name_length
 ) {
-    return (name_length == 4U && memcmp(name, "args", 4U) == 0) ||
-           (name_length == 6U && memcmp(name, "atomic", 6U) == 0) ||
-           (name_length == 8U && memcmp(name, "compress", 8U) == 0) ||
-           (name_length == 6U && memcmp(name, "crypto", 6U) == 0) ||
-           (name_length == 3U && memcmp(name, "csv", 3U) == 0) ||
-           (name_length == 3U && memcmp(name, "ffi", 3U) == 0) ||
-           (name_length == 3U && memcmp(name, "fmt", 3U) == 0) ||
-           (name_length == 2U && memcmp(name, "fs", 2U) == 0) ||
-           (name_length == 4U && memcmp(name, "http", 4U) == 0) ||
-           (name_length == 3U && memcmp(name, "log", 3U) == 0) ||
-           (name_length == 4U && memcmp(name, "math", 4U) == 0) ||
-           (name_length == 3U && memcmp(name, "net", 3U) == 0) ||
-           (name_length == 5U && memcmp(name, "parse", 5U) == 0) ||
-           (name_length == 6U && memcmp(name, "random", 6U) == 0) ||
-           (name_length == 8U && memcmp(name, "readline", 8U) == 0) ||
-           (name_length == 5U && memcmp(name, "regex", 5U) == 0) ||
-           (name_length == 4U && memcmp(name, "test", 4U) == 0) ||
-           (name_length == 6U && memcmp(name, "thread", 6U) == 0) ||
-           (name_length == 4U && memcmp(name, "time", 4U) == 0) ||
-           (name_length == 6U && memcmp(name, "unsafe", 6U) == 0) ||
-           (name_length == 3U && memcmp(name, "url", 3U) == 0) ||
-           (name_length == 4U && memcmp(name, "yaml", 4U) == 0);
+    return vigil_stdlib_is_available_module(name, name_length);
 }
 
 #ifdef __cplusplus
