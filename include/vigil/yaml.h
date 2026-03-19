@@ -16,21 +16,17 @@
 #include <stddef.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-/**
- * Parse a YAML string into a JSON value tree.
- * Returns VIGIL_STATUS_OK on success.
- * The returned value must be freed with vigil_json_free().
- */
-VIGIL_API vigil_status_t vigil_yaml_parse(
-    const char *yaml,
-    size_t length,
-    const vigil_allocator_t *allocator,
-    vigil_json_value_t **out,
-    vigil_error_t *error
-);
+    /**
+     * Parse a YAML string into a JSON value tree.
+     * Returns VIGIL_STATUS_OK on success.
+     * The returned value must be freed with vigil_json_free().
+     */
+    VIGIL_API vigil_status_t vigil_yaml_parse(const char *yaml, size_t length, const vigil_allocator_t *allocator,
+                                              vigil_json_value_t **out, vigil_error_t *error);
 
 #ifdef __cplusplus
 }

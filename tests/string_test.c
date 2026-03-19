@@ -3,38 +3,41 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct AllocatorStats {
+struct AllocatorStats
+{
     int allocate_calls;
     int reallocate_calls;
     int deallocate_calls;
 };
 
-static void *CountedAllocate(void *user_data, size_t size) {
+static void *CountedAllocate(void *user_data, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
     return calloc(1U, size);
 }
 
-static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+static void *CountedReallocate(void *user_data, void *memory, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
     return realloc(memory, size);
 }
 
-static void CountedDeallocate(void *user_data, void *memory) {
+static void CountedDeallocate(void *user_data, void *memory)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
     free(memory);
 }
 
-
-TEST(VigilStringTest, InitStartsEmptyAndNullTerminated) {
+TEST(VigilStringTest, InitStartsEmptyAndNullTerminated)
+{
     vigil_string_t string;
 
     vigil_string_init(&string, NULL);
@@ -43,7 +46,8 @@ TEST(VigilStringTest, InitStartsEmptyAndNullTerminated) {
     EXPECT_STREQ(vigil_string_c_str(&string), "");
 }
 
-TEST(VigilStringTest, AssignCstrSetsLengthAndTerminator) {
+TEST(VigilStringTest, AssignCstrSetsLengthAndTerminator)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -51,10 +55,7 @@ TEST(VigilStringTest, AssignCstrSetsLengthAndTerminator) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_string_init(&string, runtime);
 
-    ASSERT_EQ(
-        vigil_string_assign_cstr(&string, "hello", &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_assign_cstr(&string, "hello", &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_string_length(&string), 5U);
     EXPECT_STREQ(vigil_string_c_str(&string), "hello");
     EXPECT_EQ(string.bytes.data[5], '\0');
@@ -63,7 +64,8 @@ TEST(VigilStringTest, AssignCstrSetsLengthAndTerminator) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, AppendPreservesExistingContents) {
+TEST(VigilStringTest, AppendPreservesExistingContents)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -73,10 +75,7 @@ TEST(VigilStringTest, AppendPreservesExistingContents) {
 
     ASSERT_EQ(vigil_string_assign_cstr(&string, "vigil", &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_string_append_cstr(&string, " run", &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(
-        vigil_string_append(&string, "time", strlen("time"), &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_append(&string, "time", strlen("time"), &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(vigil_string_length(&string), strlen("vigil runtime"));
     EXPECT_STREQ(vigil_string_c_str(&string), "vigil runtime");
@@ -86,7 +85,8 @@ TEST(VigilStringTest, AppendPreservesExistingContents) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, ClearResetsToEmptyButKeepsUsableStorage) {
+TEST(VigilStringTest, ClearResetsToEmptyButKeepsUsableStorage)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -110,7 +110,8 @@ TEST(VigilStringTest, ClearResetsToEmptyButKeepsUsableStorage) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, FreeResetsWholeString) {
+TEST(VigilStringTest, FreeResetsWholeString)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -130,7 +131,8 @@ TEST(VigilStringTest, FreeResetsWholeString) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, CompareAndEqualsUseLexicographicOrder) {
+TEST(VigilStringTest, CompareAndEqualsUseLexicographicOrder)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t left;
@@ -153,7 +155,8 @@ TEST(VigilStringTest, CompareAndEqualsUseLexicographicOrder) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, ReservePreparesStorageAndTerminator) {
+TEST(VigilStringTest, ReservePreparesStorageAndTerminator)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -170,7 +173,8 @@ TEST(VigilStringTest, ReservePreparesStorageAndTerminator) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, UsesRuntimeAllocatorHooks) {
+TEST(VigilStringTest, UsesRuntimeAllocatorHooks)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -188,14 +192,8 @@ TEST(VigilStringTest, UsesRuntimeAllocatorHooks) {
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
     vigil_string_init(&string, runtime);
 
-    ASSERT_EQ(
-        vigil_string_assign_cstr(&string, "0123456789abcdef", &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_string_append_cstr(&string, "0123456789abcdef", &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_assign_cstr(&string, "0123456789abcdef", &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_string_append_cstr(&string, "0123456789abcdef", &error), VIGIL_STATUS_OK);
 
     EXPECT_GE(stats.allocate_calls, 2);
     EXPECT_GE(stats.reallocate_calls, 1);
@@ -205,22 +203,21 @@ TEST(VigilStringTest, UsesRuntimeAllocatorHooks) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, RejectsMissingRuntimeForMutation) {
+TEST(VigilStringTest, RejectsMissingRuntimeForMutation)
+{
     vigil_string_t string;
     vigil_error_t error = {0};
 
     vigil_string_init(&string, NULL);
 
-    EXPECT_EQ(
-        vigil_string_assign_cstr(&string, "hello", &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_assign_cstr(&string, "hello", &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "string runtime must not be null"), 0);
 }
 
-TEST(VigilStringTest, RejectsNullValueEvenForEmptyOperations) {
+TEST(VigilStringTest, RejectsNullValueEvenForEmptyOperations)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -228,36 +225,25 @@ TEST(VigilStringTest, RejectsNullValueEvenForEmptyOperations) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_string_init(&string, runtime);
 
-    EXPECT_EQ(
-        vigil_string_assign(&string, NULL, 0U, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_assign(&string, NULL, 0U, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "string value must not be null"), 0);
 
-    EXPECT_EQ(
-        vigil_string_append(&string, NULL, 0U, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_append(&string, NULL, 0U, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "string value must not be null"), 0);
 
-    EXPECT_EQ(
-        vigil_string_assign_cstr(&string, NULL, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
-    EXPECT_EQ(
-        vigil_string_append_cstr(&string, NULL, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_assign_cstr(&string, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(vigil_string_append_cstr(&string, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
 
     vigil_string_free(&string);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilStringTest, SelfAppendIsSafe) {
+TEST(VigilStringTest, SelfAppendIsSafe)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_string_t string;
@@ -270,17 +256,15 @@ TEST(VigilStringTest, SelfAppendIsSafe) {
 
     value = vigil_string_c_str(&string);
     length = vigil_string_length(&string);
-    ASSERT_EQ(
-        vigil_string_append(&string, value, length, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_append(&string, value, length, &error), VIGIL_STATUS_OK);
     EXPECT_STREQ(vigil_string_c_str(&string), "echoecho");
 
     vigil_string_free(&string);
     vigil_runtime_close(&runtime);
 }
 
-void register_string_tests(void) {
+void register_string_tests(void)
+{
     REGISTER_TEST(VigilStringTest, InitStartsEmptyAndNullTerminated);
     REGISTER_TEST(VigilStringTest, AssignCstrSetsLengthAndTerminator);
     REGISTER_TEST(VigilStringTest, AppendPreservesExistingContents);

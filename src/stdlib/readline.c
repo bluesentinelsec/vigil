@@ -26,8 +26,10 @@
 static vigil_line_history_t g_history;
 static int g_history_initialized = 0;
 
-static void ensure_history(void) {
-    if (!g_history_initialized) {
+static void ensure_history(void)
+{
+    if (!g_history_initialized)
+    {
         vigil_line_history_init(&g_history, 1000);
         g_history_initialized = 1;
     }
@@ -35,9 +37,8 @@ static void ensure_history(void) {
 
 /* ── Native callbacks ────────────────────────────────────────────── */
 
-static vigil_status_t vigil_readline_input(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_input(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base;
     vigil_value_t prompt_val;
     const char *prompt = "";
@@ -53,34 +54,39 @@ static vigil_status_t vigil_readline_input(
     prompt_val = (vigil_value_t){vigil_vm_stack_get(vm, base)};
     vigil_vm_stack_pop_n(vm, 1);
 
-    if (vigil_nanbox_is_object(prompt_val)) {
+    if (vigil_nanbox_is_object(prompt_val))
+    {
         vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(prompt_val);
-        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING)
+        {
             prompt = vigil_string_object_c_str(obj);
         }
     }
 
     status = vigil_line_editor_readline(prompt, buf, sizeof(buf), &g_history, error);
-    if (status != VIGIL_STATUS_OK) {
+    if (status != VIGIL_STATUS_OK)
+    {
         /* EOF — return empty string. */
         status = vigil_string_object_new(vigil_vm_runtime(vm), "", 0, &result, error);
-        if (status != VIGIL_STATUS_OK) return status;
+        if (status != VIGIL_STATUS_OK)
+            return status;
         vigil_value_init_object(&val, &result);
         return vigil_vm_stack_push(vm, &val, error);
     }
 
     /* Add to history if non-empty. */
-    if (buf[0]) vigil_line_history_add(&g_history, buf);
+    if (buf[0])
+        vigil_line_history_add(&g_history, buf);
 
     status = vigil_string_object_new_cstr(vigil_vm_runtime(vm), buf, &result, error);
-    if (status != VIGIL_STATUS_OK) return status;
+    if (status != VIGIL_STATUS_OK)
+        return status;
     vigil_value_init_object(&val, &result);
     return vigil_vm_stack_push(vm, &val, error);
 }
 
-static vigil_status_t vigil_readline_history_add(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_history_add(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base;
     vigil_value_t line_val;
     const char *line = "";
@@ -93,9 +99,11 @@ static vigil_status_t vigil_readline_history_add(
     line_val = (vigil_value_t){vigil_vm_stack_get(vm, base)};
     vigil_vm_stack_pop_n(vm, 1);
 
-    if (vigil_nanbox_is_object(line_val)) {
+    if (vigil_nanbox_is_object(line_val))
+    {
         vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(line_val);
-        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING)
+        {
             line = vigil_string_object_c_str(obj);
         }
     }
@@ -104,9 +112,8 @@ static vigil_status_t vigil_readline_history_add(
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_readline_history_get(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_history_get(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base;
     int64_t index;
     const char *entry;
@@ -122,17 +129,18 @@ static vigil_status_t vigil_readline_history_get(
     vigil_vm_stack_pop_n(vm, 1);
 
     entry = vigil_line_history_get(&g_history, (size_t)index);
-    if (!entry) entry = "";
+    if (!entry)
+        entry = "";
 
     status = vigil_string_object_new_cstr(vigil_vm_runtime(vm), entry, &result, error);
-    if (status != VIGIL_STATUS_OK) return status;
+    if (status != VIGIL_STATUS_OK)
+        return status;
     vigil_value_init_object(&val, &result);
     return vigil_vm_stack_push(vm, &val, error);
 }
 
-static vigil_status_t vigil_readline_history_length(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_history_length(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t val;
     (void)arg_count;
     (void)error;
@@ -141,9 +149,8 @@ static vigil_status_t vigil_readline_history_length(
     return vigil_vm_stack_push(vm, &val, error);
 }
 
-static vigil_status_t vigil_readline_history_clear(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_history_clear(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     (void)vm;
     (void)arg_count;
     (void)error;
@@ -152,9 +159,8 @@ static vigil_status_t vigil_readline_history_clear(
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_readline_history_load(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_history_load(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base;
     vigil_value_t path_val;
     const char *path = "";
@@ -166,9 +172,11 @@ static vigil_status_t vigil_readline_history_load(
     path_val = (vigil_value_t){vigil_vm_stack_get(vm, base)};
     vigil_vm_stack_pop_n(vm, 1);
 
-    if (vigil_nanbox_is_object(path_val)) {
+    if (vigil_nanbox_is_object(path_val))
+    {
         vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(path_val);
-        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING)
+        {
             path = vigil_string_object_c_str(obj);
         }
     }
@@ -176,9 +184,8 @@ static vigil_status_t vigil_readline_history_load(
     return vigil_line_history_load(&g_history, path, error);
 }
 
-static vigil_status_t vigil_readline_history_save(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_readline_history_save(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base;
     vigil_value_t path_val;
     const char *path = "";
@@ -190,9 +197,11 @@ static vigil_status_t vigil_readline_history_save(
     path_val = (vigil_value_t){vigil_vm_stack_get(vm, base)};
     vigil_vm_stack_pop_n(vm, 1);
 
-    if (vigil_nanbox_is_object(path_val)) {
+    if (vigil_nanbox_is_object(path_val))
+    {
         vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(path_val);
-        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING)
+        {
             path = vigil_string_object_c_str(obj);
         }
     }
@@ -202,71 +211,22 @@ static vigil_status_t vigil_readline_history_save(
 
 /* ── Module descriptor ───────────────────────────────────────────── */
 
-static const int vigil_readline_string_param[] = { VIGIL_TYPE_STRING };
-static const int vigil_readline_i32_param[] = { VIGIL_TYPE_I32 };
+static const int vigil_readline_string_param[] = {VIGIL_TYPE_STRING};
+static const int vigil_readline_i32_param[] = {VIGIL_TYPE_I32};
 
 static const vigil_native_module_function_t vigil_readline_functions[] = {
-    {
-        "input", 5,
-        vigil_readline_input,
-        1, vigil_readline_string_param,
-        VIGIL_TYPE_STRING,
-        1, NULL, 0,
-        NULL, NULL
-    },
-    {
-        "history_add", 11,
-        vigil_readline_history_add,
-        1, vigil_readline_string_param,
-        VIGIL_TYPE_VOID,
-        0, NULL, 0,
-        NULL, NULL
-    },
-    {
-        "history_get", 11,
-        vigil_readline_history_get,
-        1, vigil_readline_i32_param,
-        VIGIL_TYPE_STRING,
-        1, NULL, 0,
-        NULL, NULL
-    },
-    {
-        "history_length", 14,
-        vigil_readline_history_length,
-        0, NULL,
-        VIGIL_TYPE_I32,
-        1, NULL, 0,
-        NULL, NULL
-    },
-    {
-        "history_clear", 13,
-        vigil_readline_history_clear,
-        0, NULL,
-        VIGIL_TYPE_VOID,
-        0, NULL, 0,
-        NULL, NULL
-    },
-    {
-        "history_load", 12,
-        vigil_readline_history_load,
-        1, vigil_readline_string_param,
-        VIGIL_TYPE_VOID,
-        0, NULL, 0,
-        NULL, NULL
-    },
-    {
-        "history_save", 12,
-        vigil_readline_history_save,
-        1, vigil_readline_string_param,
-        VIGIL_TYPE_VOID,
-        0, NULL, 0,
-        NULL, NULL
-    }
-};
+    {"input", 5, vigil_readline_input, 1, vigil_readline_string_param, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"history_add", 11, vigil_readline_history_add, 1, vigil_readline_string_param, VIGIL_TYPE_VOID, 0, NULL, 0, NULL,
+     NULL},
+    {"history_get", 11, vigil_readline_history_get, 1, vigil_readline_i32_param, VIGIL_TYPE_STRING, 1, NULL, 0, NULL,
+     NULL},
+    {"history_length", 14, vigil_readline_history_length, 0, NULL, VIGIL_TYPE_I32, 1, NULL, 0, NULL, NULL},
+    {"history_clear", 13, vigil_readline_history_clear, 0, NULL, VIGIL_TYPE_VOID, 0, NULL, 0, NULL, NULL},
+    {"history_load", 12, vigil_readline_history_load, 1, vigil_readline_string_param, VIGIL_TYPE_VOID, 0, NULL, 0, NULL,
+     NULL},
+    {"history_save", 12, vigil_readline_history_save, 1, vigil_readline_string_param, VIGIL_TYPE_VOID, 0, NULL, 0, NULL,
+     NULL}};
 
 VIGIL_API const vigil_native_module_t vigil_stdlib_readline = {
-    "readline", 8,
-    vigil_readline_functions,
-    sizeof(vigil_readline_functions) / sizeof(vigil_readline_functions[0]),
-    NULL, 0
-};
+    "readline", 8, vigil_readline_functions, sizeof(vigil_readline_functions) / sizeof(vigil_readline_functions[0]),
+    NULL,       0};

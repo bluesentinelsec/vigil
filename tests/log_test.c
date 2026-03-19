@@ -3,10 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct CaptureState {
+struct CaptureState
+{
     int call_count;
     vigil_log_level_t level;
     char message[128];
@@ -15,26 +15,23 @@ struct CaptureState {
     char field_value[128];
 };
 
-void CaptureHandler(void *user_data, const vigil_log_record_t *record) {
+void CaptureHandler(void *user_data, const vigil_log_record_t *record)
+{
     struct CaptureState *state = (struct CaptureState *)(user_data);
 
     state->call_count += 1;
     state->level = record->level;
     snprintf(state->message, sizeof(state->message), "%s", record->message);
     state->field_count = record->field_count;
-    if (record->field_count != 0U) {
+    if (record->field_count != 0U)
+    {
         snprintf(state->field_key, sizeof(state->field_key), "%s", record->fields[0].key);
-        snprintf(
-            state->field_value,
-            sizeof(state->field_value),
-            "%s",
-            record->fields[0].value
-        );
+        snprintf(state->field_value, sizeof(state->field_value), "%s", record->fields[0].value);
     }
 }
 
-
-TEST(VigilLogTest, LoggerInitSetsDefaultConfiguration) {
+TEST(VigilLogTest, LoggerInitSetsDefaultConfiguration)
+{
     vigil_logger_t logger = {0};
 
     vigil_logger_init(&logger);
@@ -44,7 +41,8 @@ TEST(VigilLogTest, LoggerInitSetsDefaultConfiguration) {
     EXPECT_EQ(logger.user_data, NULL);
 }
 
-TEST(VigilLogTest, LoggerPassesStructuredRecordsToCustomHandler) {
+TEST(VigilLogTest, LoggerPassesStructuredRecordsToCustomHandler)
+{
     struct CaptureState state = {0};
     vigil_logger_t logger = {0};
     vigil_log_field_t field = {"path", "/tmp/example.vigil"};
@@ -55,10 +53,7 @@ TEST(VigilLogTest, LoggerPassesStructuredRecordsToCustomHandler) {
     logger.handler = CaptureHandler;
     logger.user_data = &state;
 
-    EXPECT_EQ(
-        vigil_logger_log(&logger, VIGIL_LOG_INFO, "compiled", &field, 1U, &error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_logger_log(&logger, VIGIL_LOG_INFO, "compiled", &field, 1U, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(state.call_count, 1);
     EXPECT_EQ(state.level, VIGIL_LOG_INFO);
     EXPECT_STREQ(state.message, "compiled");
@@ -67,7 +62,8 @@ TEST(VigilLogTest, LoggerPassesStructuredRecordsToCustomHandler) {
     EXPECT_STREQ(state.field_value, "/tmp/example.vigil");
 }
 
-TEST(VigilLogTest, LoggerFiltersMessagesBelowMinimumLevel) {
+TEST(VigilLogTest, LoggerFiltersMessagesBelowMinimumLevel)
+{
     struct CaptureState state = {0};
     vigil_logger_t logger = {0};
     vigil_error_t error = {0};
@@ -86,7 +82,8 @@ TEST(VigilLogTest, LoggerFiltersMessagesBelowMinimumLevel) {
     EXPECT_STREQ(state.message, "keep me");
 }
 
-TEST(VigilLogTest, RuntimeUsesConfiguredLogger) {
+TEST(VigilLogTest, RuntimeUsesConfiguredLogger)
+{
     struct CaptureState state = {0};
     vigil_logger_t logger = {0};
     vigil_runtime_options_t options = {0};
@@ -104,10 +101,7 @@ TEST(VigilLogTest, RuntimeUsesConfiguredLogger) {
     ASSERT_NE(runtime, NULL);
     ASSERT_NE(vigil_runtime_logger(runtime), NULL);
 
-    EXPECT_EQ(
-        vigil_logger_warning(vigil_runtime_logger(runtime), "runtime logger", &error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_logger_warning(vigil_runtime_logger(runtime), "runtime logger", &error), VIGIL_STATUS_OK);
     EXPECT_EQ(state.call_count, 1);
     EXPECT_EQ(state.level, VIGIL_LOG_WARNING);
     EXPECT_STREQ(state.message, "runtime logger");
@@ -115,7 +109,8 @@ TEST(VigilLogTest, RuntimeUsesConfiguredLogger) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
+TEST(VigilLogTest, RuntimeSetLoggerRejectsInvalidLevel)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_logger_t logger = {0};
     vigil_error_t error = {0};
@@ -124,10 +119,7 @@ TEST(VigilLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
     vigil_logger_init(&logger);
     logger.minimum_level = (vigil_log_level_t)(999);
 
-    EXPECT_EQ(
-        vigil_runtime_set_logger(runtime, &logger, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_runtime_set_logger(runtime, &logger, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "logger minimum_level is invalid"), 0);
@@ -135,7 +127,8 @@ TEST(VigilLogTest, RuntimeSetLoggerRejectsInvalidLevel) {
     vigil_runtime_close(&runtime);
 }
 
-void register_log_tests(void) {
+void register_log_tests(void)
+{
     REGISTER_TEST(VigilLogTest, LoggerInitSetsDefaultConfiguration);
     REGISTER_TEST(VigilLogTest, LoggerPassesStructuredRecordsToCustomHandler);
     REGISTER_TEST(VigilLogTest, LoggerFiltersMessagesBelowMinimumLevel);

@@ -1,16 +1,16 @@
 /* Unit tests for VIGIL URL parsing library. */
-#include "vigil_test.h"
 #include "vigil/url.h"
+#include "vigil_test.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 /* ── Parse Tests ─────────────────────────────────────────────────── */
 
-TEST(VigilUrlTest, ParseFull) {
+TEST(VigilUrlTest, ParseFull)
+{
     vigil_url_t url;
-    vigil_status_t s = vigil_url_parse(
-        "https://user:pass@example.com:8080/path?query=1#frag", 52, &url, NULL);
+    vigil_status_t s = vigil_url_parse("https://user:pass@example.com:8080/path?query=1#frag", 52, &url, NULL);
     ASSERT_EQ(s, VIGIL_STATUS_OK);
     EXPECT_STREQ(url.scheme, "https");
     EXPECT_STREQ(url.username, "user");
@@ -23,7 +23,8 @@ TEST(VigilUrlTest, ParseFull) {
     vigil_url_free(&url);
 }
 
-TEST(VigilUrlTest, ParseSimple) {
+TEST(VigilUrlTest, ParseSimple)
+{
     vigil_url_t url;
     vigil_status_t s = vigil_url_parse("http://example.com", 18, &url, NULL);
     ASSERT_EQ(s, VIGIL_STATUS_OK);
@@ -33,7 +34,8 @@ TEST(VigilUrlTest, ParseSimple) {
     vigil_url_free(&url);
 }
 
-TEST(VigilUrlTest, ParsePathOnly) {
+TEST(VigilUrlTest, ParsePathOnly)
+{
     vigil_url_t url;
     vigil_status_t s = vigil_url_parse("/foo/bar", 8, &url, NULL);
     ASSERT_EQ(s, VIGIL_STATUS_OK);
@@ -43,7 +45,8 @@ TEST(VigilUrlTest, ParsePathOnly) {
     vigil_url_free(&url);
 }
 
-TEST(VigilUrlTest, ParseWithQuery) {
+TEST(VigilUrlTest, ParseWithQuery)
+{
     vigil_url_t url;
     vigil_status_t s = vigil_url_parse("http://example.com?a=1&b=2", 26, &url, NULL);
     ASSERT_EQ(s, VIGIL_STATUS_OK);
@@ -51,7 +54,8 @@ TEST(VigilUrlTest, ParseWithQuery) {
     vigil_url_free(&url);
 }
 
-TEST(VigilUrlTest, ParseIPv6) {
+TEST(VigilUrlTest, ParseIPv6)
+{
     vigil_url_t url;
     vigil_status_t s = vigil_url_parse("http://[::1]:8080/path", 22, &url, NULL);
     ASSERT_EQ(s, VIGIL_STATUS_OK);
@@ -62,7 +66,8 @@ TEST(VigilUrlTest, ParseIPv6) {
 
 /* ── Encoding Tests ──────────────────────────────────────────────── */
 
-TEST(VigilUrlTest, EncodeSpaces) {
+TEST(VigilUrlTest, EncodeSpaces)
+{
     char *encoded;
     size_t len;
     vigil_status_t s = vigil_url_query_escape("hello world", 11, &encoded, &len, NULL);
@@ -71,7 +76,8 @@ TEST(VigilUrlTest, EncodeSpaces) {
     free(encoded);
 }
 
-TEST(VigilUrlTest, EncodeSpecial) {
+TEST(VigilUrlTest, EncodeSpecial)
+{
     char *encoded;
     size_t len;
     vigil_status_t s = vigil_url_query_escape("a=b&c=d", 7, &encoded, &len, NULL);
@@ -80,7 +86,8 @@ TEST(VigilUrlTest, EncodeSpecial) {
     free(encoded);
 }
 
-TEST(VigilUrlTest, DecodePercent) {
+TEST(VigilUrlTest, DecodePercent)
+{
     char *decoded;
     size_t len;
     vigil_status_t s = vigil_url_unescape("hello%20world", 13, &decoded, &len, NULL);
@@ -89,7 +96,8 @@ TEST(VigilUrlTest, DecodePercent) {
     free(decoded);
 }
 
-TEST(VigilUrlTest, DecodePlus) {
+TEST(VigilUrlTest, DecodePlus)
+{
     char *decoded;
     size_t len;
     vigil_status_t s = vigil_url_unescape("hello+world", 11, &decoded, &len, NULL);
@@ -100,7 +108,8 @@ TEST(VigilUrlTest, DecodePlus) {
 
 /* ── Utility Tests ───────────────────────────────────────────────── */
 
-TEST(VigilUrlTest, IsAbsolute) {
+TEST(VigilUrlTest, IsAbsolute)
+{
     vigil_url_t url;
     vigil_url_parse("https://example.com", 19, &url, NULL);
     EXPECT_TRUE(vigil_url_is_absolute(&url));
@@ -111,7 +120,8 @@ TEST(VigilUrlTest, IsAbsolute) {
     vigil_url_free(&url);
 }
 
-TEST(VigilUrlTest, Hostname) {
+TEST(VigilUrlTest, Hostname)
+{
     vigil_url_t url;
     vigil_url_parse("https://example.com:8080/path", 29, &url, NULL);
     EXPECT_STREQ(vigil_url_hostname(&url), "example.com");
@@ -120,7 +130,8 @@ TEST(VigilUrlTest, Hostname) {
 
 /* ── Test Registration ───────────────────────────────────────────── */
 
-void register_url_tests(void) {
+void register_url_tests(void)
+{
     REGISTER_TEST(VigilUrlTest, ParseFull);
     REGISTER_TEST(VigilUrlTest, ParseSimple);
     REGISTER_TEST(VigilUrlTest, ParsePathOnly);

@@ -6,34 +6,37 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "vigil/yaml.h"
 #include "vigil/json.h"
 #include "vigil/native_module.h"
+#include "vigil/runtime.h"
 #include "vigil/type.h"
 #include "vigil/value.h"
 #include "vigil/vm.h"
-#include "vigil/runtime.h"
+#include "vigil/yaml.h"
 
 #include "internal/vigil_nanbox.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx,
-                           const char **str, size_t *len) {
+static bool get_string_arg(vigil_vm_t *vm, size_t base, size_t idx, const char **str, size_t *len)
+{
     vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
-    if (!vigil_nanbox_is_object(v)) return false;
+    if (!vigil_nanbox_is_object(v))
+        return false;
     vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
-    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING)
+        return false;
     *str = vigil_string_object_c_str(obj);
     *len = vigil_string_object_length(obj);
     return true;
 }
 
-static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
-                                  vigil_error_t *error) {
+static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len, vigil_error_t *error)
+{
     vigil_object_t *obj = NULL;
     vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), str, len, &obj, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     vigil_value_t val;
     vigil_value_init_object(&val, &obj);
     s = vigil_vm_stack_push(vm, &val, error);
@@ -43,9 +46,8 @@ static vigil_status_t push_string(vigil_vm_t *vm, const char *str, size_t len,
 
 /* ── yaml.parse(yaml: string) -> string ──────────────────────────── */
 
-static vigil_status_t vigil_yaml_parse_fn(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_yaml_parse_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *yaml_str;
     size_t yaml_len;
@@ -54,21 +56,24 @@ static vigil_status_t vigil_yaml_parse_fn(
     size_t json_len = 0;
     vigil_status_t s;
 
-    if (!get_string_arg(vm, base, 0, &yaml_str, &yaml_len)) {
+    if (!get_string_arg(vm, base, 0, &yaml_str, &yaml_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
 
     s = vigil_yaml_parse(yaml_str, yaml_len, NULL, &json, error);
-    if (s != VIGIL_STATUS_OK) {
+    if (s != VIGIL_STATUS_OK)
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
 
     s = vigil_json_emit(json, &json_str, &json_len, error);
     vigil_json_free(&json);
-    
-    if (s != VIGIL_STATUS_OK) {
+
+    if (s != VIGIL_STATUS_OK)
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
@@ -81,23 +86,23 @@ static vigil_status_t vigil_yaml_parse_fn(
 
 /* ── yaml.get(yaml: string, path: string) -> string ──────────────── */
 
-static vigil_status_t vigil_yaml_get_fn(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_yaml_get_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *yaml_str, *path_str;
     size_t yaml_len, path_len;
     vigil_json_value_t *json = NULL;
     vigil_status_t s;
 
-    if (!get_string_arg(vm, base, 0, &yaml_str, &yaml_len) ||
-        !get_string_arg(vm, base, 1, &path_str, &path_len)) {
+    if (!get_string_arg(vm, base, 0, &yaml_str, &yaml_len) || !get_string_arg(vm, base, 1, &path_str, &path_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
 
     s = vigil_yaml_parse(yaml_str, yaml_len, NULL, &json, error);
-    if (s != VIGIL_STATUS_OK) {
+    if (s != VIGIL_STATUS_OK)
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
     }
@@ -105,7 +110,8 @@ static vigil_status_t vigil_yaml_get_fn(
     /* Navigate path (dot-separated keys, brackets for array indices) */
     const vigil_json_value_t *current = json;
     char *path_copy = malloc(path_len + 1);
-    if (!path_copy) {
+    if (!path_copy)
+    {
         vigil_json_free(&json);
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_string(vm, "", 0, error);
@@ -114,34 +120,48 @@ static vigil_status_t vigil_yaml_get_fn(
     path_copy[path_len] = '\0';
 
     char *tok = path_copy;
-    while (*tok && current) {
+    while (*tok && current)
+    {
         /* Skip leading dots */
-        while (*tok == '.') tok++;
-        if (!*tok) break;
+        while (*tok == '.')
+            tok++;
+        if (!*tok)
+            break;
 
-        if (*tok == '[') {
+        if (*tok == '[')
+        {
             /* Array index */
             tok++;
             size_t idx = (size_t)strtoul(tok, &tok, 10);
-            if (*tok == ']') tok++;
-            if (vigil_json_type(current) == VIGIL_JSON_ARRAY) {
+            if (*tok == ']')
+                tok++;
+            if (vigil_json_type(current) == VIGIL_JSON_ARRAY)
+            {
                 current = vigil_json_array_get(current, idx);
-            } else {
+            }
+            else
+            {
                 current = NULL;
             }
-        } else {
+        }
+        else
+        {
             /* Object key */
             char *end = tok;
-            while (*end && *end != '.' && *end != '[') end++;
+            while (*end && *end != '.' && *end != '[')
+                end++;
             char saved = *end;
             *end = '\0';
-            
-            if (vigil_json_type(current) == VIGIL_JSON_OBJECT) {
+
+            if (vigil_json_type(current) == VIGIL_JSON_OBJECT)
+            {
                 current = vigil_json_object_get(current, tok);
-            } else {
+            }
+            else
+            {
                 current = NULL;
             }
-            
+
             *end = saved;
             tok = end;
         }
@@ -150,7 +170,8 @@ static vigil_status_t vigil_yaml_get_fn(
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!current) {
+    if (!current)
+    {
         vigil_json_free(&json);
         return push_string(vm, "", 0, error);
     }
@@ -158,33 +179,34 @@ static vigil_status_t vigil_yaml_get_fn(
     /* Return value as string */
     char *result_str = NULL;
     size_t result_len = 0;
-    
-    switch (vigil_json_type(current)) {
-        case VIGIL_JSON_STRING:
-            s = push_string(vm, vigil_json_string_value(current),
-                           vigil_json_string_length(current), error);
-            break;
-        case VIGIL_JSON_NUMBER: {
-            char buf[64];
-            int n = snprintf(buf, sizeof(buf), "%g", vigil_json_number_value(current));
-            s = push_string(vm, buf, (size_t)n, error);
-            break;
+
+    switch (vigil_json_type(current))
+    {
+    case VIGIL_JSON_STRING:
+        s = push_string(vm, vigil_json_string_value(current), vigil_json_string_length(current), error);
+        break;
+    case VIGIL_JSON_NUMBER: {
+        char buf[64];
+        int n = snprintf(buf, sizeof(buf), "%g", vigil_json_number_value(current));
+        s = push_string(vm, buf, (size_t)n, error);
+        break;
+    }
+    case VIGIL_JSON_BOOL:
+        s = push_string(vm, vigil_json_bool_value(current) ? "true" : "false", vigil_json_bool_value(current) ? 4 : 5,
+                        error);
+        break;
+    case VIGIL_JSON_NULL:
+        s = push_string(vm, "null", 4, error);
+        break;
+    default:
+        /* For arrays/objects, stringify */
+        s = vigil_json_emit(current, &result_str, &result_len, error);
+        if (s == VIGIL_STATUS_OK)
+        {
+            s = push_string(vm, result_str, result_len, error);
+            free(result_str);
         }
-        case VIGIL_JSON_BOOL:
-            s = push_string(vm, vigil_json_bool_value(current) ? "true" : "false",
-                           vigil_json_bool_value(current) ? 4 : 5, error);
-            break;
-        case VIGIL_JSON_NULL:
-            s = push_string(vm, "null", 4, error);
-            break;
-        default:
-            /* For arrays/objects, stringify */
-            s = vigil_json_emit(current, &result_str, &result_len, error);
-            if (s == VIGIL_STATUS_OK) {
-                s = push_string(vm, result_str, result_len, error);
-                free(result_str);
-            }
-            break;
+        break;
     }
 
     vigil_json_free(&json);
@@ -201,12 +223,7 @@ static const vigil_native_module_function_t vigil_yaml_functions[] = {
     {"get", 3U, vigil_yaml_get_fn, 2U, str_str_params, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
 };
 
-#define YAML_FUNCTION_COUNT \
-    (sizeof(vigil_yaml_functions) / sizeof(vigil_yaml_functions[0]))
+#define YAML_FUNCTION_COUNT (sizeof(vigil_yaml_functions) / sizeof(vigil_yaml_functions[0]))
 
-VIGIL_API const vigil_native_module_t vigil_stdlib_yaml = {
-    "yaml", 4U,
-    vigil_yaml_functions,
-    YAML_FUNCTION_COUNT,
-    NULL, 0U
-};
+VIGIL_API const vigil_native_module_t vigil_stdlib_yaml = {"yaml", 4U, vigil_yaml_functions, YAML_FUNCTION_COUNT,
+                                                           NULL,   0U};

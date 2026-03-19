@@ -5,18 +5,20 @@
 #pragma warning(disable : 4996)
 #endif
 
-#include "vigil/lsp.h"
 #include "vigil/json.h"
 #include "vigil/jsonrpc.h"
+#include "vigil/lsp.h"
 #include "vigil/runtime.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static void write_message(FILE *f, const char *json) {
+static void write_message(FILE *f, const char *json)
+{
     fprintf(f, "Content-Length: %zu\r\n\r\n%s", strlen(json), json);
 }
 
-static vigil_json_value_t *read_response(FILE *f) {
+static vigil_json_value_t *read_response(FILE *f)
+{
     vigil_jsonrpc_transport_t tx;
     vigil_json_value_t *msg = NULL;
     vigil_error_t error = {0};
@@ -29,7 +31,8 @@ static vigil_json_value_t *read_response(FILE *f) {
 
 /* ── Server Lifecycle Tests ──────────────────────────────────────── */
 
-TEST(LspTest, CreateAndDestroy) {
+TEST(LspTest, CreateAndDestroy)
+{
     vigil_lsp_server_t *server = NULL;
     vigil_error_t error = {0};
 
@@ -38,7 +41,8 @@ TEST(LspTest, CreateAndDestroy) {
     ASSERT_EQ(server, NULL);
 }
 
-TEST(LspTest, CreateWithValidStreams) {
+TEST(LspTest, CreateWithValidStreams)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -57,7 +61,8 @@ TEST(LspTest, CreateWithValidStreams) {
     fclose(out);
 }
 
-TEST(LspTest, InitializeResponse) {
+TEST(LspTest, InitializeResponse)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -117,7 +122,8 @@ TEST(LspTest, InitializeResponse) {
     fclose(out);
 }
 
-TEST(LspTest, ShutdownAndExit) {
+TEST(LspTest, ShutdownAndExit)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -144,7 +150,8 @@ TEST(LspTest, ShutdownAndExit) {
 
 /* ── Document Symbol Tests ───────────────────────────────────────── */
 
-TEST(LspTest, DocumentSymbolEmpty) {
+TEST(LspTest, DocumentSymbolEmpty)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -180,7 +187,8 @@ TEST(LspTest, DocumentSymbolEmpty) {
 
 /* ── Completion Tests ────────────────────────────────────────────── */
 
-TEST(LspTest, CompletionEmpty) {
+TEST(LspTest, CompletionEmpty)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -208,7 +216,7 @@ TEST(LspTest, CompletionEmpty) {
     const vigil_json_value_t *result = vigil_json_object_get(resp, "result");
     ASSERT_NE(result, NULL);
     /* Completion list includes string methods + native module functions */
-    EXPECT_TRUE(vigil_json_array_count(result) > 27u);  /* string methods + native modules */
+    EXPECT_TRUE(vigil_json_array_count(result) > 27u); /* string methods + native modules */
 
     vigil_json_free(&resp);
     vigil_lsp_server_destroy(&server);
@@ -218,7 +226,8 @@ TEST(LspTest, CompletionEmpty) {
 
 /* ── Hover Tests ─────────────────────────────────────────────────── */
 
-TEST(LspTest, HoverNoDocument) {
+TEST(LspTest, HoverNoDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -255,7 +264,8 @@ TEST(LspTest, HoverNoDocument) {
 
 /* ── Definition Tests ────────────────────────────────────────────── */
 
-TEST(LspTest, DefinitionNoDocument) {
+TEST(LspTest, DefinitionNoDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -291,7 +301,8 @@ TEST(LspTest, DefinitionNoDocument) {
 
 /* ── References Tests ────────────────────────────────────────────── */
 
-TEST(LspTest, ReferencesNoDocument) {
+TEST(LspTest, ReferencesNoDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -327,7 +338,8 @@ TEST(LspTest, ReferencesNoDocument) {
 
 /* ── Rename Tests ────────────────────────────────────────────────── */
 
-TEST(LspTest, RenameNoDocument) {
+TEST(LspTest, RenameNoDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -363,7 +375,8 @@ TEST(LspTest, RenameNoDocument) {
 
 /* ── Formatting Tests ────────────────────────────────────────────── */
 
-TEST(LspTest, FormattingNoDocument) {
+TEST(LspTest, FormattingNoDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -398,7 +411,8 @@ TEST(LspTest, FormattingNoDocument) {
 
 /* ── Signature Help Tests ────────────────────────────────────────── */
 
-TEST(LspTest, SignatureHelpNoDocument) {
+TEST(LspTest, SignatureHelpNoDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -434,7 +448,8 @@ TEST(LspTest, SignatureHelpNoDocument) {
 
 /* ── Unknown Method Tests ────────────────────────────────────────── */
 
-TEST(LspTest, UnknownMethodIgnored) {
+TEST(LspTest, UnknownMethodIgnored)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -462,7 +477,8 @@ TEST(LspTest, UnknownMethodIgnored) {
 
 /* ── Document Open Tests ─────────────────────────────────────────── */
 
-TEST(LspTest, DidOpenValidSource) {
+TEST(LspTest, DidOpenValidSource)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -495,7 +511,8 @@ TEST(LspTest, DidOpenValidSource) {
     fclose(out);
 }
 
-TEST(LspTest, DidOpenInvalidSource) {
+TEST(LspTest, DidOpenInvalidSource)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -530,7 +547,8 @@ TEST(LspTest, DidOpenInvalidSource) {
 
 /* ── Document Change Tests ───────────────────────────────────────── */
 
-TEST(LspTest, DidChangeUpdatesDocument) {
+TEST(LspTest, DidChangeUpdatesDocument)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -567,7 +585,8 @@ TEST(LspTest, DidChangeUpdatesDocument) {
     fclose(out);
 }
 
-TEST(LspTest, HoverBuiltinShowsDocs) {
+TEST(LspTest, HoverBuiltinShowsDocs)
+{
     FILE *in = tmpfile();
     FILE *out = tmpfile();
     vigil_lsp_server_t *server = NULL;
@@ -611,7 +630,8 @@ TEST(LspTest, HoverBuiltinShowsDocs) {
     fclose(out);
 }
 
-void register_lsp_tests(void) {
+void register_lsp_tests(void)
+{
     REGISTER_TEST(LspTest, CreateAndDestroy);
     REGISTER_TEST(LspTest, CreateWithValidStreams);
     REGISTER_TEST(LspTest, InitializeResponse);

@@ -4,38 +4,41 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct AllocatorStats {
+struct AllocatorStats
+{
     int allocate_calls;
     int reallocate_calls;
     int deallocate_calls;
 };
 
-static void *CountedAllocate(void *user_data, size_t size) {
+static void *CountedAllocate(void *user_data, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
     return calloc(1U, size);
 }
 
-static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+static void *CountedReallocate(void *user_data, void *memory, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
     return realloc(memory, size);
 }
 
-static void CountedDeallocate(void *user_data, void *memory) {
+static void CountedDeallocate(void *user_data, void *memory)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
     free(memory);
 }
 
-
-TEST(VigilArrayTest, InitStartsEmpty) {
+TEST(VigilArrayTest, InitStartsEmpty)
+{
     vigil_byte_buffer_t buffer;
 
     vigil_byte_buffer_init(&buffer, NULL);
@@ -46,7 +49,8 @@ TEST(VigilArrayTest, InitStartsEmpty) {
     EXPECT_EQ(buffer.capacity, 0U);
 }
 
-TEST(VigilArrayTest, ReserveAllocatesAndPreservesLength) {
+TEST(VigilArrayTest, ReserveAllocatesAndPreservesLength)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -63,7 +67,8 @@ TEST(VigilArrayTest, ReserveAllocatesAndPreservesLength) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilArrayTest, ResizeZeroInitializesNewBytes) {
+TEST(VigilArrayTest, ResizeZeroInitializesNewBytes)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -86,7 +91,8 @@ TEST(VigilArrayTest, ResizeZeroInitializesNewBytes) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilArrayTest, AppendAddsBytesInOrder) {
+TEST(VigilArrayTest, AppendAddsBytesInOrder)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -95,10 +101,7 @@ TEST(VigilArrayTest, AppendAddsBytesInOrder) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_byte_buffer_init(&buffer, runtime);
 
-    ASSERT_EQ(
-        vigil_byte_buffer_append(&buffer, prefix, sizeof(prefix), &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_byte_buffer_append(&buffer, prefix, sizeof(prefix), &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_byte_buffer_append_byte(&buffer, 4U, &error), VIGIL_STATUS_OK);
 
     ASSERT_EQ(buffer.length, 4U);
@@ -108,7 +111,8 @@ TEST(VigilArrayTest, AppendAddsBytesInOrder) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilArrayTest, ClearKeepsCapacityButResetsLength) {
+TEST(VigilArrayTest, ClearKeepsCapacityButResetsLength)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -129,7 +133,8 @@ TEST(VigilArrayTest, ClearKeepsCapacityButResetsLength) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilArrayTest, FreeResetsWholeBuffer) {
+TEST(VigilArrayTest, FreeResetsWholeBuffer)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -148,7 +153,8 @@ TEST(VigilArrayTest, FreeResetsWholeBuffer) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilArrayTest, UsesRuntimeAllocatorHooks) {
+TEST(VigilArrayTest, UsesRuntimeAllocatorHooks)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -167,14 +173,8 @@ TEST(VigilArrayTest, UsesRuntimeAllocatorHooks) {
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
     vigil_byte_buffer_init(&buffer, runtime);
 
-    ASSERT_EQ(
-        vigil_byte_buffer_append(&buffer, data, sizeof(data), &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_byte_buffer_append(&buffer, data, sizeof(data), &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_byte_buffer_append(&buffer, data, sizeof(data), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_byte_buffer_append(&buffer, data, sizeof(data), &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(stats.allocate_calls, 2);
     EXPECT_GE(stats.reallocate_calls, 1);
@@ -184,22 +184,21 @@ TEST(VigilArrayTest, UsesRuntimeAllocatorHooks) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilArrayTest, RejectsMissingRuntime) {
+TEST(VigilArrayTest, RejectsMissingRuntime)
+{
     vigil_byte_buffer_t buffer;
     vigil_error_t error = {0};
 
     vigil_byte_buffer_init(&buffer, NULL);
 
-    EXPECT_EQ(
-        vigil_byte_buffer_reserve(&buffer, 8U, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_byte_buffer_reserve(&buffer, 8U, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "byte buffer runtime must not be null"), 0);
 }
 
-TEST(VigilArrayTest, DetectsAppendOverflow) {
+TEST(VigilArrayTest, DetectsAppendOverflow)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_byte_buffer_t buffer;
@@ -211,10 +210,7 @@ TEST(VigilArrayTest, DetectsAppendOverflow) {
     buffer.length = SIZE_MAX;
     buffer.capacity = SIZE_MAX;
 
-    EXPECT_EQ(
-        vigil_byte_buffer_append(&buffer, &value, 1U, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_byte_buffer_append(&buffer, &value, 1U, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "byte buffer append would overflow"), 0);
@@ -225,7 +221,8 @@ TEST(VigilArrayTest, DetectsAppendOverflow) {
     vigil_runtime_close(&runtime);
 }
 
-void register_array_tests(void) {
+void register_array_tests(void)
+{
     REGISTER_TEST(VigilArrayTest, InitStartsEmpty);
     REGISTER_TEST(VigilArrayTest, ReserveAllocatesAndPreservesLength);
     REGISTER_TEST(VigilArrayTest, ResizeZeroInitializesNewBytes);

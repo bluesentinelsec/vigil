@@ -3,39 +3,42 @@
 #include <stdlib.h>
 #include <string.h>
 
-
-#include "vigil/vigil.h"
 #include "internal/vigil_nanbox.h"
+#include "vigil/vigil.h"
 
-struct AllocatorStats {
+struct AllocatorStats
+{
     int allocate_calls;
     int reallocate_calls;
     int deallocate_calls;
 };
 
-static void *CountedAllocate(void *user_data, size_t size) {
+static void *CountedAllocate(void *user_data, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
     return calloc(1U, size);
 }
 
-static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+static void *CountedReallocate(void *user_data, void *memory, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
     return realloc(memory, size);
 }
 
-static void CountedDeallocate(void *user_data, void *memory) {
+static void CountedDeallocate(void *user_data, void *memory)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
     free(memory);
 }
 
-
-TEST(VigilValueTest, ImmediateValuesRoundTrip) {
+TEST(VigilValueTest, ImmediateValuesRoundTrip)
+{
     vigil_value_t value;
 
     vigil_value_init_nil(&value);
@@ -60,16 +63,14 @@ TEST(VigilValueTest, ImmediateValuesRoundTrip) {
     EXPECT_DOUBLE_EQ(vigil_value_as_float(&value), 3.5);
 }
 
-TEST(VigilValueTest, StringObjectStartsWithOneReferenceAndExposesText) {
+TEST(VigilValueTest, StringObjectStartsWithOneReferenceAndExposesText)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *object = NULL;
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(
-        vigil_string_object_new_cstr(runtime, "hello", &object, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "hello", &object, &error), VIGIL_STATUS_OK);
 
     ASSERT_NE(object, NULL);
     EXPECT_EQ(vigil_object_type(object), VIGIL_OBJECT_STRING);
@@ -82,17 +83,15 @@ TEST(VigilValueTest, StringObjectStartsWithOneReferenceAndExposesText) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, ObjectRetainAndReleaseUpdateReferenceCount) {
+TEST(VigilValueTest, ObjectRetainAndReleaseUpdateReferenceCount)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *left = NULL;
     vigil_object_t *right = NULL;
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(
-        vigil_string_object_new_cstr(runtime, "hello", &left, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "hello", &left, &error), VIGIL_STATUS_OK);
 
     right = left;
     vigil_object_retain(right);
@@ -108,7 +107,8 @@ TEST(VigilValueTest, ObjectRetainAndReleaseUpdateReferenceCount) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, ValueInitObjectTransfersOwnershipAndCopyRetains) {
+TEST(VigilValueTest, ValueInitObjectTransfersOwnershipAndCopyRetains)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *object = NULL;
@@ -116,10 +116,7 @@ TEST(VigilValueTest, ValueInitObjectTransfersOwnershipAndCopyRetains) {
     vigil_value_t copy;
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(
-        vigil_string_object_new_cstr(runtime, "value", &object, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "value", &object, &error), VIGIL_STATUS_OK);
 
     vigil_value_init_object(&value, &object);
     EXPECT_EQ(object, NULL);
@@ -139,7 +136,8 @@ TEST(VigilValueTest, ValueInitObjectTransfersOwnershipAndCopyRetains) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, ValueReleaseOnImmediateResetsToNil) {
+TEST(VigilValueTest, ValueReleaseOnImmediateResetsToNil)
+{
     vigil_value_t value;
 
     vigil_value_init_int(&value, 7);
@@ -149,7 +147,8 @@ TEST(VigilValueTest, ValueReleaseOnImmediateResetsToNil) {
     EXPECT_EQ(vigil_value_as_object(&value), NULL);
 }
 
-TEST(VigilValueTest, StringObjectUsesRuntimeAllocatorHooks) {
+TEST(VigilValueTest, StringObjectUsesRuntimeAllocatorHooks)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *object = NULL;
@@ -165,10 +164,7 @@ TEST(VigilValueTest, StringObjectUsesRuntimeAllocatorHooks) {
     options.allocator = &allocator;
 
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(
-        vigil_string_object_new_cstr(runtime, "allocator-backed", &object, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "allocator-backed", &object, &error), VIGIL_STATUS_OK);
 
     EXPECT_GE(stats.allocate_calls, 3);
 
@@ -180,33 +176,25 @@ TEST(VigilValueTest, StringObjectUsesRuntimeAllocatorHooks) {
     EXPECT_GE(stats.deallocate_calls, 3);
 }
 
-TEST(VigilValueTest, StringObjectValidatesArguments) {
+TEST(VigilValueTest, StringObjectValidatesArguments)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *object = NULL;
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
 
-    EXPECT_EQ(
-        vigil_string_object_new(NULL, "hello", 5U, &object, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_object_new(NULL, "hello", 5U, &object, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "runtime must not be null"), 0);
 
-    EXPECT_EQ(
-        vigil_string_object_new(runtime, NULL, 0U, &object, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_object_new(runtime, NULL, 0U, &object, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "string object value must not be null"), 0);
 
-    EXPECT_EQ(
-        vigil_string_object_new(runtime, "hello", 5U, NULL, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_string_object_new(runtime, "hello", 5U, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "out_object must not be null"), 0);
@@ -214,7 +202,8 @@ TEST(VigilValueTest, StringObjectValidatesArguments) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
+TEST(VigilValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_chunk_t chunk;
@@ -224,14 +213,8 @@ TEST(VigilValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_chunk_init(&chunk, runtime);
     vigil_value_init_int(&value, 42);
-    ASSERT_EQ(
-        vigil_chunk_write_constant(&chunk, &value, (vigil_source_span_t){0}, NULL, &error),
-        VIGIL_STATUS_OK
-    );
-    ASSERT_EQ(
-        vigil_function_object_new_cstr(runtime, "main", 0U, 1U, &chunk, &function, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &value, (vigil_source_span_t){0}, NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_function_object_new_cstr(runtime, "main", 0U, 1U, &chunk, &function, &error), VIGIL_STATUS_OK);
 
     ASSERT_NE(function, NULL);
     EXPECT_EQ(vigil_object_type(function), VIGIL_OBJECT_FUNCTION);
@@ -249,7 +232,8 @@ TEST(VigilValueTest, FunctionObjectTakesOwnershipOfChunkAndExposesMetadata) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, FunctionObjectValidatesArguments) {
+TEST(VigilValueTest, FunctionObjectValidatesArguments)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_runtime_t *other_runtime = NULL;
     vigil_error_t error = {0};
@@ -260,39 +244,27 @@ TEST(VigilValueTest, FunctionObjectValidatesArguments) {
     ASSERT_EQ(vigil_runtime_open(&other_runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_chunk_init(&chunk, other_runtime);
 
-    EXPECT_EQ(
-        vigil_function_object_new(NULL, "main", 4U, 0U, 1U, &chunk, &function, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
-    EXPECT_EQ(
-        vigil_function_object_new(runtime, NULL, 0U, 0U, 1U, &chunk, &function, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
-    EXPECT_EQ(
-        vigil_function_object_new(runtime, "main", 4U, 0U, 1U, NULL, &function, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
-    EXPECT_EQ(
-        vigil_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, NULL, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
-    EXPECT_EQ(
-        vigil_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, &function, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_function_object_new(NULL, "main", 4U, 0U, 1U, &chunk, &function, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(vigil_function_object_new(runtime, NULL, 0U, 0U, 1U, &chunk, &function, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(vigil_function_object_new(runtime, "main", 4U, 0U, 1U, NULL, &function, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(vigil_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, NULL, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(vigil_function_object_new(runtime, "main", 4U, 0U, 1U, &chunk, &function, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
-    EXPECT_EQ(
-        strcmp(error.value, "function object chunk runtime must match runtime"),
-        0
-    );
+    EXPECT_EQ(strcmp(error.value, "function object chunk runtime must match runtime"), 0);
 
     vigil_chunk_free(&chunk);
     vigil_runtime_close(&other_runtime);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, InstanceObjectStoresAndUpdatesFields) {
+TEST(VigilValueTest, InstanceObjectStoresAndUpdatesFields)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *instance = NULL;
@@ -303,10 +275,7 @@ TEST(VigilValueTest, InstanceObjectStoresAndUpdatesFields) {
     vigil_value_init_int(&fields[0], 3);
     vigil_value_init_bool(&fields[1], true);
 
-    ASSERT_EQ(
-        vigil_instance_object_new(runtime, 3U, fields, 2U, &instance, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_instance_object_new(runtime, 3U, fields, 2U, &instance, &error), VIGIL_STATUS_OK);
     ASSERT_NE(instance, NULL);
     EXPECT_EQ(vigil_object_type(instance), VIGIL_OBJECT_INSTANCE);
     EXPECT_EQ(vigil_instance_object_class_index(instance), 3U);
@@ -319,10 +288,7 @@ TEST(VigilValueTest, InstanceObjectStoresAndUpdatesFields) {
     vigil_value_release(&field_value);
 
     vigil_value_init_int(&field_value, 9);
-    ASSERT_EQ(
-        vigil_instance_object_set_field(instance, 0U, &field_value, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_instance_object_set_field(instance, 0U, &field_value, &error), VIGIL_STATUS_OK);
     vigil_value_release(&field_value);
 
     vigil_value_init_nil(&field_value);
@@ -336,7 +302,8 @@ TEST(VigilValueTest, InstanceObjectStoresAndUpdatesFields) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
+TEST(VigilValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_object_t *array_object = NULL;
@@ -348,10 +315,7 @@ TEST(VigilValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     vigil_value_init_int(&items[0], 3);
     vigil_value_init_int(&items[1], 7);
 
-    ASSERT_EQ(
-        vigil_array_object_new(runtime, items, 2U, &array_object, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_array_object_new(runtime, items, 2U, &array_object, &error), VIGIL_STATUS_OK);
     ASSERT_NE(array_object, NULL);
     EXPECT_EQ(vigil_object_type(array_object), VIGIL_OBJECT_ARRAY);
     EXPECT_EQ(vigil_array_object_length(array_object), 2U);
@@ -363,10 +327,7 @@ TEST(VigilValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     vigil_value_release(&value);
 
     vigil_value_init_int(&value, 9);
-    ASSERT_EQ(
-        vigil_array_object_set(array_object, 0U, &value, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_array_object_set(array_object, 0U, &value, &error), VIGIL_STATUS_OK);
     vigil_value_release(&value);
 
     vigil_value_init_nil(&value);
@@ -381,10 +342,7 @@ TEST(VigilValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
 
     vigil_value_init_int(&items[0], 1);
     vigil_value_init_int(&value, 11);
-    ASSERT_EQ(
-        vigil_map_object_set(map_object, &items[0], &value, &error),
-        VIGIL_STATUS_OK
-    );
+    ASSERT_EQ(vigil_map_object_set(map_object, &items[0], &value, &error), VIGIL_STATUS_OK);
     vigil_value_release(&value);
     EXPECT_EQ(vigil_map_object_count(map_object), 1U);
 
@@ -401,12 +359,14 @@ TEST(VigilValueTest, ArrayAndMapObjectsStoreAndExposeIndexedValues) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilValueTest, NanboxI32RoundTripPreservesSign) {
+TEST(VigilValueTest, NanboxI32RoundTripPreservesSign)
+{
     /* Negative i32 values must survive encode → decode and
        encode → value_as_int round-trips with correct sign. */
-    static const int32_t cases[] = { 0, 1, -1, -2, INT32_MIN, INT32_MAX, -42, 42 };
+    static const int32_t cases[] = {0, 1, -1, -2, INT32_MIN, INT32_MAX, -42, 42};
     size_t i;
-    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
         int32_t input = cases[i];
         uint64_t encoded = vigil_nanbox_encode_i32(input);
         int32_t decoded_i32 = vigil_nanbox_decode_i32(encoded);
@@ -419,7 +379,8 @@ TEST(VigilValueTest, NanboxI32RoundTripPreservesSign) {
     }
 }
 
-void register_value_tests(void) {
+void register_value_tests(void)
+{
     REGISTER_TEST(VigilValueTest, ImmediateValuesRoundTrip);
     REGISTER_TEST(VigilValueTest, StringObjectStartsWithOneReferenceAndExposesText);
     REGISTER_TEST(VigilValueTest, ObjectRetainAndReleaseUpdateReferenceCount);

@@ -13,15 +13,18 @@
 #include "vigil/vm.h"
 
 #include "internal/vigil_nanbox.h"
-#include "miniz.h"
 #include "lz4.h"
+#include "miniz.h"
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static const char *get_bytes_data(vigil_value_t v, size_t *out_len) {
-    if (vigil_nanbox_is_object(v)) {
+static const char *get_bytes_data(vigil_value_t v, size_t *out_len)
+{
+    if (vigil_nanbox_is_object(v))
+    {
         const vigil_object_t *obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(v);
-        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING) {
+        if (obj && vigil_object_type(obj) == VIGIL_OBJECT_STRING)
+        {
             *out_len = vigil_string_object_length(obj);
             return vigil_string_object_c_str(obj);
         }
@@ -30,10 +33,12 @@ static const char *get_bytes_data(vigil_value_t v, size_t *out_len) {
     return NULL;
 }
 
-static vigil_status_t push_bytes(vigil_vm_t *vm, const void *data, size_t len, vigil_error_t *error) {
+static vigil_status_t push_bytes(vigil_vm_t *vm, const void *data, size_t len, vigil_error_t *error)
+{
     vigil_object_t *obj = NULL;
     vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), (const char *)data, len, &obj, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     vigil_value_t val;
     vigil_value_init_object(&val, &obj);
     s = vigil_vm_stack_push(vm, &val, error);
@@ -41,19 +46,24 @@ static vigil_status_t push_bytes(vigil_vm_t *vm, const void *data, size_t len, v
     return s;
 }
 
-static vigil_status_t push_empty_bytes(vigil_vm_t *vm, vigil_error_t *error) {
+static vigil_status_t push_empty_bytes(vigil_vm_t *vm, vigil_error_t *error)
+{
     return push_bytes(vm, "", 0, error);
 }
 
-static int clamp_level(int level) {
-    if (level < 0) return 0;
-    if (level > 10) return 10;
+static int clamp_level(int level)
+{
+    if (level < 0)
+        return 0;
+    if (level > 10)
+        return 10;
     return level;
 }
 
 /* ── CRC32 / Adler32 ────────────────────────────────────────────── */
 
-static vigil_status_t crc32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crc32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -64,7 +74,8 @@ static vigil_status_t crc32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *
     return vigil_vm_stack_push(vm, &v, error);
 }
 
-static vigil_status_t adler32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t adler32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -77,7 +88,8 @@ static vigil_status_t adler32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t
 
 /* ── Zlib ────────────────────────────────────────────────────────── */
 
-static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -89,18 +101,21 @@ static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len == 0) {
+    if (!src || src_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
     dst_len = mz_compressBound((mz_ulong)src_len);
     dst = (unsigned char *)malloc(dst_len);
-    if (!dst) {
+    if (!dst)
+    {
         return push_empty_bytes(vm, error);
     }
 
     status = mz_compress(dst, &dst_len, (const unsigned char *)src, (mz_ulong)src_len);
-    if (status != MZ_OK) {
+    if (status != MZ_OK)
+    {
         free(dst);
         return push_empty_bytes(vm, error);
     }
@@ -110,7 +125,8 @@ static vigil_status_t zlib_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     return ret;
 }
 
-static vigil_status_t zlib_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zlib_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -120,21 +136,28 @@ static vigil_status_t zlib_compress_level_fn(vigil_vm_t *vm, size_t arg_count, v
     level = clamp_level((int)vigil_nanbox_decode_int(vigil_vm_stack_get(vm, base + 1)));
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len == 0) return push_empty_bytes(vm, error);
+    if (!src || src_len == 0)
+        return push_empty_bytes(vm, error);
 
     mz_ulong dst_len = mz_compressBound((mz_ulong)src_len);
     unsigned char *dst = (unsigned char *)malloc(dst_len);
-    if (!dst) return push_empty_bytes(vm, error);
+    if (!dst)
+        return push_empty_bytes(vm, error);
 
     int status = mz_compress2(dst, &dst_len, (const unsigned char *)src, (mz_ulong)src_len, level);
-    if (status != MZ_OK) { free(dst); return push_empty_bytes(vm, error); }
+    if (status != MZ_OK)
+    {
+        free(dst);
+        return push_empty_bytes(vm, error);
+    }
 
     vigil_status_t ret = push_bytes(vm, dst, dst_len, error);
     free(dst);
     return ret;
 }
 
-static vigil_status_t zlib_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zlib_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -145,32 +168,39 @@ static vigil_status_t zlib_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil
     src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len == 0) {
+    if (!src || src_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
     /* Start with 4x source size, grow if needed */
     dst_len = (mz_ulong)(src_len * 4);
-    if (dst_len < 1024) dst_len = 1024;
+    if (dst_len < 1024)
+        dst_len = 1024;
 
     dst = (unsigned char *)malloc(dst_len);
-    if (!dst) {
+    if (!dst)
+    {
         return push_empty_bytes(vm, error);
     }
 
-    while (1) {
+    while (1)
+    {
         mz_ulong try_len = dst_len;
         status = mz_uncompress(dst, &try_len, (const unsigned char *)src, (mz_ulong)src_len);
-        if (status == MZ_OK) {
+        if (status == MZ_OK)
+        {
             vigil_status_t ret = push_bytes(vm, dst, try_len, error);
             free(dst);
             return ret;
         }
-        if (status == MZ_BUF_ERROR) {
+        if (status == MZ_BUF_ERROR)
+        {
             /* Need more space */
             mz_ulong new_len = dst_len * 2;
             unsigned char *new_dst = (unsigned char *)realloc(dst, new_len);
-            if (!new_dst) {
+            if (!new_dst)
+            {
                 free(dst);
                 return push_empty_bytes(vm, error);
             }
@@ -186,12 +216,16 @@ static vigil_status_t zlib_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil
 
 /* ── Deflate (raw) ───────────────────────────────────────────────── */
 
-static vigil_status_t deflate_compress_impl(vigil_vm_t *vm, const char *src, size_t src_len, int level, vigil_error_t *error) {
-    if (!src || src_len == 0) return push_empty_bytes(vm, error);
+static vigil_status_t deflate_compress_impl(vigil_vm_t *vm, const char *src, size_t src_len, int level,
+                                            vigil_error_t *error)
+{
+    if (!src || src_len == 0)
+        return push_empty_bytes(vm, error);
 
     mz_ulong bound = mz_deflateBound(NULL, (mz_ulong)src_len);
     unsigned char *dst = (unsigned char *)malloc(bound);
-    if (!dst) return push_empty_bytes(vm, error);
+    if (!dst)
+        return push_empty_bytes(vm, error);
 
     mz_stream stream;
     memset(&stream, 0, sizeof(stream));
@@ -201,11 +235,13 @@ static vigil_status_t deflate_compress_impl(vigil_vm_t *vm, const char *src, siz
     stream.avail_out = (mz_uint32)bound;
 
     /* Use negative window bits for raw deflate (no zlib header/trailer) */
-    if (mz_deflateInit2(&stream, level, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK) {
+    if (mz_deflateInit2(&stream, level, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK)
+    {
         free(dst);
         return push_empty_bytes(vm, error);
     }
-    if (mz_deflate(&stream, MZ_FINISH) != MZ_STREAM_END) {
+    if (mz_deflate(&stream, MZ_FINISH) != MZ_STREAM_END)
+    {
         mz_deflateEnd(&stream);
         free(dst);
         return push_empty_bytes(vm, error);
@@ -218,7 +254,8 @@ static vigil_status_t deflate_compress_impl(vigil_vm_t *vm, const char *src, siz
     return ret;
 }
 
-static vigil_status_t deflate_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t deflate_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -226,7 +263,8 @@ static vigil_status_t deflate_compress_fn(vigil_vm_t *vm, size_t arg_count, vigi
     return deflate_compress_impl(vm, src, src_len, MZ_DEFAULT_COMPRESSION, error);
 }
 
-static vigil_status_t deflate_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t deflate_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -235,7 +273,8 @@ static vigil_status_t deflate_compress_level_fn(vigil_vm_t *vm, size_t arg_count
     return deflate_compress_impl(vm, src, src_len, level, error);
 }
 
-static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -249,40 +288,46 @@ static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vi
     src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len == 0) {
+    if (!src || src_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
     dst = (unsigned char *)malloc(dst_cap);
-    if (!dst) {
+    if (!dst)
+    {
         return push_empty_bytes(vm, error);
     }
 
     tinfl_init(&decomp);
 
-    while (in_pos < src_len) {
+    while (in_pos < src_len)
+    {
         size_t in_bytes = src_len - in_pos;
         size_t out_bytes = dst_cap - dst_len;
         int flags = (in_pos + in_bytes < src_len) ? TINFL_FLAG_HAS_MORE_INPUT : 0;
 
-        status = tinfl_decompress(&decomp,
-            (const mz_uint8 *)src + in_pos, &in_bytes,
-            dst, dst + dst_len, &out_bytes, flags);
+        status =
+            tinfl_decompress(&decomp, (const mz_uint8 *)src + in_pos, &in_bytes, dst, dst + dst_len, &out_bytes, flags);
 
         in_pos += in_bytes;
         dst_len += out_bytes;
 
-        if (status == TINFL_STATUS_DONE) {
+        if (status == TINFL_STATUS_DONE)
+        {
             break;
         }
-        if (status < 0) {
+        if (status < 0)
+        {
             free(dst);
             return push_empty_bytes(vm, error);
         }
-        if (status == TINFL_STATUS_HAS_MORE_OUTPUT || dst_len >= dst_cap) {
+        if (status == TINFL_STATUS_HAS_MORE_OUTPUT || dst_len >= dst_cap)
+        {
             size_t new_cap = dst_cap * 2;
             unsigned char *new_dst = (unsigned char *)realloc(dst, new_cap);
-            if (!new_dst) {
+            if (!new_dst)
+            {
                 free(dst);
                 return push_empty_bytes(vm, error);
             }
@@ -300,7 +345,9 @@ static vigil_status_t deflate_decompress_fn(vigil_vm_t *vm, size_t arg_count, vi
 
 /* ── Gzip ────────────────────────────────────────────────────────── */
 
-static vigil_status_t gzip_compress_impl(vigil_vm_t *vm, const char *src, size_t src_len, int level, vigil_error_t *error) {
+static vigil_status_t gzip_compress_impl(vigil_vm_t *vm, const char *src, size_t src_len, int level,
+                                         vigil_error_t *error)
+{
     mz_ulong bound;
     unsigned char *out;
     size_t out_len;
@@ -308,23 +355,29 @@ static vigil_status_t gzip_compress_impl(vigil_vm_t *vm, const char *src, size_t
     mz_uint32 crc;
     vigil_status_t ret;
 
-    if (!src || src_len == 0) {
-        static const unsigned char empty_gz[] = {
-            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
-            0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-        };
+    if (!src || src_len == 0)
+    {
+        static const unsigned char empty_gz[] = {0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+                                                 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
         return push_bytes(vm, empty_gz, sizeof(empty_gz), error);
     }
 
     bound = mz_deflateBound(NULL, (mz_ulong)src_len);
     out = (unsigned char *)malloc(10 + bound + 8);
-    if (!out) return push_empty_bytes(vm, error);
+    if (!out)
+        return push_empty_bytes(vm, error);
 
     /* Gzip header with proper XFL byte */
-    out[0] = 0x1f; out[1] = 0x8b; out[2] = 0x08; out[3] = 0x00;
-    out[4] = 0x00; out[5] = 0x00; out[6] = 0x00; out[7] = 0x00;
+    out[0] = 0x1f;
+    out[1] = 0x8b;
+    out[2] = 0x08;
+    out[3] = 0x00;
+    out[4] = 0x00;
+    out[5] = 0x00;
+    out[6] = 0x00;
+    out[7] = 0x00;
     out[8] = (level >= 9) ? 0x02 : (level <= 1) ? 0x04 : 0x00; /* XFL */
-    out[9] = 0x03; /* OS = Unix */
+    out[9] = 0x03;                                             /* OS = Unix */
 
     memset(&stream, 0, sizeof(stream));
     stream.next_in = (const unsigned char *)src;
@@ -332,11 +385,13 @@ static vigil_status_t gzip_compress_impl(vigil_vm_t *vm, const char *src, size_t
     stream.next_out = out + 10;
     stream.avail_out = (mz_uint32)bound;
 
-    if (mz_deflateInit2(&stream, level, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK) {
+    if (mz_deflateInit2(&stream, level, MZ_DEFLATED, -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY) != MZ_OK)
+    {
         free(out);
         return push_empty_bytes(vm, error);
     }
-    if (mz_deflate(&stream, MZ_FINISH) != MZ_STREAM_END) {
+    if (mz_deflate(&stream, MZ_FINISH) != MZ_STREAM_END)
+    {
         mz_deflateEnd(&stream);
         free(out);
         return push_empty_bytes(vm, error);
@@ -360,7 +415,8 @@ static vigil_status_t gzip_compress_impl(vigil_vm_t *vm, const char *src, size_t
     return ret;
 }
 
-static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -368,7 +424,8 @@ static vigil_status_t gzip_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
     return gzip_compress_impl(vm, src, src_len, MZ_DEFAULT_COMPRESSION, error);
 }
 
-static vigil_status_t gzip_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t gzip_compress_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -377,7 +434,8 @@ static vigil_status_t gzip_compress_level_fn(vigil_vm_t *vm, size_t arg_count, v
     return gzip_compress_impl(vm, src, src_len, level, error);
 }
 
-static vigil_status_t gzip_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t gzip_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -394,69 +452,83 @@ static vigil_status_t gzip_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil
     src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len < 18) {
+    if (!src || src_len < 18)
+    {
         return push_empty_bytes(vm, error);
     }
 
     usrc = (const unsigned char *)src;
 
     /* Verify gzip magic */
-    if (usrc[0] != 0x1f || usrc[1] != 0x8b) {
+    if (usrc[0] != 0x1f || usrc[1] != 0x8b)
+    {
         return push_empty_bytes(vm, error);
     }
 
     /* Skip optional fields */
     {
         unsigned char flags = usrc[3];
-        if (flags & 0x04) {
-            if (hdr_len + 2 > src_len) return push_empty_bytes(vm, error);
+        if (flags & 0x04)
+        {
+            if (hdr_len + 2 > src_len)
+                return push_empty_bytes(vm, error);
             hdr_len += 2 + (usrc[hdr_len] | (usrc[hdr_len + 1] << 8));
         }
-        if (flags & 0x08) {
-            while (hdr_len < src_len && usrc[hdr_len]) hdr_len++;
+        if (flags & 0x08)
+        {
+            while (hdr_len < src_len && usrc[hdr_len])
+                hdr_len++;
             hdr_len++;
         }
-        if (flags & 0x10) {
-            while (hdr_len < src_len && usrc[hdr_len]) hdr_len++;
+        if (flags & 0x10)
+        {
+            while (hdr_len < src_len && usrc[hdr_len])
+                hdr_len++;
             hdr_len++;
         }
-        if (flags & 0x02) hdr_len += 2;
+        if (flags & 0x02)
+            hdr_len += 2;
     }
 
-    if (hdr_len + 8 > src_len) {
+    if (hdr_len + 8 > src_len)
+    {
         return push_empty_bytes(vm, error);
     }
 
     deflate_len = src_len - hdr_len - 8;
 
     dst = (unsigned char *)malloc(dst_cap);
-    if (!dst) {
+    if (!dst)
+    {
         return push_empty_bytes(vm, error);
     }
 
     tinfl_init(&decomp);
 
-    while (in_pos < deflate_len) {
+    while (in_pos < deflate_len)
+    {
         size_t in_bytes = deflate_len - in_pos;
         size_t out_bytes = dst_cap - dst_len;
         int flags = (in_pos + in_bytes < deflate_len) ? TINFL_FLAG_HAS_MORE_INPUT : 0;
 
-        status = tinfl_decompress(&decomp,
-            usrc + hdr_len + in_pos, &in_bytes,
-            dst, dst + dst_len, &out_bytes, flags);
+        status = tinfl_decompress(&decomp, usrc + hdr_len + in_pos, &in_bytes, dst, dst + dst_len, &out_bytes, flags);
 
         in_pos += in_bytes;
         dst_len += out_bytes;
 
-        if (status == TINFL_STATUS_DONE) break;
-        if (status < 0) {
+        if (status == TINFL_STATUS_DONE)
+            break;
+        if (status < 0)
+        {
             free(dst);
             return push_empty_bytes(vm, error);
         }
-        if (status == TINFL_STATUS_HAS_MORE_OUTPUT || dst_len >= dst_cap) {
+        if (status == TINFL_STATUS_HAS_MORE_OUTPUT || dst_len >= dst_cap)
+        {
             size_t new_cap = dst_cap * 2;
             unsigned char *new_dst = (unsigned char *)realloc(dst, new_cap);
-            if (!new_dst) {
+            if (!new_dst)
+            {
                 free(dst);
                 return push_empty_bytes(vm, error);
             }
@@ -474,7 +546,8 @@ static vigil_status_t gzip_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil
 
 /* ── LZ4 ─────────────────────────────────────────────────────────── */
 
-static vigil_status_t lz4_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t lz4_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -485,18 +558,21 @@ static vigil_status_t lz4_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_er
     src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len == 0) {
+    if (!src || src_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
     dst_cap = LZ4_compressBound((int)src_len);
     dst = (char *)malloc((size_t)dst_cap);
-    if (!dst) {
+    if (!dst)
+    {
         return push_empty_bytes(vm, error);
     }
 
     compressed_size = LZ4_compress_default(src, dst, (int)src_len, dst_cap);
-    if (compressed_size <= 0) {
+    if (compressed_size <= 0)
+    {
         free(dst);
         return push_empty_bytes(vm, error);
     }
@@ -506,7 +582,8 @@ static vigil_status_t lz4_compress_fn(vigil_vm_t *vm, size_t arg_count, vigil_er
     return ret;
 }
 
-static vigil_status_t lz4_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t lz4_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -516,33 +593,40 @@ static vigil_status_t lz4_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_
     src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!src || src_len == 0) {
+    if (!src || src_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
     /* Start with 4x source size, grow if needed */
     dst_cap = (int)(src_len * 4);
-    if (dst_cap < 1024) dst_cap = 1024;
+    if (dst_cap < 1024)
+        dst_cap = 1024;
 
     dst = (char *)malloc((size_t)dst_cap);
-    if (!dst) {
+    if (!dst)
+    {
         return push_empty_bytes(vm, error);
     }
 
-    while (1) {
+    while (1)
+    {
         decompressed_size = LZ4_decompress_safe(src, dst, (int)src_len, dst_cap);
-        if (decompressed_size > 0) {
+        if (decompressed_size > 0)
+        {
             vigil_status_t ret = push_bytes(vm, dst, (size_t)decompressed_size, error);
             free(dst);
             return ret;
         }
-        if (decompressed_size == 0) {
+        if (decompressed_size == 0)
+        {
             /* Empty result */
             free(dst);
             return push_empty_bytes(vm, error);
         }
         /* Negative = error, try larger buffer */
-        if (dst_cap > 256 * 1024 * 1024) {
+        if (dst_cap > 256 * 1024 * 1024)
+        {
             /* Give up after 256MB */
             free(dst);
             return push_empty_bytes(vm, error);
@@ -550,7 +634,8 @@ static vigil_status_t lz4_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_
         {
             int new_cap = dst_cap * 2;
             char *new_dst = (char *)realloc(dst, (size_t)new_cap);
-            if (!new_dst) {
+            if (!new_dst)
+            {
                 free(dst);
                 return push_empty_bytes(vm, error);
             }
@@ -562,7 +647,8 @@ static vigil_status_t lz4_decompress_fn(vigil_vm_t *vm, size_t arg_count, vigil_
 
 /* ── ZIP ─────────────────────────────────────────────────────────── */
 
-static vigil_status_t zip_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zip_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -575,25 +661,30 @@ static vigil_status_t zip_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     vigil_vm_stack_pop_n(vm, arg_count);
 
     s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
 
-    if (!src || src_len == 0) {
+    if (!src || src_len == 0)
+    {
         goto done;
     }
 
     mz_zip_zero_struct(&zip);
-    if (!mz_zip_reader_init_mem(&zip, src, src_len, 0)) {
+    if (!mz_zip_reader_init_mem(&zip, src, src_len, 0))
+    {
         goto done;
     }
 
     num_files = mz_zip_reader_get_num_files(&zip);
-    for (i = 0; i < num_files; i++) {
+    for (i = 0; i < num_files; i++)
+    {
         char filename[512];
         mz_zip_reader_get_filename(&zip, i, filename, sizeof(filename));
-        
+
         vigil_object_t *str_obj = NULL;
         s = vigil_string_object_new(vigil_vm_runtime(vm), filename, strlen(filename), &str_obj, error);
-        if (s == VIGIL_STATUS_OK) {
+        if (s == VIGIL_STATUS_OK)
+        {
             vigil_value_t val;
             vigil_value_init_object(&val, &str_obj);
             vigil_array_object_append(arr, &val, error);
@@ -602,17 +693,17 @@ static vigil_status_t zip_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     }
     mz_zip_reader_end(&zip);
 
-done:
-    {
-        vigil_value_t val;
-        vigil_value_init_object(&val, &arr);
-        s = vigil_vm_stack_push(vm, &val, error);
-        vigil_value_release(&val);
-        return s;
-    }
+done: {
+    vigil_value_t val;
+    vigil_value_init_object(&val, &arr);
+    s = vigil_vm_stack_push(vm, &val, error);
+    vigil_value_release(&val);
+    return s;
+}
 }
 
-static vigil_status_t zip_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zip_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t zip_len, name_len;
     const char *zip_data, *name;
@@ -626,17 +717,20 @@ static vigil_status_t zip_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     name = get_bytes_data(vigil_vm_stack_get(vm, base + 1), &name_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!zip_data || zip_len == 0 || !name || name_len == 0) {
+    if (!zip_data || zip_len == 0 || !name || name_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
     mz_zip_zero_struct(&zip);
-    if (!mz_zip_reader_init_mem(&zip, zip_data, zip_len, 0)) {
+    if (!mz_zip_reader_init_mem(&zip, zip_data, zip_len, 0))
+    {
         return push_empty_bytes(vm, error);
     }
 
     file_index = mz_zip_reader_locate_file(&zip, name, NULL, 0);
-    if (file_index < 0) {
+    if (file_index < 0)
+    {
         mz_zip_reader_end(&zip);
         return push_empty_bytes(vm, error);
     }
@@ -644,7 +738,8 @@ static vigil_status_t zip_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     data = mz_zip_reader_extract_to_heap(&zip, (mz_uint)file_index, &data_size, 0);
     mz_zip_reader_end(&zip);
 
-    if (!data) {
+    if (!data)
+    {
         return push_empty_bytes(vm, error);
     }
 
@@ -654,7 +749,8 @@ static vigil_status_t zip_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
 }
 
 /* zip_create: takes two arrays - names and contents */
-static vigil_status_t zip_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zip_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     vigil_value_t names_val = vigil_vm_stack_get(vm, base);
     vigil_value_t contents_val = vigil_vm_stack_get(vm, base + 1);
@@ -667,40 +763,48 @@ static vigil_status_t zip_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val)) {
+    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val))
+    {
         return push_empty_bytes(vm, error);
     }
     names_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(names_val);
     contents_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(contents_val);
-    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY ||
-        !contents_obj || vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY) {
+    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY || !contents_obj ||
+        vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY)
+    {
         return push_empty_bytes(vm, error);
     }
 
     count = vigil_array_object_length(names_obj);
-    if (vigil_array_object_length(contents_obj) < count) {
+    if (vigil_array_object_length(contents_obj) < count)
+    {
         count = vigil_array_object_length(contents_obj);
     }
 
     mz_zip_zero_struct(&zip);
-    if (!mz_zip_writer_init_heap(&zip, 0, 0)) {
+    if (!mz_zip_writer_init_heap(&zip, 0, 0))
+    {
         return push_empty_bytes(vm, error);
     }
 
-    for (i = 0; i < count; i++) {
+    for (i = 0; i < count; i++)
+    {
         vigil_value_t name_val, content_val;
         size_t name_len, data_len;
         const char *name, *data;
 
-        if (!vigil_array_object_get(names_obj, i, &name_val)) continue;
-        if (!vigil_array_object_get(contents_obj, i, &content_val)) {
+        if (!vigil_array_object_get(names_obj, i, &name_val))
+            continue;
+        if (!vigil_array_object_get(contents_obj, i, &content_val))
+        {
             vigil_value_release(&name_val);
             continue;
         }
 
         name = get_bytes_data(name_val, &name_len);
         data = get_bytes_data(content_val, &data_len);
-        if (!name) {
+        if (!name)
+        {
             vigil_value_release(&name_val);
             vigil_value_release(&content_val);
             continue;
@@ -711,7 +815,8 @@ static vigil_status_t zip_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
         vigil_value_release(&content_val);
     }
 
-    if (!mz_zip_writer_finalize_heap_archive(&zip, &zip_data, &zip_size)) {
+    if (!mz_zip_writer_finalize_heap_archive(&zip, &zip_data, &zip_size))
+    {
         mz_zip_writer_end(&zip);
         return push_empty_bytes(vm, error);
     }
@@ -723,7 +828,8 @@ static vigil_status_t zip_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
 }
 
 /* zip_create_level: takes two arrays + level */
-static vigil_status_t zip_create_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t zip_create_level_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     vigil_value_t names_val = vigil_vm_stack_get(vm, base);
     vigil_value_t contents_val = vigil_vm_stack_get(vm, base + 1);
@@ -737,40 +843,48 @@ static vigil_status_t zip_create_level_fn(vigil_vm_t *vm, size_t arg_count, vigi
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val)) {
+    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val))
+    {
         return push_empty_bytes(vm, error);
     }
     names_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(names_val);
     contents_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(contents_val);
-    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY ||
-        !contents_obj || vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY) {
+    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY || !contents_obj ||
+        vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY)
+    {
         return push_empty_bytes(vm, error);
     }
 
     count = vigil_array_object_length(names_obj);
-    if (vigil_array_object_length(contents_obj) < count) {
+    if (vigil_array_object_length(contents_obj) < count)
+    {
         count = vigil_array_object_length(contents_obj);
     }
 
     mz_zip_zero_struct(&zip);
-    if (!mz_zip_writer_init_heap(&zip, 0, 0)) {
+    if (!mz_zip_writer_init_heap(&zip, 0, 0))
+    {
         return push_empty_bytes(vm, error);
     }
 
-    for (i = 0; i < count; i++) {
+    for (i = 0; i < count; i++)
+    {
         vigil_value_t name_val, content_val;
         size_t name_len, data_len;
         const char *name, *data;
 
-        if (!vigil_array_object_get(names_obj, i, &name_val)) continue;
-        if (!vigil_array_object_get(contents_obj, i, &content_val)) {
+        if (!vigil_array_object_get(names_obj, i, &name_val))
+            continue;
+        if (!vigil_array_object_get(contents_obj, i, &content_val))
+        {
             vigil_value_release(&name_val);
             continue;
         }
 
         name = get_bytes_data(name_val, &name_len);
         data = get_bytes_data(content_val, &data_len);
-        if (!name) {
+        if (!name)
+        {
             vigil_value_release(&name_val);
             vigil_value_release(&content_val);
             continue;
@@ -781,7 +895,8 @@ static vigil_status_t zip_create_level_fn(vigil_vm_t *vm, size_t arg_count, vigi
         vigil_value_release(&content_val);
     }
 
-    if (!mz_zip_writer_finalize_heap_archive(&zip, &zip_data, &zip_size)) {
+    if (!mz_zip_writer_finalize_heap_archive(&zip, &zip_data, &zip_size))
+    {
         mz_zip_writer_end(&zip);
         return push_empty_bytes(vm, error);
     }
@@ -795,7 +910,8 @@ static vigil_status_t zip_create_level_fn(vigil_vm_t *vm, size_t arg_count, vigi
 /* ── TAR ─────────────────────────────────────────────────────────── */
 
 /* POSIX ustar header (512 bytes) */
-typedef struct {
+typedef struct
+{
     char name[100];
     char mode[8];
     char uid[8];
@@ -815,37 +931,46 @@ typedef struct {
     char padding[12];
 } tar_header_t;
 
-static unsigned int tar_checksum(const tar_header_t *h) {
+static unsigned int tar_checksum(const tar_header_t *h)
+{
     const unsigned char *p = (const unsigned char *)h;
     unsigned int sum = 0;
     size_t i;
-    for (i = 0; i < 512; i++) {
-        if (i >= 148 && i < 156) sum += ' ';  /* checksum field treated as spaces */
-        else sum += p[i];
+    for (i = 0; i < 512; i++)
+    {
+        if (i >= 148 && i < 156)
+            sum += ' '; /* checksum field treated as spaces */
+        else
+            sum += p[i];
     }
     return sum;
 }
 
-static size_t tar_parse_octal(const char *s, size_t len) {
+static size_t tar_parse_octal(const char *s, size_t len)
+{
     size_t val = 0;
     size_t i;
-    for (i = 0; i < len && s[i] >= '0' && s[i] <= '7'; i++) {
+    for (i = 0; i < len && s[i] >= '0' && s[i] <= '7'; i++)
+    {
         val = val * 8 + (size_t)(s[i] - '0');
     }
     return val;
 }
 
-static void tar_write_octal(char *dst, size_t len, size_t val) {
+static void tar_write_octal(char *dst, size_t len, size_t val)
+{
     size_t i = len - 1;
     dst[i--] = '\0';
-    while (i > 0) {
+    while (i > 0)
+    {
         dst[i--] = '0' + (char)(val & 7);
         val >>= 3;
     }
     dst[0] = '0';
 }
 
-static vigil_status_t tar_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t tar_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src;
@@ -857,25 +982,31 @@ static vigil_status_t tar_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     vigil_vm_stack_pop_n(vm, arg_count);
 
     s = vigil_array_object_new(vigil_vm_runtime(vm), NULL, 0, &arr, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
 
-    while (pos + 512 <= src_len) {
+    while (pos + 512 <= src_len)
+    {
         const tar_header_t *h = (const tar_header_t *)(src + pos);
         size_t file_size;
         char name[256];
         size_t name_len;
 
-        if (h->name[0] == '\0') break;  /* End of archive */
+        if (h->name[0] == '\0')
+            break; /* End of archive */
 
         /* Build full name from prefix + name */
-        if (h->prefix[0] && memcmp(h->magic, "ustar", 5) == 0) {
+        if (h->prefix[0] && memcmp(h->magic, "ustar", 5) == 0)
+        {
             size_t plen = strnlen(h->prefix, 155);
             size_t nlen = strnlen(h->name, 100);
             memcpy(name, h->prefix, plen);
             name[plen] = '/';
             memcpy(name + plen + 1, h->name, nlen);
             name_len = plen + 1 + nlen;
-        } else {
+        }
+        else
+        {
             name_len = strnlen(h->name, 100);
             memcpy(name, h->name, name_len);
         }
@@ -887,7 +1018,8 @@ static vigil_status_t tar_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
         {
             vigil_object_t *str_obj = NULL;
             s = vigil_string_object_new(vigil_vm_runtime(vm), name, name_len, &str_obj, error);
-            if (s == VIGIL_STATUS_OK) {
+            if (s == VIGIL_STATUS_OK)
+            {
                 vigil_value_t val;
                 vigil_value_init_object(&val, &str_obj);
                 vigil_array_object_append(arr, &val, error);
@@ -907,7 +1039,8 @@ static vigil_status_t tar_list_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     }
 }
 
-static vigil_status_t tar_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t tar_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t tar_len, name_len;
     const char *tar_data, *name;
@@ -917,26 +1050,32 @@ static vigil_status_t tar_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     name = get_bytes_data(vigil_vm_stack_get(vm, base + 1), &name_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!tar_data || tar_len == 0 || !name || name_len == 0) {
+    if (!tar_data || tar_len == 0 || !name || name_len == 0)
+    {
         return push_empty_bytes(vm, error);
     }
 
-    while (pos + 512 <= tar_len) {
+    while (pos + 512 <= tar_len)
+    {
         const tar_header_t *h = (const tar_header_t *)(tar_data + pos);
         size_t file_size;
         char entry_name[256];
         size_t entry_len;
 
-        if (h->name[0] == '\0') break;
+        if (h->name[0] == '\0')
+            break;
 
-        if (h->prefix[0] && memcmp(h->magic, "ustar", 5) == 0) {
+        if (h->prefix[0] && memcmp(h->magic, "ustar", 5) == 0)
+        {
             size_t plen = strnlen(h->prefix, 155);
             size_t nlen = strnlen(h->name, 100);
             memcpy(entry_name, h->prefix, plen);
             entry_name[plen] = '/';
             memcpy(entry_name + plen + 1, h->name, nlen);
             entry_len = plen + 1 + nlen;
-        } else {
+        }
+        else
+        {
             entry_len = strnlen(h->name, 100);
             memcpy(entry_name, h->name, entry_len);
         }
@@ -944,8 +1083,10 @@ static vigil_status_t tar_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
 
         file_size = tar_parse_octal(h->size, 12);
 
-        if (entry_len == name_len && memcmp(entry_name, name, name_len) == 0) {
-            if (pos + 512 + file_size <= tar_len) {
+        if (entry_len == name_len && memcmp(entry_name, name, name_len) == 0)
+        {
+            if (pos + 512 + file_size <= tar_len)
+            {
                 return push_bytes(vm, tar_data + pos + 512, file_size, error);
             }
             break;
@@ -957,7 +1098,8 @@ static vigil_status_t tar_read_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_
     return push_empty_bytes(vm, error);
 }
 
-static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     vigil_value_t names_val = vigil_vm_stack_get(vm, base);
     vigil_value_t contents_val = vigil_vm_stack_get(vm, base + 1);
@@ -969,22 +1111,26 @@ static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val)) {
+    if (!vigil_nanbox_is_object(names_val) || !vigil_nanbox_is_object(contents_val))
+    {
         return push_empty_bytes(vm, error);
     }
     names_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(names_val);
     contents_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(contents_val);
-    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY ||
-        !contents_obj || vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY) {
+    if (!names_obj || vigil_object_type(names_obj) != VIGIL_OBJECT_ARRAY || !contents_obj ||
+        vigil_object_type(contents_obj) != VIGIL_OBJECT_ARRAY)
+    {
         return push_empty_bytes(vm, error);
     }
 
     count = vigil_array_object_length(names_obj);
-    if (vigil_array_object_length(contents_obj) < count) {
+    if (vigil_array_object_length(contents_obj) < count)
+    {
         count = vigil_array_object_length(contents_obj);
     }
 
-    for (i = 0; i < count; i++) {
+    for (i = 0; i < count; i++)
+    {
         vigil_value_t name_val, content_val;
         size_t name_len, data_len;
         const char *name, *data;
@@ -992,20 +1138,24 @@ static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
         size_t padded_size, needed;
         unsigned int cksum;
 
-        if (!vigil_array_object_get(names_obj, i, &name_val)) continue;
-        if (!vigil_array_object_get(contents_obj, i, &content_val)) {
+        if (!vigil_array_object_get(names_obj, i, &name_val))
+            continue;
+        if (!vigil_array_object_get(contents_obj, i, &content_val))
+        {
             vigil_value_release(&name_val);
             continue;
         }
 
         name = get_bytes_data(name_val, &name_len);
         data = get_bytes_data(content_val, &data_len);
-        if (!name || name_len == 0) {
+        if (!name || name_len == 0)
+        {
             vigil_value_release(&name_val);
             vigil_value_release(&content_val);
             continue;
         }
-        if (name_len > 100) name_len = 100;
+        if (name_len > 100)
+            name_len = 100;
 
         memset(&h, 0, sizeof(h));
         memcpy(h.name, name, name_len);
@@ -1027,11 +1177,14 @@ static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
         padded_size = (data_len + 511) & ~511;
         needed = tar_size + 512 + padded_size;
-        if (needed > tar_cap) {
+        if (needed > tar_cap)
+        {
             size_t new_cap = tar_cap ? tar_cap * 2 : 4096;
-            while (new_cap < needed) new_cap *= 2;
+            while (new_cap < needed)
+                new_cap *= 2;
             unsigned char *new_data = (unsigned char *)realloc(tar_data, new_cap);
-            if (!new_data) {
+            if (!new_data)
+            {
                 free(tar_data);
                 vigil_value_release(&name_val);
                 vigil_value_release(&content_val);
@@ -1043,10 +1196,12 @@ static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
         memcpy(tar_data + tar_size, &h, 512);
         tar_size += 512;
-        if (data && data_len > 0) {
+        if (data && data_len > 0)
+        {
             memcpy(tar_data + tar_size, data, data_len);
         }
-        if (padded_size > data_len) {
+        if (padded_size > data_len)
+        {
             memset(tar_data + tar_size + data_len, 0, padded_size - data_len);
         }
         tar_size += padded_size;
@@ -1057,9 +1212,11 @@ static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
     /* Add two empty blocks at end */
     {
         size_t needed = tar_size + 1024;
-        if (needed > tar_cap) {
+        if (needed > tar_cap)
+        {
             unsigned char *new_data = (unsigned char *)realloc(tar_data, needed);
-            if (!new_data) {
+            if (!new_data)
+            {
                 free(tar_data);
                 return push_empty_bytes(vm, error);
             }
@@ -1076,11 +1233,13 @@ static vigil_status_t tar_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
 /* ── TAR.GZ convenience ──────────────────────────────────────────── */
 
-static vigil_status_t tar_gz_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t tar_gz_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     /* Build tar in memory, then gzip it.
      * We call tar_create_fn which pops our args and pushes the tar bytes. */
     vigil_status_t s = tar_create_fn(vm, arg_count, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
 
     /* tar_create pushed the tar bytes; pop and gzip them */
     vigil_value_t tar_val = vigil_vm_stack_get(vm, vigil_vm_stack_depth(vm) - 1);
@@ -1089,9 +1248,11 @@ static vigil_status_t tar_gz_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
 
     /* We need to copy tar_data before popping since the string may be freed */
     char *tar_copy = NULL;
-    if (tar_data && tar_len > 0) {
+    if (tar_data && tar_len > 0)
+    {
         tar_copy = (char *)malloc(tar_len);
-        if (tar_copy) memcpy(tar_copy, tar_data, tar_len);
+        if (tar_copy)
+            memcpy(tar_copy, tar_data, tar_len);
     }
     vigil_vm_stack_pop_n(vm, 1);
 
@@ -1102,36 +1263,54 @@ static vigil_status_t tar_gz_create_fn(vigil_vm_t *vm, size_t arg_count, vigil_e
 
 /* ── Bounded decompression ───────────────────────────────────────── */
 
-static vigil_status_t gzip_decompress_max_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t gzip_decompress_max_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
     int64_t max_bytes = vigil_nanbox_decode_int(vigil_vm_stack_get(vm, base + 1));
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (max_bytes <= 0 || !src || src_len < 18) return push_empty_bytes(vm, error);
+    if (max_bytes <= 0 || !src || src_len < 18)
+        return push_empty_bytes(vm, error);
 
     const unsigned char *usrc = (const unsigned char *)src;
-    if (usrc[0] != 0x1f || usrc[1] != 0x8b) return push_empty_bytes(vm, error);
+    if (usrc[0] != 0x1f || usrc[1] != 0x8b)
+        return push_empty_bytes(vm, error);
 
     /* Skip gzip header */
     size_t hdr_len = 10;
     {
         unsigned char flags = usrc[3];
-        if (flags & 0x04) {
-            if (hdr_len + 2 > src_len) return push_empty_bytes(vm, error);
+        if (flags & 0x04)
+        {
+            if (hdr_len + 2 > src_len)
+                return push_empty_bytes(vm, error);
             hdr_len += 2 + (usrc[hdr_len] | (usrc[hdr_len + 1] << 8));
         }
-        if (flags & 0x08) { while (hdr_len < src_len && usrc[hdr_len]) hdr_len++; hdr_len++; }
-        if (flags & 0x10) { while (hdr_len < src_len && usrc[hdr_len]) hdr_len++; hdr_len++; }
-        if (flags & 0x02) hdr_len += 2;
+        if (flags & 0x08)
+        {
+            while (hdr_len < src_len && usrc[hdr_len])
+                hdr_len++;
+            hdr_len++;
+        }
+        if (flags & 0x10)
+        {
+            while (hdr_len < src_len && usrc[hdr_len])
+                hdr_len++;
+            hdr_len++;
+        }
+        if (flags & 0x02)
+            hdr_len += 2;
     }
-    if (hdr_len + 8 > src_len) return push_empty_bytes(vm, error);
+    if (hdr_len + 8 > src_len)
+        return push_empty_bytes(vm, error);
 
     size_t deflate_len = src_len - hdr_len - 8;
     size_t cap = (size_t)max_bytes;
     unsigned char *dst = (unsigned char *)malloc(cap);
-    if (!dst) return push_empty_bytes(vm, error);
+    if (!dst)
+        return push_empty_bytes(vm, error);
 
     /* Use mz_stream for bounded inflate — simpler than tinfl for partial output */
     mz_stream stream;
@@ -1141,7 +1320,8 @@ static vigil_status_t gzip_decompress_max_fn(vigil_vm_t *vm, size_t arg_count, v
     stream.next_out = dst;
     stream.avail_out = (mz_uint32)cap;
 
-    if (mz_inflateInit2(&stream, -MZ_DEFAULT_WINDOW_BITS) != MZ_OK) {
+    if (mz_inflateInit2(&stream, -MZ_DEFAULT_WINDOW_BITS) != MZ_OK)
+    {
         free(dst);
         return push_empty_bytes(vm, error);
     }
@@ -1157,14 +1337,20 @@ static vigil_status_t gzip_decompress_max_fn(vigil_vm_t *vm, size_t arg_count, v
 
 /* ── Gzip header info ────────────────────────────────────────────── */
 
-static vigil_status_t push_map_str(vigil_vm_t *vm, vigil_object_t *map,
-    const char *key, const char *val, size_t val_len, vigil_error_t *error) {
+static vigil_status_t push_map_str(vigil_vm_t *vm, vigil_object_t *map, const char *key, const char *val,
+                                   size_t val_len, vigil_error_t *error)
+{
     vigil_object_t *k_obj = NULL, *v_obj = NULL;
     vigil_status_t s;
     s = vigil_string_object_new(vigil_vm_runtime(vm), key, strlen(key), &k_obj, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     s = vigil_string_object_new(vigil_vm_runtime(vm), val, val_len, &v_obj, error);
-    if (s != VIGIL_STATUS_OK) { vigil_object_release(&k_obj); return s; }
+    if (s != VIGIL_STATUS_OK)
+    {
+        vigil_object_release(&k_obj);
+        return s;
+    }
     vigil_value_t kv, vv;
     vigil_value_init_object(&kv, &k_obj);
     vigil_value_init_object(&vv, &v_obj);
@@ -1174,7 +1360,8 @@ static vigil_status_t push_map_str(vigil_vm_t *vm, vigil_object_t *map,
     return s;
 }
 
-static vigil_status_t gzip_info_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t gzip_info_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     size_t src_len;
     const char *src = get_bytes_data(vigil_vm_stack_get(vm, base), &src_len);
@@ -1182,11 +1369,14 @@ static vigil_status_t gzip_info_fn(vigil_vm_t *vm, size_t arg_count, vigil_error
 
     vigil_object_t *map = NULL;
     vigil_status_t s = vigil_map_object_new(vigil_vm_runtime(vm), &map, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
 
-    if (!src || src_len < 18) goto done;
+    if (!src || src_len < 18)
+        goto done;
     const unsigned char *u = (const unsigned char *)src;
-    if (u[0] != 0x1f || u[1] != 0x8b) goto done;
+    if (u[0] != 0x1f || u[1] != 0x8b)
+        goto done;
 
     /* Method */
     {
@@ -1215,32 +1405,38 @@ static vigil_status_t gzip_info_fn(vigil_vm_t *vm, size_t arg_count, vigil_error
 
         size_t pos = 10;
         /* FEXTRA */
-        if (flags & 0x04) {
-            if (pos + 2 <= src_len) {
+        if (flags & 0x04)
+        {
+            if (pos + 2 <= src_len)
+            {
                 size_t xlen = u[pos] | (u[pos + 1] << 8);
                 pos += 2 + xlen;
             }
         }
         /* FNAME */
-        if (flags & 0x08) {
+        if (flags & 0x08)
+        {
             const char *name_start = (const char *)(u + pos);
             size_t name_len = 0;
-            while (pos + name_len < src_len && u[pos + name_len]) name_len++;
+            while (pos + name_len < src_len && u[pos + name_len])
+                name_len++;
             push_map_str(vm, map, "filename", name_start, name_len, error);
             pos += name_len + 1;
         }
         /* FCOMMENT */
-        if (flags & 0x10) {
+        if (flags & 0x10)
+        {
             const char *comment_start = (const char *)(u + pos);
             size_t comment_len = 0;
-            while (pos + comment_len < src_len && u[pos + comment_len]) comment_len++;
+            while (pos + comment_len < src_len && u[pos + comment_len])
+                comment_len++;
             push_map_str(vm, map, "comment", comment_start, comment_len, error);
         }
     }
     /* Original size (last 4 bytes, mod 2^32) */
     {
         uint32_t orig_size = (uint32_t)u[src_len - 4] | ((uint32_t)u[src_len - 3] << 8) |
-            ((uint32_t)u[src_len - 2] << 16) | ((uint32_t)u[src_len - 1] << 24);
+                             ((uint32_t)u[src_len - 2] << 16) | ((uint32_t)u[src_len - 1] << 24);
         char buf[16];
         snprintf(buf, sizeof(buf), "%u", orig_size);
         push_map_str(vm, map, "size", buf, strlen(buf), error);
@@ -1256,25 +1452,21 @@ done:;
 
 /* ── Module descriptor ───────────────────────────────────────────── */
 
-static const int bytes_param[] = { VIGIL_TYPE_STRING };
-static const int two_bytes_param[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
-static const int two_arrays_param[] = { VIGIL_TYPE_OBJECT, VIGIL_TYPE_OBJECT };
+static const int bytes_param[] = {VIGIL_TYPE_STRING};
+static const int two_bytes_param[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_STRING};
+static const int two_arrays_param[] = {VIGIL_TYPE_OBJECT, VIGIL_TYPE_OBJECT};
 
-static const int bytes_int_param[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_I32 };
+static const int bytes_int_param[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_I32};
 
-static const int two_arrays_int_param[] = { VIGIL_TYPE_OBJECT, VIGIL_TYPE_OBJECT, VIGIL_TYPE_I32 };
+static const int two_arrays_int_param[] = {VIGIL_TYPE_OBJECT, VIGIL_TYPE_OBJECT, VIGIL_TYPE_I32};
 
 /* Extended type info for functions that take array<string> parameters */
-static const vigil_native_type_t create_params_ext[] = {
-    VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
-    VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING)
-};
+static const vigil_native_type_t create_params_ext[] = {VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
+                                                        VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING)};
 
-static const vigil_native_type_t create_level_params_ext[] = {
-    VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
-    VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
-    VIGIL_NATIVE_TYPE_PRIMITIVE(VIGIL_TYPE_I32)
-};
+static const vigil_native_type_t create_level_params_ext[] = {VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
+                                                              VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING),
+                                                              VIGIL_NATIVE_TYPE_PRIMITIVE(VIGIL_TYPE_I32)};
 
 /* Extended type info for functions that return array<string> */
 static const vigil_native_type_t array_string_return = VIGIL_NATIVE_TYPE_ARRAY(VIGIL_TYPE_STRING);
@@ -1287,35 +1479,39 @@ static const vigil_native_type_t map_ss_return = VIGIL_NATIVE_TYPE_MAP(VIGIL_TYP
 
 static const vigil_native_module_function_t compress_functions[] = {
     {"deflate_compress", 16U, deflate_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"deflate_compress_level", 22U, deflate_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"deflate_compress_level", 22U, deflate_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0,
+     NULL, NULL},
     {"deflate_decompress", 18U, deflate_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"zlib_compress", 13U, zlib_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"zlib_compress_level", 19U, zlib_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"zlib_compress_level", 19U, zlib_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL,
+     NULL},
     {"zlib_decompress", 15U, zlib_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"gzip_compress", 13U, gzip_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
-    {"gzip_compress_level", 19U, gzip_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"gzip_compress_level", 19U, gzip_compress_level_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL,
+     NULL},
     {"gzip_decompress", 15U, gzip_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"lz4_compress", 12U, lz4_compress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"lz4_decompress", 14U, lz4_decompress_fn, 1U, bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"crc32", 5U, crc32_fn, 1U, bytes_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
     {"adler32", 7U, adler32_fn, 1U, bytes_param, VIGIL_TYPE_I64, 1U, NULL, 0, NULL, NULL},
-    {"zip_list", 8U, zip_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, &array_string_return},
+    {"zip_list", 8U, zip_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL,
+     &array_string_return},
     {"zip_read", 8U, zip_read_fn, 2U, two_bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"zip_create", 10U, zip_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
-    {"zip_create_level", 16U, zip_create_level_fn, 3U, two_arrays_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_level_params_ext, NULL},
-    {"tar_list", 8U, tar_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL, &array_string_return},
+    {"zip_create_level", 16U, zip_create_level_fn, 3U, two_arrays_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0,
+     create_level_params_ext, NULL},
+    {"tar_list", 8U, tar_list_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, VIGIL_TYPE_STRING, NULL,
+     &array_string_return},
     {"tar_read", 8U, tar_read_fn, 2U, two_bytes_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
     {"tar_create", 10U, tar_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
-    {"tar_gz_create", 13U, tar_gz_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext, NULL},
-    {"gzip_decompress_max", 19U, gzip_decompress_max_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL, NULL},
+    {"tar_gz_create", 13U, tar_gz_create_fn, 2U, two_arrays_param, VIGIL_TYPE_STRING, 1U, NULL, 0, create_params_ext,
+     NULL},
+    {"gzip_decompress_max", 19U, gzip_decompress_max_fn, 2U, bytes_int_param, VIGIL_TYPE_STRING, 1U, NULL, 0, NULL,
+     NULL},
     {"gzip_info", 9U, gzip_info_fn, 1U, bytes_param, VIGIL_TYPE_OBJECT, 1U, NULL, 0, NULL, &map_ss_return},
 };
 
 #define COMPRESS_FUNCTION_COUNT (sizeof(compress_functions) / sizeof(compress_functions[0]))
 
 VIGIL_API const vigil_native_module_t vigil_stdlib_compress = {
-    "compress", 8U,
-    compress_functions,
-    COMPRESS_FUNCTION_COUNT,
-    NULL, 0U
-};
+    "compress", 8U, compress_functions, COMPRESS_FUNCTION_COUNT, NULL, 0U};

@@ -3,69 +3,77 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct AllocatorStats {
+struct AllocatorStats
+{
     int allocate_calls;
     int reallocate_calls;
     int deallocate_calls;
 };
 
-struct FailingAllocatorState {
+struct FailingAllocatorState
+{
     int allocate_calls;
     int deallocate_calls;
     int fail_after;
 };
 
-static void *CountedAllocate(void *user_data, size_t size) {
+static void *CountedAllocate(void *user_data, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->allocate_calls += 1;
     return malloc(size);
 }
 
-static void *CountedReallocate(void *user_data, void *memory, size_t size) {
+static void *CountedReallocate(void *user_data, void *memory, size_t size)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->reallocate_calls += 1;
     return realloc(memory, size);
 }
 
-static void CountedDeallocate(void *user_data, void *memory) {
+static void CountedDeallocate(void *user_data, void *memory)
+{
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
 
     stats->deallocate_calls += 1;
     free(memory);
 }
 
-void *FailAllocate(void *user_data, size_t size) {
+void *FailAllocate(void *user_data, size_t size)
+{
     struct FailingAllocatorState *state = (struct FailingAllocatorState *)(user_data);
 
     state->allocate_calls += 1;
-    if (state->allocate_calls > state->fail_after) {
+    if (state->allocate_calls > state->fail_after)
+    {
         return NULL;
     }
 
     return malloc(size);
 }
 
-void FailDeallocate(void *user_data, void *memory) {
+void FailDeallocate(void *user_data, void *memory)
+{
     struct FailingAllocatorState *state = (struct FailingAllocatorState *)(user_data);
 
     state->deallocate_calls += 1;
     free(memory);
 }
 
-static void ExpectClearedLocation(int *vigil_test_failed_, const vigil_source_location_t *location) {
+static void ExpectClearedLocation(int *vigil_test_failed_, const vigil_source_location_t *location)
+{
     EXPECT_EQ(location->source_id, 0U);
     EXPECT_EQ(location->offset, 0U);
     EXPECT_EQ(location->line, 0U);
     EXPECT_EQ(location->column, 0U);
 }
 
-
-TEST(VigilRuntimeTest, RuntimeOpensAndClosesWithDefaultAllocator) {
+TEST(VigilRuntimeTest, RuntimeOpensAndClosesWithDefaultAllocator)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
 
@@ -81,7 +89,8 @@ TEST(VigilRuntimeTest, RuntimeOpensAndClosesWithDefaultAllocator) {
     EXPECT_EQ(runtime, NULL);
 }
 
-TEST(VigilRuntimeTest, RuntimeOpenValidatesArguments) {
+TEST(VigilRuntimeTest, RuntimeOpenValidatesArguments)
+{
     vigil_error_t error = {0};
 
     EXPECT_EQ(vigil_runtime_open(NULL, NULL, &error), VIGIL_STATUS_INVALID_ARGUMENT);
@@ -92,7 +101,8 @@ TEST(VigilRuntimeTest, RuntimeOpenValidatesArguments) {
     ExpectClearedLocation(vigil_test_failed_, &error.location);
 }
 
-TEST(VigilRuntimeTest, RuntimeUsesCustomAllocatorHooks) {
+TEST(VigilRuntimeTest, RuntimeUsesCustomAllocatorHooks)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     struct AllocatorStats stats = {0};
@@ -120,7 +130,8 @@ TEST(VigilRuntimeTest, RuntimeUsesCustomAllocatorHooks) {
     EXPECT_EQ(stats.deallocate_calls, 1);
 }
 
-TEST(VigilRuntimeTest, RuntimeOptionsInitClearsFields) {
+TEST(VigilRuntimeTest, RuntimeOptionsInitClearsFields)
+{
     vigil_runtime_options_t options = {0};
     vigil_allocator_t allocator = {0};
     vigil_logger_t logger = {0};
@@ -133,7 +144,8 @@ TEST(VigilRuntimeTest, RuntimeOptionsInitClearsFields) {
     EXPECT_EQ(options.logger, NULL);
 }
 
-TEST(VigilRuntimeTest, RuntimeRejectsIncompleteAllocator) {
+TEST(VigilRuntimeTest, RuntimeRejectsIncompleteAllocator)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_allocator_t allocator = {0};
@@ -143,21 +155,16 @@ TEST(VigilRuntimeTest, RuntimeRejectsIncompleteAllocator) {
     vigil_runtime_options_init(&options);
     options.allocator = &allocator;
 
-    EXPECT_EQ(
-        vigil_runtime_open(&runtime, &options, &error),
-        VIGIL_STATUS_INVALID_ARGUMENT
-    );
+    EXPECT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(runtime, NULL);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
-    EXPECT_EQ(
-        strcmp(error.value, "allocator must define allocate and deallocate"),
-        0
-    );
+    EXPECT_EQ(strcmp(error.value, "allocator must define allocate and deallocate"), 0);
     EXPECT_EQ(error.length, strlen(error.value));
 }
 
-TEST(VigilRuntimeTest, RuntimeAllocAndFreeClearPointer) {
+TEST(VigilRuntimeTest, RuntimeAllocAndFreeClearPointer)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     void *memory = NULL;
@@ -176,7 +183,8 @@ TEST(VigilRuntimeTest, RuntimeAllocAndFreeClearPointer) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilRuntimeTest, RuntimeAllocReportsOutOfMemory) {
+TEST(VigilRuntimeTest, RuntimeAllocReportsOutOfMemory)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     struct FailingAllocatorState state = {0};
@@ -192,10 +200,7 @@ TEST(VigilRuntimeTest, RuntimeAllocReportsOutOfMemory) {
     options.allocator = &allocator;
 
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
-    EXPECT_EQ(
-        vigil_runtime_alloc(runtime, 64U, &memory, &error),
-        VIGIL_STATUS_OUT_OF_MEMORY
-    );
+    EXPECT_EQ(vigil_runtime_alloc(runtime, 64U, &memory, &error), VIGIL_STATUS_OUT_OF_MEMORY);
     EXPECT_EQ(memory, NULL);
     EXPECT_EQ(error.type, VIGIL_STATUS_OUT_OF_MEMORY);
     ASSERT_NE(error.value, NULL);
@@ -205,7 +210,8 @@ TEST(VigilRuntimeTest, RuntimeAllocReportsOutOfMemory) {
     EXPECT_EQ(state.deallocate_calls, 1);
 }
 
-TEST(VigilRuntimeTest, RuntimeReallocUsesAllocatorWhenAvailable) {
+TEST(VigilRuntimeTest, RuntimeReallocUsesAllocatorWhenAvailable)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     struct AllocatorStats stats = {0};
@@ -230,7 +236,8 @@ TEST(VigilRuntimeTest, RuntimeReallocUsesAllocatorWhenAvailable) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilRuntimeTest, RuntimeReallocRejectsUnsupportedAllocator) {
+TEST(VigilRuntimeTest, RuntimeReallocRejectsUnsupportedAllocator)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     struct AllocatorStats stats = {0};
@@ -246,22 +253,17 @@ TEST(VigilRuntimeTest, RuntimeReallocRejectsUnsupportedAllocator) {
 
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_runtime_alloc(runtime, 16U, &memory, &error), VIGIL_STATUS_OK);
-    EXPECT_EQ(
-        vigil_runtime_realloc(runtime, &memory, 32U, &error),
-        VIGIL_STATUS_UNSUPPORTED
-    );
+    EXPECT_EQ(vigil_runtime_realloc(runtime, &memory, 32U, &error), VIGIL_STATUS_UNSUPPORTED);
     EXPECT_EQ(error.type, VIGIL_STATUS_UNSUPPORTED);
     ASSERT_NE(error.value, NULL);
-    EXPECT_EQ(
-        strcmp(error.value, "allocator does not support reallocate"),
-        0
-    );
+    EXPECT_EQ(strcmp(error.value, "allocator does not support reallocate"), 0);
 
     vigil_runtime_free(runtime, &memory);
     vigil_runtime_close(&runtime);
 }
 
-void register_runtime_tests(void) {
+void register_runtime_tests(void)
+{
     REGISTER_TEST(VigilRuntimeTest, RuntimeOpensAndClosesWithDefaultAllocator);
     REGISTER_TEST(VigilRuntimeTest, RuntimeOpenValidatesArguments);
     REGISTER_TEST(VigilRuntimeTest, RuntimeUsesCustomAllocatorHooks);

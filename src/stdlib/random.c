@@ -16,7 +16,8 @@
 
 static uint64_t rng_state[2] = {0x853c49e6748fea9bULL, 0xda3e39cb94b95bdbULL};
 
-static uint64_t xorshift128plus(void) {
+static uint64_t xorshift128plus(void)
+{
     uint64_t s1 = rng_state[0];
     uint64_t s0 = rng_state[1];
     uint64_t result = s0 + s1;
@@ -28,9 +29,8 @@ static uint64_t xorshift128plus(void) {
 
 /* ── random.seed(n: i32) ─────────────────────────────────────────── */
 
-static vigil_status_t vigil_random_seed(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_random_seed(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t v;
     int32_t seed;
     (void)arg_count;
@@ -51,9 +51,8 @@ static vigil_status_t vigil_random_seed(
 
 /* ── random.i64() -> i64 ─────────────────────────────────────────── */
 
-static vigil_status_t vigil_random_i64(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_random_i64(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t val;
     (void)arg_count;
 
@@ -63,9 +62,8 @@ static vigil_status_t vigil_random_i64(
 
 /* ── random.i32() -> i32 ─────────────────────────────────────────── */
 
-static vigil_status_t vigil_random_i32(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_random_i32(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t val;
     (void)arg_count;
 
@@ -75,9 +73,8 @@ static vigil_status_t vigil_random_i32(
 
 /* ── random.f64() -> f64 in [0, 1) ───────────────────────────────── */
 
-static vigil_status_t vigil_random_f64(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_random_f64(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t val;
     double d;
     (void)arg_count;
@@ -90,9 +87,8 @@ static vigil_status_t vigil_random_f64(
 
 /* ── random.range(min: i32, max: i32) -> i32 ─────────────────────── */
 
-static vigil_status_t vigil_random_range(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_random_range(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t v;
     int32_t min_val, max_val, result;
     uint32_t range;
@@ -105,9 +101,12 @@ static vigil_status_t vigil_random_range(
     max_val = vigil_nanbox_decode_i32(v);
     vigil_vm_stack_pop_n(vm, 2U);
 
-    if (max_val <= min_val) {
+    if (max_val <= min_val)
+    {
         result = min_val;
-    } else {
+    }
+    else
+    {
         range = (uint32_t)(max_val - min_val);
         result = min_val + (int32_t)((uint32_t)(xorshift128plus() >> 32) % range);
     }
@@ -124,19 +123,22 @@ static vigil_status_t vigil_random_range(
 static double gaussian_spare;
 static int gaussian_has_spare = 0;
 
-static vigil_status_t vigil_random_gaussian(
-    vigil_vm_t *vm, size_t arg_count, vigil_error_t *error
-) {
+static vigil_status_t vigil_random_gaussian(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     vigil_value_t val;
     double result;
     (void)arg_count;
 
-    if (gaussian_has_spare) {
+    if (gaussian_has_spare)
+    {
         gaussian_has_spare = 0;
         result = gaussian_spare;
-    } else {
+    }
+    else
+    {
         double u1, u2, r;
-        do {
+        do
+        {
             u1 = (double)(xorshift128plus() >> 11) * (1.0 / 9007199254740992.0);
         } while (u1 < 1e-300);
         u2 = (double)(xorshift128plus() >> 11) * (1.0 / 9007199254740992.0);
@@ -164,12 +166,7 @@ static const vigil_native_module_function_t vigil_random_functions[] = {
     {"range", 5U, vigil_random_range, 2U, range_params, VIGIL_TYPE_I32, 1U, NULL, 0, NULL, NULL},
 };
 
-#define RANDOM_FUNCTION_COUNT \
-    (sizeof(vigil_random_functions) / sizeof(vigil_random_functions[0]))
+#define RANDOM_FUNCTION_COUNT (sizeof(vigil_random_functions) / sizeof(vigil_random_functions[0]))
 
 VIGIL_API const vigil_native_module_t vigil_stdlib_random = {
-    "random", 6U,
-    vigil_random_functions,
-    RANDOM_FUNCTION_COUNT,
-    NULL, 0U
-};
+    "random", 6U, vigil_random_functions, RANDOM_FUNCTION_COUNT, NULL, 0U};

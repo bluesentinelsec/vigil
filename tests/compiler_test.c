@@ -2,30 +2,25 @@
 
 #include <string.h>
 
-
 #include "vigil/vigil.h"
 
-struct TestSource {
+struct TestSource
+{
     const char *path;
     const char *text;
 };
 
-static vigil_source_id_t RegisterSource(int *vigil_test_failed_,
-    vigil_source_registry_t *registry,
-    const char *path,
-    const char *text,
-    vigil_error_t *error
-) {
+static vigil_source_id_t RegisterSource(int *vigil_test_failed_, vigil_source_registry_t *registry, const char *path,
+                                        const char *text, vigil_error_t *error)
+{
     vigil_source_id_t source_id = 0U;
 
-    EXPECT_EQ(
-        vigil_source_registry_register_cstr(registry, path, text, &source_id, error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_source_registry_register_cstr(registry, path, text, &source_id, error), VIGIL_STATUS_OK);
     return source_id;
 }
 
-static int64_t CompileAndRun(int *vigil_test_failed_, const char *source_text) {
+static int64_t CompileAndRun(int *vigil_test_failed_, const char *source_text)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_vm_t *vm = NULL;
     vigil_error_t error = {0};
@@ -42,18 +37,12 @@ static int64_t CompileAndRun(int *vigil_test_failed_, const char *source_text) {
     vigil_diagnostic_list_init(&diagnostics, runtime);
     source_id = RegisterSource(vigil_test_failed_, &registry, "main.vigil", source_text, &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_OK);
     EXPECT_NE(function, NULL);
     EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
     vigil_value_init_nil(&result);
-    EXPECT_EQ(
-        vigil_vm_execute_function(vm, function, &result, &error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_vm_execute_function(vm, function, &result, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
     output = vigil_value_as_int(&result);
 
@@ -66,11 +55,9 @@ static int64_t CompileAndRun(int *vigil_test_failed_, const char *source_text) {
     return output;
 }
 
-static int64_t CompileAndRunMulti(int *vigil_test_failed_,
-    const struct TestSource *sources,
-    size_t source_count,
-    const char *entry_path
-) {
+static int64_t CompileAndRunMulti(int *vigil_test_failed_, const struct TestSource *sources, size_t source_count,
+                                  const char *entry_path)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_vm_t *vm = NULL;
     vigil_error_t error = {0};
@@ -87,33 +74,29 @@ static int64_t CompileAndRunMulti(int *vigil_test_failed_,
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    for (index = 0U; index < source_count; index += 1U) {
+    for (index = 0U; index < source_count; index += 1U)
+    {
         RegisterSource(vigil_test_failed_, &registry, sources[index].path, sources[index].text, &error);
     }
 
-    for (index = 1U; index <= vigil_source_registry_count(&registry); index += 1U) {
-        const vigil_source_file_t *source =
-            vigil_source_registry_get(&registry, (vigil_source_id_t)index);
+    for (index = 1U; index <= vigil_source_registry_count(&registry); index += 1U)
+    {
+        const vigil_source_file_t *source = vigil_source_registry_get(&registry, (vigil_source_id_t)index);
 
-        if (source != NULL && strcmp(vigil_string_c_str(&source->path), entry_path) == 0) {
+        if (source != NULL && strcmp(vigil_string_c_str(&source->path), entry_path) == 0)
+        {
             source_id = source->id;
             break;
         }
     }
 
     EXPECT_NE(source_id, 0U);
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_OK);
     EXPECT_NE(function, NULL);
     EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
 
     vigil_value_init_nil(&result);
-    EXPECT_EQ(
-        vigil_vm_execute_function(vm, function, &result, &error),
-        VIGIL_STATUS_OK
-    );
+    EXPECT_EQ(vigil_vm_execute_function(vm, function, &result, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
     output = vigil_value_as_int(&result);
 
@@ -126,392 +109,345 @@ static int64_t CompileAndRunMulti(int *vigil_test_failed_,
     return output;
 }
 
-
-TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 x = 1 + 2 * 3;"
-            "    x = (x + 4) / 2;"
-            "    return x;"
-            "}"
-        ),
-        5
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 x = 1 + 2 * 3;"
+                                                "    x = (x + 4) / 2;"
+                                                "    return x;"
+                                                "}"),
+              5);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn scale(f64 value) -> f64 {"
-            "    value *= 2.0;"
-            "    value++;"
-            "    return value;"
-            "}"
-            "fn main() -> i32 {"
-            "    f64 total = scale(2.5);"
-            "    if (total == 6.0 && total >= 5.5) {"
-            "        return 6;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        6
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn scale(f64 value) -> f64 {"
+                                                "    value *= 2.0;"
+                                                "    value++;"
+                                                "    return value;"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    f64 total = scale(2.5);"
+                                                "    if (total == 6.0 && total >= 5.5) {"
+                                                "        return 6;"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              6);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    const f64 scaled = f64(4) / 2.0;"
-            "    const string label = string(5) + string(true);"
-            "    i32 truncated = i32(scaled + 3.8);"
-            "    if (label == \"5true\" && ~1 == -2) {"
-            "        return truncated;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        5
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    const f64 scaled = f64(4) / 2.0;"
+                                                "    const string label = string(5) + string(true);"
+                                                "    i32 truncated = i32(scaled + 3.8);"
+                                                "    if (label == \"5true\" && ~1 == -2) {"
+                                                "        return truncated;"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              5);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "const u8 LIMIT = u8(12);"
-            "fn double_i64(i64 value) -> i64 {"
-            "    return value * i64(2);"
-            "}"
-            "fn bump_u8(u8 value) -> u8 {"
-            "    value += u8(5);"
-            "    return value;"
-            "}"
-            "fn main() -> i32 {"
-            "    i64 total = double_i64(i64(20));"
-            "    u8 small = bump_u8(LIMIT);"
-            "    u32 count = u32(100000) + u32(25);"
-            "    u64 large = u64(2000000000) + u64(5);"
-            "    if (total == i64(40) && small == u8(17) && count == u32(100025) && large == u64(2000000005)) {"
-            "        return 9;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        9
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions)
+{
+    EXPECT_EQ(CompileAndRun(
+                  vigil_test_failed_,
+                  "const u8 LIMIT = u8(12);"
+                  "fn double_i64(i64 value) -> i64 {"
+                  "    return value * i64(2);"
+                  "}"
+                  "fn bump_u8(u8 value) -> u8 {"
+                  "    value += u8(5);"
+                  "    return value;"
+                  "}"
+                  "fn main() -> i32 {"
+                  "    i64 total = double_i64(i64(20));"
+                  "    u8 small = bump_u8(LIMIT);"
+                  "    u32 count = u32(100000) + u32(25);"
+                  "    u64 large = u64(2000000000) + u64(5);"
+                  "    if (total == i64(40) && small == u8(17) && count == u32(100025) && large == u64(2000000005)) {"
+                  "        return 9;"
+                  "    }"
+                  "    return 0;"
+                  "}"),
+              9);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "class Holder {"
-            "    fn(i32, i32) -> i32 op;"
-            "}"
-            "fn add(i32 a, i32 b) -> i32 {"
-            "    return a + b;"
-            "}"
-            "fn mul(i32 a, i32 b) -> i32 {"
-            "    return a * b;"
-            "}"
-            "fn apply(fn(i32, i32) -> i32 op, i32 left, i32 right) -> i32 {"
-            "    return op(left, right);"
-            "}"
-            "fn main() -> i32 {"
-            "    fn any_cb = add;"
-            "    fn(i32, i32) -> i32 op = add;"
-            "    Holder holder = Holder(mul);"
-            "    if (any_cb == op) {"
-            "        return apply(op, 2, 3) + holder.op(2, 4);"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        13
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "class Holder {"
+                                                "    fn(i32, i32) -> i32 op;"
+                                                "}"
+                                                "fn add(i32 a, i32 b) -> i32 {"
+                                                "    return a + b;"
+                                                "}"
+                                                "fn mul(i32 a, i32 b) -> i32 {"
+                                                "    return a * b;"
+                                                "}"
+                                                "fn apply(fn(i32, i32) -> i32 op, i32 left, i32 right) -> i32 {"
+                                                "    return op(left, right);"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    fn any_cb = add;"
+                                                "    fn(i32, i32) -> i32 op = add;"
+                                                "    Holder holder = Holder(mul);"
+                                                "    if (any_cb == op) {"
+                                                "        return apply(op, 2, 3) + holder.op(2, 4);"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              13);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 factor = 10;"
-            "    fn(i32) -> i32 scale = fn(i32 x) -> i32 {"
-            "        return x * factor;"
-            "    };"
-            "    factor = 20;"
-            "    fn helper(i32 x) -> i32 {"
-            "        return scale(x) + factor;"
-            "    }"
-            "    return helper(2) + fn() -> i32 {"
-            "        return 1;"
-            "    }();"
-            "}"
-        ),
-        41
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 factor = 10;"
+                                                "    fn(i32) -> i32 scale = fn(i32 x) -> i32 {"
+                                                "        return x * factor;"
+                                                "    };"
+                                                "    factor = 20;"
+                                                "    fn helper(i32 x) -> i32 {"
+                                                "        return scale(x) + factor;"
+                                                "    }"
+                                                "    return helper(2) + fn() -> i32 {"
+                                                "        return 1;"
+                                                "    }();"
+                                                "}"),
+              41);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesExplicitErrorValues) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn fail(bool bad) -> err {"
-            "    if (bad) {"
-            "        return err(\"boom\", err.arg);"
-            "    }"
-            "    return ok;"
-            "}"
-            "fn main() -> i32 {"
-            "    err first = fail(false);"
-            "    err second = fail(true);"
-            "    if (first != ok) {"
-            "        return 0;"
-            "    }"
-            "    if (second == ok) {"
-            "        return 0;"
-            "    }"
-            "    if (second.kind() == err.arg && second.message() == \"boom\") {"
-            "        switch (second.kind()) {"
-            "            case err.arg:"
-            "                return 7;"
-            "            default:"
-            "                return 0;"
-            "        }"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        7
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesExplicitErrorValues)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn fail(bool bad) -> err {"
+                                                "    if (bad) {"
+                                                "        return err(\"boom\", err.arg);"
+                                                "    }"
+                                                "    return ok;"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    err first = fail(false);"
+                                                "    err second = fail(true);"
+                                                "    if (first != ok) {"
+                                                "        return 0;"
+                                                "    }"
+                                                "    if (second == ok) {"
+                                                "        return 0;"
+                                                "    }"
+                                                "    if (second.kind() == err.arg && second.message() == \"boom\") {"
+                                                "        switch (second.kind()) {"
+                                                "            case err.arg:"
+                                                "                return 7;"
+                                                "            default:"
+                                                "                return 0;"
+                                                "        }"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesTupleBindingsAndGuard) {
+TEST(VigilCompilerTest, CompilesAndExecutesTupleBindingsAndGuard)
+{
     EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn divide(i32 a, i32 b) -> (i32, err) {"
-            "    if (b == 0) {"
-            "        return (0, err(\"division by zero\", err.arg));"
-            "    }"
-            "    return (a / b, ok);"
-            "}"
-            "fn main() -> i32 {"
-            "    i32 first, err first_err = divide(9, 3);"
-            "    i32 _, err _ = divide(8, 2);"
-            "    guard i32 second, err second_err = divide(5, 0) {"
-            "        if (first_err == ok && first == 3 && second == 0 && second_err.kind() == err.arg) {"
-            "            return 11;"
-            "        }"
-            "        return 0;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        11
-    );
+        CompileAndRun(vigil_test_failed_,
+                      "fn divide(i32 a, i32 b) -> (i32, err) {"
+                      "    if (b == 0) {"
+                      "        return (0, err(\"division by zero\", err.arg));"
+                      "    }"
+                      "    return (a / b, ok);"
+                      "}"
+                      "fn main() -> i32 {"
+                      "    i32 first, err first_err = divide(9, 3);"
+                      "    i32 _, err _ = divide(8, 2);"
+                      "    guard i32 second, err second_err = divide(5, 0) {"
+                      "        if (first_err == ok && first == 3 && second == 0 && second_err.kind() == err.arg) {"
+                      "            return 11;"
+                      "        }"
+                      "        return 0;"
+                      "    }"
+                      "    return 0;"
+                      "}"),
+        11);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesIfElseAndWhile) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 sum = 0;"
-            "    i32 i = 0;"
-            "    while (i < 5) {"
-            "        sum = sum + i;"
-            "        i = i + 1;"
-            "    }"
-            "    if (sum > 9) {"
-            "        return sum;"
-            "    } else {"
-            "        return 0;"
-            "    }"
-            "}"
-        ),
-        10
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesIfElseAndWhile)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 sum = 0;"
+                                                "    i32 i = 0;"
+                                                "    while (i < 5) {"
+                                                "        sum = sum + i;"
+                                                "        i = i + 1;"
+                                                "    }"
+                                                "    if (sum > 9) {"
+                                                "        return sum;"
+                                                "    } else {"
+                                                "        return 0;"
+                                                "    }"
+                                                "}"),
+              10);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesBoolLocalsAndEquality) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    bool ready = 1 + 1 == 2;"
-            "    if (ready != false) {"
-            "        return 7;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        7
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesBoolLocalsAndEquality)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    bool ready = 1 + 1 == 2;"
+                                                "    if (ready != false) {"
+                                                "        return 7;"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesDirectFunctionCalls) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn add(i32 left, i32 right) -> i32 {"
-            "    return left + right;"
-            "}"
-            "fn is_ten(i32 value) -> bool {"
-            "    return value == 10;"
-            "}"
-            "fn main() -> i32 {"
-            "    i32 result = add(4, 6);"
-            "    if (is_ten(result)) {"
-            "        return result;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        10
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesDirectFunctionCalls)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn add(i32 left, i32 right) -> i32 {"
+                                                "    return left + right;"
+                                                "}"
+                                                "fn is_ten(i32 value) -> bool {"
+                                                "    return value == 10;"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    i32 result = add(4, 6);"
+                                                "    if (is_ten(result)) {"
+                                                "        return result;"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              10);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesRecursiveFunctionCalls) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn sum_to(i32 value) -> i32 {"
-            "    if (value == 0) {"
-            "        return 0;"
-            "    }"
-            "    return value + sum_to(value - 1);"
-            "}"
-            "fn main() -> i32 {"
-            "    return sum_to(5);"
-            "}"
-        ),
-        15
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesRecursiveFunctionCalls)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn sum_to(i32 value) -> i32 {"
+                                                "    if (value == 0) {"
+                                                "        return 0;"
+                                                "    }"
+                                                "    return value + sum_to(value - 1);"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    return sum_to(5);"
+                                                "}"),
+              15);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn panic_bool() -> bool {"
-            "    i32 x = 1 / 0;"
-            "    return x == 0;"
-            "}"
-            "fn main() -> i32 {"
-            "    if (true || panic_bool()) {"
-            "        if (!(false && panic_bool())) {"
-            "            return 7;"
-            "        }"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        7
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesShortCircuitLogicalOperators)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn panic_bool() -> bool {"
+                                                "    i32 x = 1 / 0;"
+                                                "    return x == 0;"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    if (true || panic_bool()) {"
+                                                "        if (!(false && panic_bool())) {"
+                                                "            return 7;"
+                                                "        }"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "const i32 MASK = (1 << 3) | 1;"
-            "const i32 PICK = true ? MASK : 0;"
-            "fn main() -> i32 {"
-            "    i32 bits = PICK ^ 2;"
-            "    return bits > 7 ? bits & 14 : 0;"
-            "}"
-        ),
-        10
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesBitwiseShiftAndTernaryExpressions)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "const i32 MASK = (1 << 3) | 1;"
+                                                "const i32 PICK = true ? MASK : 0;"
+                                                "fn main() -> i32 {"
+                                                "    i32 bits = PICK ^ 2;"
+                                                "    return bits > 7 ? bits & 14 : 0;"
+                                                "}"),
+              10);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesBreakAndContinue) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 sum = 0;"
-            "    i32 i = 0;"
-            "    while (i < 8) {"
-            "        i = i + 1;"
-            "        {"
-            "            i32 current = i;"
-            "            if (current == 3) {"
-            "                continue;"
-            "            }"
-            "            if (current == 6) {"
-            "                break;"
-            "            }"
-            "        }"
-            "        sum = sum + i;"
-            "    }"
-            "    return sum;"
-            "}"
-        ),
-        12
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesBreakAndContinue)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 sum = 0;"
+                                                "    i32 i = 0;"
+                                                "    while (i < 8) {"
+                                                "        i = i + 1;"
+                                                "        {"
+                                                "            i32 current = i;"
+                                                "            if (current == 3) {"
+                                                "                continue;"
+                                                "            }"
+                                                "            if (current == 6) {"
+                                                "                break;"
+                                                "            }"
+                                                "        }"
+                                                "        sum = sum + i;"
+                                                "    }"
+                                                "    return sum;"
+                                                "}"),
+              12);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 sum = 0;"
-            "    for (i32 i = 0; i < 5; i++) {"
-            "        sum += i;"
-            "    }"
-            "    return sum;"
-            "}"
-        ),
-        10
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesForLoopsAndIncrementClauses)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 sum = 0;"
+                                                "    for (i32 i = 0; i < 5; i++) {"
+                                                "        sum += i;"
+                                                "    }"
+                                                "    return sum;"
+                                                "}"),
+              10);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesForLoopContinueAndBreak) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 sum = 0;"
-            "    for (i32 i = 0; i < 6; i++) {"
-            "        if (i == 2) {"
-            "            continue;"
-            "        }"
-            "        if (i == 5) {"
-            "            break;"
-            "        }"
-            "        sum += i;"
-            "    }"
-            "    return sum;"
-            "}"
-        ),
-        8
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesForLoopContinueAndBreak)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 sum = 0;"
+                                                "    for (i32 i = 0; i < 6; i++) {"
+                                                "        if (i == 2) {"
+                                                "            continue;"
+                                                "        }"
+                                                "        if (i == 5) {"
+                                                "            break;"
+                                                "        }"
+                                                "        sum += i;"
+                                                "    }"
+                                                "    return sum;"
+                                                "}"),
+              8);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/math.vigil",
-            "pub fn add(i32 left, i32 right) -> i32 {"
-            "    return left + right;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"math\";"
-            "fn main() -> i32 {"
-            "    return math.add(2, 5);"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesImportedFunctionsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/math.vigil", "pub fn add(i32 left, i32 right) -> i32 {"
+                                                                 "    return left + right;"
+                                                                 "}"},
+                                         {"/project/main.vigil", "import \"math\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return math.add(2, 5);"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/lib/math.vigil",
-            "pub fn inc(i32 value) -> i32 {"
-            "    return value + 1;"
-            "}"
-        },
-        {
-            "/project/lib/logic.vigil",
-            "import \"math\";"
-            "pub fn bump_twice(i32 value) -> i32 {"
-            "    return math.inc(math.inc(value));"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"lib/logic\";"
-            "fn main() -> i32 {"
-            "    return logic.bump_twice(5);"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesNestedImportsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/lib/math.vigil", "pub fn inc(i32 value) -> i32 {"
+                                                                     "    return value + 1;"
+                                                                     "}"},
+                                         {"/project/lib/logic.vigil", "import \"math\";"
+                                                                      "pub fn bump_twice(i32 value) -> i32 {"
+                                                                      "    return math.inc(math.inc(value));"
+                                                                      "}"},
+                                         {"/project/main.vigil", "import \"lib/logic\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return logic.bump_twice(5);"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 7);
 }
 
-TEST(VigilCompilerTest, RejectsUnregisteredImportedSource) {
+TEST(VigilCompilerTest, RejectsUnregisteredImportedSource)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -523,373 +459,296 @@ TEST(VigilCompilerTest, RejectsUnregisteredImportedSource) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "import \"missing\";"
-        "fn main() -> i32 {"
-        "    return 0;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "import \"missing\";"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "imported source is not registered"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "imported source is not registered");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/config.vigil",
-            "pub const i32 LIMIT = 7;"
-        },
-        {
-            "/project/main.vigil",
-            "import \"config\";"
-            "fn main() -> i32 {"
-            "    return config.LIMIT;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesModuleConstantsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/config.vigil", "pub const i32 LIMIT = 7;"},
+                                         {"/project/main.vigil", "import \"config\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return config.LIMIT;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesConstantExpressions) {
-    const struct TestSource sources[] = {
-        {
-            "/project/config.vigil",
-            "pub const i32 BASE = 2 + 3 * 4;"
-            "pub const bool READY = BASE == 14;"
-        },
-        {
-            "/project/main.vigil",
-            "import \"config\";"
-            "fn main() -> i32 {"
-            "    if (config.READY) {"
-            "        return config.BASE;"
-            "    }"
-            "    return 0;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesConstantExpressions)
+{
+    const struct TestSource sources[] = {{"/project/config.vigil", "pub const i32 BASE = 2 + 3 * 4;"
+                                                                   "pub const bool READY = BASE == 14;"},
+                                         {"/project/main.vigil", "import \"config\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    if (config.READY) {"
+                                                                 "        return config.BASE;"
+                                                                 "    }"
+                                                                 "    return 0;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 14);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "class Pair {"
-            "    i32 left;"
-            "    i32 right;"
-            "}"
-            "fn sum(Pair pair) -> i32 {"
-            "    return pair.left + pair.right;"
-            "}"
-            "fn main() -> i32 {"
-            "    Pair pair = Pair(3, 4);"
-            "    pair.left = pair.left + 1;"
-            "    return sum(pair);"
-            "}"
-        ),
-        8
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesClassesFieldAccessAndFieldAssignment)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "class Pair {"
+                                                "    i32 left;"
+                                                "    i32 right;"
+                                                "}"
+                                                "fn sum(Pair pair) -> i32 {"
+                                                "    return pair.left + pair.right;"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    Pair pair = Pair(3, 4);"
+                                                "    pair.left = pair.left + 1;"
+                                                "    return sum(pair);"
+                                                "}"),
+              8);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesClassesAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/model.vigil",
-            "pub class Counter {"
-            "    pub i32 value;"
-            "}"
-            "pub fn make_counter(i32 value) -> Counter {"
-            "    return Counter(value);"
-            "}"
-            "pub fn read_counter(Counter counter) -> i32 {"
-            "    return counter.value;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"model\";"
-            "fn main() -> i32 {"
-            "    model.Counter counter = model.make_counter(7);"
-            "    return model.read_counter(counter);"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesClassesAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/model.vigil", "pub class Counter {"
+                                                                  "    pub i32 value;"
+                                                                  "}"
+                                                                  "pub fn make_counter(i32 value) -> Counter {"
+                                                                  "    return Counter(value);"
+                                                                  "}"
+                                                                  "pub fn read_counter(Counter counter) -> i32 {"
+                                                                  "    return counter.value;"
+                                                                  "}"},
+                                         {"/project/main.vigil", "import \"model\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    model.Counter counter = model.make_counter(7);"
+                                                                 "    return model.read_counter(counter);"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesClassMethodsAndSelf) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "class Counter {"
-            "    i32 value;"
-            "    fn bump(i32 delta) -> i32 {"
-            "        self.value = self.value + delta;"
-            "        return self.value;"
-            "    }"
-            "    fn read() -> i32 {"
-            "        return self.value;"
-            "    }"
-            "}"
-            "fn main() -> i32 {"
-            "    Counter counter = Counter(5);"
-            "    counter.bump(2);"
-            "    return counter.read();"
-            "}"
-        ),
-        7
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesClassMethodsAndSelf)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "class Counter {"
+                                                "    i32 value;"
+                                                "    fn bump(i32 delta) -> i32 {"
+                                                "        self.value = self.value + delta;"
+                                                "        return self.value;"
+                                                "    }"
+                                                "    fn read() -> i32 {"
+                                                "        return self.value;"
+                                                "    }"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    Counter counter = Counter(5);"
+                                                "    counter.bump(2);"
+                                                "    return counter.read();"
+                                                "}"),
+              7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "f64 scale = 1.5;"
-            "class Counter {"
-            "    f64 value;"
-            "    fn init(f64 value) -> void {"
-            "        self.value = value * scale;"
-            "    }"
-            "    fn grow(f64 delta) -> void {"
-            "        self.value += delta;"
-            "    }"
-            "}"
-            "fn main() -> i32 {"
-            "    Counter counter = Counter(4.0);"
-            "    counter.grow(1.0);"
-            "    if (counter.value > 6.5) {"
-            "        return 7;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        7
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesFloatFieldsAndGlobals)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "f64 scale = 1.5;"
+                                                "class Counter {"
+                                                "    f64 value;"
+                                                "    fn init(f64 value) -> void {"
+                                                "        self.value = value * scale;"
+                                                "    }"
+                                                "    fn grow(f64 delta) -> void {"
+                                                "        self.value += delta;"
+                                                "    }"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    Counter counter = Counter(4.0);"
+                                                "    counter.grow(1.0);"
+                                                "    if (counter.value > 6.5) {"
+                                                "        return 7;"
+                                                "    }"
+                                                "    return 0;"
+                                                "}"),
+              7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesInitBasedConstructors) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "class Counter {"
-            "    i32 value;"
-            "    i32 doubled;"
-            "    fn init(i32 value) -> void {"
-            "        self.value = value;"
-            "        self.doubled = value * 2;"
-            "    }"
-            "}"
-            "fn main() -> i32 {"
-            "    Counter counter = Counter(5);"
-            "    return counter.value + counter.doubled;"
-            "}"
-        ),
-        15
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesInitBasedConstructors)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "class Counter {"
+                                                "    i32 value;"
+                                                "    i32 doubled;"
+                                                "    fn init(i32 value) -> void {"
+                                                "        self.value = value;"
+                                                "        self.doubled = value * 2;"
+                                                "    }"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    Counter counter = Counter(5);"
+                                                "    return counter.value + counter.doubled;"
+                                                "}"),
+              15);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "class Connection {"
-            "    pub i32 port;"
-            "    fn init(i32 port) -> err {"
-            "        if (port < 0) {"
-            "            return err(\"bad port\", err.arg);"
-            "        }"
-            "        self.port = port;"
-            "        return ok;"
-            "    }"
-            "}"
-            "fn main() -> i32 {"
-            "    Connection good, err good_err = Connection(9);"
-            "    guard Connection bad, err bad_err = Connection(-1) {"
-            "        if (good_err == ok && good.port == 9 && bad_err.kind() == err.arg) {"
-            "            return 13;"
-            "        }"
-            "        return 0;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        13
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesFallibleInitConstructorsWithGuard)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_,
+                            "class Connection {"
+                            "    pub i32 port;"
+                            "    fn init(i32 port) -> err {"
+                            "        if (port < 0) {"
+                            "            return err(\"bad port\", err.arg);"
+                            "        }"
+                            "        self.port = port;"
+                            "        return ok;"
+                            "    }"
+                            "}"
+                            "fn main() -> i32 {"
+                            "    Connection good, err good_err = Connection(9);"
+                            "    guard Connection bad, err bad_err = Connection(-1) {"
+                            "        if (good_err == ok && good.port == 9 && bad_err.kind() == err.arg) {"
+                            "            return 13;"
+                            "        }"
+                            "        return 0;"
+                            "    }"
+                            "    return 0;"
+                            "}"),
+              13);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesMethodsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/model.vigil",
-            "pub class Counter {"
-            "    i32 value;"
-            "    pub fn bump(i32 delta) -> i32 {"
-            "        self.value = self.value + delta;"
-            "        return self.value;"
-            "    }"
-            "}"
-            "pub fn build(i32 value) -> Counter {"
-            "    return Counter(value);"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"model\";"
-            "fn main() -> i32 {"
-            "    model.Counter counter = model.build(8);"
-            "    return counter.bump(3);"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesMethodsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/model.vigil", "pub class Counter {"
+                                                                  "    i32 value;"
+                                                                  "    pub fn bump(i32 delta) -> i32 {"
+                                                                  "        self.value = self.value + delta;"
+                                                                  "        return self.value;"
+                                                                  "    }"
+                                                                  "}"
+                                                                  "pub fn build(i32 value) -> Counter {"
+                                                                  "    return Counter(value);"
+                                                                  "}"},
+                                         {"/project/main.vigil", "import \"model\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    model.Counter counter = model.build(8);"
+                                                                 "    return counter.bump(3);"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 11);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/models.vigil",
-            "pub class Counter {"
-            "    pub i32 value;"
-            "    fn init(i32 value) -> void {"
-            "        self.value = value + 1;"
-            "    }"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"models\";"
-            "fn main() -> i32 {"
-            "    models.Counter counter = models.Counter(6);"
-            "    return counter.value;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesPublicInitConstructorsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/models.vigil", "pub class Counter {"
+                                                                   "    pub i32 value;"
+                                                                   "    fn init(i32 value) -> void {"
+                                                                   "        self.value = value + 1;"
+                                                                   "    }"
+                                                                   "}"},
+                                         {"/project/main.vigil", "import \"models\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    models.Counter counter = models.Counter(6);"
+                                                                 "    return counter.value;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/model.vigil",
-            "pub interface Reader {"
-            "    fn read() -> i32;"
-            "}"
-            "class Counter implements Reader {"
-            "    i32 value;"
-            "    fn bump(i32 delta) -> i32 {"
-            "        self.value = self.value + delta;"
-            "        return self.value;"
-            "    }"
-            "    fn read() -> i32 {"
-            "        return self.value;"
-            "    }"
-            "}"
-            "pub fn make_reader(i32 value) -> Reader {"
-            "    Counter counter = Counter(value);"
-            "    counter.bump(1);"
-            "    return counter;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"model\";"
-            "fn use_reader(model.Reader reader) -> i32 {"
-            "    return reader.read();"
-            "}"
-            "fn main() -> i32 {"
-            "    model.Reader reader = model.make_reader(6);"
-            "    return use_reader(reader);"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesInterfacePolymorphismAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/model.vigil", "pub interface Reader {"
+                                                                  "    fn read() -> i32;"
+                                                                  "}"
+                                                                  "class Counter implements Reader {"
+                                                                  "    i32 value;"
+                                                                  "    fn bump(i32 delta) -> i32 {"
+                                                                  "        self.value = self.value + delta;"
+                                                                  "        return self.value;"
+                                                                  "    }"
+                                                                  "    fn read() -> i32 {"
+                                                                  "        return self.value;"
+                                                                  "    }"
+                                                                  "}"
+                                                                  "pub fn make_reader(i32 value) -> Reader {"
+                                                                  "    Counter counter = Counter(value);"
+                                                                  "    counter.bump(1);"
+                                                                  "    return counter;"
+                                                                  "}"},
+                                         {"/project/main.vigil", "import \"model\";"
+                                                                 "fn use_reader(model.Reader reader) -> i32 {"
+                                                                 "    return reader.read();"
+                                                                 "}"
+                                                                 "fn main() -> i32 {"
+                                                                 "    model.Reader reader = model.make_reader(6);"
+                                                                 "    return use_reader(reader);"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/model.vigil",
-            "pub const i32 OFFSET = 2;"
-            "pub class Counter {"
-            "    pub i32 value;"
-            "    pub fn bump(i32 delta) -> i32 {"
-            "        self.value = self.value + delta;"
-            "        return self.value;"
-            "    }"
-            "}"
-            "pub fn make_counter(i32 value) -> Counter {"
-            "    return Counter(value + OFFSET);"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"model\" as models;"
-            "fn read(models.Counter counter) -> i32 {"
-            "    return counter.value;"
-            "}"
-            "fn main() -> i32 {"
-            "    models.Counter counter = models.make_counter(models.OFFSET + 5);"
-            "    return read(counter) + counter.bump(1);"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedModuleSymbolsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/model.vigil", "pub const i32 OFFSET = 2;"
+                                                                  "pub class Counter {"
+                                                                  "    pub i32 value;"
+                                                                  "    pub fn bump(i32 delta) -> i32 {"
+                                                                  "        self.value = self.value + delta;"
+                                                                  "        return self.value;"
+                                                                  "    }"
+                                                                  "}"
+                                                                  "pub fn make_counter(i32 value) -> Counter {"
+                                                                  "    return Counter(value + OFFSET);"
+                                                                  "}"},
+                                         {"/project/main.vigil",
+                                          "import \"model\" as models;"
+                                          "fn read(models.Counter counter) -> i32 {"
+                                          "    return counter.value;"
+                                          "}"
+                                          "fn main() -> i32 {"
+                                          "    models.Counter counter = models.make_counter(models.OFFSET + 5);"
+                                          "    return read(counter) + counter.bump(1);"
+                                          "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 19);
 }
 
-TEST(VigilCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
+TEST(VigilCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
     vigil_diagnostic_list_t diagnostics;
     vigil_object_t *function = NULL;
     vigil_source_id_t source_id;
-    const struct TestSource sources[] = {
-        {
-            "/project/math.vigil",
-            "pub fn add(i32 left, i32 right) -> i32 {"
-            "    return left + right;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"math\";"
-            "fn main() -> i32 {"
-            "    return add(2, 5);"
-            "}"
-        }
-    };
+    const struct TestSource sources[] = {{"/project/math.vigil", "pub fn add(i32 left, i32 right) -> i32 {"
+                                                                 "    return left + right;"
+                                                                 "}"},
+                                         {"/project/main.vigil", "import \"math\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return add(2, 5);"
+                                                                 "}"}};
 
     ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    for (size_t index = 0U; index < sizeof(sources) / sizeof(sources[0]); index += 1U) {
+    for (size_t index = 0U; index < sizeof(sources) / sizeof(sources[0]); index += 1U)
+    {
         source_id = RegisterSource(vigil_test_failed_, &registry, sources[index].path, sources[index].text, &error);
     }
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unknown function"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "unknown function");
 
     vigil_object_release(&function);
     vigil_diagnostic_list_free(&diagnostics);
@@ -897,601 +756,544 @@ TEST(VigilCompilerTest, RejectsUnqualifiedImportedSymbolsAcrossFiles) {
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules) {
-    const struct TestSource sources[] = {
-        {
-            "/project/alpha.vigil",
-            "pub const i32 VALUE = 4;"
-            "pub fn read() -> i32 {"
-            "    return VALUE;"
-            "}"
-        },
-        {
-            "/project/beta.vigil",
-            "pub const i32 VALUE = 9;"
-            "pub fn read() -> i32 {"
-            "    return VALUE;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"alpha\";"
-            "import \"beta\";"
-            "fn main() -> i32 {"
-            "    return alpha.read() + beta.read();"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesDuplicateTopLevelNamesAcrossModules)
+{
+    const struct TestSource sources[] = {{"/project/alpha.vigil", "pub const i32 VALUE = 4;"
+                                                                  "pub fn read() -> i32 {"
+                                                                  "    return VALUE;"
+                                                                  "}"},
+                                         {"/project/beta.vigil", "pub const i32 VALUE = 9;"
+                                                                 "pub fn read() -> i32 {"
+                                                                 "    return VALUE;"
+                                                                 "}"},
+                                         {"/project/main.vigil", "import \"alpha\";"
+                                                                 "import \"beta\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return alpha.read() + beta.read();"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 13);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/contracts.vigil",
-            "pub interface Reader {"
-            "    fn read() -> i32;"
-            "}"
-        },
-        {
-            "/project/model.vigil",
-            "import \"contracts\";"
-            "pub class Counter implements contracts.Reader {"
-            "    i32 value;"
-            "    fn read() -> i32 {"
-            "        return self.value;"
-            "    }"
-            "}"
-            "pub fn make_reader(i32 value) -> contracts.Reader {"
-            "    return Counter(value);"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"contracts\";"
-            "import \"model\";"
-            "fn use_reader(contracts.Reader reader) -> i32 {"
-            "    return reader.read();"
-            "}"
-            "fn main() -> i32 {"
-            "    return use_reader(model.make_reader(9));"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedInterfacesAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/contracts.vigil", "pub interface Reader {"
+                                                                      "    fn read() -> i32;"
+                                                                      "}"},
+                                         {"/project/model.vigil", "import \"contracts\";"
+                                                                  "pub class Counter implements contracts.Reader {"
+                                                                  "    i32 value;"
+                                                                  "    fn read() -> i32 {"
+                                                                  "        return self.value;"
+                                                                  "    }"
+                                                                  "}"
+                                                                  "pub fn make_reader(i32 value) -> contracts.Reader {"
+                                                                  "    return Counter(value);"
+                                                                  "}"},
+                                         {"/project/main.vigil", "import \"contracts\";"
+                                                                 "import \"model\";"
+                                                                 "fn use_reader(contracts.Reader reader) -> i32 {"
+                                                                 "    return reader.read();"
+                                                                 "}"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return use_reader(model.make_reader(9));"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 9);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions) {
-    const struct TestSource sources[] = {
-        {
-            "/project/config.vigil",
-            "pub const i32 BASE = 7;"
-        },
-        {
-            "/project/main.vigil",
-            "import \"config\" as cfg;"
-            "const i32 LIMIT = cfg.BASE + 1;"
-            "fn main() -> i32 {"
-            "    return LIMIT;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsInConstantExpressions)
+{
+    const struct TestSource sources[] = {{"/project/config.vigil", "pub const i32 BASE = 7;"},
+                                         {"/project/main.vigil", "import \"config\" as cfg;"
+                                                                 "const i32 LIMIT = cfg.BASE + 1;"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return LIMIT;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 8);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesEnumsAndSwitch) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "enum Color {"
-            "    Red,"
-            "    Green = 3,"
-            "    Blue"
-            "}"
-            "fn main() -> i32 {"
-            "    Color color = Color.Blue;"
-            "    switch (color) {"
-            "        case Color.Red:"
-            "            return 1;"
-            "        case Color.Green, Color.Blue:"
-            "            return 7;"
-            "        default:"
-            "            return 0;"
-            "    }"
-            "}"
-        ),
-        7
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesEnumsAndSwitch)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "enum Color {"
+                                                "    Red,"
+                                                "    Green = 3,"
+                                                "    Blue"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    Color color = Color.Blue;"
+                                                "    switch (color) {"
+                                                "        case Color.Red:"
+                                                "            return 1;"
+                                                "        case Color.Green, Color.Blue:"
+                                                "            return 7;"
+                                                "        default:"
+                                                "            return 0;"
+                                                "    }"
+                                                "}"),
+              7);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesStringsAndStringConstants) {
+TEST(VigilCompilerTest, CompilesAndExecutesStringsAndStringConstants)
+{
     const char *source = "\n"
-        "const string PREFIX = \"he\" + 'l';\n"
-        "\n"
-        "fn make_message() -> string {\n"
-        "    return PREFIX + `lo`;\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    string message = make_message();\n"
-        "    if (message == \"hello\" && message != \"world\") {\n"
-        "        return 12;\n"
-        "    }\n"
-        "    return 0;\n"
-        "}\n"
-        "";
+                         "const string PREFIX = \"he\" + 'l';\n"
+                         "\n"
+                         "fn make_message() -> string {\n"
+                         "    return PREFIX + `lo`;\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    string message = make_message();\n"
+                         "    if (message == \"hello\" && message != \"world\") {\n"
+                         "        return 12;\n"
+                         "    }\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 12);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "labels.vigil",
-            "\n"
-        "pub const string GREETING = \"vi\" + \"gil\";\n"
-        "\n"
-        "pub fn render(string suffix) -> string {\n"
-        "    return GREETING + suffix;\n"
-        "}\n"
-        ""
-        },
-        {
-            "main.vigil",
-            "\n"
-        "import \"labels\";\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    string value = labels.render(\" vm\");\n"
-        "    if (value == \"vigil vm\") {\n"
-        "        return 15;\n"
-        "    }\n"
-        "    return 0;\n"
-        "}\n"
-        ""
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesImportedStringConstantsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"labels.vigil", "\n"
+                                                          "pub const string GREETING = \"vi\" + \"gil\";\n"
+                                                          "\n"
+                                                          "pub fn render(string suffix) -> string {\n"
+                                                          "    return GREETING + suffix;\n"
+                                                          "}\n"
+                                                          ""},
+                                         {"main.vigil", "\n"
+                                                        "import \"labels\";\n"
+                                                        "\n"
+                                                        "fn main() -> i32 {\n"
+                                                        "    string value = labels.render(\" vm\");\n"
+                                                        "    if (value == \"vigil vm\") {\n"
+                                                        "        return 15;\n"
+                                                        "    }\n"
+                                                        "    return 0;\n"
+                                                        "}\n"
+                                                        ""}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, sizeof(sources) / sizeof(sources[0]), "main.vigil"), 15);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesStringBuiltInMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesStringBuiltInMethods)
+{
     const char *source = "\n"
-        "fn main() -> i32 {\n"
-        "    string value = \"  vigil vm  \";\n"
-        "    string trimmed = value.trim();\n"
-        "    array<string> parts = \"a,b,c\".split(\",\");\n"
-        "    array<u8> bytes = \"AZ\".bytes();\n"
-        "    i32 split_hits = 0;\n"
-        "    i32 byte_sum = 0;\n"
-        "    i32 index, bool found = value.index_of(\"igil\");\n"
-        "    string sub, err sub_err = trimmed.substr(0, 5);\n"
-        "    string ch, err ch_err = value.char_at(2);\n"
-        "    string missing, err missing_err = trimmed.char_at(99);\n"
-        "\n"
-        "    for part in parts {\n"
-        "        if (part == \"b\" || part == \"c\") {\n"
-        "            split_hits++;\n"
-        "        }\n"
-        "    }\n"
-        "\n"
-        "    for byte in bytes {\n"
-        "        byte_sum += i32(byte);\n"
-        "    }\n"
-        "\n"
-        "    if (value.len() == 12 &&\n"
-        "        value.contains(\"gil\") &&\n"
-        "        value.starts_with(\"  v\") &&\n"
-        "        value.ends_with(\"  \") &&\n"
-        "        trimmed == \"vigil vm\" &&\n"
-        "        trimmed.to_upper() == \"VIGIL VM\" &&\n"
-        "        trimmed.to_lower() == \"vigil vm\" &&\n"
-        "        value.replace(\"vm\", \"bytecode\") == \"  vigil bytecode  \" &&\n"
-        "        index == 3 &&\n"
-        "        found == true &&\n"
-        "        sub == \"vigil\" &&\n"
-        "        sub_err == ok &&\n"
-        "        ch == \"v\" &&\n"
-        "        ch_err == ok &&\n"
-        "        missing == \"\" &&\n"
-        "        missing_err != ok &&\n"
-        "        split_hits == 2 &&\n"
-        "        byte_sum == 155) {\n"
-        "        return 19;\n"
-        "    }\n"
-        "\n"
-        "    return 0;\n"
-        "}\n"
-        "";
+                         "fn main() -> i32 {\n"
+                         "    string value = \"  vigil vm  \";\n"
+                         "    string trimmed = value.trim();\n"
+                         "    array<string> parts = \"a,b,c\".split(\",\");\n"
+                         "    array<u8> bytes = \"AZ\".bytes();\n"
+                         "    i32 split_hits = 0;\n"
+                         "    i32 byte_sum = 0;\n"
+                         "    i32 index, bool found = value.index_of(\"igil\");\n"
+                         "    string sub, err sub_err = trimmed.substr(0, 5);\n"
+                         "    string ch, err ch_err = value.char_at(2);\n"
+                         "    string missing, err missing_err = trimmed.char_at(99);\n"
+                         "\n"
+                         "    for part in parts {\n"
+                         "        if (part == \"b\" || part == \"c\") {\n"
+                         "            split_hits++;\n"
+                         "        }\n"
+                         "    }\n"
+                         "\n"
+                         "    for byte in bytes {\n"
+                         "        byte_sum += i32(byte);\n"
+                         "    }\n"
+                         "\n"
+                         "    if (value.len() == 12 &&\n"
+                         "        value.contains(\"gil\") &&\n"
+                         "        value.starts_with(\"  v\") &&\n"
+                         "        value.ends_with(\"  \") &&\n"
+                         "        trimmed == \"vigil vm\" &&\n"
+                         "        trimmed.to_upper() == \"VIGIL VM\" &&\n"
+                         "        trimmed.to_lower() == \"vigil vm\" &&\n"
+                         "        value.replace(\"vm\", \"bytecode\") == \"  vigil bytecode  \" &&\n"
+                         "        index == 3 &&\n"
+                         "        found == true &&\n"
+                         "        sub == \"vigil\" &&\n"
+                         "        sub_err == ok &&\n"
+                         "        ch == \"v\" &&\n"
+                         "        ch_err == ok &&\n"
+                         "        missing == \"\" &&\n"
+                         "        missing_err != ok &&\n"
+                         "        split_hits == 2 &&\n"
+                         "        byte_sum == 155) {\n"
+                         "        return 19;\n"
+                         "    }\n"
+                         "\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 19);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesArrayBuiltInMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesArrayBuiltInMethods)
+{
     const char *source = "\n"
-        "fn main() -> i32 {\n"
-        "    array<i32> nums = [1, 2];\n"
-        "    nums.push(3);\n"
-        "    i32 hit, err hit_err = nums.get(1);\n"
-        "    err set_err = nums.set(0, 5);\n"
-        "    array<i32> prefix = nums.slice(0, 2);\n"
-        "    i32 popped, err pop_err = nums.pop();\n"
-        "    i32 missing, err missing_err = nums.get(99);\n"
-        "\n"
-        "    if (nums.len() == 2 &&\n"
-        "        hit == 2 &&\n"
-        "        hit_err == ok &&\n"
-        "        set_err == ok &&\n"
-        "        prefix.contains(5) &&\n"
-        "        prefix.contains(2) &&\n"
-        "        popped == 3 &&\n"
-        "        pop_err == ok &&\n"
-        "        missing == 0 &&\n"
-        "        missing_err != ok) {\n"
-        "        return 23;\n"
-        "    }\n"
-        "\n"
-        "    return 0;\n"
-        "}\n"
-        "";
+                         "fn main() -> i32 {\n"
+                         "    array<i32> nums = [1, 2];\n"
+                         "    nums.push(3);\n"
+                         "    i32 hit, err hit_err = nums.get(1);\n"
+                         "    err set_err = nums.set(0, 5);\n"
+                         "    array<i32> prefix = nums.slice(0, 2);\n"
+                         "    i32 popped, err pop_err = nums.pop();\n"
+                         "    i32 missing, err missing_err = nums.get(99);\n"
+                         "\n"
+                         "    if (nums.len() == 2 &&\n"
+                         "        hit == 2 &&\n"
+                         "        hit_err == ok &&\n"
+                         "        set_err == ok &&\n"
+                         "        prefix.contains(5) &&\n"
+                         "        prefix.contains(2) &&\n"
+                         "        popped == 3 &&\n"
+                         "        pop_err == ok &&\n"
+                         "        missing == 0 &&\n"
+                         "        missing_err != ok) {\n"
+                         "        return 23;\n"
+                         "    }\n"
+                         "\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 23);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesMapBuiltInMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesMapBuiltInMethods)
+{
     const char *source = "\n"
-        "fn main() -> i32 {\n"
-        "    map<i32, string> labels = {1: \"a\", 2: \"b\"};\n"
-        "    string first, bool found_first = labels.get(1);\n"
-        "    err set_err = labels.set(3, \"c\");\n"
-        "    string removed, bool removed_ok = labels.remove(2);\n"
-        "    string missing, bool missing_ok = labels.get(99);\n"
-        "    i32 key_sum = 0;\n"
-        "    i32 value_hits = 0;\n"
-        "\n"
-        "    for key in labels.keys() {\n"
-        "        key_sum += key;\n"
-        "    }\n"
-        "\n"
-        "    for value in labels.values() {\n"
-        "        if (value == \"a\" || value == \"c\") {\n"
-        "            value_hits++;\n"
-        "        }\n"
-        "    }\n"
-        "\n"
-        "    if (labels.len() == 2 &&\n"
-        "        first == \"a\" &&\n"
-        "        found_first == true &&\n"
-        "        set_err == ok &&\n"
-        "        removed == \"b\" &&\n"
-        "        removed_ok == true &&\n"
-        "        missing == \"\" &&\n"
-        "        missing_ok == false &&\n"
-        "        labels.has(1) &&\n"
-        "        labels.has(3) &&\n"
-        "        !labels.has(2) &&\n"
-        "        key_sum == 4 &&\n"
-        "        value_hits == 2) {\n"
-        "        return 29;\n"
-        "    }\n"
-        "\n"
-        "    return 0;\n"
-        "}\n"
-        "";
+                         "fn main() -> i32 {\n"
+                         "    map<i32, string> labels = {1: \"a\", 2: \"b\"};\n"
+                         "    string first, bool found_first = labels.get(1);\n"
+                         "    err set_err = labels.set(3, \"c\");\n"
+                         "    string removed, bool removed_ok = labels.remove(2);\n"
+                         "    string missing, bool missing_ok = labels.get(99);\n"
+                         "    i32 key_sum = 0;\n"
+                         "    i32 value_hits = 0;\n"
+                         "\n"
+                         "    for key in labels.keys() {\n"
+                         "        key_sum += key;\n"
+                         "    }\n"
+                         "\n"
+                         "    for value in labels.values() {\n"
+                         "        if (value == \"a\" || value == \"c\") {\n"
+                         "            value_hits++;\n"
+                         "        }\n"
+                         "    }\n"
+                         "\n"
+                         "    if (labels.len() == 2 &&\n"
+                         "        first == \"a\" &&\n"
+                         "        found_first == true &&\n"
+                         "        set_err == ok &&\n"
+                         "        removed == \"b\" &&\n"
+                         "        removed_ok == true &&\n"
+                         "        missing == \"\" &&\n"
+                         "        missing_ok == false &&\n"
+                         "        labels.has(1) &&\n"
+                         "        labels.has(3) &&\n"
+                         "        !labels.has(2) &&\n"
+                         "        key_sum == 4 &&\n"
+                         "        value_hits == 2) {\n"
+                         "        return 29;\n"
+                         "    }\n"
+                         "\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 29);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals) {
+TEST(VigilCompilerTest, CompilesAndExecutesTypedEmptyCollectionLiterals)
+{
     const char *source = "\n"
-        "fn empty_nums() -> array<i32> {\n"
-        "    return [];\n"
-        "}\n"
-        "\n"
-        "fn empty_labels() -> map<i32, string> {\n"
-        "    return {};\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    array<i32> nums = [];\n"
-        "    map<i32, string> labels = {};\n"
-        "\n"
-        "    nums = empty_nums();\n"
-        "    labels = empty_labels();\n"
-        "    nums = [];\n"
-        "    labels = {};\n"
-        "\n"
-        "    if (nums.len() == 0 && labels.len() == 0) {\n"
-        "        return 17;\n"
-        "    }\n"
-        "\n"
-        "    return 0;\n"
-        "}\n"
-        "";
+                         "fn empty_nums() -> array<i32> {\n"
+                         "    return [];\n"
+                         "}\n"
+                         "\n"
+                         "fn empty_labels() -> map<i32, string> {\n"
+                         "    return {};\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    array<i32> nums = [];\n"
+                         "    map<i32, string> labels = {};\n"
+                         "\n"
+                         "    nums = empty_nums();\n"
+                         "    labels = empty_labels();\n"
+                         "    nums = [];\n"
+                         "    labels = {};\n"
+                         "\n"
+                         "    if (nums.len() == 0 && labels.len() == 0) {\n"
+                         "        return 17;\n"
+                         "    }\n"
+                         "\n"
+                         "    return 0;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 17);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods) {
+TEST(VigilCompilerTest, CompilesAndExecutesVoidFunctionsAndMethods)
+{
     const char *source = "\n"
-        "class Counter {\n"
-        "    i32 value;\n"
-        "\n"
-        "    fn bump() -> void {\n"
-        "        self.value++;\n"
-        "        return;\n"
-        "    }\n"
-        "}\n"
-        "\n"
-        "fn touch(Counter counter) -> void {\n"
-        "    counter.bump();\n"
-        "}\n"
-        "\n"
-        "fn reset(bool flag) -> void {\n"
-        "    if (flag) {\n"
-        "        return;\n"
-        "    }\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    Counter counter = Counter(4);\n"
-        "    touch(counter);\n"
-        "    reset(false);\n"
-        "    counter.bump();\n"
-        "    return counter.value;\n"
-        "}\n"
-        "";
+                         "class Counter {\n"
+                         "    i32 value;\n"
+                         "\n"
+                         "    fn bump() -> void {\n"
+                         "        self.value++;\n"
+                         "        return;\n"
+                         "    }\n"
+                         "}\n"
+                         "\n"
+                         "fn touch(Counter counter) -> void {\n"
+                         "    counter.bump();\n"
+                         "}\n"
+                         "\n"
+                         "fn reset(bool flag) -> void {\n"
+                         "    if (flag) {\n"
+                         "        return;\n"
+                         "    }\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    Counter counter = Counter(4);\n"
+                         "    touch(counter);\n"
+                         "    reset(false);\n"
+                         "    counter.bump();\n"
+                         "    return counter.value;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 6);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredCallsInLifoOrderWithEagerArguments)
+{
     const char *source = "\n"
-        "i32 state = 0;\n"
-        "\n"
-        "fn push(i32 value) -> void {\n"
-        "    state = state * 10 + value;\n"
-        "}\n"
-        "\n"
-        "fn next() -> i32 {\n"
-        "    state = state + 1;\n"
-        "    return state;\n"
-        "}\n"
-        "\n"
-        "fn run() -> void {\n"
-        "    defer push(next());\n"
-        "    defer push(next());\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    run();\n"
-        "    return state;\n"
-        "}\n"
-        "";
+                         "i32 state = 0;\n"
+                         "\n"
+                         "fn push(i32 value) -> void {\n"
+                         "    state = state * 10 + value;\n"
+                         "}\n"
+                         "\n"
+                         "fn next() -> i32 {\n"
+                         "    state = state + 1;\n"
+                         "    return state;\n"
+                         "}\n"
+                         "\n"
+                         "fn run() -> void {\n"
+                         "    defer push(next());\n"
+                         "    defer push(next());\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run();\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 221);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain)
+{
     const char *source = "\n"
-        "class Counter {\n"
-        "    i32 value;\n"
-        "\n"
-        "    fn bump(i32 delta) -> void {\n"
-        "        self.value += delta;\n"
-        "    }\n"
-        "}\n"
-        "\n"
-        "fn run(Counter counter) -> i32 {\n"
-        "    defer counter.bump(2);\n"
-        "    defer counter.bump(3);\n"
-        "    return 7;\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    Counter counter = Counter(4);\n"
-        "    i32 result = run(counter);\n"
-        "    return counter.value * 10 + result;\n"
-        "}\n"
-        "";
+                         "class Counter {\n"
+                         "    i32 value;\n"
+                         "\n"
+                         "    fn bump(i32 delta) -> void {\n"
+                         "        self.value += delta;\n"
+                         "    }\n"
+                         "}\n"
+                         "\n"
+                         "fn run(Counter counter) -> i32 {\n"
+                         "    defer counter.bump(2);\n"
+                         "    defer counter.bump(3);\n"
+                         "    return 7;\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    Counter counter = Counter(4);\n"
+                         "    i32 result = run(counter);\n"
+                         "    return counter.value * 10 + result;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 97);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesDeferredInterfaceCalls) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredInterfaceCalls)
+{
     const char *source = "\n"
-        "interface Reader {\n"
-        "    fn read() -> i32;\n"
-        "}\n"
-        "\n"
-        "i32 state = 0;\n"
-        "\n"
-        "class Counter implements Reader {\n"
-        "    i32 value;\n"
-        "\n"
-        "    fn read() -> i32 {\n"
-        "        state = state * 10 + self.value;\n"
-        "        return self.value;\n"
-        "    }\n"
-        "}\n"
-        "\n"
-        "fn run(Reader reader) -> void {\n"
-        "    defer reader.read();\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    run(Counter(8));\n"
-        "    return state;\n"
-        "}\n"
-        "";
+                         "interface Reader {\n"
+                         "    fn read() -> i32;\n"
+                         "}\n"
+                         "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "class Counter implements Reader {\n"
+                         "    i32 value;\n"
+                         "\n"
+                         "    fn read() -> i32 {\n"
+                         "        state = state * 10 + self.value;\n"
+                         "        return self.value;\n"
+                         "    }\n"
+                         "}\n"
+                         "\n"
+                         "fn run(Reader reader) -> void {\n"
+                         "    defer reader.read();\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run(Counter(8));\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 8);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors) {
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors)
+{
     const char *source = "\n"
-        "i32 state = 0;\n"
-        "\n"
-        "class Counter {\n"
-        "    i32 value;\n"
-        "\n"
-        "    fn init(i32 value) -> void {\n"
-        "        self.value = value;\n"
-        "        state = state * 10 + value;\n"
-        "    }\n"
-        "}\n"
-        "\n"
-        "fn run() -> void {\n"
-        "    defer Counter(2);\n"
-        "    defer Counter(3);\n"
-        "}\n"
-        "\n"
-        "fn main() -> i32 {\n"
-        "    run();\n"
-        "    return state;\n"
-        "}\n"
-        "";
+                         "i32 state = 0;\n"
+                         "\n"
+                         "class Counter {\n"
+                         "    i32 value;\n"
+                         "\n"
+                         "    fn init(i32 value) -> void {\n"
+                         "        self.value = value;\n"
+                         "        state = state * 10 + value;\n"
+                         "    }\n"
+                         "}\n"
+                         "\n"
+                         "fn run() -> void {\n"
+                         "    defer Counter(2);\n"
+                         "    defer Counter(3);\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run();\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
 
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 32);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/lib.vigil",
-            "pub i32 counter = 3;"
-            "pub fn bump() -> i32 {"
-            "    counter = counter + 1;"
-            "    return counter;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"lib\";"
-            "fn main() -> i32 {"
-            "    return lib.bump() + lib.counter;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/lib.vigil", "pub i32 counter = 3;"
+                                                                "pub fn bump() -> i32 {"
+                                                                "    counter = counter + 1;"
+                                                                "    return counter;"
+                                                                "}"},
+                                         {"/project/main.vigil", "import \"lib\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return lib.bump() + lib.counter;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 8);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/lib.vigil",
-            "pub i32 counter = 3;"
-        },
-        {
-            "/project/main.vigil",
-            "import \"lib\";"
-            "fn main() -> i32 {"
-            "    lib.counter += 2;"
-            "    lib.counter++;"
-            "    return lib.counter;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/lib.vigil", "pub i32 counter = 3;"},
+                                         {"/project/main.vigil", "import \"lib\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    lib.counter += 2;"
+                                                                 "    lib.counter++;"
+                                                                 "    return lib.counter;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 6);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/lib.vigil",
-            "pub array<i32> nums = [];"
-            "pub map<i32, string> labels = {};"
-        },
-        {
-            "/project/main.vigil",
-            "import \"lib\";"
-            "fn main() -> i32 {"
-            "    lib.nums = [];"
-            "    lib.labels = {};"
-            "    return lib.nums.len() + lib.labels.len() + 5;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/lib.vigil", "pub array<i32> nums = [];"
+                                                                "pub map<i32, string> labels = {};"},
+                                         {"/project/main.vigil", "import \"lib\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    lib.nums = [];"
+                                                                 "    lib.labels = {};"
+                                                                 "    return lib.nums.len() + lib.labels.len() + 5;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 5);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "class Counter {"
-            "    i32 value;"
-            "}"
-            "i32 total = 2;"
-            "fn main() -> i32 {"
-            "    Counter counter = Counter(3);"
-            "    total += 4;"
-            "    counter.value *= 2;"
-            "    counter.value--;"
-            "    return total + counter.value;"
-            "}"
-        ),
-        11
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "class Counter {"
+                                                "    i32 value;"
+                                                "}"
+                                                "i32 total = 2;"
+                                                "fn main() -> i32 {"
+                                                "    Counter counter = Counter(3);"
+                                                "    total += 4;"
+                                                "    counter.value *= 2;"
+                                                "    counter.value--;"
+                                                "    return total + counter.value;"
+                                                "}"),
+              11);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting) {
+TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting)
+{
     EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    string name = \"Alice\";"
-            "    i32 age = 30;"
-            "    f64 pi = 3.14159;"
-            "    string msg = f\"Name: {name}, Age: {age}, Next: {age + 1}, pi={pi:.2f}, braces={{ok}}\";"
-            "    if (msg == \"Name: Alice, Age: 30, Next: 31, pi=3.14, braces={ok}\") {"
-            "        return 1;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        1
-    );
+        CompileAndRun(vigil_test_failed_,
+                      "fn main() -> i32 {"
+                      "    string name = \"Alice\";"
+                      "    i32 age = 30;"
+                      "    f64 pi = 3.14159;"
+                      "    string msg = f\"Name: {name}, Age: {age}, Next: {age + 1}, pi={pi:.2f}, braces={{ok}}\";"
+                      "    if (msg == \"Name: Alice, Age: 30, Next: 31, pi=3.14, braces={ok}\") {"
+                      "        return 1;"
+                      "    }"
+                      "    return 0;"
+                      "}"),
+        1);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals) {
-    const struct TestSource sources[] = {
-        {
-            "/project/contracts.vigil",
-            "pub interface Reader {"
-            "    fn read() -> i32;"
-            "}"
-        },
-        {
-            "/project/model.vigil",
-            "import \"contracts\";"
-            "pub i32 seed = 4;"
-            "pub class Counter implements contracts.Reader {"
-            "    pub i32 value;"
-            "    pub fn read() -> i32 {"
-            "        return self.value;"
-            "    }"
-            "}"
-            "pub fn make_reader(i32 delta) -> contracts.Reader {"
-            "    return Counter(seed + delta);"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"contracts\";"
-            "import \"model\";"
-            "fn main() -> i32 {"
-            "    contracts.Reader reader = model.make_reader(5);"
-            "    model.Counter counter = model.Counter(model.seed);"
-            "    return reader.read() + counter.value;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals)
+{
+    const struct TestSource sources[] = {{"/project/contracts.vigil", "pub interface Reader {"
+                                                                      "    fn read() -> i32;"
+                                                                      "}"},
+                                         {"/project/model.vigil", "import \"contracts\";"
+                                                                  "pub i32 seed = 4;"
+                                                                  "pub class Counter implements contracts.Reader {"
+                                                                  "    pub i32 value;"
+                                                                  "    pub fn read() -> i32 {"
+                                                                  "        return self.value;"
+                                                                  "    }"
+                                                                  "}"
+                                                                  "pub fn make_reader(i32 delta) -> contracts.Reader {"
+                                                                  "    return Counter(seed + delta);"
+                                                                  "}"},
+                                         {"/project/main.vigil",
+                                          "import \"contracts\";"
+                                          "import \"model\";"
+                                          "fn main() -> i32 {"
+                                          "    contracts.Reader reader = model.make_reader(5);"
+                                          "    model.Counter counter = model.Counter(model.seed);"
+                                          "    return reader.read() + counter.value;"
+                                          "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 3U, "/project/main.vigil"), 13);
 }
 
-TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
+TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1503,47 +1305,37 @@ TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/model.vigil",
-        "pub class Counter {"
-        "    i32 value;"
-        "    fn init(i32 value) -> void {"
-        "        self.value = value;"
-        "    }"
-        "    fn read() -> i32 {"
-        "        return self.value;"
-        "    }"
-        "}",
-        &error
-    );
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "import \"model\";"
-        "fn main() -> i32 {"
-        "    model.Counter counter = model.Counter(7);"
-        "    return counter.value;"
-        "}",
-        &error
-    );
+    RegisterSource(vigil_test_failed_, &registry, "/project/model.vigil",
+                   "pub class Counter {"
+                   "    i32 value;"
+                   "    fn init(i32 value) -> void {"
+                   "        self.value = value;"
+                   "    }"
+                   "    fn read() -> i32 {"
+                   "        return self.value;"
+                   "    }"
+                   "}",
+                   &error);
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "import \"model\";"
+                               "fn main() -> i32 {"
+                               "    model.Counter counter = model.Counter(7);"
+                               "    return counter.value;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "class field is not public"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "class field is not public");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
+TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1555,100 +1347,76 @@ TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/model.vigil",
-        "pub class Counter {"
-        "    pub i32 value;"
-        "    fn init(i32 value) -> void {"
-        "        self.value = value;"
-        "    }"
-        "    fn read() -> i32 {"
-        "        return self.value;"
-        "    }"
-        "}",
-        &error
-    );
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "import \"model\";"
-        "fn main() -> i32 {"
-        "    model.Counter counter = model.Counter(7);"
-        "    return counter.read();"
-        "}",
-        &error
-    );
+    RegisterSource(vigil_test_failed_, &registry, "/project/model.vigil",
+                   "pub class Counter {"
+                   "    pub i32 value;"
+                   "    fn init(i32 value) -> void {"
+                   "        self.value = value;"
+                   "    }"
+                   "    fn read() -> i32 {"
+                   "        return self.value;"
+                   "    }"
+                   "}",
+                   &error);
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "import \"model\";"
+                               "fn main() -> i32 {"
+                               "    model.Counter counter = model.Counter(7);"
+                               "    return counter.read();"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "class method is not public"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "class method is not public");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles) {
-    const struct TestSource sources[] = {
-        {
-            "/project/colors.vigil",
-            "pub enum Color {"
-            "    Red,"
-            "    Green,"
-            "    Blue"
-            "}"
-            "pub fn pick() -> Color {"
-            "    return Color.Green;"
-            "}"
-        },
-        {
-            "/project/main.vigil",
-            "import \"colors\";"
-            "fn main() -> i32 {"
-            "    colors.Color color = colors.pick();"
-            "    switch (color) {"
-            "        case colors.Color.Red:"
-            "            return 1;"
-            "        case colors.Color.Green:"
-            "            return 2;"
-            "        default:"
-            "            return 0;"
-            "    }"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles)
+{
+    const struct TestSource sources[] = {{"/project/colors.vigil", "pub enum Color {"
+                                                                   "    Red,"
+                                                                   "    Green,"
+                                                                   "    Blue"
+                                                                   "}"
+                                                                   "pub fn pick() -> Color {"
+                                                                   "    return Color.Green;"
+                                                                   "}"},
+                                         {"/project/main.vigil", "import \"colors\";"
+                                                                 "fn main() -> i32 {"
+                                                                 "    colors.Color color = colors.pick();"
+                                                                 "    switch (color) {"
+                                                                 "        case colors.Color.Red:"
+                                                                 "            return 1;"
+                                                                 "        case colors.Color.Green:"
+                                                                 "            return 2;"
+                                                                 "        default:"
+                                                                 "            return 0;"
+                                                                 "    }"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 2);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions) {
-    const struct TestSource sources[] = {
-        {
-            "/project/config.vigil",
-            "pub const i32 BASE = 1 << 4;"
-            "pub const i32 FLAG = BASE | 3;"
-        },
-        {
-            "/project/main.vigil",
-            "import \"config\" as cfg;"
-            "const i32 LIMIT = true ? cfg.FLAG : 0;"
-            "fn main() -> i32 {"
-            "    return LIMIT ^ 2;"
-            "}"
-        }
-    };
+TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions)
+{
+    const struct TestSource sources[] = {{"/project/config.vigil", "pub const i32 BASE = 1 << 4;"
+                                                                   "pub const i32 FLAG = BASE | 3;"},
+                                         {"/project/main.vigil", "import \"config\" as cfg;"
+                                                                 "const i32 LIMIT = true ? cfg.FLAG : 0;"
+                                                                 "fn main() -> i32 {"
+                                                                 "    return LIMIT ^ 2;"
+                                                                 "}"}};
 
     EXPECT_EQ(CompileAndRunMulti(vigil_test_failed_, sources, 2U, "/project/main.vigil"), 17);
 }
 
-TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames) {
+TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1660,33 +1428,26 @@ TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "const i32 LIMIT = 1;"
-        "const i32 LIMIT = 2;"
-        "fn main() -> i32 {"
-        "    return LIMIT;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "const i32 LIMIT = 1;"
+                               "const i32 LIMIT = 2;"
+                               "fn main() -> i32 {"
+                               "    return LIMIT;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "global constant is already declared"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global constant is already declared");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
+TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1698,33 +1459,26 @@ TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "enum Color { Red, Blue }"
-        "fn main() -> i32 {"
-        "    Color color = 1;"
-        "    return 0;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "enum Color { Red, Blue }"
+                               "fn main() -> i32 {"
+                               "    Color color = 1;"
+                               "    return 0;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "initializer type does not match local variable type"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "initializer type does not match local variable type");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
+TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1736,41 +1490,31 @@ TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/lib.vigil",
-        "fn hidden() -> i32 {"
-        "    return 7;"
-        "}"
-        "i32 value = 3;",
-        &error
-    );
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "import \"lib\";"
-        "fn main() -> i32 {"
-        "    return lib.hidden() + lib.value;"
-        "}",
-        &error
-    );
+    RegisterSource(vigil_test_failed_, &registry, "/project/lib.vigil",
+                   "fn hidden() -> i32 {"
+                   "    return 7;"
+                   "}"
+                   "i32 value = 3;",
+                   &error);
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "import \"lib\";"
+                               "fn main() -> i32 {"
+                               "    return lib.hidden() + lib.value;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "module member is not public"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "module member is not public");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants) {
+TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1782,39 +1526,27 @@ TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/lib.vigil",
-        "pub const i32 LIMIT = 3;",
-        &error
-    );
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "/project/main.vigil",
-        "import \"lib\";"
-        "fn main() -> i32 {"
-        "    lib.LIMIT = 4;"
-        "    return 0;"
-        "}",
-        &error
-    );
+    RegisterSource(vigil_test_failed_, &registry, "/project/lib.vigil", "pub const i32 LIMIT = 3;", &error);
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "import \"lib\";"
+                               "fn main() -> i32 {"
+                               "    lib.LIMIT = 4;"
+                               "    return 0;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "cannot assign to module constant"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "cannot assign to module constant");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsClassesMissingInterfaceMethods) {
+TEST(VigilCompilerTest, RejectsClassesMissingInterfaceMethods)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1826,35 +1558,28 @@ TEST(VigilCompilerTest, RejectsClassesMissingInterfaceMethods) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "missing_interface_method.vigil",
-        "interface Reader { fn read() -> i32; }"
-        "class Counter implements Reader {"
-        "    i32 value;"
-        "}"
-        "fn main() -> i32 {"
-        "    return 0;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "missing_interface_method.vigil",
+                               "interface Reader { fn read() -> i32; }"
+                               "class Counter implements Reader {"
+                               "    i32 value;"
+                               "}"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "class does not implement required interface method"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "class does not implement required interface method");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsNonVoidInitMethods) {
+TEST(VigilCompilerTest, RejectsNonVoidInitMethods)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1866,37 +1591,30 @@ TEST(VigilCompilerTest, RejectsNonVoidInitMethods) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_init.vigil",
-        "class Counter {"
-        "    fn init(i32 value) -> i32 {"
-        "        return value;"
-        "    }"
-        "}"
-        "fn main() -> i32 {"
-        "    Counter(1);"
-        "    return 0;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_init.vigil",
+                               "class Counter {"
+                               "    fn init(i32 value) -> i32 {"
+                               "        return value;"
+                               "    }"
+                               "}"
+                               "fn main() -> i32 {"
+                               "    Counter(1);"
+                               "    return 0;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "init methods must return void or err"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "init methods must return void or err");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
+TEST(VigilCompilerTest, RejectsInterfaceMethodsWithWrongSignature)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1908,38 +1626,31 @@ TEST(VigilCompilerTest, RejectsInterfaceMethodsWithWrongSignature) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "wrong_interface_signature.vigil",
-        "interface Reader { fn read() -> i32; }"
-        "class Counter implements Reader {"
-        "    i32 value;"
-        "    fn read(i32 delta) -> i32 {"
-        "        return self.value + delta;"
-        "    }"
-        "}"
-        "fn main() -> i32 {"
-        "    return 0;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "wrong_interface_signature.vigil",
+                               "interface Reader { fn read() -> i32; }"
+                               "class Counter implements Reader {"
+                               "    i32 value;"
+                               "    fn read(i32 delta) -> i32 {"
+                               "        return self.value + delta;"
+                               "    }"
+                               "}"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "class method signature does not match interface"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "class method signature does not match interface");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsUnknownClassFields) {
+TEST(VigilCompilerTest, RejectsUnknownClassFields)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1951,33 +1662,25 @@ TEST(VigilCompilerTest, RejectsUnknownClassFields) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "missing_field.vigil",
-        "class Pair { i32 left; }"
-        "fn main() -> i32 {"
-        "    Pair pair = Pair(1);"
-        "    return pair.right;"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "missing_field.vigil",
+                               "class Pair { i32 left; }"
+                               "fn main() -> i32 {"
+                               "    Pair pair = Pair(1);"
+                               "    return pair.right;"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unknown class field"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "unknown class field");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsUnknownClassMethods) {
+TEST(VigilCompilerTest, RejectsUnknownClassMethods)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -1989,33 +1692,25 @@ TEST(VigilCompilerTest, RejectsUnknownClassMethods) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "missing_method.vigil",
-        "class Pair { i32 left; }"
-        "fn main() -> i32 {"
-        "    Pair pair = Pair(1);"
-        "    return pair.right();"
-        "}",
-        &error
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "missing_method.vigil",
+                               "class Pair { i32 left; }"
+                               "fn main() -> i32 {"
+                               "    Pair pair = Pair(1);"
+                               "    return pair.right();"
+                               "}",
+                               &error);
 
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unknown class method"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "unknown class method");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions) {
+TEST(VigilCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2028,99 +1723,55 @@ TEST(VigilCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressi
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "string_type.vigil",
-        "fn main() -> string { return 1; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id =
+        RegisterSource(vigil_test_failed_, &registry, "string_type.vigil", "fn main() -> string { return 1; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
     diagnostic = vigil_diagnostic_list_get(&diagnostics, 0U);
     ASSERT_NE(diagnostic, NULL);
-    EXPECT_STREQ(
-        vigil_string_c_str(&diagnostic->message),
-        "main entrypoint must declare return type i32"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&diagnostic->message), "main entrypoint must declare return type i32");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "void_return_value.vigil",
-        "fn helper() -> void { return 1; }"
-        "fn main() -> i32 { helper(); return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "void_return_value.vigil",
+                               "fn helper() -> void { return 1; }"
+                               "fn main() -> i32 { helper(); return 0; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "void functions cannot return a value"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "void functions cannot return a value");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bool_return.vigil",
-        "fn main() -> i32 { return true; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id =
+        RegisterSource(vigil_test_failed_, &registry, "bool_return.vigil", "fn main() -> i32 { return true; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an i32 expression"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "main entrypoint must return an i32 expression");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "nil_return.vigil",
-        "fn main() -> i32 { return nil; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id =
+        RegisterSource(vigil_test_failed_, &registry, "nil_return.vigil", "fn main() -> i32 { return nil; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an i32 expression"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "main entrypoint must return an i32 expression");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "float_return.vigil",
-        "fn main() -> i32 { return 3.14; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "float_return.vigil", "fn main() -> i32 { return 3.14; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an i32 expression"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "main entrypoint must return an i32 expression");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsMixedI32AndF64Arithmetic) {
+TEST(VigilCompilerTest, RejectsMixedI32AndF64Arithmetic)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2132,45 +1783,37 @@ TEST(VigilCompilerTest, RejectsMixedI32AndF64Arithmetic) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "mixed_numeric.vigil",
-        "fn main() -> i32 { f64 x = 1.0 + 2; return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "mixed_numeric.vigil",
+                               "fn main() -> i32 { f64 x = 1.0 + 2; return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "'+' requires matching integer, f64, or string operands"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "'+' requires matching integer, f64, or string operands");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference) {
+TEST(VigilCompilerTest, CompilesAndExecutesLargeIntegerLiteralInference)
+{
     EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i64 signed_large = 3000000000;"
-            "    u64 huge = 9223372036854775808;"
-            "    u64 max = 18446744073709551615;"
-            "    u64 previous = max - u64(1);"
-            "    if (signed_large == i64(3000000000) && huge > u64(9223372036854775807) && previous < max) {"
-            "        return 11;"
-            "    }"
-            "    return 0;"
-            "}"
-        ),
-        11
-    );
+        CompileAndRun(vigil_test_failed_,
+                      "fn main() -> i32 {"
+                      "    i64 signed_large = 3000000000;"
+                      "    u64 huge = 9223372036854775808;"
+                      "    u64 max = 18446744073709551615;"
+                      "    u64 previous = max - u64(1);"
+                      "    if (signed_large == i64(3000000000) && huge > u64(9223372036854775807) && previous < max) {"
+                      "        return 11;"
+                      "    }"
+                      "    return 0;"
+                      "}"),
+        11);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidLocalsAndConditions) {
+TEST(VigilCompilerTest, RejectsInvalidLocalsAndConditions)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2182,79 +1825,43 @@ TEST(VigilCompilerTest, RejectsInvalidLocalsAndConditions) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "uninit.vigil",
-        "fn main() -> i32 { i32 x; return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id =
+        RegisterSource(vigil_test_failed_, &registry, "uninit.vigil", "fn main() -> i32 { i32 x; return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "variables must be initialized at declaration"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "variables must be initialized at declaration");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "unknown.vigil",
-        "fn main() -> i32 { x = 1; return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id =
+        RegisterSource(vigil_test_failed_, &registry, "unknown.vigil", "fn main() -> i32 { x = 1; return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unknown local variable"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "unknown local variable");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "condition.vigil",
-        "fn main() -> i32 { if (1) { return 1; } return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "condition.vigil",
+                               "fn main() -> i32 { if (1) { return 1; } return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "if condition must be bool"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "if condition must be bool");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "type.vigil",
-        "fn main() -> i32 { bool ready = 1; return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "type.vigil",
+                               "fn main() -> i32 { bool ready = 1; return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "initializer type does not match local variable type"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "initializer type does not match local variable type");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
+TEST(VigilCompilerTest, RejectsInvalidFunctionSignaturesAndCalls)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2266,87 +1873,53 @@ TEST(VigilCompilerTest, RejectsInvalidFunctionSignaturesAndCalls) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "main_params.vigil",
-        "fn main(i32 value) -> i32 { return value; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "main_params.vigil",
+                               "fn main(i32 value) -> i32 { return value; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     EXPECT_EQ(error.location.source_id, source_id);
     EXPECT_EQ(error.location.line, 1U);
     EXPECT_EQ(error.location.column, 4U);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must not declare parameters"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "main entrypoint must not declare parameters");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "arg_count.vigil",
-        "fn add(i32 left, i32 right) -> i32 { return left + right; }"
-        "fn main() -> i32 { return add(1); }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "arg_count.vigil",
+                               "fn add(i32 left, i32 right) -> i32 { return left + right; }"
+                               "fn main() -> i32 { return add(1); }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "call argument count does not match function signature"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "call argument count does not match function signature");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "arg_type.vigil",
-        "fn truthy(bool ready) -> i32 {"
-        "    if (ready) { return 1; }"
-        "    return 0;"
-        "}"
-        "fn main() -> i32 { return truthy(1); }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "arg_type.vigil",
+                               "fn truthy(bool ready) -> i32 {"
+                               "    if (ready) { return 1; }"
+                               "    return 0;"
+                               "}"
+                               "fn main() -> i32 { return truthy(1); }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "call argument type does not match parameter type"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "call argument type does not match parameter type");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "unknown_call.vigil",
-        "fn main() -> i32 { return missing(1); }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "unknown_call.vigil",
+                               "fn main() -> i32 { return missing(1); }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unknown function"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "unknown function");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops) {
+TEST(VigilCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2358,62 +1931,36 @@ TEST(VigilCompilerTest, RejectsInvalidLogicalOperandsAndLoopControlOutsideLoops)
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "logical_type.vigil",
-        "fn main() -> i32 { if (1 && true) { return 1; } return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "logical_type.vigil",
+                               "fn main() -> i32 { if (1 && true) { return 1; } return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "logical '&&' requires bool operands"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "logical '&&' requires bool operands");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "break_outside.vigil",
-        "fn main() -> i32 { break; return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "break_outside.vigil",
+                               "fn main() -> i32 { break; return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "'break' is only valid inside a loop"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "'break' is only valid inside a loop");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "continue_outside.vigil",
-        "fn main() -> i32 { continue; return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "continue_outside.vigil",
+                               "fn main() -> i32 { continue; return 0; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "'continue' is only valid inside a loop"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "'continue' is only valid inside a loop");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing) {
+TEST(VigilCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2425,104 +1972,77 @@ TEST(VigilCompilerTest, RequiresGuaranteedReturnAndPreservesNestedScopeShadowing
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "missing_return.vigil",
-        "fn choose(bool ready) -> i32 {"
-        "    if (ready) {"
-        "        return 1;"
-        "    }"
-        "}"
-        "fn main() -> i32 {"
-        "    return choose(true);"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "missing_return.vigil",
+                               "fn choose(bool ready) -> i32 {"
+                               "    if (ready) {"
+                               "        return 1;"
+                               "    }"
+                               "}"
+                               "fn main() -> i32 {"
+                               "    return choose(true);"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "function must return a value on all paths"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "function must return a value on all paths");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "missing_main_return.vigil",
-        "fn main() -> i32 {"
-        "    if (true) {"
-        "        return 1;"
-        "    }"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "missing_main_return.vigil",
+                               "fn main() -> i32 {"
+                               "    if (true) {"
+                               "        return 1;"
+                               "    }"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "main entrypoint must return an i32 value on all paths"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "main entrypoint must return an i32 value on all paths");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "void_missing_value.vigil",
-        "fn helper(bool ready) -> void {"
-        "    if (ready) {"
-        "        return;"
-        "    }"
-        "}"
-        "fn main() -> i32 { helper(false); return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_OK
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "void_missing_value.vigil",
+                               "fn helper(bool ready) -> void {"
+                               "    if (ready) {"
+                               "        return;"
+                               "    }"
+                               "}"
+                               "fn main() -> i32 { helper(false); return 0; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_diagnostic_list_count(&diagnostics), 0U);
     vigil_object_release(&function);
     function = NULL;
 
     vigil_diagnostic_list_clear(&diagnostics);
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn choose(bool ready) -> i32 {"
-            "    if (ready) {"
-                "        return 1;"
-            "    } else {"
-                "        return 2;"
-            "    }"
-            "}"
-            "fn main() -> i32 {"
-            "    return choose(false);"
-            "}"
-        ),
-        2
-    );
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn choose(bool ready) -> i32 {"
+                                                "    if (ready) {"
+                                                "        return 1;"
+                                                "    } else {"
+                                                "        return 2;"
+                                                "    }"
+                                                "}"
+                                                "fn main() -> i32 {"
+                                                "    return choose(false);"
+                                                "}"),
+              2);
 
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    i32 value = 7;"
-            "    {"
-            "        i32 value = 2;"
-            "    }"
-            "    return value;"
-            "}"
-        ),
-        7
-    );
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    i32 value = 7;"
+                                                "    {"
+                                                "        i32 value = 2;"
+                                                "    }"
+                                                "    return value;"
+                                                "}"),
+              7);
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsVoidInNonReturnTypePositions) {
+TEST(VigilCompilerTest, RejectsVoidInNonReturnTypePositions)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2534,83 +2054,52 @@ TEST(VigilCompilerTest, RejectsVoidInNonReturnTypePositions) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "void_local.vigil",
-        "fn helper() -> void {}"
-        "fn main() -> i32 { void x = helper(); return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "void_local.vigil",
+                               "fn helper() -> void {}"
+                               "fn main() -> i32 { void x = helper(); return 0; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "local variables cannot use type void"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "local variables cannot use type void");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "void_param.vigil",
-        "fn bad(void value) -> i32 { return 0; }"
-        "fn main() -> i32 { return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "void_param.vigil",
+                               "fn bad(void value) -> i32 { return 0; }"
+                               "fn main() -> i32 { return 0; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "function parameters cannot use type void"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "function parameters cannot use type void");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "void_global.vigil",
-        "void state = nil;"
-        "fn main() -> i32 { return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "void_global.vigil",
+                               "void state = nil;"
+                               "fn main() -> i32 { return 0; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "global variables cannot use type void"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global variables cannot use type void");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "void_field.vigil",
-        "class Bad { void value; }"
-        "fn main() -> i32 { return 0; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "void_field.vigil",
+                               "class Bad { void value; }"
+                               "fn main() -> i32 { return 0; }",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "class fields cannot use type void"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "class fields cannot use type void");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsDeferWithoutCallExpression) {
+TEST(VigilCompilerTest, RejectsDeferWithoutCallExpression)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2622,32 +2111,25 @@ TEST(VigilCompilerTest, RejectsDeferWithoutCallExpression) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_defer.vigil",
-        "fn main() -> i32 {"
-        "    i32 value = 1;"
-        "    defer value;"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_defer.vigil",
+                               "fn main() -> i32 {"
+                               "    i32 value = 1;"
+                               "    defer value;"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "defer requires a call expression"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "defer requires a call expression");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsAssignmentToConstLocal) {
+TEST(VigilCompilerTest, RejectsAssignmentToConstLocal)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2659,77 +2141,66 @@ TEST(VigilCompilerTest, RejectsAssignmentToConstLocal) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "const_assign.vigil",
-        "fn main() -> i32 {"
-        "    const i32 value = 1;"
-        "    value = 2;"
-        "    return value;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "const_assign.vigil",
+                               "fn main() -> i32 {"
+                               "    const i32 value = 1;"
+                               "    value = 2;"
+                               "    return value;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "cannot assign to const local variable"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "cannot assign to const local variable");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    array<i32> nums = [1, 2, 3];"
-            "    map<i32, i32> scores = {1: 4, 2: 5};"
-            "    map<bool, i32> flags = {true: 3, false: 1};"
-            "    nums[1] = nums[0] + scores[2];"
-            "    nums[2] += scores[1];"
-            "    nums[2]--;"
-            "    scores[1] = nums[1] + flags[true];"
-            "    scores[2] *= nums[0];"
-            "    return scores[1];"
-            "}"
-        ),
-        9
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesArrayAndMapLiteralsIndexingAndAssignment)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    array<i32> nums = [1, 2, 3];"
+                                                "    map<i32, i32> scores = {1: 4, 2: 5};"
+                                                "    map<bool, i32> flags = {true: 3, false: 1};"
+                                                "    nums[1] = nums[0] + scores[2];"
+                                                "    nums[2] += scores[1];"
+                                                "    nums[2]--;"
+                                                "    scores[1] = nums[1] + flags[true];"
+                                                "    scores[2] *= nums[0];"
+                                                "    return scores[1];"
+                                                "}"),
+              9);
 }
 
-TEST(VigilCompilerTest, CompilesAndExecutesForInOverArraysAndMaps) {
-    EXPECT_EQ(
-        CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
-            "    array<i32> nums = [2, 4, 6, 8];"
-            "    map<string, i32> scores = {\"a\": 1, \"b\": 3, \"c\": 5};"
-            "    i32 sum = 0;"
-            "    for value in nums {"
-            "        if (value == 6) {"
-            "            continue;"
-            "        }"
-            "        if (value == 8) {"
-            "            break;"
-            "        }"
-            "        sum += value;"
-            "    }"
-            "    for key, value in scores {"
-            "        if (key == \"b\") {"
-            "            sum += value;"
-            "        }"
-            "    }"
-            "    return sum;"
-            "}"
-        ),
-        9
-    );
+TEST(VigilCompilerTest, CompilesAndExecutesForInOverArraysAndMaps)
+{
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, "fn main() -> i32 {"
+                                                "    array<i32> nums = [2, 4, 6, 8];"
+                                                "    map<string, i32> scores = {\"a\": 1, \"b\": 3, \"c\": 5};"
+                                                "    i32 sum = 0;"
+                                                "    for value in nums {"
+                                                "        if (value == 6) {"
+                                                "            continue;"
+                                                "        }"
+                                                "        if (value == 8) {"
+                                                "            break;"
+                                                "        }"
+                                                "        sum += value;"
+                                                "    }"
+                                                "    for key, value in scores {"
+                                                "        if (key == \"b\") {"
+                                                "            sum += value;"
+                                                "        }"
+                                                "    }"
+                                                "    return sum;"
+                                                "}"),
+              9);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidForInBindingsAndIterables) {
+TEST(VigilCompilerTest, RejectsInvalidForInBindingsAndIterables)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2741,57 +2212,42 @@ TEST(VigilCompilerTest, RejectsInvalidForInBindingsAndIterables) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_array_for_in.vigil",
-        "fn main() -> i32 {"
-        "    array<i32> nums = [1, 2];"
-        "    for left, right in nums {"
-        "        return left + right;"
-        "    }"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_array_for_in.vigil",
+                               "fn main() -> i32 {"
+                               "    array<i32> nums = [1, 2];"
+                               "    for left, right in nums {"
+                               "        return left + right;"
+                               "    }"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "for-in over arrays requires a single loop binding"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "for-in over arrays requires a single loop binding");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_non_iterable_for_in.vigil",
-        "fn main() -> i32 {"
-        "    i32 value = 4;"
-        "    for item in value {"
-        "        return item;"
-        "    }"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_non_iterable_for_in.vigil",
+                               "fn main() -> i32 {"
+                               "    i32 value = 4;"
+                               "    for item in value {"
+                               "        return item;"
+                               "    }"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "for-in requires an array or map iterable"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "for-in requires an array or map iterable");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes) {
+TEST(VigilCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssignmentTypes)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2803,92 +2259,60 @@ TEST(VigilCompilerTest, RejectsInvalidCollectionIndexingAndCompoundIndexedAssign
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_array_index.vigil",
-        "fn main() -> i32 {"
-        "    array<i32> nums = [1, 2];"
-        "    return nums[\"zero\"];"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_array_index.vigil",
+                               "fn main() -> i32 {"
+                               "    array<i32> nums = [1, 2];"
+                               "    return nums[\"zero\"];"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "array index must be i32"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "array index must be i32");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_map_index.vigil",
-        "fn main() -> i32 {"
-        "    map<string, i32> scores = {\"a\": 1};"
-        "    return scores[0];"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_map_index.vigil",
+                               "fn main() -> i32 {"
+                               "    map<string, i32> scores = {\"a\": 1};"
+                               "    return scores[0];"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "map index must match map key type"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "map index must match map key type");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_map_key_type.vigil",
-        "fn main() -> i32 {"
-        "    map<f64, i32> scores = {1.5: 1};"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_map_key_type.vigil",
+                               "fn main() -> i32 {"
+                               "    map<f64, i32> scores = {1.5: 1};"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "map keys must use an integer, bool, string, or enum type"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "map keys must use an integer, bool, string, or enum type");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_index_compound_type.vigil",
-        "fn main() -> i32 {"
-        "    array<i32> nums = [1, 2];"
-        "    nums[0] += \"x\";"
-        "    return nums[0];"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_index_compound_type.vigil",
+                               "fn main() -> i32 {"
+                               "    array<i32> nums = [1, 2];"
+                               "    nums[0] += \"x\";"
+                               "    return nums[0];"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "compound assignment requires matching integer, f64, or string operands"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "compound assignment requires matching integer, f64, or string operands");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidBuiltinConversions) {
+TEST(VigilCompilerTest, RejectsInvalidBuiltinConversions)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2900,31 +2324,24 @@ TEST(VigilCompilerTest, RejectsInvalidBuiltinConversions) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_conv.vigil",
-        "fn main() -> i32 {"
-        "    bool ready = bool(1);"
-        "    return ready ? 1 : 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_conv.vigil",
+                               "fn main() -> i32 {"
+                               "    bool ready = bool(1);"
+                               "    return ready ? 1 : 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "bool(...) requires a bool argument"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "bool(...) requires a bool argument");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures) {
+TEST(VigilCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2936,55 +2353,40 @@ TEST(VigilCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSigna
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_any_call.vigil",
-        "fn add(i32 a, i32 b) -> i32 {"
-        "    return a + b;"
-        "}"
-        "fn main() -> i32 {"
-        "    fn op = add;"
-        "    return op(1, 2);"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_any_call.vigil",
+                               "fn add(i32 a, i32 b) -> i32 {"
+                               "    return a + b;"
+                               "}"
+                               "fn main() -> i32 {"
+                               "    fn op = add;"
+                               "    return op(1, 2);"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "indirect calls require a concrete function signature"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "indirect calls require a concrete function signature");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_function_assign.vigil",
-        "fn log_name(string name) -> void {}"
-        "fn main() -> i32 {"
-        "    fn(i32, i32) -> i32 op = log_name;"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_function_assign.vigil",
+                               "fn log_name(string name) -> void {}"
+                               "fn main() -> i32 {"
+                               "    fn(i32, i32) -> i32 op = log_name;"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "initializer type does not match local variable type"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "initializer type does not match local variable type");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
+TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -2996,51 +2398,35 @@ TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_err_ctor.vigil",
-        "fn main() -> i32 {"
-        "    err e = err(1, err.arg);"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_err_ctor.vigil",
+                               "fn main() -> i32 {"
+                               "    err e = err(1, err.arg);"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "err(...) message must be a string"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "err(...) message must be a string");
 
     vigil_diagnostic_list_clear(&diagnostics);
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_err_method.vigil",
-        "fn main() -> i32 {"
-        "    err e = ok;"
-        "    return e.code();"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_err_method.vigil",
+                               "fn main() -> i32 {"
+                               "    err e = ok;"
+                               "    return e.code();"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "unknown error method"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message), "unknown error method");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, RejectsInvalidGuardBindings) {
+TEST(VigilCompilerTest, RejectsInvalidGuardBindings)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -3052,40 +2438,33 @@ TEST(VigilCompilerTest, RejectsInvalidGuardBindings) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad_guard.vigil",
-        "fn divide(i32 a, i32 b) -> (i32, err) {"
-        "    if (b == 0) {"
-        "        return (0, err(\"division by zero\", err.arg));"
-        "    }"
-        "    return (a / b, ok);"
-        "}"
-        "fn main() -> i32 {"
-        "    guard i32 value, err _ = divide(1, 0) {"
-        "        return 1;"
-        "    }"
-        "    return 0;"
-        "}",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad_guard.vigil",
+                               "fn divide(i32 a, i32 b) -> (i32, err) {"
+                               "    if (b == 0) {"
+                               "        return (0, err(\"division by zero\", err.arg));"
+                               "    }"
+                               "    return (a / b, ok);"
+                               "}"
+                               "fn main() -> i32 {"
+                               "    guard i32 value, err _ = divide(1, 0) {"
+                               "        return 1;"
+                               "    }"
+                               "    return 0;"
+                               "}",
+                               &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     EXPECT_EQ(function, NULL);
     ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
-    EXPECT_STREQ(
-        vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
-        "guard error binding must be named"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "guard error binding must be named");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
+TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape)
+{
     vigil_runtime_t *runtime = NULL;
     vigil_error_t error = {0};
     vigil_source_registry_t registry;
@@ -3098,29 +2477,19 @@ TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape) {
     vigil_source_registry_init(&registry, runtime);
     vigil_diagnostic_list_init(&diagnostics, runtime);
 
-    source_id = RegisterSource(vigil_test_failed_, 
-        &registry,
-        "bad.vigil",
-        "fn helper() -> i32 { return 1; }",
-        &error
-    );
-    EXPECT_EQ(
-        vigil_compile_source(&registry, source_id, &function, &diagnostics, &error),
-        VIGIL_STATUS_SYNTAX_ERROR
-    );
+    source_id = RegisterSource(vigil_test_failed_, &registry, "bad.vigil", "fn helper() -> i32 { return 1; }", &error);
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
     diagnostic = vigil_diagnostic_list_get(&diagnostics, 0U);
     ASSERT_NE(diagnostic, NULL);
-    EXPECT_STREQ(
-        vigil_string_c_str(&diagnostic->message),
-        "expected top-level function 'main'"
-    );
+    EXPECT_STREQ(vigil_string_c_str(&diagnostic->message), "expected top-level function 'main'");
 
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);
 }
 
-void register_compiler_tests(void) {
+void register_compiler_tests(void)
+{
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot);

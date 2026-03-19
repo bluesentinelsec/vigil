@@ -25,27 +25,31 @@
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-static bool get_bytes_arg(vigil_vm_t *vm, size_t base, size_t idx,
-                          const uint8_t **out, size_t *out_len) {
+static bool get_bytes_arg(vigil_vm_t *vm, size_t base, size_t idx, const uint8_t **out, size_t *out_len)
+{
     vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
-    if (!vigil_nanbox_is_object(v)) return false;
+    if (!vigil_nanbox_is_object(v))
+        return false;
     vigil_object_t *obj = (vigil_object_t *)vigil_nanbox_decode_ptr(v);
-    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING) return false;
+    if (!obj || vigil_object_type(obj) != VIGIL_OBJECT_STRING)
+        return false;
     *out = (const uint8_t *)vigil_string_object_c_str(obj);
     *out_len = vigil_string_object_length(obj);
     return true;
 }
 
-static int32_t get_i32_arg(vigil_vm_t *vm, size_t base, size_t idx) {
+static int32_t get_i32_arg(vigil_vm_t *vm, size_t base, size_t idx)
+{
     vigil_value_t v = vigil_vm_stack_get(vm, base + idx);
     return vigil_nanbox_decode_i32(v);
 }
 
-static vigil_status_t push_bytes(vigil_vm_t *vm, const uint8_t *data, size_t len,
-                                 vigil_error_t *error) {
+static vigil_status_t push_bytes(vigil_vm_t *vm, const uint8_t *data, size_t len, vigil_error_t *error)
+{
     vigil_object_t *obj = NULL;
     vigil_status_t s = vigil_string_object_new(vigil_vm_runtime(vm), (const char *)data, len, &obj, error);
-    if (s != VIGIL_STATUS_OK) return s;
+    if (s != VIGIL_STATUS_OK)
+        return s;
     vigil_value_t val;
     vigil_value_init_object(&val, &obj);
     s = vigil_vm_stack_push(vm, &val, error);
@@ -53,7 +57,8 @@ static vigil_status_t push_bytes(vigil_vm_t *vm, const uint8_t *data, size_t len
     return s;
 }
 
-static vigil_status_t push_bool(vigil_vm_t *vm, int val, vigil_error_t *error) {
+static vigil_status_t push_bool(vigil_vm_t *vm, int val, vigil_error_t *error)
+{
     vigil_value_t v;
     vigil_value_init_bool(&v, val);
     return vigil_vm_stack_push(vm, &v, error);
@@ -63,25 +68,38 @@ static vigil_status_t push_bool(vigil_vm_t *vm, int val, vigil_error_t *error) {
 
 static const char hex_chars[] = "0123456789abcdef";
 
-static void bytes_to_hex(const uint8_t *data, size_t len, char *out) {
-    for (size_t i = 0; i < len; i++) {
-        out[i*2] = hex_chars[data[i] >> 4];
-        out[i*2+1] = hex_chars[data[i] & 0xf];
+static void bytes_to_hex(const uint8_t *data, size_t len, char *out)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        out[i * 2] = hex_chars[data[i] >> 4];
+        out[i * 2 + 1] = hex_chars[data[i] & 0xf];
     }
 }
 
-static int hex_to_bytes(const char *hex, size_t hex_len, uint8_t *out) {
-    if (hex_len % 2 != 0) return -1;
-    for (size_t i = 0; i < hex_len / 2; i++) {
-        int hi = hex[i*2], lo = hex[i*2+1];
-        if (hi >= '0' && hi <= '9') hi -= '0';
-        else if (hi >= 'a' && hi <= 'f') hi = hi - 'a' + 10;
-        else if (hi >= 'A' && hi <= 'F') hi = hi - 'A' + 10;
-        else return -1;
-        if (lo >= '0' && lo <= '9') lo -= '0';
-        else if (lo >= 'a' && lo <= 'f') lo = lo - 'a' + 10;
-        else if (lo >= 'A' && lo <= 'F') lo = lo - 'A' + 10;
-        else return -1;
+static int hex_to_bytes(const char *hex, size_t hex_len, uint8_t *out)
+{
+    if (hex_len % 2 != 0)
+        return -1;
+    for (size_t i = 0; i < hex_len / 2; i++)
+    {
+        int hi = hex[i * 2], lo = hex[i * 2 + 1];
+        if (hi >= '0' && hi <= '9')
+            hi -= '0';
+        else if (hi >= 'a' && hi <= 'f')
+            hi = hi - 'a' + 10;
+        else if (hi >= 'A' && hi <= 'F')
+            hi = hi - 'A' + 10;
+        else
+            return -1;
+        if (lo >= '0' && lo <= '9')
+            lo -= '0';
+        else if (lo >= 'a' && lo <= 'f')
+            lo = lo - 'a' + 10;
+        else if (lo >= 'A' && lo <= 'F')
+            lo = lo - 'A' + 10;
+        else
+            return -1;
         out[i] = (uint8_t)((hi << 4) | lo);
     }
     return 0;
@@ -91,20 +109,26 @@ static int hex_to_bytes(const char *hex, size_t hex_len, uint8_t *out) {
 
 static const char b64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-static size_t base64_encode(const uint8_t *data, size_t len, char *out) {
+static size_t base64_encode(const uint8_t *data, size_t len, char *out)
+{
     size_t i, j = 0;
-    for (i = 0; i + 2 < len; i += 3) {
+    for (i = 0; i + 2 < len; i += 3)
+    {
         out[j++] = b64_chars[data[i] >> 2];
-        out[j++] = b64_chars[((data[i] & 3) << 4) | (data[i+1] >> 4)];
-        out[j++] = b64_chars[((data[i+1] & 15) << 2) | (data[i+2] >> 6)];
-        out[j++] = b64_chars[data[i+2] & 63];
+        out[j++] = b64_chars[((data[i] & 3) << 4) | (data[i + 1] >> 4)];
+        out[j++] = b64_chars[((data[i + 1] & 15) << 2) | (data[i + 2] >> 6)];
+        out[j++] = b64_chars[data[i + 2] & 63];
     }
-    if (i < len) {
+    if (i < len)
+    {
         out[j++] = b64_chars[data[i] >> 2];
-        if (i + 1 < len) {
-            out[j++] = b64_chars[((data[i] & 3) << 4) | (data[i+1] >> 4)];
-            out[j++] = b64_chars[(data[i+1] & 15) << 2];
-        } else {
+        if (i + 1 < len)
+        {
+            out[j++] = b64_chars[((data[i] & 3) << 4) | (data[i + 1] >> 4)];
+            out[j++] = b64_chars[(data[i + 1] & 15) << 2];
+        }
+        else
+        {
             out[j++] = b64_chars[(data[i] & 3) << 4];
             out[j++] = '=';
         }
@@ -113,33 +137,49 @@ static size_t base64_encode(const uint8_t *data, size_t len, char *out) {
     return j;
 }
 
-static int b64_val(char c) {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
+static int b64_val(char c)
+{
+    if (c >= 'A' && c <= 'Z')
+        return c - 'A';
+    if (c >= 'a' && c <= 'z')
+        return c - 'a' + 26;
+    if (c >= '0' && c <= '9')
+        return c - '0' + 52;
+    if (c == '+')
+        return 62;
+    if (c == '/')
+        return 63;
     return -1;
 }
 
-static size_t base64_decode(const char *data, size_t len, uint8_t *out) {
+static size_t base64_decode(const char *data, size_t len, uint8_t *out)
+{
     size_t i, j = 0;
-    for (i = 0; i + 3 < len; i += 4) {
-        if (data[i+2] == '=' && data[i+3] == '=') {
-            int a = b64_val(data[i]), b = b64_val(data[i+1]);
-            if (a < 0 || b < 0) return 0;
+    for (i = 0; i + 3 < len; i += 4)
+    {
+        if (data[i + 2] == '=' && data[i + 3] == '=')
+        {
+            int a = b64_val(data[i]), b = b64_val(data[i + 1]);
+            if (a < 0 || b < 0)
+                return 0;
             out[j++] = (uint8_t)((a << 2) | (b >> 4));
             break;
-        } else if (data[i+3] == '=') {
-            int a = b64_val(data[i]), b = b64_val(data[i+1]), c = b64_val(data[i+2]);
-            if (a < 0 || b < 0 || c < 0) return 0;
+        }
+        else if (data[i + 3] == '=')
+        {
+            int a = b64_val(data[i]), b = b64_val(data[i + 1]), c = b64_val(data[i + 2]);
+            if (a < 0 || b < 0 || c < 0)
+                return 0;
             out[j++] = (uint8_t)((a << 2) | (b >> 4));
             out[j++] = (uint8_t)((b << 4) | (c >> 2));
             break;
-        } else {
-            int a = b64_val(data[i]), b = b64_val(data[i+1]);
-            int c = b64_val(data[i+2]), d = b64_val(data[i+3]);
-            if (a < 0 || b < 0 || c < 0 || d < 0) return 0;
+        }
+        else
+        {
+            int a = b64_val(data[i]), b = b64_val(data[i + 1]);
+            int c = b64_val(data[i + 2]), d = b64_val(data[i + 3]);
+            if (a < 0 || b < 0 || c < 0 || d < 0)
+                return 0;
             out[j++] = (uint8_t)((a << 2) | (b >> 4));
             out[j++] = (uint8_t)((b << 4) | (c >> 2));
             out[j++] = (uint8_t)((c << 6) | d);
@@ -148,16 +188,18 @@ static size_t base64_decode(const char *data, size_t len, uint8_t *out) {
     return j;
 }
 
-
 /* ── crypto.sha256(data: string) -> string ───────────────────────── */
 
-static vigil_status_t crypto_sha256(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_sha256(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *data; size_t len;
+    const uint8_t *data;
+    size_t len;
     uint8_t hash[32];
     char hex[64];
 
-    if (!get_bytes_arg(vm, base, 0, &data, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &data, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -170,13 +212,16 @@ static vigil_status_t crypto_sha256(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
 /* ── crypto.sha384(data: string) -> string ───────────────────────── */
 
-static vigil_status_t crypto_sha384(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_sha384(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *data; size_t len;
+    const uint8_t *data;
+    size_t len;
     uint8_t hash[48];
     char hex[96];
 
-    if (!get_bytes_arg(vm, base, 0, &data, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &data, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -189,13 +234,16 @@ static vigil_status_t crypto_sha384(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
 /* ── crypto.sha512(data: string) -> string ───────────────────────── */
 
-static vigil_status_t crypto_sha512(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_sha512(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *data; size_t len;
+    const uint8_t *data;
+    size_t len;
     uint8_t hash[64];
     char hex[128];
 
-    if (!get_bytes_arg(vm, base, 0, &data, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &data, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -208,15 +256,16 @@ static vigil_status_t crypto_sha512(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
 /* ── crypto.hmac_sha256(key: string, data: string) -> string ─────── */
 
-static vigil_status_t crypto_hmac_sha256(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_hmac_sha256(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *key, *data;
     size_t key_len, data_len;
     uint8_t mac[32];
     char hex[64];
 
-    if (!get_bytes_arg(vm, base, 0, &key, &key_len) ||
-        !get_bytes_arg(vm, base, 1, &data, &data_len)) {
+    if (!get_bytes_arg(vm, base, 0, &key, &key_len) || !get_bytes_arg(vm, base, 1, &data, &data_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -229,14 +278,15 @@ static vigil_status_t crypto_hmac_sha256(vigil_vm_t *vm, size_t arg_count, vigil
 
 /* ── crypto.pbkdf2(password, salt, iterations, key_len) -> string ── */
 
-static vigil_status_t crypto_pbkdf2(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_pbkdf2(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *password, *salt;
     size_t pass_len, salt_len;
     int32_t iterations, key_len;
 
-    if (!get_bytes_arg(vm, base, 0, &password, &pass_len) ||
-        !get_bytes_arg(vm, base, 1, &salt, &salt_len)) {
+    if (!get_bytes_arg(vm, base, 0, &password, &pass_len) || !get_bytes_arg(vm, base, 1, &salt, &salt_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -244,17 +294,23 @@ static vigil_status_t crypto_pbkdf2(vigil_vm_t *vm, size_t arg_count, vigil_erro
     key_len = get_i32_arg(vm, base, 3);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (iterations < 1 || key_len < 1 || key_len > 1024) {
+    if (iterations < 1 || key_len < 1 || key_len > 1024)
+    {
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
 
     uint8_t *key = (uint8_t *)malloc((size_t)key_len);
-    if (!key) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!key)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     vigil_pbkdf2_sha256(password, pass_len, salt, salt_len, (uint32_t)iterations, key, (size_t)key_len);
 
     char *hex = (char *)malloc((size_t)key_len * 2);
-    if (!hex) { free(key); return push_bytes(vm, (uint8_t *)"", 0, error); }
+    if (!hex)
+    {
+        free(key);
+        return push_bytes(vm, (uint8_t *)"", 0, error);
+    }
     bytes_to_hex(key, (size_t)key_len, hex);
 
     vigil_status_t s = push_bytes(vm, (uint8_t *)hex, (size_t)key_len * 2, error);
@@ -265,17 +321,20 @@ static vigil_status_t crypto_pbkdf2(vigil_vm_t *vm, size_t arg_count, vigil_erro
 
 /* ── crypto.random_bytes(len: i32) -> string ─────────────────────── */
 
-static vigil_status_t crypto_random_bytes(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_random_bytes(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     int32_t len = get_i32_arg(vm, base, 0);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (len < 0 || len > 65536) {
+    if (len < 0 || len > 65536)
+    {
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
 
     uint8_t *buf = (uint8_t *)malloc((size_t)len);
-    if (!buf) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!buf)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     vigil_crypto_random_bytes(buf, (size_t)len);
     vigil_status_t s = push_bytes(vm, buf, (size_t)len, error);
@@ -285,49 +344,54 @@ static vigil_status_t crypto_random_bytes(vigil_vm_t *vm, size_t arg_count, vigi
 
 /* ── crypto.constant_time_eq(a, b) -> bool ───────────────────────── */
 
-static vigil_status_t crypto_constant_time_eq(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_constant_time_eq(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *a, *b;
     size_t a_len, b_len;
 
-    if (!get_bytes_arg(vm, base, 0, &a, &a_len) ||
-        !get_bytes_arg(vm, base, 1, &b, &b_len)) {
+    if (!get_bytes_arg(vm, base, 0, &a, &a_len) || !get_bytes_arg(vm, base, 1, &b, &b_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bool(vm, 0, error);
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (a_len != b_len) return push_bool(vm, 0, error);
+    if (a_len != b_len)
+        return push_bool(vm, 0, error);
     return push_bool(vm, vigil_crypto_constant_time_compare(a, b, a_len), error);
 }
 
-
 /* ── crypto.encrypt(key, nonce, plaintext, aad?) -> string ───────── */
 
-static vigil_status_t crypto_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *key, *nonce, *plaintext, *aad = NULL;
     size_t key_len, nonce_len, pt_len, aad_len = 0;
 
-    if (!get_bytes_arg(vm, base, 0, &key, &key_len) ||
-        !get_bytes_arg(vm, base, 1, &nonce, &nonce_len) ||
-        !get_bytes_arg(vm, base, 2, &plaintext, &pt_len)) {
+    if (!get_bytes_arg(vm, base, 0, &key, &key_len) || !get_bytes_arg(vm, base, 1, &nonce, &nonce_len) ||
+        !get_bytes_arg(vm, base, 2, &plaintext, &pt_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    if (arg_count > 3) get_bytes_arg(vm, base, 3, &aad, &aad_len);
+    if (arg_count > 3)
+        get_bytes_arg(vm, base, 3, &aad, &aad_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (key_len != 32) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (key_len != 32)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     /* Output: nonce || ciphertext || tag */
     size_t out_len = nonce_len + pt_len + 16;
     uint8_t *out = (uint8_t *)malloc(out_len);
-    if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!out)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     memcpy(out, nonce, nonce_len);
-    vigil_aes256_gcm_encrypt(key, nonce, nonce_len, plaintext, pt_len,
-                            aad, aad_len, out + nonce_len, out + nonce_len + pt_len);
+    vigil_aes256_gcm_encrypt(key, nonce, nonce_len, plaintext, pt_len, aad, aad_len, out + nonce_len,
+                             out + nonce_len + pt_len);
 
     vigil_status_t s = push_bytes(vm, out, out_len, error);
     free(out);
@@ -336,20 +400,23 @@ static vigil_status_t crypto_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_err
 
 /* ── crypto.decrypt(key, ciphertext, aad?) -> string ─────────────── */
 
-static vigil_status_t crypto_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *key, *ciphertext, *aad = NULL;
     size_t key_len, ct_len, aad_len = 0;
 
-    if (!get_bytes_arg(vm, base, 0, &key, &key_len) ||
-        !get_bytes_arg(vm, base, 1, &ciphertext, &ct_len)) {
+    if (!get_bytes_arg(vm, base, 0, &key, &key_len) || !get_bytes_arg(vm, base, 1, &ciphertext, &ct_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
-    if (arg_count > 2) get_bytes_arg(vm, base, 2, &aad, &aad_len);
+    if (arg_count > 2)
+        get_bytes_arg(vm, base, 2, &aad, &aad_len);
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (key_len != 32 || ct_len < 12 + 16) {
+    if (key_len != 32 || ct_len < 12 + 16)
+    {
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
 
@@ -361,11 +428,12 @@ static vigil_status_t crypto_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_err
     const uint8_t *tag = ciphertext + ct_len - 16;
 
     uint8_t *plaintext = (uint8_t *)malloc(pt_len > 0 ? pt_len : 1);
-    if (!plaintext) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!plaintext)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
-    int result = vigil_aes256_gcm_decrypt(key, nonce, nonce_len, ct, pt_len,
-                                          aad, aad_len, tag, plaintext);
-    if (result != 0) {
+    int result = vigil_aes256_gcm_decrypt(key, nonce, nonce_len, ct, pt_len, aad, aad_len, tag, plaintext);
+    if (result != 0)
+    {
         free(plaintext);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -377,18 +445,22 @@ static vigil_status_t crypto_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_err
 
 /* ── crypto.hex_encode(data) -> string ───────────────────────────── */
 
-static vigil_status_t crypto_hex_encode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_hex_encode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *data; size_t len;
+    const uint8_t *data;
+    size_t len;
 
-    if (!get_bytes_arg(vm, base, 0, &data, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &data, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
     char *hex = (char *)malloc(len * 2);
-    if (!hex) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!hex)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
     bytes_to_hex(data, len, hex);
     vigil_status_t s = push_bytes(vm, (uint8_t *)hex, len * 2, error);
     free(hex);
@@ -397,21 +469,27 @@ static vigil_status_t crypto_hex_encode(vigil_vm_t *vm, size_t arg_count, vigil_
 
 /* ── crypto.hex_decode(hex) -> string ────────────────────────────── */
 
-static vigil_status_t crypto_hex_decode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_hex_decode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *hex; size_t len;
+    const uint8_t *hex;
+    size_t len;
 
-    if (!get_bytes_arg(vm, base, 0, &hex, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &hex, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (len % 2 != 0) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (len % 2 != 0)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     uint8_t *out = (uint8_t *)malloc(len / 2);
-    if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
-    if (hex_to_bytes((const char *)hex, len, out) != 0) {
+    if (!out)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (hex_to_bytes((const char *)hex, len, out) != 0)
+    {
         free(out);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -422,11 +500,14 @@ static vigil_status_t crypto_hex_decode(vigil_vm_t *vm, size_t arg_count, vigil_
 
 /* ── crypto.base64_encode(data) -> string ────────────────────────── */
 
-static vigil_status_t crypto_base64_encode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_base64_encode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *data; size_t len;
+    const uint8_t *data;
+    size_t len;
 
-    if (!get_bytes_arg(vm, base, 0, &data, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &data, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -434,7 +515,8 @@ static vigil_status_t crypto_base64_encode(vigil_vm_t *vm, size_t arg_count, vig
 
     size_t out_len = ((len + 2) / 3) * 4;
     char *out = (char *)malloc(out_len);
-    if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!out)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
     size_t actual = base64_encode(data, len, out);
     vigil_status_t s = push_bytes(vm, (uint8_t *)out, actual, error);
     free(out);
@@ -443,11 +525,14 @@ static vigil_status_t crypto_base64_encode(vigil_vm_t *vm, size_t arg_count, vig
 
 /* ── crypto.base64_decode(data) -> string ────────────────────────── */
 
-static vigil_status_t crypto_base64_decode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_base64_decode(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
-    const uint8_t *data; size_t len;
+    const uint8_t *data;
+    size_t len;
 
-    if (!get_bytes_arg(vm, base, 0, &data, &len)) {
+    if (!get_bytes_arg(vm, base, 0, &data, &len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -455,7 +540,8 @@ static vigil_status_t crypto_base64_decode(vigil_vm_t *vm, size_t arg_count, vig
 
     size_t out_len = (len / 4) * 3;
     uint8_t *out = (uint8_t *)malloc(out_len > 0 ? out_len : 1);
-    if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!out)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
     size_t actual = base64_decode((const char *)data, len, out);
     vigil_status_t s = push_bytes(vm, out, actual, error);
     free(out);
@@ -464,23 +550,26 @@ static vigil_status_t crypto_base64_decode(vigil_vm_t *vm, size_t arg_count, vig
 
 /* ── crypto.password_encrypt(password, plaintext) -> string ──────── */
 
-static vigil_status_t crypto_password_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_password_encrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *password, *plaintext;
     size_t pass_len, pt_len;
 
-    if (!get_bytes_arg(vm, base, 0, &password, &pass_len) ||
-        !get_bytes_arg(vm, base, 1, &plaintext, &pt_len)) {
+    if (!get_bytes_arg(vm, base, 0, &password, &pass_len) || !get_bytes_arg(vm, base, 1, &plaintext, &pt_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
     uint8_t *out = (uint8_t *)malloc(pt_len + 44);
-    if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!out)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     size_t out_len = vigil_password_encrypt(password, pass_len, plaintext, pt_len, out);
-    if (out_len == 0) {
+    if (out_len == 0)
+    {
         free(out);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -492,25 +581,29 @@ static vigil_status_t crypto_password_encrypt(vigil_vm_t *vm, size_t arg_count, 
 
 /* ── crypto.password_decrypt(password, ciphertext) -> string ─────── */
 
-static vigil_status_t crypto_password_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error) {
+static vigil_status_t crypto_password_decrypt(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
+{
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const uint8_t *password, *ciphertext;
     size_t pass_len, ct_len;
 
-    if (!get_bytes_arg(vm, base, 0, &password, &pass_len) ||
-        !get_bytes_arg(vm, base, 1, &ciphertext, &ct_len)) {
+    if (!get_bytes_arg(vm, base, 0, &password, &pass_len) || !get_bytes_arg(vm, base, 1, &ciphertext, &ct_len))
+    {
         vigil_vm_stack_pop_n(vm, arg_count);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
     vigil_vm_stack_pop_n(vm, arg_count);
 
-    if (ct_len < 44) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (ct_len < 44)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     uint8_t *out = (uint8_t *)malloc(ct_len);
-    if (!out) return push_bytes(vm, (uint8_t *)"", 0, error);
+    if (!out)
+        return push_bytes(vm, (uint8_t *)"", 0, error);
 
     size_t pt_len = vigil_password_decrypt(password, pass_len, ciphertext, ct_len, out);
-    if (pt_len == 0) {
+    if (pt_len == 0)
+    {
         free(out);
         return push_bytes(vm, (uint8_t *)"", 0, error);
     }
@@ -520,36 +613,34 @@ static vigil_status_t crypto_password_decrypt(vigil_vm_t *vm, size_t arg_count, 
     return s;
 }
 
-
 /* ── Module descriptor ───────────────────────────────────────────── */
 
-static const int crypto_string_params[] = { VIGIL_TYPE_STRING };
-static const int crypto_2string_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
-static const int crypto_3string_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING };
-static const int crypto_pbkdf2_params[] = { VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_I32, VIGIL_TYPE_I32 };
-static const int crypto_i32_params[] = { VIGIL_TYPE_I32 };
+static const int crypto_string_params[] = {VIGIL_TYPE_STRING};
+static const int crypto_2string_params[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_STRING};
+static const int crypto_3string_params[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING};
+static const int crypto_pbkdf2_params[] = {VIGIL_TYPE_STRING, VIGIL_TYPE_STRING, VIGIL_TYPE_I32, VIGIL_TYPE_I32};
+static const int crypto_i32_params[] = {VIGIL_TYPE_I32};
 
 static const vigil_native_module_function_t crypto_functions[] = {
-    { "sha256", 6, crypto_sha256, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "sha384", 6, crypto_sha384, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "sha512", 6, crypto_sha512, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "hmac_sha256", 11, crypto_hmac_sha256, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "pbkdf2", 6, crypto_pbkdf2, 4, crypto_pbkdf2_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "random_bytes", 12, crypto_random_bytes, 1, crypto_i32_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "constant_time_eq", 16, crypto_constant_time_eq, 2, crypto_2string_params, VIGIL_TYPE_BOOL, 1, NULL, 0, NULL, NULL },
-    { "encrypt", 7, crypto_encrypt, 3, crypto_3string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "decrypt", 7, crypto_decrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "password_encrypt", 16, crypto_password_encrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "password_decrypt", 16, crypto_password_decrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "hex_encode", 10, crypto_hex_encode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "hex_decode", 10, crypto_hex_decode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "base64_encode", 13, crypto_base64_encode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
-    { "base64_decode", 13, crypto_base64_decode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL },
+    {"sha256", 6, crypto_sha256, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"sha384", 6, crypto_sha384, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"sha512", 6, crypto_sha512, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"hmac_sha256", 11, crypto_hmac_sha256, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"pbkdf2", 6, crypto_pbkdf2, 4, crypto_pbkdf2_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"random_bytes", 12, crypto_random_bytes, 1, crypto_i32_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"constant_time_eq", 16, crypto_constant_time_eq, 2, crypto_2string_params, VIGIL_TYPE_BOOL, 1, NULL, 0, NULL,
+     NULL},
+    {"encrypt", 7, crypto_encrypt, 3, crypto_3string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"decrypt", 7, crypto_decrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"password_encrypt", 16, crypto_password_encrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL,
+     NULL},
+    {"password_decrypt", 16, crypto_password_decrypt, 2, crypto_2string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL,
+     NULL},
+    {"hex_encode", 10, crypto_hex_encode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"hex_decode", 10, crypto_hex_decode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"base64_encode", 13, crypto_base64_encode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
+    {"base64_decode", 13, crypto_base64_decode, 1, crypto_string_params, VIGIL_TYPE_STRING, 1, NULL, 0, NULL, NULL},
 };
 
 VIGIL_API const vigil_native_module_t vigil_stdlib_crypto = {
-    "crypto", 6,
-    crypto_functions,
-    sizeof(crypto_functions) / sizeof(crypto_functions[0]),
-    NULL, 0
-};
+    "crypto", 6, crypto_functions, sizeof(crypto_functions) / sizeof(crypto_functions[0]), NULL, 0};

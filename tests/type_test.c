@@ -1,9 +1,9 @@
 #include "vigil_test.h"
 
-
 #include "vigil/vigil.h"
 
-TEST(VigilTypeTest, KindNamesAndParsingAreStable) {
+TEST(VigilTypeTest, KindNamesAndParsingAreStable)
+{
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_INVALID), "invalid");
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_I32), "i32");
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_I64), "i64");
@@ -31,7 +31,8 @@ TEST(VigilTypeTest, KindNamesAndParsingAreStable) {
     EXPECT_EQ(vigil_type_kind_from_name("nil", 3U), VIGIL_TYPE_NIL);
 }
 
-TEST(VigilTypeTest, AssignabilityRequiresMatchingValidTypes) {
+TEST(VigilTypeTest, AssignabilityRequiresMatchingValidTypes)
+{
     EXPECT_TRUE(vigil_type_is_assignable(VIGIL_TYPE_I32, VIGIL_TYPE_I32));
     EXPECT_TRUE(vigil_type_is_assignable(VIGIL_TYPE_I64, VIGIL_TYPE_I64));
     EXPECT_TRUE(vigil_type_is_assignable(VIGIL_TYPE_U8, VIGIL_TYPE_U8));
@@ -47,186 +48,56 @@ TEST(VigilTypeTest, AssignabilityRequiresMatchingValidTypes) {
     EXPECT_FALSE(vigil_type_is_assignable(VIGIL_TYPE_INVALID, VIGIL_TYPE_I32));
 }
 
-TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules) {
-    EXPECT_TRUE(
-        vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_I32)
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_I64)
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_F64)
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_BOOL)
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_U8)
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_unary_operator(
-            VIGIL_UNARY_OPERATOR_LOGICAL_NOT,
-            VIGIL_TYPE_BOOL
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_unary_operator(
-            VIGIL_UNARY_OPERATOR_BITWISE_NOT,
-            VIGIL_TYPE_I32
-        )
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_LOGICAL_NOT, VIGIL_TYPE_I32)
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_unary_operator(
-            VIGIL_UNARY_OPERATOR_BITWISE_NOT,
-            VIGIL_TYPE_F64
-        )
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_unary_operator(
-            VIGIL_UNARY_OPERATOR_BITWISE_NOT,
-            VIGIL_TYPE_U32
-        )
-    );
+TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules)
+{
+    EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_I64));
+    EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_F64));
+    EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_BOOL));
+    EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_U8));
+    EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_LOGICAL_NOT, VIGIL_TYPE_BOOL));
+    EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_BITWISE_NOT, VIGIL_TYPE_I32));
+    EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_LOGICAL_NOT, VIGIL_TYPE_I32));
+    EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_BITWISE_NOT, VIGIL_TYPE_F64));
+    EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_BITWISE_NOT, VIGIL_TYPE_U32));
 
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_ADD,
-            VIGIL_TYPE_I32,
-            VIGIL_TYPE_I32
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_ADD,
-            VIGIL_TYPE_I64,
-            VIGIL_TYPE_I64
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_ADD,
-            VIGIL_TYPE_F64,
-            VIGIL_TYPE_F64
-        )
-    );
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_I32, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_I64, VIGIL_TYPE_I64));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
+    EXPECT_FALSE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_BOOL, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BOOL, VIGIL_TYPE_BOOL));
+    EXPECT_FALSE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BOOL, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_BITWISE_AND, VIGIL_TYPE_U32, VIGIL_TYPE_U32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_BITWISE_AND, VIGIL_TYPE_I32, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_SHIFT_LEFT, VIGIL_TYPE_U8, VIGIL_TYPE_U8));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_SHIFT_LEFT, VIGIL_TYPE_I32, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_GREATER, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
     EXPECT_FALSE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_ADD,
-            VIGIL_TYPE_BOOL,
-            VIGIL_TYPE_I32
-        )
-    );
+        vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_BITWISE_OR, VIGIL_TYPE_BOOL, VIGIL_TYPE_I32));
     EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_ADD,
-            VIGIL_TYPE_STRING,
-            VIGIL_TYPE_STRING
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_EQUAL,
-            VIGIL_TYPE_BOOL,
-            VIGIL_TYPE_BOOL
-        )
-    );
+        vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_LOGICAL_AND, VIGIL_TYPE_BOOL, VIGIL_TYPE_BOOL));
     EXPECT_FALSE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_EQUAL,
-            VIGIL_TYPE_BOOL,
-            VIGIL_TYPE_I32
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_BITWISE_AND,
-            VIGIL_TYPE_U32,
-            VIGIL_TYPE_U32
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_BITWISE_AND,
-            VIGIL_TYPE_I32,
-            VIGIL_TYPE_I32
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_SHIFT_LEFT,
-            VIGIL_TYPE_U8,
-            VIGIL_TYPE_U8
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_SHIFT_LEFT,
-            VIGIL_TYPE_I32,
-            VIGIL_TYPE_I32
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_GREATER,
-            VIGIL_TYPE_F64,
-            VIGIL_TYPE_F64
-        )
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_BITWISE_OR,
-            VIGIL_TYPE_BOOL,
-            VIGIL_TYPE_I32
-        )
-    );
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_LOGICAL_AND,
-            VIGIL_TYPE_BOOL,
-            VIGIL_TYPE_BOOL
-        )
-    );
-    EXPECT_FALSE(
-        vigil_type_supports_binary_operator(
-            VIGIL_BINARY_OPERATOR_LOGICAL_AND,
-            VIGIL_TYPE_I32,
-            VIGIL_TYPE_BOOL
-        )
-    );
+        vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_LOGICAL_AND, VIGIL_TYPE_I32, VIGIL_TYPE_BOOL));
 }
 
-TEST(VigilTypeTest, FunctionSignaturesValidateAndCheckArguments) {
+TEST(VigilTypeTest, FunctionSignaturesValidateAndCheckArguments)
+{
     vigil_type_kind_t parameter_types[2] = {VIGIL_TYPE_I32, VIGIL_TYPE_BOOL};
     vigil_type_kind_t valid_arguments[2] = {VIGIL_TYPE_I32, VIGIL_TYPE_BOOL};
     vigil_type_kind_t invalid_arguments[2] = {VIGIL_TYPE_BOOL, VIGIL_TYPE_BOOL};
-    vigil_function_signature_t signature = {
-        VIGIL_TYPE_I32,
-        parameter_types,
-        2U
-    };
-    vigil_function_signature_t invalid_signature = {
-        VIGIL_TYPE_INVALID,
-        parameter_types,
-        2U
-    };
+    vigil_function_signature_t signature = {VIGIL_TYPE_I32, parameter_types, 2U};
+    vigil_function_signature_t invalid_signature = {VIGIL_TYPE_INVALID, parameter_types, 2U};
 
     EXPECT_TRUE(vigil_function_signature_is_valid(&signature));
     EXPECT_FALSE(vigil_function_signature_is_valid(&invalid_signature));
-    EXPECT_TRUE(
-        vigil_function_signature_accepts_arguments(&signature, valid_arguments, 2U)
-    );
-    EXPECT_FALSE(
-        vigil_function_signature_accepts_arguments(&signature, valid_arguments, 1U)
-    );
-    EXPECT_FALSE(
-        vigil_function_signature_accepts_arguments(&signature, invalid_arguments, 2U)
-    );
+    EXPECT_TRUE(vigil_function_signature_accepts_arguments(&signature, valid_arguments, 2U));
+    EXPECT_FALSE(vigil_function_signature_accepts_arguments(&signature, valid_arguments, 1U));
+    EXPECT_FALSE(vigil_function_signature_accepts_arguments(&signature, invalid_arguments, 2U));
 }
 
-void register_type_tests(void) {
+void register_type_tests(void)
+{
     REGISTER_TEST(VigilTypeTest, KindNamesAndParsingAreStable);
     REGISTER_TEST(VigilTypeTest, AssignabilityRequiresMatchingValidTypes);
     REGISTER_TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules);

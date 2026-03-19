@@ -1,13 +1,10 @@
-#include <string.h>
 #include "internal/vigil_compiler_types.h"
 #include "internal/vigil_internal.h"
+#include <string.h>
 
-vigil_status_t vigil_program_parse_type_name(
-    const vigil_program_state_t *program,
-    const vigil_token_t *token,
-    const char *unsupported_message,
-    vigil_parser_type_t *out_type
-) {
+vigil_status_t vigil_program_parse_type_name(const vigil_program_state_t *program, const vigil_token_t *token,
+                                             const char *unsupported_message, vigil_parser_type_t *out_type)
+{
     const char *text;
     size_t length;
     vigil_type_kind_t type_kind;
@@ -15,63 +12,33 @@ vigil_status_t vigil_program_parse_type_name(
 
     text = vigil_program_token_text(program, token, &length);
     type_kind = vigil_type_kind_from_name(text, length);
-    if (
-        type_kind == VIGIL_TYPE_I32 ||
-        type_kind == VIGIL_TYPE_I64 ||
-        type_kind == VIGIL_TYPE_U8 ||
-        type_kind == VIGIL_TYPE_U32 ||
-        type_kind == VIGIL_TYPE_U64 ||
-        type_kind == VIGIL_TYPE_F64 ||
-        type_kind == VIGIL_TYPE_BOOL ||
-        type_kind == VIGIL_TYPE_STRING ||
-        type_kind == VIGIL_TYPE_ERR ||
-        type_kind == VIGIL_TYPE_VOID
-    ) {
+    if (type_kind == VIGIL_TYPE_I32 || type_kind == VIGIL_TYPE_I64 || type_kind == VIGIL_TYPE_U8 ||
+        type_kind == VIGIL_TYPE_U32 || type_kind == VIGIL_TYPE_U64 || type_kind == VIGIL_TYPE_F64 ||
+        type_kind == VIGIL_TYPE_BOOL || type_kind == VIGIL_TYPE_STRING || type_kind == VIGIL_TYPE_ERR ||
+        type_kind == VIGIL_TYPE_VOID)
+    {
         *out_type = vigil_binding_type_primitive(type_kind);
         return VIGIL_STATUS_OK;
     }
-    if (type_kind == VIGIL_TYPE_NIL) {
+    if (type_kind == VIGIL_TYPE_NIL)
+    {
         return vigil_compile_report(program, token->span, unsupported_message);
     }
-    if (
-        program->source != NULL &&
-        vigil_program_find_class_in_source(
-            program,
-            program->source->id,
-            text,
-            length,
-            &object_index,
-            NULL
-        )
-    ) {
+    if (program->source != NULL &&
+        vigil_program_find_class_in_source(program, program->source->id, text, length, &object_index, NULL))
+    {
         *out_type = vigil_binding_type_class(object_index);
         return VIGIL_STATUS_OK;
     }
-    if (
-        program->source != NULL &&
-        vigil_program_find_interface_in_source(
-            program,
-            program->source->id,
-            text,
-            length,
-            &object_index,
-            NULL
-        )
-    ) {
+    if (program->source != NULL &&
+        vigil_program_find_interface_in_source(program, program->source->id, text, length, &object_index, NULL))
+    {
         *out_type = vigil_binding_type_interface(object_index);
         return VIGIL_STATUS_OK;
     }
-    if (
-        program->source != NULL &&
-        vigil_program_find_enum_in_source(
-            program,
-            program->source->id,
-            text,
-            length,
-            &object_index,
-            NULL
-        )
-    ) {
+    if (program->source != NULL &&
+        vigil_program_find_enum_in_source(program, program->source->id, text, length, &object_index, NULL))
+    {
         *out_type = vigil_binding_type_enum(object_index);
         return VIGIL_STATUS_OK;
     }
@@ -86,24 +53,26 @@ int vigil_type_close_pending = 0;
    produced a '>>' (SHIFT_RIGHT) token, consume the whole token and set
    a pending flag so the outer type parser's next close-check succeeds
    without consuming another token. */
-int vigil_program_consume_type_close(
-    const vigil_program_state_t *program,
-    size_t *cursor
-) {
+int vigil_program_consume_type_close(const vigil_program_state_t *program, size_t *cursor)
+{
     const vigil_token_t *t;
-    if (vigil_type_close_pending) {
+    if (vigil_type_close_pending)
+    {
         vigil_type_close_pending = 0;
         return 1;
     }
     t = vigil_program_token_at(program, *cursor);
-    if (t == NULL) {
+    if (t == NULL)
+    {
         return 0;
     }
-    if (t->kind == VIGIL_TOKEN_GREATER) {
+    if (t->kind == VIGIL_TOKEN_GREATER)
+    {
         *cursor += 1U;
         return 1;
     }
-    if (t->kind == VIGIL_TOKEN_SHIFT_RIGHT) {
+    if (t->kind == VIGIL_TOKEN_SHIFT_RIGHT)
+    {
         *cursor += 1U;
         vigil_type_close_pending = 1;
         return 1;
@@ -111,12 +80,9 @@ int vigil_program_consume_type_close(
     return 0;
 }
 
-vigil_status_t vigil_program_parse_type_reference(
-    const vigil_program_state_t *program,
-    size_t *cursor,
-    const char *unsupported_message,
-    vigil_parser_type_t *out_type
-) {
+vigil_status_t vigil_program_parse_type_reference(const vigil_program_state_t *program, size_t *cursor,
+                                                  const char *unsupported_message, vigil_parser_type_t *out_type)
+{
     vigil_status_t status;
     const vigil_token_t *token;
     const vigil_token_t *next_token;
@@ -135,57 +101,50 @@ vigil_status_t vigil_program_parse_type_reference(
 
     memset(&function_type, 0, sizeof(function_type));
     token = vigil_program_token_at(program, *cursor);
-    if (token != NULL && token->kind == VIGIL_TOKEN_FN) {
+    if (token != NULL && token->kind == VIGIL_TOKEN_FN)
+    {
         *cursor += 1U;
         next_token = vigil_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_LPAREN) {
+        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_LPAREN)
+        {
             function_type.is_any = 1;
             function_type.return_type = vigil_binding_type_primitive(VIGIL_TYPE_VOID);
-            status = vigil_program_intern_function_type(
-                (vigil_program_state_t *)program,
-                &function_type,
-                out_type
-            );
+            status = vigil_program_intern_function_type((vigil_program_state_t *)program, &function_type, out_type);
             vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
             return status;
         }
 
         *cursor += 1U;
         next_token = vigil_program_token_at(program, *cursor);
-        if (next_token != NULL && next_token->kind != VIGIL_TOKEN_RPAREN) {
-            while (1) {
-                status = vigil_program_parse_type_reference(
-                    program,
-                    cursor,
-                    unsupported_message,
-                    &parsed_type
-                );
-                if (status != VIGIL_STATUS_OK) {
+        if (next_token != NULL && next_token->kind != VIGIL_TOKEN_RPAREN)
+        {
+            while (1)
+            {
+                status = vigil_program_parse_type_reference(program, cursor, unsupported_message, &parsed_type);
+                if (status != VIGIL_STATUS_OK)
+                {
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                     return status;
                 }
-                status = vigil_program_require_non_void_type(
-                    program,
-                    vigil_program_token_at(program, *cursor - 1U)->span,
-                    parsed_type,
-                    "function type parameters cannot use type void"
-                );
-                if (status != VIGIL_STATUS_OK) {
+                status =
+                    vigil_program_require_non_void_type(program, vigil_program_token_at(program, *cursor - 1U)->span,
+                                                        parsed_type, "function type parameters cannot use type void");
+                if (status != VIGIL_STATUS_OK)
+                {
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                     return status;
                 }
-                status = vigil_function_type_decl_add_param(
-                    (vigil_program_state_t *)program,
-                    &function_type,
-                    parsed_type
-                );
-                if (status != VIGIL_STATUS_OK) {
+                status =
+                    vigil_function_type_decl_add_param((vigil_program_state_t *)program, &function_type, parsed_type);
+                if (status != VIGIL_STATUS_OK)
+                {
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                     return status;
                 }
 
                 next_token = vigil_program_token_at(program, *cursor);
-                if (next_token != NULL && next_token->kind == VIGIL_TOKEN_COMMA) {
+                if (next_token != NULL && next_token->kind == VIGIL_TOKEN_COMMA)
+                {
                     *cursor += 1U;
                     continue;
                 }
@@ -194,214 +153,165 @@ vigil_status_t vigil_program_parse_type_reference(
         }
 
         next_token = vigil_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_RPAREN) {
+        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_RPAREN)
+        {
             vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
-            return vigil_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected ')' after function type parameters"
-            );
+            return vigil_compile_report(program, next_token == NULL ? token->span : next_token->span,
+                                        "expected ')' after function type parameters");
         }
         *cursor += 1U;
 
         next_token = vigil_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_ARROW) {
-            status = vigil_function_type_decl_add_return(
-                (vigil_program_state_t *)program,
-                &function_type,
-                vigil_binding_type_primitive(VIGIL_TYPE_VOID)
-            );
-            if (status != VIGIL_STATUS_OK) {
+        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_ARROW)
+        {
+            status = vigil_function_type_decl_add_return((vigil_program_state_t *)program, &function_type,
+                                                         vigil_binding_type_primitive(VIGIL_TYPE_VOID));
+            if (status != VIGIL_STATUS_OK)
+            {
                 vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                 return status;
             }
-        } else {
+        }
+        else
+        {
             *cursor += 1U;
             next_token = vigil_program_token_at(program, *cursor);
-            if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LPAREN) {
+            if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LPAREN)
+            {
                 *cursor += 1U;
-                while (1) {
-                    status = vigil_program_parse_type_reference(
-                        program,
-                        cursor,
-                        unsupported_message,
-                        &parsed_type
-                    );
-                    if (status != VIGIL_STATUS_OK) {
-                        vigil_function_type_decl_free(
-                            (vigil_program_state_t *)program,
-                            &function_type
-                        );
+                while (1)
+                {
+                    status = vigil_program_parse_type_reference(program, cursor, unsupported_message, &parsed_type);
+                    if (status != VIGIL_STATUS_OK)
+                    {
+                        vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                         return status;
                     }
-                    status = vigil_function_type_decl_add_return(
-                        (vigil_program_state_t *)program,
-                        &function_type,
-                        parsed_type
-                    );
-                    if (status != VIGIL_STATUS_OK) {
-                        vigil_function_type_decl_free(
-                            (vigil_program_state_t *)program,
-                            &function_type
-                        );
+                    status = vigil_function_type_decl_add_return((vigil_program_state_t *)program, &function_type,
+                                                                 parsed_type);
+                    if (status != VIGIL_STATUS_OK)
+                    {
+                        vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                         return status;
                     }
 
                     next_token = vigil_program_token_at(program, *cursor);
-                    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_COMMA) {
+                    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_COMMA)
+                    {
                         *cursor += 1U;
                         continue;
                     }
-                    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_RPAREN) {
+                    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_RPAREN)
+                    {
                         *cursor += 1U;
                         break;
                     }
-                    vigil_function_type_decl_free(
-                        (vigil_program_state_t *)program,
-                        &function_type
-                    );
-                    return vigil_compile_report(
-                        program,
-                        next_token == NULL ? token->span : next_token->span,
-                        "expected ')' after function type returns"
-                    );
+                    vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
+                    return vigil_compile_report(program, next_token == NULL ? token->span : next_token->span,
+                                                "expected ')' after function type returns");
                 }
-            } else {
-                status = vigil_program_parse_type_reference(
-                    program,
-                    cursor,
-                    unsupported_message,
-                    &parsed_type
-                );
-                if (status != VIGIL_STATUS_OK) {
+            }
+            else
+            {
+                status = vigil_program_parse_type_reference(program, cursor, unsupported_message, &parsed_type);
+                if (status != VIGIL_STATUS_OK)
+                {
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                     return status;
                 }
-                status = vigil_function_type_decl_add_return(
-                    (vigil_program_state_t *)program,
-                    &function_type,
-                    parsed_type
-                );
-                if (status != VIGIL_STATUS_OK) {
+                status =
+                    vigil_function_type_decl_add_return((vigil_program_state_t *)program, &function_type, parsed_type);
+                if (status != VIGIL_STATUS_OK)
+                {
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                     return status;
                 }
             }
         }
 
-        status = vigil_program_intern_function_type(
-            (vigil_program_state_t *)program,
-            &function_type,
-            out_type
-        );
+        status = vigil_program_intern_function_type((vigil_program_state_t *)program, &function_type, out_type);
         vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
         return status;
     }
 
-    if (token == NULL || token->kind != VIGIL_TOKEN_IDENTIFIER) {
-        return vigil_compile_report(
-            program,
-            token == NULL ? vigil_program_eof_span(program) : token->span,
-            unsupported_message
-        );
+    if (token == NULL || token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
+        return vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
+                                    unsupported_message);
     }
 
     name_text = vigil_program_token_text(program, token, &name_length);
     next_token = vigil_program_token_at(program, *cursor + 1U);
-    if (
-        next_token != NULL &&
-        next_token->kind == VIGIL_TOKEN_LESS &&
-        vigil_program_names_equal(name_text, name_length, "array", 5U)
-    ) {
+    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LESS &&
+        vigil_program_names_equal(name_text, name_length, "array", 5U))
+    {
         element_type = vigil_binding_type_invalid();
         *cursor += 2U;
-        if (
-            vigil_program_token_at(program, *cursor) != NULL &&
-            vigil_program_token_at(program, *cursor)->kind == VIGIL_TOKEN_GREATER
-        ) {
+        if (vigil_program_token_at(program, *cursor) != NULL &&
+            vigil_program_token_at(program, *cursor)->kind == VIGIL_TOKEN_GREATER)
+        {
             return vigil_compile_report(program, token->span, "array types require an element type");
         }
-        if (
-            vigil_program_token_at(program, *cursor) != NULL &&
-            vigil_program_token_at(program, *cursor)->kind == VIGIL_TOKEN_SHIFT_RIGHT
-        ) {
+        if (vigil_program_token_at(program, *cursor) != NULL &&
+            vigil_program_token_at(program, *cursor)->kind == VIGIL_TOKEN_SHIFT_RIGHT)
+        {
             return vigil_compile_report(program, token->span, "array types require an element type");
         }
-        status = vigil_program_parse_type_reference(
-            program,
-            cursor,
-            unsupported_message,
-            &element_type
-        );
-        if (status != VIGIL_STATUS_OK) {
+        status = vigil_program_parse_type_reference(program, cursor, unsupported_message, &element_type);
+        if (status != VIGIL_STATUS_OK)
+        {
             return status;
         }
-        if (!vigil_program_consume_type_close(program, cursor)) {
+        if (!vigil_program_consume_type_close(program, cursor))
+        {
             next_token = vigil_program_token_at(program, *cursor);
-            return vigil_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected '>' after array element type"
-            );
+            return vigil_compile_report(program, next_token == NULL ? token->span : next_token->span,
+                                        "expected '>' after array element type");
         }
         return vigil_program_intern_array_type((vigil_program_state_t *)program, element_type, out_type);
     }
-    if (
-        next_token != NULL &&
-        next_token->kind == VIGIL_TOKEN_LESS &&
-        vigil_program_names_equal(name_text, name_length, "map", 3U)
-    ) {
+    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LESS &&
+        vigil_program_names_equal(name_text, name_length, "map", 3U))
+    {
         *cursor += 2U;
         key_type = vigil_binding_type_invalid();
         value_type = vigil_binding_type_invalid();
-        status = vigil_program_parse_type_reference(
-            program,
-            cursor,
-            unsupported_message,
-            &key_type
-        );
-        if (status != VIGIL_STATUS_OK) {
+        status = vigil_program_parse_type_reference(program, cursor, unsupported_message, &key_type);
+        if (status != VIGIL_STATUS_OK)
+        {
             return status;
         }
-        if (!vigil_parser_type_supports_map_key(key_type)) {
-            return vigil_compile_report(
-                program,
-                token->span,
-                "map keys must use an integer, bool, string, or enum type"
-            );
+        if (!vigil_parser_type_supports_map_key(key_type))
+        {
+            return vigil_compile_report(program, token->span,
+                                        "map keys must use an integer, bool, string, or enum type");
         }
         next_token = vigil_program_token_at(program, *cursor);
-        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_COMMA) {
-            return vigil_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected ',' after map key type"
-            );
+        if (next_token == NULL || next_token->kind != VIGIL_TOKEN_COMMA)
+        {
+            return vigil_compile_report(program, next_token == NULL ? token->span : next_token->span,
+                                        "expected ',' after map key type");
         }
         *cursor += 1U;
-        status = vigil_program_parse_type_reference(
-            program,
-            cursor,
-            unsupported_message,
-            &value_type
-        );
-        if (status != VIGIL_STATUS_OK) {
+        status = vigil_program_parse_type_reference(program, cursor, unsupported_message, &value_type);
+        if (status != VIGIL_STATUS_OK)
+        {
             return status;
         }
-        if (!vigil_program_consume_type_close(program, cursor)) {
+        if (!vigil_program_consume_type_close(program, cursor))
+        {
             next_token = vigil_program_token_at(program, *cursor);
-            return vigil_compile_report(
-                program,
-                next_token == NULL ? token->span : next_token->span,
-                "expected '>' after map value type"
-            );
+            return vigil_compile_report(program, next_token == NULL ? token->span : next_token->span,
+                                        "expected '>' after map value type");
         }
         return vigil_program_intern_map_type((vigil_program_state_t *)program, key_type, value_type, out_type);
     }
 
-    if (next_token == NULL || next_token->kind != VIGIL_TOKEN_DOT) {
+    if (next_token == NULL || next_token->kind != VIGIL_TOKEN_DOT)
+    {
         status = vigil_program_parse_type_name(program, token, unsupported_message, out_type);
-        if (status != VIGIL_STATUS_OK) {
+        if (status != VIGIL_STATUS_OK)
+        {
             return status;
         }
         *cursor += 1U;
@@ -409,58 +319,41 @@ vigil_status_t vigil_program_parse_type_reference(
     }
 
     member_token = vigil_program_token_at(program, *cursor + 2U);
-    if (member_token == NULL || member_token->kind != VIGIL_TOKEN_IDENTIFIER) {
-        return vigil_compile_report(
-            program,
-            next_token->span,
-            unsupported_message
-        );
+    if (member_token == NULL || member_token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
+        return vigil_compile_report(program, next_token->span, unsupported_message);
     }
 
-    if (!vigil_program_resolve_import_alias(program, name_text, name_length, &source_id)) {
+    if (!vigil_program_resolve_import_alias(program, name_text, name_length, &source_id))
+    {
         return vigil_compile_report(program, token->span, unsupported_message);
     }
 
     member_text = vigil_program_token_text(program, member_token, &member_length);
-    if (vigil_program_find_class_in_source(
-            program,
-            source_id,
-            member_text,
-            member_length,
-            &object_index,
-            NULL
-        )) {
-        if (!vigil_program_is_class_public(&program->classes[object_index])) {
+    if (vigil_program_find_class_in_source(program, source_id, member_text, member_length, &object_index, NULL))
+    {
+        if (!vigil_program_is_class_public(&program->classes[object_index]))
+        {
             return vigil_compile_report(program, member_token->span, "module member is not public");
         }
         *out_type = vigil_binding_type_class(object_index);
         *cursor += 3U;
         return VIGIL_STATUS_OK;
     }
-    if (vigil_program_find_interface_in_source(
-            program,
-            source_id,
-            member_text,
-            member_length,
-            &object_index,
-            NULL
-        )) {
-        if (!vigil_program_is_interface_public(&program->interfaces[object_index])) {
+    if (vigil_program_find_interface_in_source(program, source_id, member_text, member_length, &object_index, NULL))
+    {
+        if (!vigil_program_is_interface_public(&program->interfaces[object_index]))
+        {
             return vigil_compile_report(program, member_token->span, "module member is not public");
         }
         *out_type = vigil_binding_type_interface(object_index);
         *cursor += 3U;
         return VIGIL_STATUS_OK;
     }
-    if (vigil_program_find_enum_in_source(
-            program,
-            source_id,
-            member_text,
-            member_length,
-            &object_index,
-            NULL
-        )) {
-        if (!vigil_program_is_enum_public(&program->enums[object_index])) {
+    if (vigil_program_find_enum_in_source(program, source_id, member_text, member_length, &object_index, NULL))
+    {
+        if (!vigil_program_is_enum_public(&program->enums[object_index]))
+        {
             return vigil_compile_report(program, member_token->span, "module member is not public");
         }
         *out_type = vigil_binding_type_enum(object_index);
@@ -471,73 +364,70 @@ vigil_status_t vigil_program_parse_type_reference(
     return vigil_compile_report(program, member_token->span, unsupported_message);
 }
 
-vigil_status_t vigil_program_parse_primitive_type_reference(
-    const vigil_program_state_t *program,
-    size_t *cursor,
-    const char *unsupported_message,
-    vigil_parser_type_t *out_type
-) {
+vigil_status_t vigil_program_parse_primitive_type_reference(const vigil_program_state_t *program, size_t *cursor,
+                                                            const char *unsupported_message,
+                                                            vigil_parser_type_t *out_type)
+{
     vigil_status_t status;
     const vigil_token_t *type_token;
 
     type_token = vigil_program_token_at(program, *cursor);
     status = vigil_program_parse_type_reference(program, cursor, unsupported_message, out_type);
-    if (status != VIGIL_STATUS_OK) {
+    if (status != VIGIL_STATUS_OK)
+    {
         return status;
     }
-    if (
-        out_type->kind == VIGIL_TYPE_I32 ||
-        out_type->kind == VIGIL_TYPE_I64 ||
-        out_type->kind == VIGIL_TYPE_U8 ||
-        out_type->kind == VIGIL_TYPE_U32 ||
-        out_type->kind == VIGIL_TYPE_U64 ||
-        out_type->kind == VIGIL_TYPE_F64 ||
-        out_type->kind == VIGIL_TYPE_BOOL ||
-        out_type->kind == VIGIL_TYPE_STRING
-    ) {
+    if (out_type->kind == VIGIL_TYPE_I32 || out_type->kind == VIGIL_TYPE_I64 || out_type->kind == VIGIL_TYPE_U8 ||
+        out_type->kind == VIGIL_TYPE_U32 || out_type->kind == VIGIL_TYPE_U64 || out_type->kind == VIGIL_TYPE_F64 ||
+        out_type->kind == VIGIL_TYPE_BOOL || out_type->kind == VIGIL_TYPE_STRING)
+    {
         return VIGIL_STATUS_OK;
     }
 
-    return vigil_compile_report(
-        program,
-        type_token == NULL ? vigil_program_eof_span(program) : type_token->span,
-        unsupported_message
-    );
+    return vigil_compile_report(program, type_token == NULL ? vigil_program_eof_span(program) : type_token->span,
+                                unsupported_message);
 }
 
-int vigil_program_skip_type_reference_syntax(
-    const vigil_program_state_t *program,
-    size_t *cursor
-) {
+int vigil_program_skip_type_reference_syntax(const vigil_program_state_t *program, size_t *cursor)
+{
     const vigil_token_t *token;
 
     token = vigil_program_token_at(program, *cursor);
-    if (token == NULL) {
+    if (token == NULL)
+    {
         return 0;
     }
 
-    if (token->kind == VIGIL_TOKEN_FN) {
+    if (token->kind == VIGIL_TOKEN_FN)
+    {
         *cursor += 1U;
         token = vigil_program_token_at(program, *cursor);
-        if (token == NULL) {
+        if (token == NULL)
+        {
             return 0;
         }
-        if (token->kind != VIGIL_TOKEN_LPAREN) {
+        if (token->kind != VIGIL_TOKEN_LPAREN)
+        {
             return 1;
         }
 
         *cursor += 1U;
         token = vigil_program_token_at(program, *cursor);
-        if (token == NULL) {
+        if (token == NULL)
+        {
             return 0;
         }
-        if (token->kind != VIGIL_TOKEN_RPAREN) {
-            while (1) {
-                if (!vigil_program_skip_type_reference_syntax(program, cursor)) {
+        if (token->kind != VIGIL_TOKEN_RPAREN)
+        {
+            while (1)
+            {
+                if (!vigil_program_skip_type_reference_syntax(program, cursor))
+                {
                     return 0;
                 }
                 token = vigil_program_token_at(program, *cursor);
-                if (token == NULL || token->kind != VIGIL_TOKEN_COMMA) {
+                if (token == NULL || token->kind != VIGIL_TOKEN_COMMA)
+                {
                     break;
                 }
                 *cursor += 1U;
@@ -545,34 +435,43 @@ int vigil_program_skip_type_reference_syntax(
         }
 
         token = vigil_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN) {
+        if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN)
+        {
             return 0;
         }
         *cursor += 1U;
 
         token = vigil_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != VIGIL_TOKEN_ARROW) {
+        if (token == NULL || token->kind != VIGIL_TOKEN_ARROW)
+        {
             return 1;
         }
         *cursor += 1U;
 
         token = vigil_program_token_at(program, *cursor);
-        if (token == NULL) {
+        if (token == NULL)
+        {
             return 0;
         }
-        if (token->kind == VIGIL_TOKEN_LPAREN) {
+        if (token->kind == VIGIL_TOKEN_LPAREN)
+        {
             *cursor += 1U;
             token = vigil_program_token_at(program, *cursor);
-            if (token == NULL) {
+            if (token == NULL)
+            {
                 return 0;
             }
-            if (token->kind != VIGIL_TOKEN_RPAREN) {
-                while (1) {
-                    if (!vigil_program_skip_type_reference_syntax(program, cursor)) {
+            if (token->kind != VIGIL_TOKEN_RPAREN)
+            {
+                while (1)
+                {
+                    if (!vigil_program_skip_type_reference_syntax(program, cursor))
+                    {
                         return 0;
                     }
                     token = vigil_program_token_at(program, *cursor);
-                    if (token == NULL || token->kind != VIGIL_TOKEN_COMMA) {
+                    if (token == NULL || token->kind != VIGIL_TOKEN_COMMA)
+                    {
                         break;
                     }
                     *cursor += 1U;
@@ -580,7 +479,8 @@ int vigil_program_skip_type_reference_syntax(
             }
 
             token = vigil_program_token_at(program, *cursor);
-            if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN) {
+            if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN)
+            {
                 return 0;
             }
             *cursor += 1U;
@@ -590,36 +490,44 @@ int vigil_program_skip_type_reference_syntax(
         return vigil_program_skip_type_reference_syntax(program, cursor);
     }
 
-    if (token->kind != VIGIL_TOKEN_IDENTIFIER) {
+    if (token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
         return 0;
     }
     *cursor += 1U;
 
     token = vigil_program_token_at(program, *cursor);
-    if (token != NULL && token->kind == VIGIL_TOKEN_DOT) {
+    if (token != NULL && token->kind == VIGIL_TOKEN_DOT)
+    {
         *cursor += 1U;
         token = vigil_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != VIGIL_TOKEN_IDENTIFIER) {
+        if (token == NULL || token->kind != VIGIL_TOKEN_IDENTIFIER)
+        {
             return 0;
         }
         *cursor += 1U;
     }
 
     token = vigil_program_token_at(program, *cursor);
-    if (token != NULL && token->kind == VIGIL_TOKEN_LESS) {
+    if (token != NULL && token->kind == VIGIL_TOKEN_LESS)
+    {
         *cursor += 1U;
-        if (!vigil_program_skip_type_reference_syntax(program, cursor)) {
+        if (!vigil_program_skip_type_reference_syntax(program, cursor))
+        {
             return 0;
         }
         token = vigil_program_token_at(program, *cursor);
-        if (token != NULL && token->kind == VIGIL_TOKEN_COMMA) {
+        if (token != NULL && token->kind == VIGIL_TOKEN_COMMA)
+        {
             *cursor += 1U;
-            if (!vigil_program_skip_type_reference_syntax(program, cursor)) {
+            if (!vigil_program_skip_type_reference_syntax(program, cursor))
+            {
                 return 0;
             }
             token = vigil_program_token_at(program, *cursor);
         }
-        if (!vigil_program_consume_type_close(program, cursor)) {
+        if (!vigil_program_consume_type_close(program, cursor))
+        {
             return 0;
         }
     }

@@ -44,7 +44,8 @@ extern void register_type_tests(void);
 extern void register_value_tests(void);
 extern void register_vm_tests(void);
 
-int main(void) {
+int main(void)
+{
     register_array_tests();
     register_vigil_new_tests();
     register_binding_tests();
