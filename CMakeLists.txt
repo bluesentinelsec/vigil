@@ -166,7 +166,9 @@ add_library(vigil ${VIGIL_LIBRARY_TYPE}
 # ── Platform abstraction layer ──────────────────────────────────────
 if(WIN32)
     target_sources(vigil PRIVATE src/platform/platform_win32.c src/platform/line_editor.c)
-elseif(UNIX OR EMSCRIPTEN)
+elseif(EMSCRIPTEN)
+    target_sources(vigil PRIVATE src/platform/platform_stub.c src/platform/line_editor.c)
+elseif(UNIX)
     target_sources(vigil PRIVATE src/platform/platform_posix.c src/platform/line_editor.c)
 else()
     target_sources(vigil PRIVATE src/platform/platform_stub.c src/platform/line_editor.c)
@@ -207,7 +209,7 @@ endif()
 
 # Vendored libffi for full FFI support.
 # Disabled on platforms that lack dynamic linking or cross-compile.
-if(VIGIL_USE_LIBFFI AND NOT EMSCRIPTEN
+if(VIGIL_USE_LIBFFI AND VIGIL_STDLIB_FFI AND NOT EMSCRIPTEN
    AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
    AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_subdirectory(deps/libffi)
@@ -318,7 +320,7 @@ if(VIGIL_BUILD_TESTS)
     )
 
     # Vendored libffi for tests.
-    if(VIGIL_USE_LIBFFI AND NOT EMSCRIPTEN
+    if(VIGIL_USE_LIBFFI AND VIGIL_STDLIB_FFI AND NOT EMSCRIPTEN
        AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
        AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         target_link_libraries(vigil_tests PRIVATE ffi_static)

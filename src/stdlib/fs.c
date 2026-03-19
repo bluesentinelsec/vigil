@@ -94,6 +94,9 @@ static vigil_status_t fs_clean(vigil_vm_t *vm, size_t arg_count, vigil_error_t *
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
+    vigil_runtime_t *runtime;
+    void *memory = NULL;
+    char *copy;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -106,11 +109,12 @@ static vigil_status_t fs_clean(vigil_vm_t *vm, size_t arg_count, vigil_error_t *
     int is_abs = (path_len > 0 && path[0] == '/');
     
     /* Copy and split by / */
-    char *copy = malloc(path_len + 1);
-    if (!copy) {
+    runtime = vigil_vm_runtime(vm);
+    if (vigil_runtime_alloc(runtime, path_len + 1, &memory, error) != VIGIL_STATUS_OK) {
         vigil_vm_stack_pop_n(vm, arg_count);
-        return push_string(vm, path, path_len, error);
+        return VIGIL_STATUS_OUT_OF_MEMORY;
     }
+    copy = (char *)memory;
     memcpy(copy, path, path_len);
     copy[path_len] = '\0';
     
@@ -157,7 +161,7 @@ static vigil_status_t fs_clean(vigil_vm_t *vm, size_t arg_count, vigil_error_t *
     /* Fix double slash at start */
     if (is_abs && result[1] == '/') memmove(result + 1, result + 2, strlen(result + 1));
     
-    free(copy);
+    vigil_runtime_free(runtime, &memory);
     vigil_vm_stack_pop_n(vm, arg_count);
     return push_string(vm, result, strlen(result), error);
 }
@@ -257,6 +261,9 @@ static vigil_status_t fs_read(vigil_vm_t *vm, size_t arg_count, vigil_error_t *e
     size_t base = vigil_vm_stack_depth(vm) - arg_count;
     const char *path;
     size_t path_len;
+    vigil_runtime_t *runtime;
+    const vigil_allocator_t *allocator;
+    void *memory = NULL;
     
     if (!get_string_arg(vm, base, 0, &path, &path_len)) {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -268,12 +275,15 @@ static vigil_status_t fs_read(vigil_vm_t *vm, size_t arg_count, vigil_error_t *e
     
     char *data = NULL;
     size_t data_len = 0;
-    vigil_status_t s = vigil_platform_read_file(NULL, pathbuf, &data, &data_len, error);
+    runtime = vigil_vm_runtime(vm);
+    allocator = vigil_runtime_allocator(runtime);
+    vigil_status_t s = vigil_platform_read_file(allocator, pathbuf, &data, &data_len, error);
     vigil_vm_stack_pop_n(vm, arg_count);
     
     if (s != VIGIL_STATUS_OK) return push_string(vm, "", 0, error);
     s = push_string(vm, data, data_len, error);
-    free(data);
+    memory = data;
+    vigil_runtime_free(runtime, &memory);
     return s;
 }
 

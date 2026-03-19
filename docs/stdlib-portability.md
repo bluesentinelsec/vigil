@@ -17,12 +17,10 @@ VIGIL now has two build profiles that matter for portability work:
 
 The implementation is not fully at the ideal end state yet. The most important remaining gaps are:
 
-- `src/stdlib/net.c` still includes socket headers directly instead of going entirely through `src/platform/`.
-- `src/stdlib/time.c` still includes `windows.h` / `sys/time.h` directly for wall-clock helpers.
-- Several stdlib modules still allocate with raw `malloc` / `free` in local helper code instead of consistently routing everything through runtime-owned allocation paths.
-- Emscripten currently uses `src/platform/platform_posix.c`, not the stub platform backend. Optional modules default `OFF` there, but the backend split is still incomplete.
+- The portability checks are still heuristic. They enforce layering for the current stdlib surface, but they do not prove that every helper path uses the ideal allocator or ownership pattern.
+- Emscripten now builds against `src/platform/platform_stub.c`, which is the correct layering, but its CI coverage is intentionally a build-smoke job rather than a runtime test matrix.
 
-Those inconsistencies should be treated as follow-up portability debt, not design targets.
+Those constraints should be treated as the current contract, not as reasons to drift back toward platform-specific stdlib code.
 
 ## Principles
 
@@ -143,10 +141,9 @@ Stdlib modules should prefer `platform/platform.h` instead of direct platform he
 
 Current exceptions that still need cleanup:
 
-- `src/stdlib/net.c`
-- `src/stdlib/time.c`
+- None in the current stdlib tree. Direct platform headers in `src/stdlib/` are now treated as portability violations.
 
-If you touch those modules, prefer moving the platform split downward into `src/platform/` rather than adding more direct `#ifdef _WIN32` logic in the stdlib layer.
+If you add new host-sensitive behavior, prefer moving the platform split downward into `src/platform/` rather than adding more direct `#ifdef _WIN32` logic in the stdlib layer.
 
 ## Testing And CI
 
@@ -158,6 +155,13 @@ CI now covers two important desktop configurations on Linux, macOS, and Windows:
 The full-feature matrix is also used for the Python integration suite so the opt-in modules are exercised in actual CLI execution, not just at link time.
 
 In reduced builds, module-specific integration tests are skipped automatically, and a dedicated availability test verifies that disabled stdlib imports fail with the expected diagnostic.
+
+The portability CI job now runs two static checks:
+
+1. `scripts/check_core_portability.py` keeps `vigil_core` restricted to ISO C11 headers.
+2. `scripts/check_stdlib_portability.py` ensures the stdlib layer does not pull platform headers directly and flags raw heap allocation in the portability-sensitive stdlib modules that are expected to use runtime/platform allocation paths instead.
+
+Emscripten builds use the stub platform backend and currently serve as build validation, not feature-parity execution coverage.
 
 ## Guidance For New Modules
 
