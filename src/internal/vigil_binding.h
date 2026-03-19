@@ -37,6 +37,14 @@ typedef struct vigil_binding_function_param
     vigil_source_span_t span;
 } vigil_binding_function_param_t;
 
+typedef struct vigil_binding_function_param_spec
+{
+    const char *name;
+    size_t name_length;
+    vigil_source_span_t span;
+    vigil_binding_type_t type;
+} vigil_binding_function_param_spec_t;
+
 typedef struct vigil_binding_capture
 {
     const char *name;
@@ -90,6 +98,14 @@ typedef struct vigil_binding_local
     int is_const;
 } vigil_binding_local_t;
 
+typedef struct vigil_binding_local_spec
+{
+    const char *name;
+    size_t name_length;
+    vigil_binding_type_t type;
+    int is_const;
+} vigil_binding_local_spec_t;
+
 typedef struct vigil_binding_scope_stack
 {
     vigil_runtime_t *runtime;
@@ -113,8 +129,7 @@ VIGIL_API int vigil_binding_type_equal(vigil_binding_type_t left, vigil_binding_
 VIGIL_API void vigil_binding_function_init(vigil_binding_function_t *function);
 VIGIL_API void vigil_binding_function_free(vigil_runtime_t *runtime, vigil_binding_function_t *function);
 VIGIL_API vigil_status_t vigil_binding_function_add_param(vigil_runtime_t *runtime, vigil_binding_function_t *function,
-                                                          const char *name, size_t name_length,
-                                                          vigil_source_span_t span, vigil_binding_type_t type,
+                                                          const vigil_binding_function_param_spec_t *spec,
                                                           vigil_error_t *error);
 VIGIL_API vigil_status_t vigil_binding_function_add_return_type(vigil_runtime_t *runtime,
                                                                 vigil_binding_function_t *function,
@@ -141,9 +156,9 @@ VIGIL_API size_t vigil_binding_scope_stack_depth(const vigil_binding_scope_stack
 VIGIL_API size_t vigil_binding_scope_stack_count(const vigil_binding_scope_stack_t *stack);
 VIGIL_API size_t vigil_binding_scope_stack_count_above_depth(const vigil_binding_scope_stack_t *stack,
                                                              size_t target_depth);
-VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack_t *stack, const char *name,
-                                                                 size_t name_length, vigil_binding_type_t type,
-                                                                 int is_const, size_t *out_index, vigil_error_t *error);
+VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack_t *stack,
+                                                                 const vigil_binding_local_spec_t *spec,
+                                                                 size_t *out_index, vigil_error_t *error);
 VIGIL_API vigil_status_t vigil_binding_scope_stack_declare_hidden_local(vigil_binding_scope_stack_t *stack,
                                                                         vigil_binding_type_t type, int is_const,
                                                                         size_t *out_index, vigil_error_t *error);

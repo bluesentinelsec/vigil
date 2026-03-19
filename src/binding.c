@@ -375,14 +375,13 @@ void vigil_binding_function_free(vigil_runtime_t *runtime, vigil_binding_functio
 }
 
 vigil_status_t vigil_binding_function_add_param(vigil_runtime_t *runtime, vigil_binding_function_t *function,
-                                                const char *name, size_t name_length, vigil_source_span_t span,
-                                                vigil_binding_type_t type, vigil_error_t *error)
+                                                const vigil_binding_function_param_spec_t *spec, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_binding_function_param_t *param;
     size_t index;
 
-    if (runtime == NULL || function == NULL || name == NULL)
+    if (runtime == NULL || function == NULL || spec == NULL || spec->name == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                 "binding function parameter arguments must not be null");
@@ -391,7 +390,8 @@ vigil_status_t vigil_binding_function_add_param(vigil_runtime_t *runtime, vigil_
 
     for (index = 0U; index < function->param_count; index += 1U)
     {
-        if (vigil_binding_names_equal(function->params[index].name, function->params[index].length, name, name_length))
+        if (vigil_binding_names_equal(function->params[index].name, function->params[index].length, spec->name,
+                                      spec->name_length))
         {
             vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                     "binding function parameter is already declared");
@@ -406,10 +406,10 @@ vigil_status_t vigil_binding_function_add_param(vigil_runtime_t *runtime, vigil_
     }
 
     param = &function->params[function->param_count];
-    param->name = name;
-    param->length = name_length;
-    param->type = type;
-    param->span = span;
+    param->name = spec->name;
+    param->length = spec->name_length;
+    param->type = spec->type;
+    param->span = spec->span;
     function->param_count += 1U;
     return VIGIL_STATUS_OK;
 }
@@ -662,9 +662,9 @@ size_t vigil_binding_scope_stack_count_above_depth(const vigil_binding_scope_sta
     return count;
 }
 
-vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack_t *stack, const char *name,
-                                                       size_t name_length, vigil_binding_type_t type, int is_const,
-                                                       size_t *out_index, vigil_error_t *error)
+vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack_t *stack,
+                                                       const vigil_binding_local_spec_t *spec, size_t *out_index,
+                                                       vigil_error_t *error)
 {
     vigil_status_t status;
     size_t index;
@@ -675,7 +675,7 @@ vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack
         *out_index = 0U;
     }
 
-    if (stack == NULL || name == NULL)
+    if (stack == NULL || spec == NULL || spec->name == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                 "binding local declaration arguments must not be null");
@@ -690,7 +690,7 @@ vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack
             break;
         }
 
-        if (vigil_binding_names_equal(local->name, local->length, name, name_length))
+        if (vigil_binding_names_equal(local->name, local->length, spec->name, spec->name_length))
         {
             vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                     "binding local variable is already declared in this scope");
@@ -705,11 +705,11 @@ vigil_status_t vigil_binding_scope_stack_declare_local(vigil_binding_scope_stack
     }
 
     local = &stack->locals[stack->local_count];
-    local->name = name;
-    local->length = name_length;
+    local->name = spec->name;
+    local->length = spec->name_length;
     local->depth = stack->scope_depth;
-    local->type = type;
-    local->is_const = is_const != 0;
+    local->type = spec->type;
+    local->is_const = spec->is_const != 0;
     if (out_index != NULL)
     {
         *out_index = stack->local_count;

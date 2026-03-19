@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -160,6 +161,276 @@ static const char *const kVigilOpcodeNames[VIGIL_OPCODE_CALL_EXTERN + 1] = {
     [VIGIL_OPCODE_DEFER_CALL_NATIVE] = "DEFER_CALL_NATIVE",
     [VIGIL_OPCODE_CALL_EXTERN] = "CALL_EXTERN",
 };
+
+static vigil_status_t vigil_chunk_append_text(vigil_string_t *output, const char *text, vigil_error_t *error);
+static vigil_status_t vigil_chunk_append_value(vigil_string_t *output, const vigil_value_t *value,
+                                               vigil_error_t *error);
+
+static uint32_t vigil_chunk_decode_u32(const uint8_t *bytes, size_t offset)
+{
+    uint32_t value;
+
+    value = (uint32_t)bytes[offset];
+    value |= (uint32_t)bytes[offset + 1U] << 8U;
+    value |= (uint32_t)bytes[offset + 2U] << 16U;
+    value |= (uint32_t)bytes[offset + 3U] << 24U;
+    return value;
+}
+
+static vigil_status_t vigil_chunk_append_formatted(vigil_string_t *output, vigil_error_t *error,
+                                                   const char *failure_message, const char *format, ...)
+{
+    char line[64];
+    int written;
+    va_list args;
+
+    va_start(args, format);
+    written = vsnprintf(line, sizeof(line), format, args);
+    va_end(args);
+    if (written < 0)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, failure_message);
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    return vigil_string_append(output, line, (size_t)written, error);
+}
+
+static vigil_status_t vigil_chunk_require_operand_bytes(const vigil_chunk_t *chunk, size_t offset, size_t bytes,
+                                                        const char *failure_message, vigil_error_t *error)
+{
+    if (offset + bytes >= chunk->code.length)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, failure_message);
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_call(const vigil_chunk_t *chunk, size_t *offset, vigil_string_t *output,
+                                                   vigil_error_t *error)
+{
+    uint32_t function_index;
+    uint32_t arg_count;
+    vigil_status_t status;
+
+    status = vigil_chunk_require_operand_bytes(chunk, *offset, 8U, "truncated call instruction", error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    function_index = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    arg_count = vigil_chunk_decode_u32(chunk->code.data, *offset + 5U);
+    status = vigil_chunk_append_formatted(output, error, "failed to format chunk call operand", " %u %u",
+                                          function_index, arg_count);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    *offset += 9U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_call_value(const vigil_chunk_t *chunk, size_t *offset,
+                                                         vigil_string_t *output, vigil_error_t *error)
+{
+    uint32_t operand;
+    vigil_status_t status;
+
+    status = vigil_chunk_require_operand_bytes(chunk, *offset, 4U, "truncated indirect call instruction", error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    operand = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    status =
+        vigil_chunk_append_formatted(output, error, "failed to format chunk indirect call operand", " %u", operand);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    *offset += 5U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_closure(const vigil_chunk_t *chunk, size_t *offset,
+                                                      vigil_string_t *output, vigil_error_t *error)
+{
+    uint32_t function_index;
+    uint32_t capture_count;
+    vigil_status_t status;
+
+    status = vigil_chunk_require_operand_bytes(chunk, *offset, 8U, "truncated closure instruction", error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    function_index = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    capture_count = vigil_chunk_decode_u32(chunk->code.data, *offset + 5U);
+    status = vigil_chunk_append_formatted(output, error, "failed to format chunk closure operand", " %u %u",
+                                          function_index, capture_count);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    *offset += 9U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_interface_call(const vigil_chunk_t *chunk, size_t *offset,
+                                                             vigil_string_t *output, vigil_error_t *error)
+{
+    uint32_t interface_index;
+    uint32_t method_index;
+    uint32_t arg_count;
+    vigil_status_t status;
+
+    status = vigil_chunk_require_operand_bytes(chunk, *offset, 12U, "truncated interface call instruction", error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    interface_index = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    method_index = vigil_chunk_decode_u32(chunk->code.data, *offset + 5U);
+    arg_count = vigil_chunk_decode_u32(chunk->code.data, *offset + 9U);
+    status = vigil_chunk_append_formatted(output, error, "failed to format chunk interface call operand", " %u %u %u",
+                                          interface_index, method_index, arg_count);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    *offset += 13U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_two_u32_operands(const vigil_chunk_t *chunk, size_t *offset,
+                                                               vigil_string_t *output, vigil_error_t *error,
+                                                               const char *truncated_message,
+                                                               const char *format_failure_message)
+{
+    uint32_t first_operand;
+    uint32_t second_operand;
+    vigil_status_t status;
+
+    status = vigil_chunk_require_operand_bytes(chunk, *offset, 8U, truncated_message, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    first_operand = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    second_operand = vigil_chunk_decode_u32(chunk->code.data, *offset + 5U);
+    status =
+        vigil_chunk_append_formatted(output, error, format_failure_message, " %u %u", first_operand, second_operand);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    *offset += 9U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_return(const vigil_chunk_t *chunk, size_t *offset, vigil_string_t *output,
+                                                     vigil_error_t *error)
+{
+    uint32_t operand;
+    vigil_status_t status;
+
+    if (*offset + 4U >= chunk->code.length)
+    {
+        *offset += 1U;
+        return VIGIL_STATUS_OK;
+    }
+
+    operand = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    status = vigil_chunk_append_formatted(output, error, "failed to format chunk return count", " %u", operand);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    *offset += 5U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_chunk_disassemble_u32_operand(const vigil_chunk_t *chunk, size_t *offset,
+                                                          vigil_string_t *output, vigil_error_t *error)
+{
+    uint32_t operand;
+    vigil_status_t status;
+
+    status = vigil_chunk_require_operand_bytes(chunk, *offset, 4U, "truncated constant instruction", error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    operand = vigil_chunk_decode_u32(chunk->code.data, *offset + 1U);
+    status = vigil_chunk_append_formatted(output, error, "failed to format chunk constant index", " %u", operand);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    if ((vigil_opcode_t)chunk->code.data[*offset] == VIGIL_OPCODE_CONSTANT)
+    {
+        status = vigil_chunk_append_text(output, " ", error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+
+        status = vigil_chunk_append_value(output, vigil_chunk_constant(chunk, (size_t)operand), error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+    }
+
+    *offset += 5U;
+    return VIGIL_STATUS_OK;
+}
+
+static int vigil_chunk_is_call_opcode(vigil_opcode_t opcode)
+{
+    return opcode == VIGIL_OPCODE_CALL || opcode == VIGIL_OPCODE_DEFER_CALL;
+}
+
+static int vigil_chunk_is_call_value_opcode(vigil_opcode_t opcode)
+{
+    return opcode == VIGIL_OPCODE_CALL_VALUE || opcode == VIGIL_OPCODE_DEFER_CALL_VALUE;
+}
+
+static int vigil_chunk_is_interface_call_opcode(vigil_opcode_t opcode)
+{
+    return opcode == VIGIL_OPCODE_CALL_INTERFACE || opcode == VIGIL_OPCODE_DEFER_CALL_INTERFACE;
+}
+
+static int vigil_chunk_is_two_u32_operand_opcode(vigil_opcode_t opcode)
+{
+    return opcode == VIGIL_OPCODE_NEW_INSTANCE || opcode == VIGIL_OPCODE_NEW_ARRAY || opcode == VIGIL_OPCODE_NEW_MAP ||
+           opcode == VIGIL_OPCODE_DEFER_NEW_INSTANCE || opcode == VIGIL_OPCODE_FORMAT_SPEC;
+}
+
+static int vigil_chunk_is_u32_operand_opcode(vigil_opcode_t opcode)
+{
+    return opcode == VIGIL_OPCODE_CONSTANT || opcode == VIGIL_OPCODE_GET_LOCAL || opcode == VIGIL_OPCODE_SET_LOCAL ||
+           opcode == VIGIL_OPCODE_GET_GLOBAL || opcode == VIGIL_OPCODE_SET_GLOBAL ||
+           opcode == VIGIL_OPCODE_GET_FUNCTION || opcode == VIGIL_OPCODE_GET_CAPTURE ||
+           opcode == VIGIL_OPCODE_SET_CAPTURE || opcode == VIGIL_OPCODE_JUMP || opcode == VIGIL_OPCODE_JUMP_IF_FALSE ||
+           opcode == VIGIL_OPCODE_LOOP || opcode == VIGIL_OPCODE_FORMAT_F64 || opcode == VIGIL_OPCODE_GET_FIELD ||
+           opcode == VIGIL_OPCODE_SET_FIELD;
+}
 
 static vigil_status_t vigil_chunk_validate_mutable(const vigil_chunk_t *chunk, vigil_error_t *error)
 {
@@ -686,9 +957,6 @@ vigil_status_t vigil_chunk_write_constant(vigil_chunk_t *chunk, const vigil_valu
 vigil_status_t vigil_chunk_disassemble(const vigil_chunk_t *chunk, vigil_string_t *output, vigil_error_t *error)
 {
     size_t offset;
-    char line[64];
-    uint32_t operand;
-    int written;
     vigil_status_t status;
     vigil_opcode_t opcode;
 
@@ -702,306 +970,56 @@ vigil_status_t vigil_chunk_disassemble(const vigil_chunk_t *chunk, vigil_string_
     for (offset = 0U; offset < chunk->code.length;)
     {
         opcode = (vigil_opcode_t)chunk->code.data[offset];
-        written = snprintf(line, sizeof(line), "%04zu %s", offset, vigil_opcode_name(opcode));
-        if (written < 0)
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk disassembly");
-            return VIGIL_STATUS_INTERNAL;
-        }
-
-        status = vigil_string_append(output, line, (size_t)written, error);
+        status = vigil_chunk_append_formatted(output, error, "failed to format chunk disassembly", "%04zu %s", offset,
+                                              vigil_opcode_name(opcode));
         if (status != VIGIL_STATUS_OK)
         {
             return status;
         }
 
-        if (opcode == VIGIL_OPCODE_CALL || opcode == VIGIL_OPCODE_DEFER_CALL)
+        if (vigil_chunk_is_call_opcode(opcode))
         {
-            uint32_t function_index;
-            uint32_t arg_count;
-
-            if (offset + 8U >= chunk->code.length)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "truncated call instruction");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            function_index = (uint32_t)chunk->code.data[offset + 1U];
-            function_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            function_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            function_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-            arg_count = (uint32_t)chunk->code.data[offset + 5U];
-            arg_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
-            arg_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
-            arg_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
-
-            written = snprintf(line, sizeof(line), " %u %u", function_index, arg_count);
-            if (written < 0)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk call operand");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            status = vigil_string_append(output, line, (size_t)written, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            offset += 9U;
+            status = vigil_chunk_disassemble_call(chunk, &offset, output, error);
         }
-        else if (opcode == VIGIL_OPCODE_CALL_VALUE || opcode == VIGIL_OPCODE_DEFER_CALL_VALUE)
+        else if (vigil_chunk_is_call_value_opcode(opcode))
         {
-            if (offset + 4U >= chunk->code.length)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "truncated indirect call instruction");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            operand = (uint32_t)chunk->code.data[offset + 1U];
-            operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-
-            written = snprintf(line, sizeof(line), " %u", operand);
-            if (written < 0)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk indirect call operand");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            status = vigil_string_append(output, line, (size_t)written, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            offset += 5U;
+            status = vigil_chunk_disassemble_call_value(chunk, &offset, output, error);
         }
         else if (opcode == VIGIL_OPCODE_NEW_CLOSURE)
         {
-            uint32_t function_index;
-            uint32_t capture_count;
-
-            if (offset + 8U >= chunk->code.length)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "truncated closure instruction");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            function_index = (uint32_t)chunk->code.data[offset + 1U];
-            function_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            function_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            function_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-            capture_count = (uint32_t)chunk->code.data[offset + 5U];
-            capture_count |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
-            capture_count |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
-            capture_count |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
-
-            written = snprintf(line, sizeof(line), " %u %u", function_index, capture_count);
-            if (written < 0)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk closure operand");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            status = vigil_string_append(output, line, (size_t)written, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            offset += 9U;
+            status = vigil_chunk_disassemble_closure(chunk, &offset, output, error);
         }
-        else if (opcode == VIGIL_OPCODE_CALL_INTERFACE || opcode == VIGIL_OPCODE_DEFER_CALL_INTERFACE)
+        else if (vigil_chunk_is_interface_call_opcode(opcode))
         {
-            uint32_t interface_index;
-            uint32_t method_index;
-            uint32_t arg_count;
-
-            if (offset + 12U >= chunk->code.length)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "truncated interface call instruction");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            interface_index = (uint32_t)chunk->code.data[offset + 1U];
-            interface_index |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            interface_index |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            interface_index |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-            method_index = (uint32_t)chunk->code.data[offset + 5U];
-            method_index |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
-            method_index |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
-            method_index |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
-            arg_count = (uint32_t)chunk->code.data[offset + 9U];
-            arg_count |= (uint32_t)chunk->code.data[offset + 10U] << 8U;
-            arg_count |= (uint32_t)chunk->code.data[offset + 11U] << 16U;
-            arg_count |= (uint32_t)chunk->code.data[offset + 12U] << 24U;
-
-            written = snprintf(line, sizeof(line), " %u %u %u", interface_index, method_index, arg_count);
-            if (written < 0)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk interface call operand");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            status = vigil_string_append(output, line, (size_t)written, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            offset += 13U;
+            status = vigil_chunk_disassemble_interface_call(chunk, &offset, output, error);
         }
-        else if (opcode == VIGIL_OPCODE_NEW_INSTANCE || opcode == VIGIL_OPCODE_NEW_ARRAY ||
-                 opcode == VIGIL_OPCODE_NEW_MAP || opcode == VIGIL_OPCODE_DEFER_NEW_INSTANCE ||
-                 opcode == VIGIL_OPCODE_FORMAT_SPEC)
+        else if (vigil_chunk_is_two_u32_operand_opcode(opcode))
         {
-            uint32_t first_operand;
-            uint32_t second_operand;
-
-            if (offset + 8U >= chunk->code.length)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
-                                        opcode == VIGIL_OPCODE_NEW_INSTANCE || opcode == VIGIL_OPCODE_DEFER_NEW_INSTANCE
-                                            ? "truncated constructor instruction"
-                                            : "truncated collection instruction");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            first_operand = (uint32_t)chunk->code.data[offset + 1U];
-            first_operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            first_operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            first_operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-            second_operand = (uint32_t)chunk->code.data[offset + 5U];
-            second_operand |= (uint32_t)chunk->code.data[offset + 6U] << 8U;
-            second_operand |= (uint32_t)chunk->code.data[offset + 7U] << 16U;
-            second_operand |= (uint32_t)chunk->code.data[offset + 8U] << 24U;
-
-            if (opcode == VIGIL_OPCODE_NEW_ARRAY || opcode == VIGIL_OPCODE_NEW_MAP)
-            {
-                written = snprintf(line, sizeof(line), " %u %u", first_operand, second_operand);
-            }
-            else
-            {
-                written = snprintf(line, sizeof(line), " %u %u", first_operand, second_operand);
-            }
-            if (written < 0)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL,
-                                        opcode == VIGIL_OPCODE_NEW_INSTANCE || opcode == VIGIL_OPCODE_DEFER_NEW_INSTANCE
-                                            ? "failed to format chunk constructor operand"
-                                            : "failed to format chunk collection operand");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            status = vigil_string_append(output, line, (size_t)written, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            offset += 9U;
+            status = vigil_chunk_disassemble_two_u32_operands(
+                chunk, &offset, output, error,
+                opcode == VIGIL_OPCODE_NEW_INSTANCE || opcode == VIGIL_OPCODE_DEFER_NEW_INSTANCE
+                    ? "truncated constructor instruction"
+                    : "truncated collection instruction",
+                opcode == VIGIL_OPCODE_NEW_INSTANCE || opcode == VIGIL_OPCODE_DEFER_NEW_INSTANCE
+                    ? "failed to format chunk constructor operand"
+                    : "failed to format chunk collection operand");
         }
         else if (opcode == VIGIL_OPCODE_RETURN)
         {
-            if (offset + 4U < chunk->code.length)
-            {
-                operand = (uint32_t)chunk->code.data[offset + 1U];
-                operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-                operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-                operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-
-                written = snprintf(line, sizeof(line), " %u", operand);
-                if (written < 0)
-                {
-                    vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk return count");
-                    return VIGIL_STATUS_INTERNAL;
-                }
-
-                status = vigil_string_append(output, line, (size_t)written, error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                offset += 5U;
-            }
-            else
-            {
-                offset += 1U;
-            }
+            status = vigil_chunk_disassemble_return(chunk, &offset, output, error);
         }
-        else if (opcode == VIGIL_OPCODE_CONSTANT || opcode == VIGIL_OPCODE_GET_LOCAL ||
-                 opcode == VIGIL_OPCODE_SET_LOCAL || opcode == VIGIL_OPCODE_GET_GLOBAL ||
-                 opcode == VIGIL_OPCODE_SET_GLOBAL || opcode == VIGIL_OPCODE_GET_FUNCTION ||
-                 opcode == VIGIL_OPCODE_GET_CAPTURE || opcode == VIGIL_OPCODE_SET_CAPTURE ||
-                 opcode == VIGIL_OPCODE_JUMP || opcode == VIGIL_OPCODE_JUMP_IF_FALSE || opcode == VIGIL_OPCODE_LOOP ||
-                 opcode == VIGIL_OPCODE_FORMAT_F64 || opcode == VIGIL_OPCODE_GET_FIELD ||
-                 opcode == VIGIL_OPCODE_SET_FIELD)
+        else if (vigil_chunk_is_u32_operand_opcode(opcode))
         {
-            if (offset + 4U >= chunk->code.length)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "truncated constant instruction");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            operand = (uint32_t)chunk->code.data[offset + 1U];
-            operand |= (uint32_t)chunk->code.data[offset + 2U] << 8U;
-            operand |= (uint32_t)chunk->code.data[offset + 3U] << 16U;
-            operand |= (uint32_t)chunk->code.data[offset + 4U] << 24U;
-
-            written = snprintf(line, sizeof(line), " %u", operand);
-            if (written < 0)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format chunk constant index");
-                return VIGIL_STATUS_INTERNAL;
-            }
-
-            status = vigil_string_append(output, line, (size_t)written, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            if (opcode == VIGIL_OPCODE_CONSTANT)
-            {
-                status = vigil_chunk_append_text(output, " ", error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-
-                status = vigil_chunk_append_value(output, vigil_chunk_constant(chunk, (size_t)operand), error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-            }
-
-            offset += 5U;
-        }
-        else if (opcode == VIGIL_OPCODE_GET_INDEX || opcode == VIGIL_OPCODE_SET_INDEX ||
-                 opcode == VIGIL_OPCODE_GET_COLLECTION_SIZE || opcode == VIGIL_OPCODE_GET_MAP_KEY_AT ||
-                 opcode == VIGIL_OPCODE_GET_MAP_VALUE_AT || opcode == VIGIL_OPCODE_GET_STRING_SIZE ||
-                 opcode == VIGIL_OPCODE_STRING_CONTAINS || opcode == VIGIL_OPCODE_STRING_STARTS_WITH ||
-                 opcode == VIGIL_OPCODE_STRING_ENDS_WITH || opcode == VIGIL_OPCODE_STRING_TRIM ||
-                 opcode == VIGIL_OPCODE_STRING_TO_UPPER || opcode == VIGIL_OPCODE_STRING_TO_LOWER ||
-                 opcode == VIGIL_OPCODE_STRING_REPLACE || opcode == VIGIL_OPCODE_STRING_SPLIT ||
-                 opcode == VIGIL_OPCODE_STRING_INDEX_OF || opcode == VIGIL_OPCODE_STRING_SUBSTR ||
-                 opcode == VIGIL_OPCODE_STRING_BYTES || opcode == VIGIL_OPCODE_STRING_CHAR_AT ||
-                 opcode == VIGIL_OPCODE_ARRAY_PUSH || opcode == VIGIL_OPCODE_ARRAY_POP ||
-                 opcode == VIGIL_OPCODE_ARRAY_GET_SAFE || opcode == VIGIL_OPCODE_ARRAY_SET_SAFE ||
-                 opcode == VIGIL_OPCODE_ARRAY_SLICE || opcode == VIGIL_OPCODE_ARRAY_CONTAINS ||
-                 opcode == VIGIL_OPCODE_MAP_GET_SAFE || opcode == VIGIL_OPCODE_MAP_SET_SAFE ||
-                 opcode == VIGIL_OPCODE_MAP_REMOVE_SAFE || opcode == VIGIL_OPCODE_MAP_HAS ||
-                 opcode == VIGIL_OPCODE_MAP_KEYS || opcode == VIGIL_OPCODE_MAP_VALUES ||
-                 opcode == VIGIL_OPCODE_STRING_CHAR_COUNT)
-        {
-            offset += 1U;
+            status = vigil_chunk_disassemble_u32_operand(chunk, &offset, output, error);
         }
         else
         {
             offset += 1U;
+        }
+
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
         }
 
         status = vigil_chunk_append_text(output, "\n", error);

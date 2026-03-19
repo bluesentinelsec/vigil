@@ -17,6 +17,48 @@ static void cli_dealloc(const vigil_allocator_t *a, void *p)
     a->deallocate(a->user_data, p);
 }
 
+typedef struct cli_flag_list
+{
+    vigil_cli_flag_t **items;
+    size_t *count;
+    size_t *capacity;
+} cli_flag_list_t;
+
+typedef struct cli_flag_spec
+{
+    const char *name;
+    char short_name;
+    const char *help;
+    int is_bool;
+    const char **out_string;
+    int *out_bool;
+} cli_flag_spec_t;
+
+typedef struct cli_positional_list
+{
+    vigil_cli_positional_t **items;
+    size_t *count;
+    size_t *capacity;
+} cli_positional_list_t;
+
+typedef struct cli_positional_spec
+{
+    const char *name;
+    const char *help;
+    const char **out_value;
+} cli_positional_spec_t;
+
+typedef struct cli_parse_context
+{
+    vigil_cli_t *cli;
+    vigil_cli_command_t *command;
+    vigil_cli_flag_t *command_flags;
+    size_t command_flag_count;
+    vigil_cli_positional_t *positionals;
+    size_t positional_count;
+    size_t positional_index;
+} cli_parse_context_t;
+
 /* ── Lifecycle ───────────────────────────────────────────────────── */
 
 void vigil_cli_init_with_allocator(vigil_cli_t *cli, const char *program_name, const char *description,
@@ -85,45 +127,42 @@ const vigil_cli_command_t *vigil_cli_matched_command(const vigil_cli_t *cli)
 
 /* ── Flag/positional helpers ─────────────────────────────────────── */
 
-static void add_flag(const vigil_allocator_t *a, vigil_cli_flag_t **flags, size_t *count, size_t *capacity,
-                     const char *name, char short_name, const char *help, int is_bool, const char **out_string,
-                     int *out_bool)
+static void add_flag(const vigil_allocator_t *a, cli_flag_list_t *list, const cli_flag_spec_t *spec)
 {
-    if (*count >= *capacity)
+    if (*list->count >= *list->capacity)
     {
-        size_t new_cap = *capacity < 8 ? 8 : *capacity * 2;
-        vigil_cli_flag_t *nf = (vigil_cli_flag_t *)cli_realloc(a, *flags, new_cap * sizeof(vigil_cli_flag_t));
+        size_t new_cap = *list->capacity < 8 ? 8 : *list->capacity * 2;
+        vigil_cli_flag_t *nf = (vigil_cli_flag_t *)cli_realloc(a, *list->items, new_cap * sizeof(vigil_cli_flag_t));
         if (nf == NULL)
             return;
-        *flags = nf;
-        *capacity = new_cap;
+        *list->items = nf;
+        *list->capacity = new_cap;
     }
-    vigil_cli_flag_t *f = &(*flags)[(*count)++];
-    f->name = name;
-    f->short_name = short_name;
-    f->help = help;
-    f->is_bool = is_bool;
-    f->out_string = out_string;
-    f->out_bool = out_bool;
+    vigil_cli_flag_t *f = &(*list->items)[(*list->count)++];
+    f->name = spec->name;
+    f->short_name = spec->short_name;
+    f->help = spec->help;
+    f->is_bool = spec->is_bool;
+    f->out_string = spec->out_string;
+    f->out_bool = spec->out_bool;
 }
 
-static void add_positional(const vigil_allocator_t *a, vigil_cli_positional_t **positionals, size_t *count,
-                           size_t *capacity, const char *name, const char *help, const char **out_value)
+static void add_positional(const vigil_allocator_t *a, cli_positional_list_t *list, const cli_positional_spec_t *spec)
 {
-    if (*count >= *capacity)
+    if (*list->count >= *list->capacity)
     {
-        size_t new_cap = *capacity < 4 ? 4 : *capacity * 2;
+        size_t new_cap = *list->capacity < 4 ? 4 : *list->capacity * 2;
         vigil_cli_positional_t *np =
-            (vigil_cli_positional_t *)cli_realloc(a, *positionals, new_cap * sizeof(vigil_cli_positional_t));
+            (vigil_cli_positional_t *)cli_realloc(a, *list->items, new_cap * sizeof(vigil_cli_positional_t));
         if (np == NULL)
             return;
-        *positionals = np;
-        *capacity = new_cap;
+        *list->items = np;
+        *list->capacity = new_cap;
     }
-    vigil_cli_positional_t *p = &(*positionals)[(*count)++];
-    p->name = name;
-    p->help = help;
-    p->out_value = out_value;
+    vigil_cli_positional_t *p = &(*list->items)[(*list->count)++];
+    p->name = spec->name;
+    p->help = spec->help;
+    p->out_value = spec->out_value;
 }
 
 /* ── Public flag/positional API ──────────────────────────────────── */
@@ -131,55 +170,118 @@ static void add_positional(const vigil_allocator_t *a, vigil_cli_positional_t **
 void vigil_cli_add_string_flag(vigil_cli_command_t *cmd, const char *name, char short_name, const char *help,
                                const char **out_value)
 {
+    cli_flag_list_t list;
+    cli_flag_spec_t spec;
+
     if (cmd == NULL)
         return;
     /* Commands don't own an allocator — use default. Caller must keep
        the cli alive.  We store into the command's own arrays. */
     vigil_allocator_t a = vigil_default_allocator();
-    add_flag(&a, &cmd->flags, &cmd->flag_count, &cmd->flag_capacity, name, short_name, help, 0, out_value, NULL);
+    list.items = &cmd->flags;
+    list.count = &cmd->flag_count;
+    list.capacity = &cmd->flag_capacity;
+    spec.name = name;
+    spec.short_name = short_name;
+    spec.help = help;
+    spec.is_bool = 0;
+    spec.out_string = out_value;
+    spec.out_bool = NULL;
+    add_flag(&a, &list, &spec);
 }
 
 void vigil_cli_add_bool_flag(vigil_cli_command_t *cmd, const char *name, char short_name, const char *help,
                              int *out_value)
 {
+    cli_flag_list_t list;
+    cli_flag_spec_t spec;
+
     if (cmd == NULL)
         return;
     vigil_allocator_t a = vigil_default_allocator();
-    add_flag(&a, &cmd->flags, &cmd->flag_count, &cmd->flag_capacity, name, short_name, help, 1, NULL, out_value);
+    list.items = &cmd->flags;
+    list.count = &cmd->flag_count;
+    list.capacity = &cmd->flag_capacity;
+    spec.name = name;
+    spec.short_name = short_name;
+    spec.help = help;
+    spec.is_bool = 1;
+    spec.out_string = NULL;
+    spec.out_bool = out_value;
+    add_flag(&a, &list, &spec);
 }
 
 void vigil_cli_add_global_string_flag(vigil_cli_t *cli, const char *name, char short_name, const char *help,
                                       const char **out_value)
 {
+    cli_flag_list_t list;
+    cli_flag_spec_t spec;
+
     if (cli == NULL)
         return;
-    add_flag(&cli->allocator, &cli->flags, &cli->flag_count, &cli->flag_capacity, name, short_name, help, 0, out_value,
-             NULL);
+    list.items = &cli->flags;
+    list.count = &cli->flag_count;
+    list.capacity = &cli->flag_capacity;
+    spec.name = name;
+    spec.short_name = short_name;
+    spec.help = help;
+    spec.is_bool = 0;
+    spec.out_string = out_value;
+    spec.out_bool = NULL;
+    add_flag(&cli->allocator, &list, &spec);
 }
 
 void vigil_cli_add_global_bool_flag(vigil_cli_t *cli, const char *name, char short_name, const char *help,
                                     int *out_value)
 {
+    cli_flag_list_t list;
+    cli_flag_spec_t spec;
+
     if (cli == NULL)
         return;
-    add_flag(&cli->allocator, &cli->flags, &cli->flag_count, &cli->flag_capacity, name, short_name, help, 1, NULL,
-             out_value);
+    list.items = &cli->flags;
+    list.count = &cli->flag_count;
+    list.capacity = &cli->flag_capacity;
+    spec.name = name;
+    spec.short_name = short_name;
+    spec.help = help;
+    spec.is_bool = 1;
+    spec.out_string = NULL;
+    spec.out_bool = out_value;
+    add_flag(&cli->allocator, &list, &spec);
 }
 
 void vigil_cli_add_positional(vigil_cli_command_t *cmd, const char *name, const char *help, const char **out_value)
 {
+    cli_positional_list_t list;
+    cli_positional_spec_t spec;
+
     if (cmd == NULL)
         return;
     vigil_allocator_t a = vigil_default_allocator();
-    add_positional(&a, &cmd->positionals, &cmd->positional_count, &cmd->positional_capacity, name, help, out_value);
+    list.items = &cmd->positionals;
+    list.count = &cmd->positional_count;
+    list.capacity = &cmd->positional_capacity;
+    spec.name = name;
+    spec.help = help;
+    spec.out_value = out_value;
+    add_positional(&a, &list, &spec);
 }
 
 void vigil_cli_add_global_positional(vigil_cli_t *cli, const char *name, const char *help, const char **out_value)
 {
+    cli_positional_list_t list;
+    cli_positional_spec_t spec;
+
     if (cli == NULL)
         return;
-    add_positional(&cli->allocator, &cli->positionals, &cli->positional_count, &cli->positional_capacity, name, help,
-                   out_value);
+    list.items = &cli->positionals;
+    list.count = &cli->positional_count;
+    list.capacity = &cli->positional_capacity;
+    spec.name = name;
+    spec.help = help;
+    spec.out_value = out_value;
+    add_positional(&cli->allocator, &list, &spec);
 }
 
 /* ── Help printing ───────────────────────────────────────────────── */
@@ -299,8 +401,189 @@ static void set_flag_value(vigil_cli_flag_t *f, const char *value)
     }
 }
 
+static vigil_status_t handle_help_flag(cli_parse_context_t *context)
+{
+    if (context->command != NULL)
+    {
+        vigil_cli_print_command_help(context->cli, context->command);
+    }
+    else
+    {
+        vigil_cli_print_help(context->cli);
+    }
+
+    context->cli->matched_command = NULL;
+    context->cli->help_shown = 1;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_cli_command_t *match_command(vigil_cli_t *cli, int argc, char **argv, int *arg_start, vigil_error_t *error)
+{
+    vigil_cli_command_t *cmd = NULL;
+
+    if (cli->command_count == 0 || argc <= 1)
+    {
+        return NULL;
+    }
+
+    if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)
+    {
+        vigil_cli_print_help(cli);
+        cli->help_shown = 1;
+        return NULL;
+    }
+
+    for (size_t i = 0; i < cli->command_count; i++)
+    {
+        if (strcmp(argv[1], cli->commands[i].name) == 0)
+        {
+            cmd = &cli->commands[i];
+            cmd->matched = 1;
+            cli->matched_command = cmd;
+            *arg_start = 2;
+            return cmd;
+        }
+    }
+
+    if (cli->positional_count == 0 && argv[1][0] != '-')
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unknown command");
+    }
+
+    return NULL;
+}
+
+static void init_parse_context(cli_parse_context_t *context, vigil_cli_t *cli, vigil_cli_command_t *cmd)
+{
+    context->cli = cli;
+    context->command = cmd;
+    context->command_flags = cmd != NULL ? cmd->flags : NULL;
+    context->command_flag_count = cmd != NULL ? cmd->flag_count : 0U;
+    context->positionals = cmd != NULL ? cmd->positionals : cli->positionals;
+    context->positional_count = cmd != NULL ? cmd->positional_count : cli->positional_count;
+    context->positional_index = 0U;
+}
+
+static vigil_cli_flag_t *find_any_long_flag(const cli_parse_context_t *context, const char *name, size_t name_len)
+{
+    vigil_cli_flag_t *flag;
+
+    flag = find_long_flag(context->command_flags, context->command_flag_count, name, name_len);
+    if (flag != NULL)
+    {
+        return flag;
+    }
+
+    return find_long_flag(context->cli->flags, context->cli->flag_count, name, name_len);
+}
+
+static vigil_cli_flag_t *find_any_short_flag(const cli_parse_context_t *context, char short_name)
+{
+    vigil_cli_flag_t *flag;
+
+    flag = find_short_flag(context->command_flags, context->command_flag_count, short_name);
+    if (flag != NULL)
+    {
+        return flag;
+    }
+
+    return find_short_flag(context->cli->flags, context->cli->flag_count, short_name);
+}
+
+static vigil_status_t assign_remaining_positionals(cli_parse_context_t *context, int argc, char **argv, int start)
+{
+    for (int index = start; index < argc && context->positional_index < context->positional_count; index++)
+    {
+        *context->positionals[context->positional_index++].out_value = argv[index];
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_long_flag(cli_parse_context_t *context, const char *arg, int argc, char **argv, int *index,
+                                      vigil_error_t *error)
+{
+    const char *name = arg + 2;
+    const char *eq = strchr(name, '=');
+    size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
+    vigil_cli_flag_t *flag = find_any_long_flag(context, name, name_len);
+
+    if (flag == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unknown flag");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (flag->is_bool)
+    {
+        set_flag_value(flag, NULL);
+        return VIGIL_STATUS_OK;
+    }
+
+    if (eq != NULL)
+    {
+        set_flag_value(flag, eq + 1);
+        return VIGIL_STATUS_OK;
+    }
+
+    if (*index + 1 < argc)
+    {
+        set_flag_value(flag, argv[++(*index)]);
+        return VIGIL_STATUS_OK;
+    }
+
+    vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: flag requires a value");
+    return VIGIL_STATUS_INVALID_ARGUMENT;
+}
+
+static vigil_status_t parse_short_flag(cli_parse_context_t *context, const char *arg, int argc, char **argv, int *index,
+                                       vigil_error_t *error)
+{
+    vigil_cli_flag_t *flag = find_any_short_flag(context, arg[1]);
+
+    if (flag == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unknown flag");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (flag->is_bool)
+    {
+        set_flag_value(flag, NULL);
+        return VIGIL_STATUS_OK;
+    }
+
+    if (arg[2] != '\0')
+    {
+        set_flag_value(flag, arg + 2);
+        return VIGIL_STATUS_OK;
+    }
+
+    if (*index + 1 < argc)
+    {
+        set_flag_value(flag, argv[++(*index)]);
+        return VIGIL_STATUS_OK;
+    }
+
+    vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: flag requires a value");
+    return VIGIL_STATUS_INVALID_ARGUMENT;
+}
+
+static vigil_status_t parse_positional_argument(cli_parse_context_t *context, const char *arg, vigil_error_t *error)
+{
+    if (context->positional_index >= context->positional_count)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unexpected argument");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *context->positionals[context->positional_index++].out_value = arg;
+    return VIGIL_STATUS_OK;
+}
+
 vigil_status_t vigil_cli_parse(vigil_cli_t *cli, int argc, char **argv, vigil_error_t *error)
 {
+    cli_parse_context_t context;
     if (cli == NULL || argv == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: invalid arguments");
@@ -310,156 +593,56 @@ vigil_status_t vigil_cli_parse(vigil_cli_t *cli, int argc, char **argv, vigil_er
     cli->matched_command = NULL;
     int arg_start = 1; /* skip program name */
 
-    /* Try to match a subcommand. */
-    vigil_cli_command_t *cmd = NULL;
-    if (cli->command_count > 0 && argc > 1)
+    vigil_cli_command_t *cmd = match_command(cli, argc, argv, &arg_start, error);
+    if (cmd == NULL && error != NULL && error->type == VIGIL_STATUS_INVALID_ARGUMENT)
     {
-        /* Check if first arg is --help before command matching. */
-        if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)
-        {
-            vigil_cli_print_help(cli);
-            cli->help_shown = 1;
-            return VIGIL_STATUS_OK;
-        }
-        for (size_t i = 0; i < cli->command_count; i++)
-        {
-            if (strcmp(argv[1], cli->commands[i].name) == 0)
-            {
-                cmd = &cli->commands[i];
-                cmd->matched = 1;
-                cli->matched_command = cmd;
-                arg_start = 2;
-                break;
-            }
-        }
-        if (cmd == NULL)
-        {
-            /* Not a known command — could be a global positional or error. */
-            if (cli->positional_count == 0 && argv[1][0] != '-')
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unknown command");
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-        }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    /* Determine which flags and positionals to use. */
-    vigil_cli_flag_t *cmd_flags = cmd ? cmd->flags : NULL;
-    size_t cmd_flag_count = cmd ? cmd->flag_count : 0;
-    vigil_cli_positional_t *pos = cmd ? cmd->positionals : cli->positionals;
-    size_t pos_count = cmd ? cmd->positional_count : cli->positional_count;
-    size_t pos_idx = 0;
+    if (cli->help_shown)
+    {
+        return VIGIL_STATUS_OK;
+    }
+
+    init_parse_context(&context, cli, cmd);
 
     for (int i = arg_start; i < argc; i++)
     {
         const char *arg = argv[i];
 
-        /* --help / -h */
         if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0)
         {
-            if (cmd != NULL)
-            {
-                vigil_cli_print_command_help(cli, cmd);
-            }
-            else
-            {
-                vigil_cli_print_help(cli);
-            }
-            cli->matched_command = NULL;
-            cli->help_shown = 1;
-            return VIGIL_STATUS_OK;
+            return handle_help_flag(&context);
         }
 
-        /* -- stops flag parsing */
         if (strcmp(arg, "--") == 0)
         {
-            for (int j = i + 1; j < argc && pos_idx < pos_count; j++)
-            {
-                *pos[pos_idx++].out_value = argv[j];
-            }
+            assign_remaining_positionals(&context, argc, argv, i + 1);
             break;
         }
 
-        /* Long flag: --name or --name=value */
         if (arg[0] == '-' && arg[1] == '-')
         {
-            const char *name = arg + 2;
-            const char *eq = strchr(name, '=');
-            size_t name_len = eq ? (size_t)(eq - name) : strlen(name);
-
-            vigil_cli_flag_t *f = find_long_flag(cmd_flags, cmd_flag_count, name, name_len);
-            if (f == NULL)
+            vigil_status_t status = parse_long_flag(&context, arg, argc, argv, &i, error);
+            if (status != VIGIL_STATUS_OK)
             {
-                f = find_long_flag(cli->flags, cli->flag_count, name, name_len);
-            }
-            if (f == NULL)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unknown flag");
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-            if (f->is_bool)
-            {
-                set_flag_value(f, NULL);
-            }
-            else if (eq != NULL)
-            {
-                set_flag_value(f, eq + 1);
-            }
-            else if (i + 1 < argc)
-            {
-                set_flag_value(f, argv[++i]);
-            }
-            else
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: flag requires a value");
-                return VIGIL_STATUS_INVALID_ARGUMENT;
+                return status;
             }
             continue;
         }
 
-        /* Short flag: -v or -o value */
         if (arg[0] == '-' && arg[1] != '\0')
         {
-            char c = arg[1];
-            vigil_cli_flag_t *f = find_short_flag(cmd_flags, cmd_flag_count, c);
-            if (f == NULL)
+            vigil_status_t status = parse_short_flag(&context, arg, argc, argv, &i, error);
+            if (status != VIGIL_STATUS_OK)
             {
-                f = find_short_flag(cli->flags, cli->flag_count, c);
-            }
-            if (f == NULL)
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unknown flag");
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-            if (f->is_bool)
-            {
-                set_flag_value(f, NULL);
-            }
-            else if (arg[2] != '\0')
-            {
-                /* -ovalue */
-                set_flag_value(f, arg + 2);
-            }
-            else if (i + 1 < argc)
-            {
-                set_flag_value(f, argv[++i]);
-            }
-            else
-            {
-                vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: flag requires a value");
-                return VIGIL_STATUS_INVALID_ARGUMENT;
+                return status;
             }
             continue;
         }
 
-        /* Positional argument. */
-        if (pos_idx < pos_count)
+        if (parse_positional_argument(&context, arg, error) != VIGIL_STATUS_OK)
         {
-            *pos[pos_idx++].out_value = arg;
-        }
-        else
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "cli: unexpected argument");
             return VIGIL_STATUS_INVALID_ARGUMENT;
         }
     }

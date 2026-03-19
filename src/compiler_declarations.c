@@ -1014,10 +1014,13 @@ vigil_status_t vigil_program_synthesize_class_constructor(vigil_program_state_t 
 
     for (param_index = 1U; param_index < init_decl->param_count; param_index += 1U)
     {
-        status =
-            vigil_binding_function_add_param(program->registry->runtime, ctor_decl, init_decl->params[param_index].name,
-                                             init_decl->params[param_index].length, init_decl->params[param_index].span,
-                                             init_decl->params[param_index].type, program->error);
+        vigil_binding_function_param_spec_t param_spec = {0};
+
+        param_spec.name = init_decl->params[param_index].name;
+        param_spec.name_length = init_decl->params[param_index].length;
+        param_spec.span = init_decl->params[param_index].span;
+        param_spec.type = init_decl->params[param_index].type;
+        status = vigil_binding_function_add_param(program->registry->runtime, ctor_decl, &param_spec, program->error);
         if (status != VIGIL_STATUS_OK)
         {
             vigil_binding_function_free(program->registry->runtime, ctor_decl);
@@ -1217,9 +1220,14 @@ vigil_status_t vigil_program_parse_class_declaration(vigil_program_state_t *prog
             method_decl->tokens = program->tokens;
             cursor[0] += 1U;
 
+            vigil_binding_function_param_spec_t param_spec = {0};
+
+            param_spec.name = "self";
+            param_spec.name_length = 4U;
+            param_spec.span = name_token->span;
+            param_spec.type = vigil_binding_type_class(class_index);
             status =
-                vigil_binding_function_add_param(program->registry->runtime, method_decl, "self", 4U, name_token->span,
-                                                 vigil_binding_type_class(class_index), program->error);
+                vigil_binding_function_add_param(program->registry->runtime, method_decl, &param_spec, program->error);
             if (status != VIGIL_STATUS_OK)
             {
                 return status;
