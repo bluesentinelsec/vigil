@@ -130,6 +130,15 @@ class TestVigilPackage(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("entry.vigil", result.stdout)
 
+    def test_package_inspect_requires_path(self):
+        """vigil package --inspect without a path should fail with usage error."""
+        result = subprocess.run(
+            [*resolve_vigil_command(), "package", "--inspect"],
+            capture_output=True, text=True, timeout=10
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--inspect requires a binary path", result.stderr)
+
     def test_package_encrypted(self):
         if sys.platform == "win32":
             self.skipTest("Packaged binary execution unreliable on Windows CI")

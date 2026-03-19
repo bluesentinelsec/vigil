@@ -371,35 +371,55 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedCallInstructions)
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated call instruction");
     free(message);
+}
 
+TEST(VigilChunkTest, DisassembleRejectsTruncatedCallValueInstructions)
+{
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_VALUE);
     message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_VALUE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated indirect call instruction");
     free(message);
+}
 
+TEST(VigilChunkTest, DisassembleRejectsTruncatedClosureInstructions)
+{
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_CLOSURE);
     message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_CLOSURE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated closure instruction");
     free(message);
+}
 
+TEST(VigilChunkTest, DisassembleRejectsTruncatedInterfaceCallInstructions)
+{
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_INTERFACE);
     message = BuildDisassembleFailureMessage(VIGIL_OPCODE_CALL_INTERFACE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated interface call instruction");
     free(message);
 }
 
-TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorAndCollectionInstructions)
+TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorInstructions)
 {
     char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_INSTANCE);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated constructor instruction");
     free(message);
+}
 
+TEST(VigilChunkTest, DisassembleRejectsTruncatedCollectionInstructions)
+{
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_ARRAY);
     message = BuildDisassembleFailureMessage(VIGIL_OPCODE_NEW_ARRAY);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated collection instruction");
     free(message);
+}
 
+TEST(VigilChunkTest, DisassembleRejectsTruncatedU32OperandInstructions)
+{
+    char *message = BuildDisassembleFailureMessage(VIGIL_OPCODE_GET_LOCAL);
     message = BuildDisassembleFailureMessage(VIGIL_OPCODE_GET_LOCAL);
     ASSERT_NE(message, NULL);
     EXPECT_STREQ(message, "truncated constant instruction");
@@ -494,7 +514,12 @@ void register_chunk_tests(void)
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOperandInstructions);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand);
     REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedCallInstructions);
-    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorAndCollectionInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedCallValueInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedClosureInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedInterfaceCallInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedConstructorInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedCollectionInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedU32OperandInstructions);
     REGISTER_TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode);
     REGISTER_TEST(VigilChunkTest, UsesRuntimeAllocatorHooks);
     REGISTER_TEST(VigilChunkTest, RejectsMissingRuntimeForMutation);

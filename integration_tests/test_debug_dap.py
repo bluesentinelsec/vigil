@@ -229,6 +229,29 @@ class TestVigilDebug(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("VIGIL Interactive Debugger", result.stdout)
 
+    def test_interactive_debug_missing_file(self):
+        """Interactive debug mode should report missing files clearly."""
+        if sys.platform == "win32":
+            self.skipTest("interactive debug stdin piping is unreliable on Windows CI")
+        cmd = [*resolve_vigil_command(), "debug", "--interactive", "/nonexistent/file.vigil"]
+        result = subprocess.run(cmd, input="quit\n", capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("failed to register source", result.stderr)
+
+    def test_interactive_debug_compile_error(self):
+        """Interactive debug mode should print compile diagnostics."""
+        if sys.platform == "win32":
+            self.skipTest("interactive debug stdin piping is unreliable on Windows CI")
+        self.tmpdir = tempfile.mkdtemp(prefix="vigil_debug_interactive_compile_")
+        script_path = Path(self.tmpdir) / "bad.vigil"
+        script_path.write_text("fn main() -> i32 {\n    let ???\n}\n")
+
+        cmd = [*resolve_vigil_command(), "debug", "--interactive", str(script_path)]
+        result = subprocess.run(cmd, input="quit\n", capture_output=True, text=True, timeout=10)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("error:", result.stderr)
+
     def test_help_shows_debug(self):
         """vigil --help should list the debug command."""
         cmd = [*resolve_vigil_command()]
