@@ -37,6 +37,32 @@ class TestVigilNew(unittest.TestCase):
         self.assertTrue((project_dir / "lib").is_dir())
         self.assertTrue((project_dir / "test").is_dir())
 
+    def test_new_prompts_for_name(self):
+        result = subprocess.run(
+            [*resolve_vigil_command(), "new"],
+            cwd=self.tmpdir,
+            input="prompted_demo\n",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        project_dir = Path(self.tmpdir) / "prompted_demo"
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertTrue(project_dir.exists())
+        self.assertIn("created prompted_demo", result.stdout)
+
+    def test_new_rejects_empty_prompt_name(self):
+        result = subprocess.run(
+            [*resolve_vigil_command(), "new"],
+            cwd=self.tmpdir,
+            input="\n",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("project name cannot be empty", result.stderr)
+
     def test_new_lib_scaffold(self):
         result = subprocess.run(
             [*resolve_vigil_command(), "new", "demo_lib", "--lib"],
