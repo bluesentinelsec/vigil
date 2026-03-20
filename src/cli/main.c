@@ -894,16 +894,15 @@ static void debug_cli_help(void)
     printf("  h, help           Show this help\n");
 }
 
-static vigil_debug_action_t debug_cli_callback(vigil_debugger_t *debugger, vigil_debug_stop_reason_t reason,
-                                               void *userdata)
+typedef enum
 {
-    debug_cli_state_t *state = (debug_cli_state_t *)userdata;
-    char line[256];
-    vigil_error_t error = {0};
+    DEBUG_CLI_COMMAND_UNHANDLED = 0,
+    DEBUG_CLI_COMMAND_HANDLED = 1,
+    DEBUG_CLI_COMMAND_RETURN = 2
+} debug_cli_command_result_t;
 
-    (void)debugger;
-
-    /* Print stop reason */
+static void debug_cli_print_stop_reason(vigil_debug_stop_reason_t reason)
+{
     switch (reason)
     {
     case VIGIL_DEBUG_STOP_BREAKPOINT:
@@ -916,9 +915,215 @@ static vigil_debug_action_t debug_cli_callback(vigil_debugger_t *debugger, vigil
         printf("Program entry:\n");
         break;
     }
+}
+
+static const char *debug_cli_skip_whitespace(const char *text)
+{
+    while (*text == ' ' || *text == '\t')
+        text++;
+    return text;
+}
+
+static int debug_cli_command_matches(const char *command, const char *short_name, const char *long_name)
+{
+    return strcmp(command, short_name) == 0 || strcmp(command, long_name) == 0;
+}
+
+static int debug_cli_is_list_command(const char *command)
+{
+    return strncmp(command, "list", 4) == 0 && (command[4] == '\0' || command[4] == ' ');
+}
+
+static debug_cli_command_result_t debug_cli_handle_resume_command(debug_cli_state_t *state, const char *command,
+                                                                  vigil_debug_action_t *out_action)
+{
+    if (debug_cli_command_matches(command, "c", "continue"))
+    {
+        vigil_debugger_continue(state->debugger);
+        *out_action = VIGIL_DEBUG_CONTINUE;
+        return DEBUG_CLI_COMMAND_RETURN;
+    }
+    if (debug_cli_command_matches(command, "s", "step"))
+    {
+        vigil_debugger_step_into(state->debugger);
+        *out_action = VIGIL_DEBUG_CONTINUE;
+        return DEBUG_CLI_COMMAND_RETURN;
+    }
+    if (debug_cli_command_matches(command, "n", "next"))
+    {
+        vigil_debugger_step_over(state->debugger);
+        *out_action = VIGIL_DEBUG_CONTINUE;
+        return DEBUG_CLI_COMMAND_RETURN;
+    }
+    if (debug_cli_command_matches(command, "o", "out"))
+    {
+        vigil_debugger_step_out(state->debugger);
+        *out_action = VIGIL_DEBUG_CONTINUE;
+        return DEBUG_CLI_COMMAND_RETURN;
+    }
+    if (debug_cli_command_matches(command, "q", "quit"))
+    {
+        state->quit_requested = 1;
+        *out_action = VIGIL_DEBUG_CONTINUE;
+        return DEBUG_CLI_COMMAND_RETURN;
+    }
+    return DEBUG_CLI_COMMAND_UNHANDLED;
+}
+
+static debug_cli_command_result_t debug_cli_handle_info_command(debug_cli_state_t *state, const char *command)
+{
+    if (debug_cli_command_matches(command, "bt", "backtrace"))
+    {
+        debug_cli_print_backtrace(state);
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+    if (debug_cli_command_matches(command, "l", "locals"))
+    {
+        debug_cli_print_locals(state, 0);
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+    if (debug_cli_is_list_command(command))
+    {
+        int around;
+
+        around = 0;
+        if (command[4] == ' ')
+            around = atoi(command + 5);
+        debug_cli_list_source(state, around);
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+    if (debug_cli_command_matches(command, "w", "where"))
+    {
+        debug_cli_print_location(state);
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+    if (debug_cli_command_matches(command, "h", "help"))
+    {
+        debug_cli_help();
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+    return DEBUG_CLI_COMMAND_UNHANDLED;
+}
+
+static void debug_cli_set_line_breakpoint(debug_cli_state_t *state, const char *arg, vigil_error_t *error)
+{
+    size_t bp_id;
+    uint32_t bp_line;
+    vigil_source_id_t source_id;
+    uint32_t line;
+    uint32_t column;
+
+    bp_line = (uint32_t)atoi(arg);
+    if (vigil_debugger_current_location(state->debugger, &source_id, &line, &column) != VIGIL_STATUS_OK)
+        return;
+    if (vigil_debugger_set_breakpoint(state->debugger, source_id, bp_line, &bp_id, error) == VIGIL_STATUS_OK)
+    {
+        printf("Breakpoint %zu set at line %u\n", bp_id, bp_line);
+        return;
+    }
+    printf("Failed to set breakpoint\n");
+}
+
+static void debug_cli_set_function_breakpoint(debug_cli_state_t *state, const char *arg, vigil_error_t *error)
+{
+    size_t bp_id;
+
+    if (vigil_debugger_set_breakpoint_function(state->debugger, arg, &bp_id, error) == VIGIL_STATUS_OK)
+    {
+        printf("Breakpoint %zu set on function '%s'\n", bp_id, arg);
+        return;
+    }
+    printf("Function '%s' not found\n", arg);
+}
+
+static debug_cli_command_result_t debug_cli_handle_breakpoint_command(debug_cli_state_t *state, const char *command,
+                                                                      vigil_error_t *error)
+{
+    const char *arg;
+
+    if (command[0] != 'b' || (command[1] != ' ' && command[1] != '\t'))
+        return DEBUG_CLI_COMMAND_UNHANDLED;
+
+    arg = debug_cli_skip_whitespace(command + 2);
+    if (*arg == '\0')
+    {
+        printf("Usage: b <line> or b <function>\n");
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+    if (*arg >= '0' && *arg <= '9')
+    {
+        debug_cli_set_line_breakpoint(state, arg, error);
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+
+    debug_cli_set_function_breakpoint(state, arg, error);
+    return DEBUG_CLI_COMMAND_HANDLED;
+}
+
+static debug_cli_command_result_t debug_cli_handle_print_command(debug_cli_state_t *state, const char *command)
+{
+    const char *var_name;
+
+    if (command[0] != 'p' || (command[1] != ' ' && command[1] != '\t'))
+        return DEBUG_CLI_COMMAND_UNHANDLED;
+
+    var_name = debug_cli_skip_whitespace(command + 2);
+    if (*var_name == '\0')
+    {
+        printf("Usage: p <variable>\n");
+        return DEBUG_CLI_COMMAND_HANDLED;
+    }
+
+    {
+        vigil_value_t value;
+
+        if (vigil_debugger_get_local(state->debugger, 0, var_name, &value) == VIGIL_STATUS_OK)
+        {
+            debug_cli_print_value(&value);
+            vigil_value_release(&value);
+        }
+        else
+        {
+            printf("Variable '%s' not found in current scope\n", var_name);
+        }
+    }
+    return DEBUG_CLI_COMMAND_HANDLED;
+}
+
+static debug_cli_command_result_t debug_cli_handle_delete_command(debug_cli_state_t *state, const char *command)
+{
+    size_t breakpoint_id;
+
+    if (command[0] != 'd' || (command[1] != ' ' && command[1] != '\t'))
+        return DEBUG_CLI_COMMAND_UNHANDLED;
+
+    breakpoint_id = (size_t)atoi(command + 2);
+    if (vigil_debugger_clear_breakpoint(state->debugger, breakpoint_id) == VIGIL_STATUS_OK)
+    {
+        printf("Breakpoint %zu deleted\n", breakpoint_id);
+    }
+    else
+    {
+        printf("No such breakpoint\n");
+    }
+    return DEBUG_CLI_COMMAND_HANDLED;
+}
+
+static vigil_debug_action_t debug_cli_callback(vigil_debugger_t *debugger, vigil_debug_stop_reason_t reason,
+                                               void *userdata)
+{
+    debug_cli_state_t *state = (debug_cli_state_t *)userdata;
+    char line[256];
+    vigil_error_t error = {0};
+    vigil_debug_action_t action;
+    const char *command;
+
+    (void)debugger;
+    action = VIGIL_DEBUG_CONTINUE;
+
+    debug_cli_print_stop_reason(reason);
     debug_cli_print_location(state);
 
-    /* Command loop */
     for (;;)
     {
         if (vigil_line_editor_readline("(debug) ", line, sizeof(line), state->history, &error) != VIGIL_STATUS_OK)
@@ -927,154 +1132,23 @@ static vigil_debug_action_t debug_cli_callback(vigil_debugger_t *debugger, vigil
             return VIGIL_DEBUG_CONTINUE;
         }
 
-        /* Skip empty lines - repeat last command would be nice but keep it simple */
-        const char *p = line;
-        while (*p == ' ' || *p == '\t')
-            p++;
-        if (*p == '\0')
+        command = debug_cli_skip_whitespace(line);
+        if (*command == '\0')
             continue;
 
         vigil_line_history_add(state->history, line);
+        if (debug_cli_handle_resume_command(state, command, &action) == DEBUG_CLI_COMMAND_RETURN)
+            return action;
+        if (debug_cli_handle_info_command(state, command) == DEBUG_CLI_COMMAND_HANDLED)
+            continue;
+        if (debug_cli_handle_breakpoint_command(state, command, &error) == DEBUG_CLI_COMMAND_HANDLED)
+            continue;
+        if (debug_cli_handle_print_command(state, command) == DEBUG_CLI_COMMAND_HANDLED)
+            continue;
+        if (debug_cli_handle_delete_command(state, command) == DEBUG_CLI_COMMAND_HANDLED)
+            continue;
 
-        /* Parse command */
-        if (strcmp(p, "c") == 0 || strcmp(p, "continue") == 0)
-        {
-            vigil_debugger_continue(state->debugger);
-            return VIGIL_DEBUG_CONTINUE;
-        }
-        if (strcmp(p, "s") == 0 || strcmp(p, "step") == 0)
-        {
-            vigil_debugger_step_into(state->debugger);
-            return VIGIL_DEBUG_CONTINUE;
-        }
-        if (strcmp(p, "n") == 0 || strcmp(p, "next") == 0)
-        {
-            vigil_debugger_step_over(state->debugger);
-            return VIGIL_DEBUG_CONTINUE;
-        }
-        if (strcmp(p, "o") == 0 || strcmp(p, "out") == 0)
-        {
-            vigil_debugger_step_out(state->debugger);
-            return VIGIL_DEBUG_CONTINUE;
-        }
-        if (strcmp(p, "bt") == 0 || strcmp(p, "backtrace") == 0)
-        {
-            debug_cli_print_backtrace(state);
-            continue;
-        }
-        if (strcmp(p, "l") == 0 || strcmp(p, "locals") == 0)
-        {
-            debug_cli_print_locals(state, 0);
-            continue;
-        }
-        if (strncmp(p, "list", 4) == 0 && (p[4] == '\0' || p[4] == ' '))
-        {
-            int around = 0;
-            if (p[4] == ' ')
-                around = atoi(p + 5);
-            debug_cli_list_source(state, around);
-            continue;
-        }
-        if (strcmp(p, "w") == 0 || strcmp(p, "where") == 0)
-        {
-            debug_cli_print_location(state);
-            continue;
-        }
-        if (strcmp(p, "q") == 0 || strcmp(p, "quit") == 0)
-        {
-            state->quit_requested = 1;
-            return VIGIL_DEBUG_CONTINUE;
-        }
-        if (strcmp(p, "h") == 0 || strcmp(p, "help") == 0)
-        {
-            debug_cli_help();
-            continue;
-        }
-        if (p[0] == 'b' && (p[1] == ' ' || p[1] == '\t'))
-        {
-            /* Set breakpoint: b <line> or b <function> */
-            const char *arg = p + 2;
-            while (*arg == ' ' || *arg == '\t')
-                arg++;
-            size_t bp_id;
-            if (*arg >= '0' && *arg <= '9')
-            {
-                /* Numeric - line breakpoint */
-                uint32_t bp_line = (uint32_t)atoi(arg);
-                vigil_source_id_t src_id;
-                uint32_t cur_line, cur_col;
-                if (vigil_debugger_current_location(state->debugger, &src_id, &cur_line, &cur_col) == VIGIL_STATUS_OK)
-                {
-                    if (vigil_debugger_set_breakpoint(state->debugger, src_id, bp_line, &bp_id, &error) ==
-                        VIGIL_STATUS_OK)
-                    {
-                        printf("Breakpoint %zu set at line %u\n", bp_id, bp_line);
-                    }
-                    else
-                    {
-                        printf("Failed to set breakpoint\n");
-                    }
-                }
-            }
-            else if (*arg)
-            {
-                /* Function name breakpoint */
-                if (vigil_debugger_set_breakpoint_function(state->debugger, arg, &bp_id, &error) == VIGIL_STATUS_OK)
-                {
-                    printf("Breakpoint %zu set on function '%s'\n", bp_id, arg);
-                }
-                else
-                {
-                    printf("Function '%s' not found\n", arg);
-                }
-            }
-            else
-            {
-                printf("Usage: b <line> or b <function>\n");
-            }
-            continue;
-        }
-        if (p[0] == 'p' && (p[1] == ' ' || p[1] == '\t'))
-        {
-            /* Print variable: p <name> */
-            const char *var_name = p + 2;
-            while (*var_name == ' ' || *var_name == '\t')
-                var_name++;
-            if (*var_name)
-            {
-                vigil_value_t val;
-                if (vigil_debugger_get_local(state->debugger, 0, var_name, &val) == VIGIL_STATUS_OK)
-                {
-                    debug_cli_print_value(&val);
-                    vigil_value_release(&val);
-                }
-                else
-                {
-                    printf("Variable '%s' not found in current scope\n", var_name);
-                }
-            }
-            else
-            {
-                printf("Usage: p <variable>\n");
-            }
-            continue;
-        }
-        if (p[0] == 'd' && (p[1] == ' ' || p[1] == '\t'))
-        {
-            /* Delete breakpoint: d <id> */
-            size_t bp_id = (size_t)atoi(p + 2);
-            if (vigil_debugger_clear_breakpoint(state->debugger, bp_id) == VIGIL_STATUS_OK)
-            {
-                printf("Breakpoint %zu deleted\n", bp_id);
-            }
-            else
-            {
-                printf("No such breakpoint\n");
-            }
-            continue;
-        }
-
-        printf("Unknown command: %s (type 'help' for commands)\n", p);
+        printf("Unknown command: %s (type 'help' for commands)\n", command);
     }
 }
 
