@@ -73,12 +73,12 @@ static vigil_status_t doc_render_status_helper(VigilDocTest *f, const char *src_
 
     if (vigil_source_registry_register_cstr(&f->registry, "test.vigil", src_text, &source_id, &f->error) !=
         VIGIL_STATUS_OK)
-        return VIGIL_STATUS_ERROR;
+        return VIGIL_STATUS_INTERNAL;
     if (vigil_lex_source(&f->registry, source_id, &f->tokens, &f->diagnostics, &f->error) != VIGIL_STATUS_OK)
-        return VIGIL_STATUS_ERROR;
+        return VIGIL_STATUS_INTERNAL;
     if (vigil_doc_extract(NULL, "test.vigil", 9, src_text, strlen(src_text), &f->tokens, &module, &f->error) !=
         VIGIL_STATUS_OK)
-        return VIGIL_STATUS_ERROR;
+        return VIGIL_STATUS_INTERNAL;
 
     status = vigil_doc_render(&module, symbol, text, length, &f->error);
     vigil_doc_module_free(&module);
