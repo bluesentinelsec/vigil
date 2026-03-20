@@ -665,6 +665,16 @@ static vigil_status_t parse_function(const vigil_allocator_t *a, const char *src
 
 /* ── Parse class declaration ─────────────────────────────────────── */
 
+typedef struct
+{
+    const vigil_allocator_t *a;
+    const char *src;
+    size_t src_len;
+    const vigil_token_list_t *tokens;
+    size_t *cursor;
+    vigil_doc_symbol_t *sym;
+} class_parse_ctx_t;
+
 static void parse_class_implements_clause(const vigil_allocator_t *a, const char *src, const vigil_token_list_t *tokens,
                                           size_t *cursor, vigil_doc_symbol_t *sym)
 {
@@ -725,47 +735,43 @@ static void skip_class_field_tail(const vigil_token_list_t *tokens, size_t *curs
         (*cursor)++;
 }
 
-static void parse_class_method_member(const vigil_allocator_t *a, const char *src, size_t src_len,
-                                      const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *sym,
-                                      size_t *method_cap, int is_pub)
+static void parse_class_method_member(const class_parse_ctx_t *ctx, size_t *method_cap, int is_pub)
 {
     vigil_doc_symbol_t member;
-    const vigil_token_t *t = tok_at(tokens, *cursor);
+    const vigil_token_t *t = tok_at(ctx->tokens, *ctx->cursor);
 
     memset(&member, 0, sizeof(member));
-    extract_comment_before(a, src, src_len, t->span.start_offset, &member.comment);
-    parse_function(a, src, src_len, tokens, cursor, &member);
+    extract_comment_before(ctx->a, ctx->src, ctx->src_len, t->span.start_offset, &member.comment);
+    parse_function(ctx->a, ctx->src, ctx->src_len, ctx->tokens, ctx->cursor, &member);
 
     if (!is_pub)
     {
-        discard_class_member(a, &member);
+        discard_class_member(ctx->a, &member);
         return;
     }
 
-    if (sym->method_count >= *method_cap)
-        sym->methods = grow_symbol_array(a, sym->methods, method_cap);
-    sym->methods[sym->method_count++] = member;
+    if (ctx->sym->method_count >= *method_cap)
+        ctx->sym->methods = grow_symbol_array(ctx->a, ctx->sym->methods, method_cap);
+    ctx->sym->methods[ctx->sym->method_count++] = member;
 }
 
-static void parse_class_field_member(const vigil_allocator_t *a, const char *src, size_t src_len,
-                                     const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *sym,
-                                     size_t *field_cap, int is_pub)
+static void parse_class_field_member(const class_parse_ctx_t *ctx, size_t *field_cap, int is_pub)
 {
     vigil_doc_symbol_t member;
     doc_buf_t type_buf;
-    const vigil_token_t *t = tok_at(tokens, *cursor);
+    const vigil_token_t *t = tok_at(ctx->tokens, *ctx->cursor);
     size_t field_start = t->span.start_offset;
     size_t fname_len;
     const char *fname_text;
 
     memset(&member, 0, sizeof(member));
-    buf_init(&type_buf, a);
-    extract_type_text(src, tokens, cursor, &type_buf);
+    buf_init(&type_buf, ctx->a);
+    extract_type_text(ctx->src, ctx->tokens, ctx->cursor, &type_buf);
 
-    t = tok_at(tokens, *cursor);
-    fname_text = tok_text(src, t, &fname_len);
-    (*cursor)++;
-    skip_class_field_tail(tokens, cursor);
+    t = tok_at(ctx->tokens, *ctx->cursor);
+    fname_text = tok_text(ctx->src, t, &fname_len);
+    (*ctx->cursor)++;
+    skip_class_field_tail(ctx->tokens, ctx->cursor);
 
     if (!is_pub)
     {
@@ -773,20 +779,21 @@ static void parse_class_field_member(const vigil_allocator_t *a, const char *src
         return;
     }
 
-    extract_comment_before(a, src, src_len, field_start, &member.comment);
+    extract_comment_before(ctx->a, ctx->src, ctx->src_len, field_start, &member.comment);
     member.kind = VIGIL_DOC_VARIABLE;
-    member.name = doc_strdup(a, fname_text, fname_len);
+    member.name = doc_strdup(ctx->a, fname_text, fname_len);
     member.name_length = fname_len;
     member.type_text = type_buf.data;
     member.type_length = type_buf.length;
-    if (sym->field_count >= *field_cap)
-        sym->fields = grow_symbol_array(a, sym->fields, field_cap);
-    sym->fields[sym->field_count++] = member;
+    if (ctx->sym->field_count >= *field_cap)
+        ctx->sym->fields = grow_symbol_array(ctx->a, ctx->sym->fields, field_cap);
+    ctx->sym->fields[ctx->sym->field_count++] = member;
 }
 
 static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, size_t src_len,
                                   const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *sym)
 {
+    class_parse_ctx_t ctx;
     const vigil_token_t *t;
     size_t name_len;
     const char *name_text;
@@ -811,6 +818,12 @@ static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, s
     sym->methods = (vigil_doc_symbol_t *)doc_alloc(a, method_cap * sizeof(vigil_doc_symbol_t));
     sym->field_count = 0;
     sym->method_count = 0;
+    ctx.a = a;
+    ctx.src = src;
+    ctx.src_len = src_len;
+    ctx.tokens = tokens;
+    ctx.cursor = cursor;
+    ctx.sym = sym;
 
     /* Open brace */
     t = tok_at(tokens, *cursor);
@@ -836,11 +849,11 @@ static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, s
 
         if (t != NULL && t->kind == VIGIL_TOKEN_FN)
         {
-            parse_class_method_member(a, src, src_len, tokens, cursor, sym, &method_cap, is_pub);
+            parse_class_method_member(&ctx, &method_cap, is_pub);
         }
         else if (tok_is_type_start(t))
         {
-            parse_class_field_member(a, src, src_len, tokens, cursor, sym, &field_cap, is_pub);
+            parse_class_field_member(&ctx, &field_cap, is_pub);
         }
         else
         {
