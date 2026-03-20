@@ -1019,6 +1019,30 @@ static int is_digit(char c)
     return c >= '0' && c <= '9';
 }
 
+typedef struct toml_cursor
+{
+    size_t pos;
+    size_t line;
+    size_t col;
+} toml_cursor_t;
+
+static toml_cursor_t parser_save_cursor(const toml_parser_t *p)
+{
+    toml_cursor_t cursor;
+
+    cursor.pos = p->pos;
+    cursor.line = p->line;
+    cursor.col = p->col;
+    return cursor;
+}
+
+static void parser_restore_cursor(toml_parser_t *p, toml_cursor_t cursor)
+{
+    p->pos = cursor.pos;
+    p->line = cursor.line;
+    p->col = cursor.col;
+}
+
 static vigil_status_t parse_integer_digits(toml_parser_t *p, int64_t *out, int base, vigil_error_t *error)
 {
     int64_t val = 0;
@@ -1055,116 +1079,182 @@ static vigil_status_t parse_integer_digits(toml_parser_t *p, int64_t *out, int b
 /* Forward declaration. */
 static vigil_status_t parse_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error);
 
-static vigil_status_t parse_number(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
+static void parse_number_sign(toml_parser_t *p, int *negative)
 {
-    int negative = 0;
-    int64_t ival = 0;
     char c;
 
+    *negative = 0;
     c = parser_peek(p);
     if (c == '+' || c == '-')
     {
-        negative = (c == '-');
+        *negative = (c == '-');
         parser_advance(p);
     }
+}
+
+static vigil_status_t parse_special_float_number(toml_parser_t *p, int negative, vigil_toml_value_t **out,
+                                                 vigil_error_t *error)
+{
+    if (p->pos + 3 <= p->length && memcmp(p->input + p->pos, "inf", 3) == 0)
+    {
+        p->pos += 3;
+        p->col += 3;
+        return vigil_toml_float_new(p->allocator, negative ? -HUGE_VAL : HUGE_VAL, out, error);
+    }
+    if (p->pos + 3 <= p->length && memcmp(p->input + p->pos, "nan", 3) == 0)
+    {
+        double nan_val;
+
+        p->pos += 3;
+        p->col += 3;
+        nan_val = NAN;
+        if (negative)
+            nan_val = -nan_val;
+        return vigil_toml_float_new(p->allocator, nan_val, out, error);
+    }
+    return parser_error(p, "invalid number", error);
+}
+
+static int parser_has_prefixed_integer(toml_parser_t *p)
+{
+    char next;
+
+    next = (p->pos + 1 < p->length) ? p->input[p->pos + 1] : '\0';
+    return next == 'x' || next == 'o' || next == 'b';
+}
+
+static vigil_status_t parse_prefixed_integer(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
+{
+    char next;
+    int base;
+    int64_t ival;
+
+    next = p->input[p->pos + 1];
+    base = (next == 'x') ? 16 : (next == 'o') ? 8 : 2;
+    parser_advance(p);
+    parser_advance(p);
+    if (parse_integer_digits(p, &ival, base, error) != VIGIL_STATUS_OK)
+        return error->type;
+    return vigil_toml_integer_new(p->allocator, ival, out, error);
+}
+
+static vigil_status_t parse_fractional_part(toml_parser_t *p, double *fval, vigil_error_t *error)
+{
+    double frac;
+    double scale;
+    char c;
+
+    frac = 0.0;
+    scale = 0.1;
+    parser_advance(p);
+    if (!is_digit(parser_peek(p)))
+        return parser_error(p, "expected digit after decimal point", error);
+    while (!parser_eof(p))
+    {
+        c = parser_peek(p);
+        if (c == '_')
+        {
+            parser_advance(p);
+            continue;
+        }
+        if (!is_digit(c))
+            break;
+        frac += (c - '0') * scale;
+        scale *= 0.1;
+        parser_advance(p);
+    }
+    *fval += frac;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_exponent_part(toml_parser_t *p, double *fval, vigil_error_t *error)
+{
+    int exp_neg;
+    int64_t exp_val;
+    char c;
+
+    exp_neg = 0;
+    exp_val = 0;
+    parser_advance(p);
+    c = parser_peek(p);
+    if (c == '+' || c == '-')
+    {
+        exp_neg = (c == '-');
+        parser_advance(p);
+    }
+    if (parse_integer_digits(p, &exp_val, 10, error) != VIGIL_STATUS_OK)
+        return error->type;
+    if (exp_neg)
+        exp_val = -exp_val;
+    *fval *= pow(10.0, (double)exp_val);
+    return VIGIL_STATUS_OK;
+}
+
+static int is_decimal_float_marker(char c)
+{
+    return c == '.' || c == 'e' || c == 'E';
+}
+
+static vigil_status_t parse_decimal_integer_value(toml_parser_t *p, int64_t ival, int negative,
+                                                  vigil_toml_value_t **out, vigil_error_t *error)
+{
+    if (negative)
+        ival = -ival;
+    return vigil_toml_integer_new(p->allocator, ival, out, error);
+}
+
+static vigil_status_t parse_decimal_float_value(toml_parser_t *p, double fval, int negative, vigil_toml_value_t **out,
+                                                vigil_error_t *error)
+{
+    char c;
+    vigil_status_t s;
 
     c = parser_peek(p);
-
-    /* Special float values. */
-    if (c == 'i' || c == 'n')
+    if (c == '.')
     {
-        size_t start = p->pos;
-        if (p->pos + 3 <= p->length && memcmp(p->input + p->pos, "inf", 3) == 0)
-        {
-            p->pos += 3;
-            p->col += 3;
-            return vigil_toml_float_new(p->allocator, negative ? -HUGE_VAL : HUGE_VAL, out, error);
-        }
-        if (p->pos + 3 <= p->length && memcmp(p->input + p->pos, "nan", 3) == 0)
-        {
-            p->pos += 3;
-            p->col += 3;
-            double nan_val = NAN;
-            if (negative)
-                nan_val = -nan_val;
-            return vigil_toml_float_new(p->allocator, nan_val, out, error);
-        }
-        (void)start;
-        return parser_error(p, "invalid number", error);
+        s = parse_fractional_part(p, &fval, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        c = parser_peek(p);
     }
-
-    /* Hex, octal, binary. */
-    if (c == '0' && !negative)
+    if (c == 'e' || c == 'E')
     {
-        char next = (p->pos + 1 < p->length) ? p->input[p->pos + 1] : '\0';
-        if (next == 'x' || next == 'o' || next == 'b')
-        {
-            int base = (next == 'x') ? 16 : (next == 'o') ? 8 : 2;
-            parser_advance(p);
-            parser_advance(p);
-            if (parse_integer_digits(p, &ival, base, error) != VIGIL_STATUS_OK)
-                return error->type;
-            return vigil_toml_integer_new(p->allocator, ival, out, error);
-        }
+        s = parse_exponent_part(p, &fval, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
     }
+    if (negative)
+        fval = -fval;
+    return vigil_toml_float_new(p->allocator, fval, out, error);
+}
 
-    /* Decimal integer or float. */
+static vigil_status_t parse_decimal_number(toml_parser_t *p, int negative, vigil_toml_value_t **out,
+                                           vigil_error_t *error)
+{
+    int64_t ival;
+    char c;
+
     if (parse_integer_digits(p, &ival, 10, error) != VIGIL_STATUS_OK)
         return error->type;
 
     c = parser_peek(p);
-    if (c == '.' || c == 'e' || c == 'E')
-    {
-        /* Float. Rebuild from string for precision. */
-        double fval = (double)ival;
-        if (c == '.')
-        {
-            double frac = 0.0, scale = 0.1;
-            parser_advance(p);
-            if (!is_digit(parser_peek(p)))
-                return parser_error(p, "expected digit after decimal point", error);
-            while (!parser_eof(p))
-            {
-                c = parser_peek(p);
-                if (c == '_')
-                {
-                    parser_advance(p);
-                    continue;
-                }
-                if (!is_digit(c))
-                    break;
-                frac += (c - '0') * scale;
-                scale *= 0.1;
-                parser_advance(p);
-            }
-            fval += frac;
-            c = parser_peek(p);
-        }
-        if (c == 'e' || c == 'E')
-        {
-            int exp_neg = 0;
-            int64_t exp_val = 0;
-            parser_advance(p);
-            c = parser_peek(p);
-            if (c == '+' || c == '-')
-            {
-                exp_neg = (c == '-');
-                parser_advance(p);
-            }
-            if (parse_integer_digits(p, &exp_val, 10, error) != VIGIL_STATUS_OK)
-                return error->type;
-            if (exp_neg)
-                exp_val = -exp_val;
-            fval *= pow(10.0, (double)exp_val);
-        }
-        if (negative)
-            fval = -fval;
-        return vigil_toml_float_new(p->allocator, fval, out, error);
-    }
+    if (!is_decimal_float_marker(c))
+        return parse_decimal_integer_value(p, ival, negative, out, error);
+    return parse_decimal_float_value(p, (double)ival, negative, out, error);
+}
 
-    if (negative)
-        ival = -ival;
-    return vigil_toml_integer_new(p->allocator, ival, out, error);
+static vigil_status_t parse_number(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
+{
+    int negative;
+    char c;
+
+    parse_number_sign(p, &negative);
+    c = parser_peek(p);
+    if (c == 'i' || c == 'n')
+        return parse_special_float_number(p, negative, out, error);
+    if (c == '0' && !negative && parser_has_prefixed_integer(p))
+        return parse_prefixed_integer(p, out, error);
+    return parse_decimal_number(p, negative, out, error);
 }
 
 /* ── DateTime parsing ────────────────────────────────────────────── */
@@ -1471,40 +1561,101 @@ static vigil_status_t parse_array_value(toml_parser_t *p, vigil_toml_value_t **o
     }
 }
 
+static int match_boolean_literal(toml_parser_t *p, const char *literal, size_t length)
+{
+    char after;
+
+    if (p->pos + length > p->length || memcmp(p->input + p->pos, literal, length) != 0)
+        return 0;
+    after = (p->pos + length < p->length) ? p->input[p->pos + length] : '\0';
+    if (is_bare_key_char(after))
+        return 0;
+    p->pos += length;
+    p->col += length;
+    return 1;
+}
+
+static int parse_boolean_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_status_t *status, vigil_error_t *error)
+{
+    char c;
+
+    c = parser_peek(p);
+    if (c == 't' && match_boolean_literal(p, "true", 4))
+    {
+        *status = vigil_toml_bool_new(p->allocator, 1, out, error);
+        return 1;
+    }
+    if (c == 'f' && match_boolean_literal(p, "false", 5))
+    {
+        *status = vigil_toml_bool_new(p->allocator, 0, out, error);
+        return 1;
+    }
+    return 0;
+}
+
+static int parser_looks_like_date_time_or_local_time(toml_parser_t *p, int *out_prefix)
+{
+    int prefix;
+    toml_cursor_t cursor;
+
+    cursor = parser_save_cursor(p);
+    prefix = parse_n_digits(p, 4);
+    if (prefix >= 0 && parser_peek(p) == '-')
+    {
+        parser_restore_cursor(p, cursor);
+        *out_prefix = prefix;
+        return 1;
+    }
+
+    parser_restore_cursor(p, cursor);
+    prefix = parse_n_digits(p, 2);
+    if (prefix >= 0 && parser_peek(p) == ':')
+    {
+        parser_restore_cursor(p, cursor);
+        *out_prefix = prefix;
+        return 2;
+    }
+
+    parser_restore_cursor(p, cursor);
+    return 0;
+}
+
+static vigil_status_t parse_datetime_or_number_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
+{
+    int prefix;
+    int kind;
+
+    kind = parser_looks_like_date_time_or_local_time(p, &prefix);
+    if (kind == 1)
+    {
+        (void)parse_n_digits(p, 4);
+        return parse_datetime_after_year(p, prefix, out, error);
+    }
+    if (kind == 2)
+    {
+        (void)parse_n_digits(p, 2);
+        return parse_local_time(p, prefix, out, error);
+    }
+    return parse_number(p, out, error);
+}
+
 static vigil_status_t parse_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
 {
+    vigil_status_t s;
     char c = parser_peek(p);
 
     /* String. */
     if (c == '"' || c == '\'')
     {
-        vigil_status_t s = parse_string(p, error);
+        s = parse_string(p, error);
         if (s != VIGIL_STATUS_OK)
             return s;
         return vigil_toml_string_new(p->allocator, p->buf, p->buf_len, out, error);
     }
 
     /* Bool. */
-    if (c == 't' && p->pos + 4 <= p->length && memcmp(p->input + p->pos, "true", 4) == 0)
-    {
-        char after = (p->pos + 4 < p->length) ? p->input[p->pos + 4] : '\0';
-        if (!is_bare_key_char(after))
-        {
-            p->pos += 4;
-            p->col += 4;
-            return vigil_toml_bool_new(p->allocator, 1, out, error);
-        }
-    }
-    if (c == 'f' && p->pos + 5 <= p->length && memcmp(p->input + p->pos, "false", 5) == 0)
-    {
-        char after = (p->pos + 5 < p->length) ? p->input[p->pos + 5] : '\0';
-        if (!is_bare_key_char(after))
-        {
-            p->pos += 5;
-            p->col += 5;
-            return vigil_toml_bool_new(p->allocator, 0, out, error);
-        }
-    }
+    if (parse_boolean_value(p, out, &s, error))
+        return s;
 
     /* Inline table. */
     if (c == '{')
@@ -1523,37 +1674,7 @@ static vigil_status_t parse_value(toml_parser_t *p, vigil_toml_value_t **out, vi
     /* Number, datetime, or inf/nan. */
     if (is_digit(c) || c == '+' || c == '-' || c == 'i' || c == 'n')
     {
-        /*
-         * Disambiguate datetime vs number.
-         * If we see 4 digits followed by '-', it's a date.
-         * If we see 2 digits followed by ':', it's a local time.
-         */
-        if (is_digit(c))
-        {
-            size_t saved_pos = p->pos;
-            size_t saved_line = p->line;
-            size_t saved_col = p->col;
-            int d1 = parse_n_digits(p, 4);
-            if (d1 >= 0 && parser_peek(p) == '-')
-            {
-                /* Looks like a date: YYYY-... */
-                return parse_datetime_after_year(p, d1, out, error);
-            }
-            /* Restore and check for local time: HH:... */
-            p->pos = saved_pos;
-            p->line = saved_line;
-            p->col = saved_col;
-            d1 = parse_n_digits(p, 2);
-            if (d1 >= 0 && parser_peek(p) == ':')
-            {
-                return parse_local_time(p, d1, out, error);
-            }
-            /* Restore and parse as number. */
-            p->pos = saved_pos;
-            p->line = saved_line;
-            p->col = saved_col;
-        }
-        return parse_number(p, out, error);
+        return parse_datetime_or_number_value(p, out, error);
     }
 
     return parser_error(p, "unexpected character", error);
