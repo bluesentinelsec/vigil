@@ -1470,66 +1470,57 @@ static void render_class_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym)
 
 /* ── Render module view ──────────────────────────────────────────── */
 
-static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
+static void render_module_header(doc_buf_t *b, const vigil_doc_module_t *m)
 {
-    size_t i, j;
-    int has_section;
-
     buf_append_cstr(b, "MODULE\n  ");
     buf_append(b, m->name, m->name_length);
     buf_append_char(b, '\n');
+}
 
-    if (m->summary.text != NULL && m->summary.length > 0)
-    {
-        buf_append_cstr(b, "\nSUMMARY\n");
-        render_indent_comment(b, &m->summary, 2);
-    }
+static void render_module_summary_block(doc_buf_t *b, const vigil_doc_module_t *m)
+{
+    if (m->summary.text == NULL || m->summary.length == 0)
+        return;
 
-    /* Constants */
-    has_section = 0;
-    for (i = 0; i < m->symbol_count; i++)
-    {
-        if (m->symbols[i].kind != VIGIL_DOC_CONSTANT)
-            continue;
-        if (!has_section)
-        {
-            buf_append_cstr(b, "\nCONSTANTS\n");
-            has_section = 1;
-        }
-        buf_append_cstr(b, "  ");
-        buf_append(b, m->symbols[i].name, m->symbols[i].name_length);
-        buf_append_char(b, ' ');
-        buf_append(b, m->symbols[i].type_text, m->symbols[i].type_length);
-        buf_append_char(b, '\n');
-        if (m->symbols[i].comment.text != NULL)
-            render_indent_comment(b, &m->symbols[i].comment, 4);
-    }
+    buf_append_cstr(b, "\nSUMMARY\n");
+    render_indent_comment(b, &m->summary, 2);
+}
 
-    /* Variables */
-    has_section = 0;
-    for (i = 0; i < m->symbol_count; i++)
-    {
-        if (m->symbols[i].kind != VIGIL_DOC_VARIABLE)
-            continue;
-        if (!has_section)
-        {
-            buf_append_cstr(b, "\nVARIABLES\n");
-            has_section = 1;
-        }
-        buf_append_cstr(b, "  ");
-        buf_append(b, m->symbols[i].name, m->symbols[i].name_length);
-        buf_append_char(b, ' ');
-        buf_append(b, m->symbols[i].type_text, m->symbols[i].type_length);
-        buf_append_char(b, '\n');
-        if (m->symbols[i].comment.text != NULL)
-            render_indent_comment(b, &m->symbols[i].comment, 4);
-    }
+static void render_module_typed_section(doc_buf_t *b, const vigil_doc_module_t *m, vigil_doc_kind_t kind,
+                                        const char *title)
+{
+    size_t i;
+    int has_section = 0;
 
-    /* Enums */
-    has_section = 0;
     for (i = 0; i < m->symbol_count; i++)
     {
         const vigil_doc_symbol_t *sym = &m->symbols[i];
+
+        if (sym->kind != kind)
+            continue;
+        if (!has_section)
+        {
+            buf_append_cstr(b, "\n");
+            buf_append_cstr(b, title);
+            buf_append_char(b, '\n');
+            has_section = 1;
+        }
+        buf_append_cstr(b, "  ");
+        render_named_typed_symbol(b, sym);
+        if (sym->comment.text != NULL)
+            render_indent_comment(b, &sym->comment, 4);
+    }
+}
+
+static void render_module_enum_section(doc_buf_t *b, const vigil_doc_module_t *m)
+{
+    size_t i, j;
+    int has_section = 0;
+
+    for (i = 0; i < m->symbol_count; i++)
+    {
+        const vigil_doc_symbol_t *sym = &m->symbols[i];
+
         if (sym->kind != VIGIL_DOC_ENUM)
             continue;
         if (!has_section)
@@ -1540,11 +1531,7 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
         buf_append_cstr(b, "  ");
         buf_append(b, sym->name, sym->name_length);
         buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 4);
-        }
+        render_symbol_comment_block(b, &sym->comment, 4);
         if (sym->variant_count > 0)
         {
             buf_append_cstr(b, "\n    Variants\n");
@@ -1556,12 +1543,17 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
             }
         }
     }
+}
 
-    /* Interfaces */
-    has_section = 0;
+static void render_module_interface_section(doc_buf_t *b, const vigil_doc_module_t *m)
+{
+    size_t i, j;
+    int has_section = 0;
+
     for (i = 0; i < m->symbol_count; i++)
     {
         const vigil_doc_symbol_t *sym = &m->symbols[i];
+
         if (sym->kind != VIGIL_DOC_INTERFACE)
             continue;
         if (!has_section)
@@ -1572,11 +1564,7 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
         buf_append_cstr(b, "  ");
         buf_append(b, sym->name, sym->name_length);
         buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 4);
-        }
+        render_symbol_comment_block(b, &sym->comment, 4);
         if (sym->iface_method_count > 0)
         {
             buf_append_cstr(b, "\n    Methods\n");
@@ -1590,12 +1578,17 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
             }
         }
     }
+}
 
-    /* Classes */
-    has_section = 0;
+static void render_module_class_section(doc_buf_t *b, const vigil_doc_module_t *m)
+{
+    size_t i, j;
+    int has_section = 0;
+
     for (i = 0; i < m->symbol_count; i++)
     {
         const vigil_doc_symbol_t *sym = &m->symbols[i];
+
         if (sym->kind != VIGIL_DOC_CLASS)
             continue;
         if (!has_section)
@@ -1611,21 +1604,14 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
             buf_append(b, sym->implements_text, sym->implements_length);
         }
         buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 4);
-        }
+        render_symbol_comment_block(b, &sym->comment, 4);
         if (sym->field_count > 0)
         {
             buf_append_cstr(b, "\n    Fields\n");
             for (j = 0; j < sym->field_count; j++)
             {
                 buf_append_cstr(b, "      ");
-                buf_append(b, sym->fields[j].name, sym->fields[j].name_length);
-                buf_append_char(b, ' ');
-                buf_append(b, sym->fields[j].type_text, sym->fields[j].type_length);
-                buf_append_char(b, '\n');
+                render_named_typed_symbol(b, &sym->fields[j]);
                 if (sym->fields[j].comment.text != NULL)
                     render_indent_comment(b, &sym->fields[j].comment, 8);
             }
@@ -1643,12 +1629,17 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
             }
         }
     }
+}
 
-    /* Functions */
-    has_section = 0;
+static void render_module_function_section(doc_buf_t *b, const vigil_doc_module_t *m)
+{
+    size_t i;
+    int has_section = 0;
+
     for (i = 0; i < m->symbol_count; i++)
     {
         const vigil_doc_symbol_t *sym = &m->symbols[i];
+
         if (sym->kind != VIGIL_DOC_FUNCTION)
             continue;
         if (!has_section)
@@ -1662,6 +1653,18 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
         if (sym->comment.text != NULL)
             render_indent_comment(b, &sym->comment, 4);
     }
+}
+
+static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
+{
+    render_module_header(b, m);
+    render_module_summary_block(b, m);
+    render_module_typed_section(b, m, VIGIL_DOC_CONSTANT, "CONSTANTS");
+    render_module_typed_section(b, m, VIGIL_DOC_VARIABLE, "VARIABLES");
+    render_module_enum_section(b, m);
+    render_module_interface_section(b, m);
+    render_module_class_section(b, m);
+    render_module_function_section(b, m);
 }
 
 /* ── Render symbol view ──────────────────────────────────────────── */
