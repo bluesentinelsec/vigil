@@ -180,6 +180,136 @@ static int find_project_root(const char *start_path, char *out_buf, size_t buf_s
     }
 }
 
+static int normalize_compare_path(const char *path, char *out_buf, size_t out_buf_size)
+{
+    size_t i = 0U;
+    size_t out_len = 0U;
+    size_t segment_starts[256];
+    size_t segment_lengths[256];
+    size_t segment_count = 0U;
+    int absolute = 0;
+
+    if (path == NULL || out_buf == NULL || out_buf_size < 2U)
+        return 0;
+
+    if (((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':')
+    {
+        if (out_buf_size < 3U)
+            return 0;
+        out_buf[out_len++] = path[0];
+        out_buf[out_len++] = ':';
+        i = 2U;
+        absolute = 1;
+        if (path[i] == '/' || path[i] == '\\')
+        {
+            out_buf[out_len++] = '/';
+            i += 1U;
+            while (path[i] == '/' || path[i] == '\\')
+                i += 1U;
+        }
+    }
+    else if (path[0] == '/' || path[0] == '\\')
+    {
+        out_buf[out_len++] = '/';
+        i = 1U;
+        absolute = 1;
+        while (path[i] == '/' || path[i] == '\\')
+            i += 1U;
+    }
+
+    while (1)
+    {
+        size_t seg_start = i;
+        size_t seg_len;
+
+        while (path[i] != '\0' && path[i] != '/' && path[i] != '\\')
+            i += 1U;
+        seg_len = i - seg_start;
+
+        if (seg_len == 0U || (seg_len == 1U && path[seg_start] == '.'))
+        {
+            /* Skip empty and current-directory segments. */
+        }
+        else if (seg_len == 2U && path[seg_start] == '.' && path[seg_start + 1U] == '.')
+        {
+            if (segment_count > 0U &&
+                !(segment_lengths[segment_count - 1U] == 2U && out_buf[segment_starts[segment_count - 1U]] == '.' &&
+                  out_buf[segment_starts[segment_count - 1U] + 1U] == '.'))
+            {
+                out_len = segment_starts[segment_count - 1U];
+                if (out_len > 0U && out_buf[out_len - 1U] == '/' &&
+                    !(out_len == 1U || (out_len == 3U && out_buf[1] == ':')))
+                {
+                    out_len -= 1U;
+                }
+                out_buf[out_len] = '\0';
+                segment_count -= 1U;
+            }
+            else if (!absolute)
+            {
+                if (out_len > 0U && out_buf[out_len - 1U] != '/')
+                    out_buf[out_len++] = '/';
+                if (segment_count < sizeof(segment_starts) / sizeof(segment_starts[0]))
+                {
+                    segment_starts[segment_count] = out_len;
+                    segment_lengths[segment_count] = 2U;
+                    segment_count += 1U;
+                }
+                if (out_len + 2U >= out_buf_size)
+                    return 0;
+                out_buf[out_len++] = '.';
+                out_buf[out_len++] = '.';
+            }
+        }
+        else
+        {
+            size_t j;
+
+            if (out_len > 0U && out_buf[out_len - 1U] != '/')
+                out_buf[out_len++] = '/';
+            if (segment_count < sizeof(segment_starts) / sizeof(segment_starts[0]))
+            {
+                segment_starts[segment_count] = out_len;
+                segment_lengths[segment_count] = seg_len;
+                segment_count += 1U;
+            }
+            if (out_len + seg_len >= out_buf_size)
+                return 0;
+            for (j = 0U; j < seg_len; j += 1U)
+                out_buf[out_len++] = path[seg_start + j];
+        }
+
+        while (path[i] == '/' || path[i] == '\\')
+            i += 1U;
+        if (path[i] == '\0')
+            break;
+    }
+
+    if (out_len == 0U)
+    {
+        out_buf[0] = absolute ? '/' : '.';
+        out_buf[1] = '\0';
+        return 1;
+    }
+
+    out_buf[out_len] = '\0';
+    return 1;
+}
+
+static int paths_equivalent(const char *lhs, const char *rhs)
+{
+    char lhs_norm[4096];
+    char rhs_norm[4096];
+
+    if (lhs == NULL || rhs == NULL)
+        return 0;
+    if (!normalize_compare_path(lhs, lhs_norm, sizeof(lhs_norm)))
+        return strcmp(lhs, rhs) == 0;
+    if (!normalize_compare_path(rhs, rhs_norm, sizeof(rhs_norm)))
+        return strcmp(lhs, rhs) == 0;
+    return strcmp(lhs_norm, rhs_norm) == 0;
+}
+
 static int registry_find_source_path(const vigil_source_registry_t *registry, const char *path,
                                      vigil_source_id_t *out_source_id)
 {
@@ -194,7 +324,7 @@ static int registry_find_source_path(const vigil_source_registry_t *registry, co
         source = vigil_source_registry_get(registry, (vigil_source_id_t)index);
         if (source == NULL)
             continue;
-        if (strcmp(vigil_string_c_str(&source->path), path) == 0)
+        if (paths_equivalent(vigil_string_c_str(&source->path), path))
         {
             if (out_source_id != NULL)
                 *out_source_id = source->id;
