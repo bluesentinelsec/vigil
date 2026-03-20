@@ -1468,6 +1468,17 @@ static void render_class_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym)
     render_class_methods(b, sym);
 }
 
+static void render_class_name_line(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    buf_append(b, sym->name, sym->name_length);
+    if (sym->implements_text != NULL)
+    {
+        buf_append_cstr(b, " implements ");
+        buf_append(b, sym->implements_text, sym->implements_length);
+    }
+    buf_append_char(b, '\n');
+}
+
 /* ── Render module view ──────────────────────────────────────────── */
 
 static void render_module_header(doc_buf_t *b, const vigil_doc_module_t *m)
@@ -1597,13 +1608,7 @@ static void render_module_class_section(doc_buf_t *b, const vigil_doc_module_t *
             has_section = 1;
         }
         buf_append_cstr(b, "  ");
-        buf_append(b, sym->name, sym->name_length);
-        if (sym->implements_text != NULL)
-        {
-            buf_append_cstr(b, " implements ");
-            buf_append(b, sym->implements_text, sym->implements_length);
-        }
-        buf_append_char(b, '\n');
+        render_class_name_line(b, sym);
         render_symbol_comment_block(b, &sym->comment, 4);
         if (sym->field_count > 0)
         {
