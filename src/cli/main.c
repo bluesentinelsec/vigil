@@ -2256,6 +2256,34 @@ static vigil_status_t compile_test_source(vigil_source_registry_t *registry, vig
     return status;
 }
 
+static void format_first_diagnostic_message(const vigil_source_registry_t *registry,
+                                            const vigil_diagnostic_list_t *diagnostics, char *err_msg,
+                                            size_t err_msg_size)
+{
+    const vigil_diagnostic_t *diagnostic;
+    vigil_string_t line;
+    vigil_runtime_t *runtime;
+    vigil_error_t error;
+
+    if (err_msg == NULL || err_msg_size == 0U)
+        return;
+    if (registry == NULL || diagnostics == NULL || vigil_diagnostic_list_count(diagnostics) == 0U)
+        return;
+
+    diagnostic = vigil_diagnostic_list_get(diagnostics, 0U);
+    if (diagnostic == NULL)
+        return;
+
+    runtime = registry->runtime;
+    vigil_string_init(&line, runtime);
+    memset(&error, 0, sizeof(error));
+    if (vigil_diagnostic_format(registry, diagnostic, &line, &error) == VIGIL_STATUS_OK)
+    {
+        snprintf(err_msg, err_msg_size, "%s", vigil_string_c_str(&line));
+    }
+    vigil_string_free(&line);
+}
+
 static int run_one_test(const char *test_file_path, const char *original_source, size_t original_length,
                         const char *test_name, char *err_msg, size_t err_msg_size)
 {
@@ -2310,8 +2338,9 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     {
         if (vigil_diagnostic_list_count(&diagnostics) != 0U)
         {
-            /* Capture first diagnostic as error message. */
-            snprintf(err_msg, err_msg_size, "compile error");
+            format_first_diagnostic_message(&registry, &diagnostics, err_msg, err_msg_size);
+            if (err_msg[0] == '\0')
+                snprintf(err_msg, err_msg_size, "compile error");
         }
         else
         {
