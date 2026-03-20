@@ -176,7 +176,6 @@ add_library(vigil ${VIGIL_LIBRARY_TYPE}
     ${VIGIL_STDLIB_OPTIONAL_SOURCES}
     src/url.c
     src/yaml.c
-    src/cli_frontend.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
@@ -265,6 +264,7 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Andr
     add_executable(vigil_cli
         src/cli/main.c
         src/cli_test.c
+        src/cli_frontend.c
     )
 
     set_target_properties(vigil_cli PROPERTIES OUTPUT_NAME vigil)
@@ -321,6 +321,7 @@ if(VIGIL_BUILD_TESTS)
         tests/type_test.c
         tests/value_test.c
         tests/vm_test.c
+        src/cli_frontend.c
     )
 
     if(VIGIL_STDLIB_HTTP)
