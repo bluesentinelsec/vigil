@@ -1768,12 +1768,212 @@ static vigil_toml_value_t *navigate_to_table(vigil_toml_value_t *root, key_path_
     return cur;
 }
 
+typedef struct toml_document_parser
+{
+    toml_parser_t *parser;
+    vigil_toml_value_t *root;
+    vigil_toml_value_t *current_table;
+    const vigil_allocator_t *allocator;
+    vigil_error_t *error;
+} toml_document_parser_t;
+
+static vigil_status_t parse_table_header_key_path(toml_document_parser_t *doc, key_path_t *kp, int *is_array_table)
+{
+    vigil_status_t s;
+
+    memset(kp, 0, sizeof(*kp));
+    *is_array_table = 0;
+
+    parser_advance(doc->parser);
+    if (parser_peek(doc->parser) == '[')
+    {
+        parser_advance(doc->parser);
+        *is_array_table = 1;
+    }
+    skip_ws(doc->parser);
+    s = parse_key_path(doc->parser, kp, doc->error);
+    if (s != VIGIL_STATUS_OK)
+    {
+        key_path_free(kp, doc->allocator);
+        return s;
+    }
+    skip_ws(doc->parser);
+    if (!parser_match(doc->parser, ']') || (*is_array_table && !parser_match(doc->parser, ']')))
+    {
+        key_path_free(kp, doc->allocator);
+        return parser_error(doc->parser, "expected ']' after table header", doc->error);
+    }
+    skip_to_newline(doc->parser);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_array_table_header(toml_document_parser_t *doc, key_path_t *kp)
+{
+    key_path_t parent_kp = {0};
+    vigil_toml_value_t *parent;
+    const char *last_key;
+    size_t last_len;
+    const vigil_toml_value_t *existing;
+    vigil_toml_value_t *new_table = NULL;
+    vigil_status_t s;
+
+    parent_kp.count = kp->count - 1;
+    memcpy(parent_kp.segments, kp->segments, parent_kp.count * sizeof(char *));
+    memcpy(parent_kp.lengths, kp->lengths, parent_kp.count * sizeof(size_t));
+
+    parent = navigate_to_table(doc->root, &parent_kp, doc->allocator, doc->error);
+    if (!parent)
+        return parser_error(doc->parser, "cannot navigate to array-of-tables parent", doc->error);
+
+    last_key = kp->segments[kp->count - 1];
+    last_len = kp->lengths[kp->count - 1];
+    existing = vigil_toml_table_get(parent, last_key);
+
+    if (!existing)
+    {
+        vigil_toml_value_t *arr = NULL;
+
+        s = vigil_toml_array_new(doc->allocator, &arr, doc->error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        s = vigil_toml_table_set(parent, last_key, last_len, arr, doc->error);
+        if (s != VIGIL_STATUS_OK)
+        {
+            vigil_toml_free(&arr);
+            return s;
+        }
+        existing = arr;
+    }
+
+    if (vigil_toml_type(existing) != VIGIL_TOML_ARRAY)
+        return parser_error(doc->parser, "expected array for [[...]]", doc->error);
+
+    s = vigil_toml_table_new(doc->allocator, &new_table, doc->error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = vigil_toml_array_push((vigil_toml_value_t *)existing, new_table, doc->error);
+    if (s != VIGIL_STATUS_OK)
+    {
+        vigil_toml_free(&new_table);
+        return s;
+    }
+
+    doc->current_table = new_table;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_standard_table_header(toml_document_parser_t *doc, key_path_t *kp)
+{
+    doc->current_table = navigate_to_table(doc->root, kp, doc->allocator, doc->error);
+    if (!doc->current_table)
+        return parser_error(doc->parser, "cannot create table (key conflict)", doc->error);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_table_header_entry(toml_document_parser_t *doc)
+{
+    key_path_t kp;
+    int is_array_table;
+    vigil_status_t s;
+
+    s = parse_table_header_key_path(doc, &kp, &is_array_table);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+
+    if (is_array_table)
+        s = parse_array_table_header(doc, &kp);
+    else
+        s = parse_standard_table_header(doc, &kp);
+
+    key_path_free(&kp, doc->allocator);
+    return s;
+}
+
+static vigil_status_t navigate_to_dotted_key_target(toml_document_parser_t *doc, key_path_t *kp,
+                                                    vigil_toml_value_t **out_target)
+{
+    vigil_toml_value_t *target = doc->current_table;
+    size_t i;
+
+    for (i = 0; i + 1 < kp->count; i++)
+    {
+        const vigil_toml_value_t *existing = vigil_toml_table_get(target, kp->segments[i]);
+
+        if (existing && vigil_toml_type(existing) == VIGIL_TOML_TABLE)
+        {
+            target = (vigil_toml_value_t *)existing;
+        }
+        else if (!existing)
+        {
+            vigil_toml_value_t *sub = NULL;
+            vigil_status_t s = vigil_toml_table_new(doc->allocator, &sub, doc->error);
+
+            if (s != VIGIL_STATUS_OK)
+                return s;
+            s = vigil_toml_table_set(target, kp->segments[i], kp->lengths[i], sub, doc->error);
+            if (s != VIGIL_STATUS_OK)
+            {
+                vigil_toml_free(&sub);
+                return s;
+            }
+            target = sub;
+        }
+        else
+        {
+            return parser_error(doc->parser, "key conflict (not a table)", doc->error);
+        }
+    }
+
+    *out_target = target;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_key_value_entry(toml_document_parser_t *doc)
+{
+    key_path_t kp;
+    vigil_toml_value_t *target = NULL;
+    vigil_toml_value_t *val = NULL;
+    vigil_status_t s;
+
+    memset(&kp, 0, sizeof(kp));
+    s = parse_key_path(doc->parser, &kp, doc->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+
+    skip_ws(doc->parser);
+    if (!parser_match(doc->parser, '='))
+    {
+        s = parser_error(doc->parser, "expected '='", doc->error);
+        goto cleanup;
+    }
+
+    skip_ws(doc->parser);
+    s = parse_value(doc->parser, &val, doc->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+
+    skip_to_newline(doc->parser);
+
+    s = navigate_to_dotted_key_target(doc, &kp, &target);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+
+    s = vigil_toml_table_set(target, kp.segments[kp.count - 1], kp.lengths[kp.count - 1], val, doc->error);
+    if (s == VIGIL_STATUS_OK)
+        val = NULL;
+
+cleanup:
+    vigil_toml_free(&val);
+    key_path_free(&kp, doc->allocator);
+    return s;
+}
+
 vigil_status_t vigil_toml_parse(const vigil_allocator_t *allocator, const char *input, size_t length,
                                 vigil_toml_value_t **out, vigil_error_t *error)
 {
     toml_parser_t p;
+    toml_document_parser_t doc;
     vigil_toml_value_t *root = NULL;
-    vigil_toml_value_t *current_table = NULL;
     vigil_status_t s;
 
     if (!out)
@@ -1787,7 +1987,12 @@ vigil_status_t vigil_toml_parse(const vigil_allocator_t *allocator, const char *
     s = vigil_toml_table_new(allocator, &root, error);
     if (s != VIGIL_STATUS_OK)
         return s;
-    current_table = root;
+
+    doc.parser = &p;
+    doc.root = root;
+    doc.current_table = root;
+    doc.allocator = allocator;
+    doc.error = error;
 
     while (!parser_eof(&p))
     {
@@ -1800,223 +2005,25 @@ vigil_status_t vigil_toml_parse(const vigil_allocator_t *allocator, const char *
         /* Table header or array-of-tables. */
         if (c == '[')
         {
-            key_path_t kp;
-            int is_array_table = 0;
-            memset(&kp, 0, sizeof(kp));
-
-            parser_advance(&p);
-            if (parser_peek(&p) == '[')
-            {
-                parser_advance(&p);
-                is_array_table = 1;
-            }
-            skip_ws(&p);
-            s = parse_key_path(&p, &kp, error);
+            s = parse_table_header_entry(&doc);
             if (s != VIGIL_STATUS_OK)
-            {
-                key_path_free(&kp, allocator);
-                vigil_toml_free(&root);
-                parser_free_buf(&p);
-                return s;
-            }
-            skip_ws(&p);
-            if (!parser_match(&p, ']') || (is_array_table && !parser_match(&p, ']')))
-            {
-                key_path_free(&kp, allocator);
-                vigil_toml_free(&root);
-                parser_free_buf(&p);
-                return parser_error(&p, "expected ']' after table header", error);
-            }
-            skip_to_newline(&p);
-
-            if (is_array_table)
-            {
-                /* [[array.of.tables]] */
-                key_path_t parent_kp;
-                vigil_toml_value_t *parent;
-                const char *last_key;
-                size_t last_len;
-                const vigil_toml_value_t *existing;
-                vigil_toml_value_t *new_table = NULL;
-
-                parent_kp.count = kp.count - 1;
-                memcpy(parent_kp.segments, kp.segments, parent_kp.count * sizeof(char *));
-                memcpy(parent_kp.lengths, kp.lengths, parent_kp.count * sizeof(size_t));
-
-                parent = navigate_to_table(root, &parent_kp, allocator, error);
-                if (!parent)
-                {
-                    key_path_free(&kp, allocator);
-                    vigil_toml_free(&root);
-                    parser_free_buf(&p);
-                    return parser_error(&p, "cannot navigate to array-of-tables parent", error);
-                }
-
-                last_key = kp.segments[kp.count - 1];
-                last_len = kp.lengths[kp.count - 1];
-                existing = vigil_toml_table_get(parent, last_key);
-
-                if (!existing)
-                {
-                    /* Create the array. */
-                    vigil_toml_value_t *arr = NULL;
-                    s = vigil_toml_array_new(allocator, &arr, error);
-                    if (s != VIGIL_STATUS_OK)
-                    {
-                        key_path_free(&kp, allocator);
-                        vigil_toml_free(&root);
-                        parser_free_buf(&p);
-                        return s;
-                    }
-                    s = vigil_toml_table_set(parent, last_key, last_len, arr, error);
-                    if (s != VIGIL_STATUS_OK)
-                    {
-                        vigil_toml_free(&arr);
-                        key_path_free(&kp, allocator);
-                        vigil_toml_free(&root);
-                        parser_free_buf(&p);
-                        return s;
-                    }
-                    existing = arr;
-                }
-
-                if (vigil_toml_type(existing) != VIGIL_TOML_ARRAY)
-                {
-                    key_path_free(&kp, allocator);
-                    vigil_toml_free(&root);
-                    parser_free_buf(&p);
-                    return parser_error(&p, "expected array for [[...]]", error);
-                }
-
-                s = vigil_toml_table_new(allocator, &new_table, error);
-                if (s != VIGIL_STATUS_OK)
-                {
-                    key_path_free(&kp, allocator);
-                    vigil_toml_free(&root);
-                    parser_free_buf(&p);
-                    return s;
-                }
-                s = vigil_toml_array_push((vigil_toml_value_t *)existing, new_table, error);
-                if (s != VIGIL_STATUS_OK)
-                {
-                    vigil_toml_free(&new_table);
-                    key_path_free(&kp, allocator);
-                    vigil_toml_free(&root);
-                    parser_free_buf(&p);
-                    return s;
-                }
-                current_table = new_table;
-            }
-            else
-            {
-                /* [table] */
-                current_table = navigate_to_table(root, &kp, allocator, error);
-                if (!current_table)
-                {
-                    key_path_free(&kp, allocator);
-                    vigil_toml_free(&root);
-                    parser_free_buf(&p);
-                    return parser_error(&p, "cannot create table (key conflict)", error);
-                }
-            }
-            key_path_free(&kp, allocator);
+                goto cleanup;
             continue;
         }
 
-        /* Key = value. */
-        {
-            key_path_t kp;
-            vigil_toml_value_t *val = NULL;
-            vigil_toml_value_t *target;
-            size_t i;
-
-            memset(&kp, 0, sizeof(kp));
-            s = parse_key_path(&p, &kp, error);
-            if (s != VIGIL_STATUS_OK)
-            {
-                key_path_free(&kp, allocator);
-                vigil_toml_free(&root);
-                parser_free_buf(&p);
-                return s;
-            }
-            skip_ws(&p);
-            if (!parser_match(&p, '='))
-            {
-                key_path_free(&kp, allocator);
-                vigil_toml_free(&root);
-                parser_free_buf(&p);
-                return parser_error(&p, "expected '='", error);
-            }
-            skip_ws(&p);
-            s = parse_value(&p, &val, error);
-            if (s != VIGIL_STATUS_OK)
-            {
-                key_path_free(&kp, allocator);
-                vigil_toml_free(&root);
-                parser_free_buf(&p);
-                return s;
-            }
-            skip_to_newline(&p);
-
-            /* Navigate dotted key path. */
-            target = current_table;
-            for (i = 0; i + 1 < kp.count; i++)
-            {
-                const vigil_toml_value_t *existing = vigil_toml_table_get(target, kp.segments[i]);
-                if (existing && vigil_toml_type(existing) == VIGIL_TOML_TABLE)
-                {
-                    target = (vigil_toml_value_t *)existing;
-                }
-                else if (!existing)
-                {
-                    vigil_toml_value_t *sub = NULL;
-                    s = vigil_toml_table_new(allocator, &sub, error);
-                    if (s != VIGIL_STATUS_OK)
-                    {
-                        vigil_toml_free(&val);
-                        key_path_free(&kp, allocator);
-                        vigil_toml_free(&root);
-                        parser_free_buf(&p);
-                        return s;
-                    }
-                    s = vigil_toml_table_set(target, kp.segments[i], kp.lengths[i], sub, error);
-                    if (s != VIGIL_STATUS_OK)
-                    {
-                        vigil_toml_free(&sub);
-                        vigil_toml_free(&val);
-                        key_path_free(&kp, allocator);
-                        vigil_toml_free(&root);
-                        parser_free_buf(&p);
-                        return s;
-                    }
-                    target = sub;
-                }
-                else
-                {
-                    vigil_toml_free(&val);
-                    key_path_free(&kp, allocator);
-                    vigil_toml_free(&root);
-                    parser_free_buf(&p);
-                    return parser_error(&p, "key conflict (not a table)", error);
-                }
-            }
-
-            s = vigil_toml_table_set(target, kp.segments[kp.count - 1], kp.lengths[kp.count - 1], val, error);
-            if (s != VIGIL_STATUS_OK)
-            {
-                vigil_toml_free(&val);
-                key_path_free(&kp, allocator);
-                vigil_toml_free(&root);
-                parser_free_buf(&p);
-                return s;
-            }
-            key_path_free(&kp, allocator);
-        }
+        s = parse_key_value_entry(&doc);
+        if (s != VIGIL_STATUS_OK)
+            goto cleanup;
     }
 
     parser_free_buf(&p);
     *out = root;
     return VIGIL_STATUS_OK;
+
+cleanup:
+    vigil_toml_free(&root);
+    parser_free_buf(&p);
+    return s;
 }
 
 /* ── Emitter ─────────────────────────────────────────────────────── */
