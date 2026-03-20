@@ -1,9 +1,9 @@
 {
-  "debt_count": 120,
-  "function_count": 3006,
+  "debt_count": 115,
+  "function_count": 3043,
   "metric_counts": {
-    "ccn": 64,
-    "length": 80,
+    "ccn": 63,
+    "length": 76,
     "param": 33
   },
   "thresholds": {
@@ -17,7 +17,7 @@
       "file": "src/compiler.c"
     },
     {
-      "count": 11,
+      "count": 7,
       "file": "src/cli/main.c"
     },
     {

@@ -9,6 +9,7 @@
 #define cli_strdup strdup
 #endif
 
+#include "internal/vigil_cli_frontend.h"
 #include "platform/platform.h"
 #include "vigil/cli_lib.h"
 #include "vigil/dap.h"
@@ -118,95 +119,10 @@ static int path_is_absolute(const char *path, size_t length)
     return length >= 2U && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':';
 }
 
-/* Walk up from |start_path| (a file path) looking for vigil.toml.
-   Writes the directory containing it into |out_buf|.  Returns 1 on
-   success, 0 if no project root was found. */
-static int find_project_root(const char *start_path, char *out_buf, size_t buf_size)
-{
-    char dir[4096];
-    size_t len;
-    if (start_path == NULL || buf_size == 0U)
-        return 0;
-
-    /* Start from the directory containing start_path. */
-    len = strlen(start_path);
-    if (len >= sizeof(dir))
-        return 0;
-    memcpy(dir, start_path, len + 1U);
-    /* Strip trailing filename. */
-    while (len > 0U && dir[len - 1U] != '/' && dir[len - 1U] != '\\')
-        len--;
-    if (len > 0U)
-        len--; /* remove the separator itself */
-    if (len == 0U)
-    {
-        dir[0] = '.';
-        len = 1U;
-    }
-    dir[len] = '\0';
-
-    for (;;)
-    {
-        char candidate[4096];
-        int exists = 0;
-        vigil_error_t err = {0};
-        if (vigil_platform_path_join(dir, "vigil.toml", candidate, sizeof(candidate), &err) != VIGIL_STATUS_OK)
-            return 0;
-        if (vigil_platform_file_exists(candidate, &exists) == VIGIL_STATUS_OK && exists)
-        {
-            if (len + 1U > buf_size)
-                return 0;
-            memcpy(out_buf, dir, len);
-            out_buf[len] = '\0';
-            return 1;
-        }
-        /* Go up one directory. */
-        while (len > 0U && dir[len - 1U] != '/' && dir[len - 1U] != '\\')
-            len--;
-        if (len == 0U)
-        {
-            /* If we haven't tried "." yet, try it as a last resort. */
-            if (dir[0] != '.')
-            {
-                dir[0] = '.';
-                dir[1] = '\0';
-                len = 1U;
-                continue;
-            }
-            return 0;
-        }
-        len--; /* remove separator */
-        dir[len] = '\0';
-    }
-}
-
-static int registry_find_source_path(const vigil_source_registry_t *registry, const char *path,
-                                     vigil_source_id_t *out_source_id)
-{
-    size_t index;
-    if (out_source_id != NULL)
-        *out_source_id = 0U;
-    if (registry == NULL || path == NULL)
-        return 0;
-    for (index = 1U; index <= vigil_source_registry_count(registry); index += 1U)
-    {
-        const vigil_source_file_t *source;
-        source = vigil_source_registry_get(registry, (vigil_source_id_t)index);
-        if (source == NULL)
-            continue;
-        if (strcmp(vigil_string_c_str(&source->path), path) == 0)
-        {
-            if (out_source_id != NULL)
-                *out_source_id = source->id;
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static const char *source_token_text(const vigil_source_file_t *source, const vigil_token_t *token, size_t *out_length)
 {
     size_t length;
+
     if (out_length != NULL)
         *out_length = 0U;
     if (source == NULL || token == NULL)
@@ -220,7 +136,9 @@ static const char *source_token_text(const vigil_source_file_t *source, const vi
 static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path, const char *import_text,
                                           size_t import_length, vigil_string_t *out_path, vigil_error_t *error)
 {
-    size_t base_length, prefix_length;
+    size_t base_length;
+    size_t prefix_length;
+
     vigil_string_clear(out_path);
     if (runtime == NULL || base_path == NULL || import_text == NULL || out_path == NULL)
     {
@@ -234,7 +152,9 @@ static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *
     prefix_length = base_length;
     while (prefix_length > 0U)
     {
-        char current = base_path[prefix_length - 1U];
+        char current;
+
+        current = base_path[prefix_length - 1U];
         if (current == '/' || current == '\\')
             break;
         prefix_length -= 1U;
@@ -257,197 +177,6 @@ static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *
     }
     (void)runtime;
     return VIGIL_STATUS_OK;
-}
-
-static int register_source_tree(vigil_source_registry_t *registry, const char *path, const char *project_root,
-                                vigil_source_id_t *out_source_id, vigil_error_t *error)
-{
-    vigil_runtime_t *runtime;
-    vigil_source_id_t source_id;
-    char *file_text;
-    size_t file_length;
-    const vigil_source_file_t *source;
-    vigil_token_list_t tokens;
-    vigil_diagnostic_list_t diagnostics;
-    const vigil_token_t *token;
-    size_t cursor, brace_depth;
-    const char *register_path;
-
-    runtime = registry == NULL ? NULL : registry->runtime;
-    source_id = 0U;
-    if (registry_find_source_path(registry, path, &source_id))
-    {
-        if (out_source_id != NULL)
-            *out_source_id = source_id;
-        vigil_error_clear(error);
-        return 1;
-    }
-
-    /* Try reading the file at the resolved path.  If it does not exist
-       and we have a project root, fall back to <root>/lib/<name>.vigil.
-       The source is always registered under the original |path| so the
-       compiler's own import-path resolution finds it. */
-    register_path = path;
-    if (vigil_platform_read_file(NULL, path, &file_text, &file_length, error) != VIGIL_STATUS_OK)
-    {
-        int found_in_lib = 0;
-        if (project_root != NULL)
-        {
-            /* Extract the basename from path (strip directory prefix and .vigil). */
-            const char *base = path;
-            const char *p;
-            size_t blen;
-            char lib_candidate[4096];
-            vigil_error_t lib_err = {0};
-
-            for (p = path; *p; p++)
-                if (*p == '/' || *p == '\\')
-                    base = p + 1;
-            blen = strlen(base);
-
-            /* Try lib/ first */
-            {
-                char lib_dir[4096];
-                if (vigil_platform_path_join(project_root, "lib", lib_dir, sizeof(lib_dir), &lib_err) ==
-                        VIGIL_STATUS_OK &&
-                    vigil_platform_path_join(lib_dir, base, lib_candidate, sizeof(lib_candidate), &lib_err) ==
-                        VIGIL_STATUS_OK)
-                {
-                    vigil_error_clear(error);
-                    if (vigil_platform_read_file(NULL, lib_candidate, &file_text, &file_length, error) ==
-                        VIGIL_STATUS_OK)
-                    {
-                        found_in_lib = 1;
-                    }
-                }
-            }
-
-            /* Try deps/ for package imports (e.g. github.com/user/repo) */
-            if (!found_in_lib)
-            {
-                char deps_candidate[4096];
-                vigil_error_clear(&lib_err);
-                if (vigil_pkg_resolve_import(project_root, path, deps_candidate, sizeof(deps_candidate), &lib_err) ==
-                    VIGIL_STATUS_OK)
-                {
-                    vigil_error_clear(error);
-                    if (vigil_platform_read_file(NULL, deps_candidate, &file_text, &file_length, error) ==
-                        VIGIL_STATUS_OK)
-                    {
-                        found_in_lib = 1;
-                    }
-                }
-            }
-            (void)blen;
-        }
-        if (!found_in_lib)
-        {
-            set_cli_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "failed to read imported source");
-            return 0;
-        }
-    }
-
-    if (vigil_source_registry_register(registry, register_path, strlen(register_path), file_text, file_length,
-                                       &source_id, error) != VIGIL_STATUS_OK)
-    {
-        free(file_text);
-        return 0;
-    }
-    free(file_text);
-    if (out_source_id != NULL)
-        *out_source_id = source_id;
-
-    source = vigil_source_registry_get(registry, source_id);
-    if (source == NULL)
-    {
-        set_cli_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "registered source was not found");
-        return 0;
-    }
-
-    vigil_token_list_init(&tokens, runtime);
-    vigil_diagnostic_list_init(&diagnostics, runtime);
-    if (vigil_lex_source(registry, source_id, &tokens, &diagnostics, error) != VIGIL_STATUS_OK)
-    {
-        vigil_error_clear(error);
-        vigil_token_list_free(&tokens);
-        vigil_diagnostic_list_free(&diagnostics);
-        return 1;
-    }
-
-    cursor = 0U;
-    brace_depth = 0U;
-    while (1)
-    {
-        token = vigil_token_list_get(&tokens, cursor);
-        if (token == NULL || token->kind == VIGIL_TOKEN_EOF)
-            break;
-        if (token->kind == VIGIL_TOKEN_LBRACE)
-        {
-            brace_depth++;
-            cursor++;
-            continue;
-        }
-        if (token->kind == VIGIL_TOKEN_RBRACE)
-        {
-            if (brace_depth != 0U)
-                brace_depth--;
-            cursor++;
-            continue;
-        }
-        if (brace_depth == 0U && token->kind == VIGIL_TOKEN_IMPORT)
-        {
-            const vigil_token_t *path_token;
-            vigil_string_t import_path;
-            const char *import_text;
-            size_t import_length;
-
-            cursor++;
-            path_token = vigil_token_list_get(&tokens, cursor);
-            if (path_token == NULL ||
-                (path_token->kind != VIGIL_TOKEN_STRING_LITERAL && path_token->kind != VIGIL_TOKEN_RAW_STRING_LITERAL))
-                break;
-
-            import_text = source_token_text(source, path_token, &import_length);
-            if (import_text == NULL || import_length < 2U)
-                break;
-
-            if (vigil_stdlib_is_known_module(import_text + 1U, import_length - 2U))
-            {
-                cursor++;
-                continue;
-            }
-
-            vigil_string_init(&import_path, runtime);
-            if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1U, import_length - 2U,
-                                    &import_path, error) != VIGIL_STATUS_OK)
-            {
-                vigil_string_free(&import_path);
-                vigil_token_list_free(&tokens);
-                vigil_diagnostic_list_free(&diagnostics);
-                return 0;
-            }
-
-            if (!register_source_tree(registry, vigil_string_c_str(&import_path), project_root, NULL, error))
-            {
-                vigil_string_free(&import_path);
-                vigil_token_list_free(&tokens);
-                vigil_diagnostic_list_free(&diagnostics);
-                return 0;
-            }
-            vigil_string_free(&import_path);
-
-            /* The recursive register_source_tree call above may have grown
-               the source registry, invalidating our |source| pointer.
-               Re-fetch it so subsequent iterations read valid memory. */
-            source = vigil_source_registry_get(registry, source_id);
-        }
-        cursor++;
-    }
-
-    vigil_token_list_free(&tokens);
-    vigil_diagnostic_list_free(&diagnostics);
-    vigil_error_clear(error);
-    return 1;
 }
 
 /* ── run command ─────────────────────────────────────────────────── */
@@ -623,208 +352,168 @@ static vigil_status_t make_subdir(const char *base, const char *name, vigil_erro
     return vigil_platform_mkdir(path, error);
 }
 
-static int cmd_new(const char *name, int is_lib, int scaffold, const char *output_dir)
+static const char *new_resolve_project_name(const char *name, char *project_name, size_t project_name_size,
+                                            vigil_error_t *error)
 {
-    vigil_error_t error = {0};
+    if (name != NULL && name[0] != '\0')
+    {
+        return name;
+    }
+    if (vigil_platform_readline("Project name: ", project_name, project_name_size, error) != VIGIL_STATUS_OK)
+    {
+        return NULL;
+    }
+    if (project_name[0] == '\0')
+    {
+        set_cli_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "project name cannot be empty");
+        return NULL;
+    }
+    return project_name;
+}
+
+static const char *new_resolve_project_dir(const char *name, const char *output_dir, char *project_path,
+                                           size_t project_path_size)
+{
+    if (output_dir != NULL && output_dir[0] != '\0')
+    {
+        snprintf(project_path, project_path_size, "%s/%s", output_dir, name);
+        return project_path;
+    }
+    return name;
+}
+
+static int new_create_project_tree(const char *dir, vigil_error_t *error)
+{
+    if (vigil_platform_mkdir_p(dir, error) != VIGIL_STATUS_OK)
+        return 0;
+    if (make_subdir(dir, "lib", error) != VIGIL_STATUS_OK)
+        return 0;
+    if (make_subdir(dir, "test", error) != VIGIL_STATUS_OK)
+        return 0;
+    return 1;
+}
+
+static int new_write_manifest(const char *dir, const char *name, vigil_error_t *error)
+{
     vigil_toml_value_t *root = NULL;
     vigil_toml_value_t *str_val = NULL;
     char *toml_str = NULL;
     size_t toml_len = 0;
-    int exists = 0;
-    char project_name[256];
-    char project_path[512];
-    const char *dir;
+    int success = 0;
 
-    /* If name not provided, prompt for it. */
-    if (name == NULL || name[0] == '\0')
-    {
-        if (vigil_platform_readline("Project name: ", project_name, sizeof(project_name), &error) != VIGIL_STATUS_OK)
-        {
-            fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-            return 1;
-        }
-        if (project_name[0] == '\0')
-        {
-            fprintf(stderr, "error: project name cannot be empty\n");
-            return 1;
-        }
-        name = project_name;
-    }
-
-    /* Compute project directory path. */
-    if (output_dir != NULL && output_dir[0] != '\0')
-    {
-        snprintf(project_path, sizeof(project_path), "%s/%s", output_dir, name);
-        dir = project_path;
-    }
-    else
-    {
-        dir = name;
-    }
-
-    /* Check if directory already exists. */
-    if (vigil_platform_file_exists(dir, &exists) == VIGIL_STATUS_OK && exists)
-    {
-        fprintf(stderr, "error: '%s' already exists\n", dir);
-        return 1;
-    }
-
-    /* Create project directory tree. */
-    if (vigil_platform_mkdir_p(dir, &error) != VIGIL_STATUS_OK)
-    {
-        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-        return 1;
-    }
-    if (make_subdir(dir, "lib", &error) != VIGIL_STATUS_OK)
-    {
-        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-        return 1;
-    }
-    if (make_subdir(dir, "test", &error) != VIGIL_STATUS_OK)
-    {
-        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-        return 1;
-    }
-
-    /* Generate vigil.toml. */
-    if (vigil_toml_table_new(NULL, &root, &error) != VIGIL_STATUS_OK)
-        goto toml_err;
-    if (vigil_toml_string_new(NULL, name, strlen(name), &str_val, &error) != VIGIL_STATUS_OK)
-        goto toml_err;
-    if (vigil_toml_table_set(root, "name", 4, str_val, &error) != VIGIL_STATUS_OK)
-    {
-        vigil_toml_free(&str_val);
-        goto toml_err;
-    }
+    if (vigil_toml_table_new(NULL, &root, error) != VIGIL_STATUS_OK)
+        goto cleanup;
+    if (vigil_toml_string_new(NULL, name, strlen(name), &str_val, error) != VIGIL_STATUS_OK)
+        goto cleanup;
+    if (vigil_toml_table_set(root, "name", 4, str_val, error) != VIGIL_STATUS_OK)
+        goto cleanup;
     str_val = NULL;
-    if (vigil_toml_string_new(NULL, "0.1.0", 5, &str_val, &error) != VIGIL_STATUS_OK)
-        goto toml_err;
-    if (vigil_toml_table_set(root, "version", 7, str_val, &error) != VIGIL_STATUS_OK)
-    {
-        vigil_toml_free(&str_val);
-        goto toml_err;
-    }
+    if (vigil_toml_string_new(NULL, "0.1.0", 5, &str_val, error) != VIGIL_STATUS_OK)
+        goto cleanup;
+    if (vigil_toml_table_set(root, "version", 7, str_val, error) != VIGIL_STATUS_OK)
+        goto cleanup;
     str_val = NULL;
+    if (vigil_toml_emit(root, &toml_str, &toml_len, error) != VIGIL_STATUS_OK)
+        goto cleanup;
+    if (write_text_file(dir, "vigil.toml", toml_str, error) != VIGIL_STATUS_OK)
+        goto cleanup;
+    success = 1;
 
-    if (vigil_toml_emit(root, &toml_str, &toml_len, &error) != VIGIL_STATUS_OK)
-        goto toml_err;
-    if (write_text_file(dir, "vigil.toml", toml_str, &error) != VIGIL_STATUS_OK)
-    {
-        free(toml_str);
-        goto toml_err;
-    }
+cleanup:
     free(toml_str);
+    vigil_toml_free(&str_val);
     vigil_toml_free(&root);
+    return success;
+}
 
-    /* Write .gitignore. */
-    if (write_text_file(dir, ".gitignore", "deps/\n", &error) != VIGIL_STATUS_OK)
-    {
-        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-        return 1;
-    }
+static int new_write_lib_scaffold(const char *dir, const char *name, vigil_error_t *error)
+{
+    char lib_file[512];
+    char test_file[512];
+    char lib_content[1024];
+    char test_content[1024];
 
-    if (is_lib)
+    snprintf(lib_file, sizeof(lib_file), "lib/%s.vigil", name);
+    snprintf(test_file, sizeof(test_file), "test/%s_test.vigil", name);
+
+    snprintf(lib_content, sizeof(lib_content),
+             "/// %s library module.\n"
+             "\n"
+             "pub fn hello() -> string {\n"
+             "    return \"hello from %s\";\n"
+             "}\n",
+             name, name);
+
+    snprintf(test_content, sizeof(test_content),
+             "import \"test\";\n"
+             "import \"%s\";\n"
+             "\n"
+             "fn test_hello(test.T t) -> void {\n"
+             "    t.assert(%s.hello() == \"hello from %s\", \"hello should match\");\n"
+             "}\n",
+             name, name, name);
+
+    return write_text_file(dir, lib_file, lib_content, error) == VIGIL_STATUS_OK &&
+           write_text_file(dir, test_file, test_content, error) == VIGIL_STATUS_OK;
+}
+
+static int new_write_app_scaffold(const char *dir, const char *name, int scaffold, vigil_error_t *error)
+{
+    if (scaffold)
     {
-        /* Library project. */
         char lib_file[512];
         char test_file[512];
         char lib_content[1024];
         char test_content[1024];
+        char main_content[1024];
 
         snprintf(lib_file, sizeof(lib_file), "lib/%s.vigil", name);
         snprintf(test_file, sizeof(test_file), "test/%s_test.vigil", name);
 
         snprintf(lib_content, sizeof(lib_content),
-                 "/// %s library module.\n"
+                 "/// %s module.\n"
                  "\n"
-                 "pub fn hello() -> string {\n"
-                 "    return \"hello from %s\";\n"
+                 "pub fn greet(string name) -> string {\n"
+                 "    return \"hello, \" + name;\n"
                  "}\n",
-                 name, name);
+                 name);
 
         snprintf(test_content, sizeof(test_content),
                  "import \"test\";\n"
                  "import \"%s\";\n"
                  "\n"
-                 "fn test_hello(test.T t) -> void {\n"
-                 "    t.assert(%s.hello() == \"hello from %s\", \"hello should match\");\n"
+                 "fn test_greet(test.T t) -> void {\n"
+                 "    t.assert(%s.greet(\"world\") == \"hello, world\", \"greet should work\");\n"
                  "}\n",
-                 name, name, name);
+                 name, name);
 
-        if (write_text_file(dir, lib_file, lib_content, &error) != VIGIL_STATUS_OK ||
-            write_text_file(dir, test_file, test_content, &error) != VIGIL_STATUS_OK)
-        {
-            fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-            return 1;
-        }
-    }
-    else
-    {
-        /* Application project. */
-        if (scaffold)
-        {
-            /* Create module + test scaffold. */
-            char lib_file[512];
-            char test_file[512];
-            char lib_content[1024];
-            char test_content[1024];
-            char main_content[1024];
+        snprintf(main_content, sizeof(main_content),
+                 "import \"fmt\";\n"
+                 "import \"%s\";\n"
+                 "\n"
+                 "fn main() -> i32 {\n"
+                 "    fmt.println(%s.greet(\"world\"));\n"
+                 "    return 0;\n"
+                 "}\n",
+                 name, name);
 
-            snprintf(lib_file, sizeof(lib_file), "lib/%s.vigil", name);
-            snprintf(test_file, sizeof(test_file), "test/%s_test.vigil", name);
-
-            snprintf(lib_content, sizeof(lib_content),
-                     "/// %s module.\n"
-                     "\n"
-                     "pub fn greet(string name) -> string {\n"
-                     "    return \"hello, \" + name;\n"
-                     "}\n",
-                     name);
-
-            snprintf(test_content, sizeof(test_content),
-                     "import \"test\";\n"
-                     "import \"%s\";\n"
-                     "\n"
-                     "fn test_greet(test.T t) -> void {\n"
-                     "    t.assert(%s.greet(\"world\") == \"hello, world\", \"greet should work\");\n"
-                     "}\n",
-                     name, name);
-
-            snprintf(main_content, sizeof(main_content),
-                     "import \"fmt\";\n"
-                     "import \"%s\";\n"
-                     "\n"
-                     "fn main() -> i32 {\n"
-                     "    fmt.println(%s.greet(\"world\"));\n"
-                     "    return 0;\n"
-                     "}\n",
-                     name, name);
-
-            if (write_text_file(dir, lib_file, lib_content, &error) != VIGIL_STATUS_OK ||
-                write_text_file(dir, test_file, test_content, &error) != VIGIL_STATUS_OK ||
-                write_text_file(dir, "main.vigil", main_content, &error) != VIGIL_STATUS_OK)
-            {
-                fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-                return 1;
-            }
-        }
-        else
-        {
-            const char *main_content = "import \"fmt\";\n"
-                                       "\n"
-                                       "fn main() -> i32 {\n"
-                                       "    fmt.println(\"hello, world!\");\n"
-                                       "    return 0;\n"
-                                       "}\n";
-
-            if (write_text_file(dir, "main.vigil", main_content, &error) != VIGIL_STATUS_OK)
-            {
-                fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-                return 1;
-            }
-        }
+        return write_text_file(dir, lib_file, lib_content, error) == VIGIL_STATUS_OK &&
+               write_text_file(dir, test_file, test_content, error) == VIGIL_STATUS_OK &&
+               write_text_file(dir, "main.vigil", main_content, error) == VIGIL_STATUS_OK;
     }
 
+    return write_text_file(dir, "main.vigil",
+                           "import \"fmt\";\n"
+                           "\n"
+                           "fn main() -> i32 {\n"
+                           "    fmt.println(\"hello, world!\");\n"
+                           "    return 0;\n"
+                           "}\n",
+                           error) == VIGIL_STATUS_OK;
+}
+
+static void new_print_summary(const char *dir, const char *name, int is_lib, int scaffold)
+{
     printf("created %s\n", dir);
     printf("  vigil.toml\n");
     if (is_lib)
@@ -845,13 +534,45 @@ static int cmd_new(const char *name, int is_lib, int scaffold, const char *outpu
     printf("  lib/\n");
     printf("  test/\n");
     printf("  .gitignore\n");
+}
 
+static int cmd_new(const char *name, int is_lib, int scaffold, const char *output_dir)
+{
+    vigil_error_t error = {0};
+    int exists = 0;
+    char project_name[256];
+    char project_path[512];
+    const char *dir;
+
+    name = new_resolve_project_name(name, project_name, sizeof(project_name), &error);
+    if (name == NULL)
+    {
+        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
+        return 1;
+    }
+    dir = new_resolve_project_dir(name, output_dir, project_path, sizeof(project_path));
+
+    /* Check if directory already exists. */
+    if (vigil_platform_file_exists(dir, &exists) == VIGIL_STATUS_OK && exists)
+    {
+        fprintf(stderr, "error: '%s' already exists\n", dir);
+        return 1;
+    }
+
+    if (!new_create_project_tree(dir, &error) || !new_write_manifest(dir, name, &error) ||
+        write_text_file(dir, ".gitignore", "deps/\n", &error) != VIGIL_STATUS_OK)
+    {
+        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
+        return 1;
+    }
+    if (is_lib ? !new_write_lib_scaffold(dir, name, &error) : !new_write_app_scaffold(dir, name, scaffold, &error))
+    {
+        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
+        return 1;
+    }
+
+    new_print_summary(dir, name, is_lib, scaffold);
     return 0;
-
-toml_err:
-    vigil_toml_free(&root);
-    fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-    return 1;
 }
 
 /* ── debug command ────────────────────────────────────────────────── */
@@ -1970,501 +1691,6 @@ static vigil_status_t dir_list_cb(const char *name, int is_dir, void *ud)
     dl->items[dl->count].is_dir = is_dir;
     dl->count++;
     return VIGIL_STATUS_OK;
-}
-
-/* ── test command ────────────────────────────────────────────────── */
-
-/* Simple string list for collecting test file paths and function names. */
-typedef struct
-{
-    char **items;
-    size_t count;
-    size_t cap;
-} str_list_t;
-
-static void sl_add(str_list_t *sl, const char *s)
-{
-    if (sl->count == sl->cap)
-    {
-        sl->cap = sl->cap ? sl->cap * 2 : 16;
-        sl->items = realloc(sl->items, sl->cap * sizeof(char *));
-    }
-    sl->items[sl->count++] = cli_strdup(s);
-}
-
-static void sl_free(str_list_t *sl)
-{
-    for (size_t i = 0; i < sl->count; i++)
-        free(sl->items[i]);
-    free(sl->items);
-    memset(sl, 0, sizeof(*sl));
-}
-
-/* Walk a directory recursively collecting *_test.vigil files. */
-static void collect_test_files(str_list_t *out, const char *dir)
-{
-    vigil_error_t err = {0};
-    dir_list_t dl = {NULL, 0, 0};
-    if (vigil_platform_list_dir(dir, dir_list_cb, &dl, &err) != VIGIL_STATUS_OK)
-    {
-        free(dl.items);
-        return;
-    }
-    for (size_t i = 0; i < dl.count; i++)
-    {
-        char full[4096];
-        vigil_platform_path_join(dir, dl.items[i].name, full, sizeof(full), &err);
-        if (dl.items[i].is_dir)
-        {
-            collect_test_files(out, full);
-        }
-        else
-        {
-            size_t len = strlen(dl.items[i].name);
-            if (len > 11 && strcmp(dl.items[i].name + len - 11, "_test.vigil") == 0)
-                sl_add(out, full);
-        }
-    }
-    free(dl.items);
-}
-
-/* Scan a source file for top-level `fn test_*(...` function names. */
-static void scan_test_functions(vigil_runtime_t *runtime, vigil_source_registry_t *registry,
-                                vigil_source_id_t source_id, str_list_t *out)
-{
-    vigil_token_list_t tokens;
-    vigil_diagnostic_list_t diags;
-    const vigil_source_file_t *source;
-    size_t cursor = 0;
-    size_t brace_depth = 0;
-
-    source = vigil_source_registry_get(registry, source_id);
-    if (!source)
-        return;
-
-    vigil_token_list_init(&tokens, runtime);
-    vigil_diagnostic_list_init(&diags, runtime);
-    if (vigil_lex_source(registry, source_id, &tokens, &diags, NULL) != VIGIL_STATUS_OK)
-    {
-        vigil_token_list_free(&tokens);
-        vigil_diagnostic_list_free(&diags);
-        return;
-    }
-
-    while (1)
-    {
-        const vigil_token_t *tok = vigil_token_list_get(&tokens, cursor);
-        if (!tok || tok->kind == VIGIL_TOKEN_EOF)
-            break;
-        if (tok->kind == VIGIL_TOKEN_LBRACE)
-        {
-            brace_depth++;
-            cursor++;
-            continue;
-        }
-        if (tok->kind == VIGIL_TOKEN_RBRACE)
-        {
-            if (brace_depth)
-                brace_depth--;
-            cursor++;
-            continue;
-        }
-        if (brace_depth == 0 && tok->kind == VIGIL_TOKEN_FN)
-        {
-            const vigil_token_t *name_tok = vigil_token_list_get(&tokens, cursor + 1);
-            if (name_tok && name_tok->kind == VIGIL_TOKEN_IDENTIFIER)
-            {
-                size_t len;
-                const char *text = source_token_text(source, name_tok, &len);
-                if (text && len > 5 && memcmp(text, "test_", 5) == 0)
-                {
-                    char buf[256];
-                    if (len < sizeof(buf))
-                    {
-                        memcpy(buf, text, len);
-                        buf[len] = '\0';
-                        sl_add(out, buf);
-                    }
-                }
-            }
-        }
-        cursor++;
-    }
-
-    vigil_token_list_free(&tokens);
-    vigil_diagnostic_list_free(&diags);
-}
-
-/* Check if filter matches a test name (|-separated substrings). */
-static int test_matches_filter(const char *name, const char *filter)
-{
-    const char *p = filter;
-    while (*p)
-    {
-        const char *end = strchr(p, '|');
-        size_t len = end ? (size_t)(end - p) : strlen(p);
-        /* Trim leading/trailing spaces. */
-        while (len > 0 && p[0] == ' ')
-        {
-            p++;
-            len--;
-        }
-        while (len > 0 && p[len - 1] == ' ')
-            len--;
-        if (len > 0 && len < 256)
-        {
-            char part[256];
-            memcpy(part, p, len);
-            part[len] = '\0';
-            if (strstr(name, part))
-                return 1;
-        }
-        if (!end)
-            break;
-        p = end + 1;
-    }
-    return 0;
-}
-
-/* Run a single test function by creating a synthetic main() wrapper. */
-static int run_one_test(const char *test_file_path, const char *original_source, size_t original_length,
-                        const char *test_name, char *err_msg, size_t err_msg_size)
-{
-    vigil_runtime_t *runtime = NULL;
-    vigil_vm_t *vm = NULL;
-    vigil_error_t error = {0};
-    vigil_source_registry_t registry;
-    vigil_diagnostic_list_t diagnostics;
-    vigil_value_t result;
-    vigil_source_id_t source_id = 0;
-    vigil_object_t *function = NULL;
-    vigil_status_t status;
-    int exit_code = 0;
-    char wrapper[512];
-
-    snprintf(wrapper, sizeof(wrapper),
-             "\nfn main() -> i32 {\n"
-             "    test.T t = test.T();\n"
-             "    %s(t);\n"
-             "    return 0;\n"
-             "}\n",
-             test_name);
-
-    size_t wrapper_len = strlen(wrapper);
-    size_t total_len = original_length + wrapper_len;
-    char *combined = malloc(total_len + 1);
-    if (!combined)
-    {
-        snprintf(err_msg, err_msg_size, "out of memory");
-        return 1;
-    }
-    memcpy(combined, original_source, original_length);
-    memcpy(combined + original_length, wrapper, wrapper_len);
-    combined[total_len] = '\0';
-
-    if (vigil_runtime_open(&runtime, NULL, &error) != VIGIL_STATUS_OK)
-    {
-        snprintf(err_msg, err_msg_size, "runtime init failed");
-        free(combined);
-        return 1;
-    }
-    if (vigil_vm_open(&vm, runtime, NULL, &error) != VIGIL_STATUS_OK)
-    {
-        free(combined);
-        vigil_runtime_close(&runtime);
-        snprintf(err_msg, err_msg_size, "vm init failed");
-        return 1;
-    }
-
-    vigil_source_registry_init(&registry, runtime);
-    vigil_diagnostic_list_init(&diagnostics, runtime);
-    vigil_value_init_nil(&result);
-
-    if (vigil_source_registry_register(&registry, test_file_path, strlen(test_file_path), combined, total_len,
-                                       &source_id, &error) != VIGIL_STATUS_OK)
-    {
-        snprintf(err_msg, err_msg_size, "source registration failed");
-        exit_code = 1;
-        goto cleanup;
-    }
-
-    {
-        const vigil_source_file_t *source = vigil_source_registry_get(&registry, source_id);
-        vigil_token_list_t tokens;
-        size_t cursor = 0, brace_depth = 0;
-
-        vigil_token_list_init(&tokens, runtime);
-        vigil_diagnostic_list_init(&diagnostics, runtime);
-        if (vigil_lex_source(&registry, source_id, &tokens, &diagnostics, &error) == VIGIL_STATUS_OK)
-        {
-            while (1)
-            {
-                const vigil_token_t *tok = vigil_token_list_get(&tokens, cursor);
-                if (!tok || tok->kind == VIGIL_TOKEN_EOF)
-                    break;
-                if (tok->kind == VIGIL_TOKEN_LBRACE)
-                {
-                    brace_depth++;
-                    cursor++;
-                    continue;
-                }
-                if (tok->kind == VIGIL_TOKEN_RBRACE)
-                {
-                    if (brace_depth)
-                        brace_depth--;
-                    cursor++;
-                    continue;
-                }
-                if (brace_depth == 0 && tok->kind == VIGIL_TOKEN_IMPORT)
-                {
-                    const vigil_token_t *path_tok = vigil_token_list_get(&tokens, cursor + 1);
-                    if (path_tok && (path_tok->kind == VIGIL_TOKEN_STRING_LITERAL ||
-                                     path_tok->kind == VIGIL_TOKEN_RAW_STRING_LITERAL))
-                    {
-                        size_t import_len;
-                        const char *import_text = source_token_text(source, path_tok, &import_len);
-                        if (import_text && import_len >= 2 &&
-                            !vigil_stdlib_is_known_module(import_text + 1, import_len - 2))
-                        {
-                            vigil_string_t import_path;
-                            vigil_string_init(&import_path, runtime);
-                            if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1,
-                                                    import_len - 2, &import_path, &error) == VIGIL_STATUS_OK)
-                            {
-                                char pr[4096];
-                                const char *root = find_project_root(test_file_path, pr, sizeof(pr)) ? pr : NULL;
-                                register_source_tree(&registry, vigil_string_c_str(&import_path), root, NULL, &error);
-                                source = vigil_source_registry_get(&registry, source_id);
-                            }
-                            vigil_string_free(&import_path);
-                        }
-                    }
-                }
-                cursor++;
-            }
-        }
-        vigil_token_list_free(&tokens);
-    }
-
-    {
-        vigil_native_registry_t natives;
-        vigil_native_registry_init(&natives);
-        vigil_stdlib_register_all(&natives, &error);
-        status = vigil_compile_source_with_natives(&registry, source_id, &natives, &function, &diagnostics, &error);
-        vigil_native_registry_free(&natives);
-    }
-    if (status != VIGIL_STATUS_OK)
-    {
-        if (vigil_diagnostic_list_count(&diagnostics) != 0U)
-        {
-            /* Capture first diagnostic as error message. */
-            snprintf(err_msg, err_msg_size, "compile error");
-        }
-        else
-        {
-            snprintf(err_msg, err_msg_size, "%s", vigil_error_message(&error));
-        }
-        vigil_object_release(&function);
-        exit_code = 1;
-        goto cleanup;
-    }
-
-    status = vigil_vm_execute_function(vm, function, &result, &error);
-    vigil_object_release(&function);
-    if (status != VIGIL_STATUS_OK)
-    {
-        snprintf(err_msg, err_msg_size, "%s", vigil_error_message(&error));
-        exit_code = 1;
-        goto cleanup;
-    }
-
-cleanup:
-    vigil_value_release(&result);
-    vigil_diagnostic_list_free(&diagnostics);
-    vigil_source_registry_free(&registry);
-    vigil_vm_close(&vm);
-    vigil_runtime_close(&runtime);
-    free(combined);
-    return exit_code;
-}
-
-static int cmd_test(int argc, char **argv)
-{
-    int verbose = 0;
-    const char *filter = NULL;
-    str_list_t targets = {0};
-    str_list_t test_files = {0};
-    int total_pass = 0, total_fail = 0;
-    int exit_code = 0;
-
-    /* Parse args. */
-    for (int i = 2; i < argc; i++)
-    {
-        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0)
-        {
-            verbose = 1;
-        }
-        else if (strcmp(argv[i], "-run") == 0 || strcmp(argv[i], "--run") == 0)
-        {
-            if (++i >= argc)
-            {
-                fprintf(stderr, "error: -run requires a pattern\n");
-                return 2;
-            }
-            filter = argv[i];
-        }
-        else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0)
-        {
-            printf("Usage: vigil test [--run pattern] [-v] [path...]\n\n"
-                   "Recursively finds and runs VIGIL test files (*_test.vigil).\n"
-                   "In a project root, defaults to the ./test directory.\n\n"
-                   "Flags:\n"
-                   "  -v, --verbose    Print passing tests\n"
-                   "  -run, --run      Filter test names by substring\n");
-            return 0;
-        }
-        else
-        {
-            sl_add(&targets, argv[i]);
-        }
-    }
-
-    /* Default targets: if cwd has vigil.toml and ./test exists, use ./test; else "." */
-    if (targets.count == 0)
-    {
-        int is_dir = 0;
-        if (vigil_platform_is_directory("test", &is_dir) == VIGIL_STATUS_OK && is_dir)
-        {
-            FILE *f = fopen("vigil.toml", "r");
-            if (f)
-            {
-                fclose(f);
-                sl_add(&targets, "test");
-            }
-            else
-            {
-                sl_add(&targets, ".");
-            }
-        }
-        else
-        {
-            sl_add(&targets, ".");
-        }
-    }
-
-    /* Collect _test.vigil files. */
-    for (size_t i = 0; i < targets.count; i++)
-    {
-        int is_dir = 0;
-        vigil_platform_is_directory(targets.items[i], &is_dir);
-        if (is_dir)
-        {
-            collect_test_files(&test_files, targets.items[i]);
-        }
-        else
-        {
-            size_t len = strlen(targets.items[i]);
-            if (len > 11 && strcmp(targets.items[i] + len - 11, "_test.vigil") == 0)
-                sl_add(&test_files, targets.items[i]);
-        }
-    }
-
-    if (test_files.count == 0)
-    {
-        printf("no test files found\n");
-        sl_free(&targets);
-        sl_free(&test_files);
-        return 0;
-    }
-
-    /* Run tests. */
-    for (size_t fi = 0; fi < test_files.count; fi++)
-    {
-        const char *tf = test_files.items[fi];
-        char *source = NULL;
-        size_t source_len = 0;
-        vigil_error_t error = {0};
-
-        if (vigil_platform_read_file(NULL, tf, &source, &source_len, &error) != VIGIL_STATUS_OK)
-        {
-            fprintf(stderr, "error: %s: %s\n", tf, vigil_error_message(&error));
-            exit_code = 1;
-            continue;
-        }
-
-        /* Discover test function names. */
-        str_list_t fn_names = {0};
-        {
-            vigil_runtime_t *rt = NULL;
-            vigil_source_registry_t reg;
-            vigil_source_id_t sid = 0;
-            if (vigil_runtime_open(&rt, NULL, NULL) == VIGIL_STATUS_OK)
-            {
-                vigil_source_registry_init(&reg, rt);
-                if (vigil_source_registry_register(&reg, tf, strlen(tf), source, source_len, &sid, NULL) ==
-                    VIGIL_STATUS_OK)
-                {
-                    scan_test_functions(rt, &reg, sid, &fn_names);
-                }
-                vigil_source_registry_free(&reg);
-                vigil_runtime_close(&rt);
-            }
-        }
-
-        int file_failed = 0;
-        clock_t file_start = clock();
-
-        for (size_t ti = 0; ti < fn_names.count; ti++)
-        {
-            const char *name = fn_names.items[ti];
-            if (filter && !test_matches_filter(name, filter))
-                continue;
-
-            clock_t t_start = clock();
-
-            char err_msg[512] = {0};
-            int result = run_one_test(tf, source, source_len, name, err_msg, sizeof(err_msg));
-
-            double elapsed = (double)(clock() - t_start) / CLOCKS_PER_SEC;
-
-            if (result == 0)
-            {
-                total_pass++;
-                if (verbose)
-                    printf("=== RUN   %s\n--- PASS: %s (%.3fs)\n", name, name, elapsed);
-            }
-            else
-            {
-                total_fail++;
-                file_failed = 1;
-                printf("--- FAIL: %s (%s)\n    %s\n", name, tf, err_msg);
-            }
-        }
-
-        double file_elapsed = (double)(clock() - file_start) / CLOCKS_PER_SEC;
-
-        if (file_failed)
-        {
-            printf("FAIL\t%s\t%.3fs\n", tf, file_elapsed);
-            exit_code = 1;
-        }
-        else if (fn_names.count > 0)
-        {
-            printf("ok  \t%s\t%.3fs\n", tf, file_elapsed);
-        }
-
-        sl_free(&fn_names);
-        free(source);
-    }
-
-    if (total_fail > 0)
-        printf("\nFAIL: %d passed, %d failed\n", total_pass, total_fail);
-    else if (total_pass > 0)
-        printf("\nPASS: %d passed\n", total_pass);
-
-    sl_free(&targets);
-    sl_free(&test_files);
-    return exit_code;
 }
 
 /* ── embed command ───────────────────────────────────────────────── */
@@ -3651,7 +2877,7 @@ int main(int argc, char **argv)
     /* Handle "vigil test [flags...] [path...]" before CLI parser. */
     if (argc >= 2 && strcmp(argv[1], "test") == 0)
     {
-        return cmd_test(argc, argv);
+        return vigil_cli_run_test_command(argc, argv);
     }
 
     /* Handle "vigil repl" before CLI parser. */

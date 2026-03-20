@@ -263,6 +263,8 @@ endif()
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_executable(vigil_cli
         src/cli/main.c
+        src/cli_test.c
+        src/cli_frontend.c
     )
 
     set_target_properties(vigil_cli PROPERTIES OUTPUT_NAME vigil)
@@ -287,6 +289,7 @@ if(VIGIL_BUILD_TESTS)
         tests/binding_test.c
         tests/checker_test.c
         tests/chunk_test.c
+        tests/cli_frontend_test.c
         tests/cli_lib_test.c
         tests/compiler_test.c
         tests/dap_test.c
@@ -318,6 +321,7 @@ if(VIGIL_BUILD_TESTS)
         tests/type_test.c
         tests/value_test.c
         tests/vm_test.c
+        src/cli_frontend.c
     )
 
     if(VIGIL_STDLIB_HTTP)
@@ -395,6 +399,7 @@ if(VIGIL_BUILD_TESTS)
 
         vigil_add_integration_test(VigilArgsTest test_args.py)
         vigil_add_integration_test(VigilAtomicTest test_atomic.py)
+        vigil_add_integration_test(VigilCheckTest test_check.py)
         vigil_add_integration_test(VigilCompressTest test_compress.py)
         vigil_add_integration_test(VigilCryptoTest test_crypto.py)
         vigil_add_integration_test(VigilCsvTest test_csv.py)
@@ -410,6 +415,7 @@ if(VIGIL_BUILD_TESTS)
         if(VIGIL_STDLIB_NET AND VIGIL_STDLIB_TIME)
             vigil_add_integration_test(VigilNetTest test_net.py)
         endif()
+        vigil_add_integration_test(VigilNewIntegrationTest test_new.py)
         vigil_add_integration_test(VigilParseTest test_parse.py)
         vigil_add_integration_test(VigilPackageTest test_package.py)
         vigil_add_integration_test(VigilPkgTest test_pkg.py)

@@ -6,6 +6,7 @@ extern void register_vigil_new_tests(void);
 extern void register_binding_tests(void);
 extern void register_checker_tests(void);
 extern void register_chunk_tests(void);
+extern void register_cli_frontend_tests(void);
 extern void register_cli_lib_tests(void);
 extern void register_compiler_tests(void);
 extern void register_dap_tests(void);
@@ -51,6 +52,7 @@ int main(void)
     register_binding_tests();
     register_checker_tests();
     register_chunk_tests();
+    register_cli_frontend_tests();
     register_cli_lib_tests();
     register_compiler_tests();
     register_dap_tests();

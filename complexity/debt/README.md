@@ -14,19 +14,19 @@ Snapshot source:
   - function length: `120`
   - parameter count: `6`
 
-Current state after the first cleanup tranche on this branch:
+Current state after the current cleanup tranche on this branch:
 
-- first-party C functions analyzed: `3006`
-- inherited above-threshold functions: `120`
+- first-party C functions analyzed: `3043`
+- inherited above-threshold functions: `115`
 - metric overages:
-  - `64` `ccn` violations
-  - `80` function-length violations
+  - `63` `ccn` violations
+  - `76` function-length violations
   - `33` parameter-count violations
 
 Highest-debt files:
 
 - `src/compiler.c`: `33`
-- `src/cli/main.c`: `11`
+- `src/cli/main.c`: `7`
 - `src/stdlib/regex_engine.c`: `7`
 - `src/toml.c`: `5`
 - `src/value.c`: `5`
@@ -53,7 +53,8 @@ Debt reduced on this branch so far:
 - `src/chunk.c` no longer carries inherited lizard debt
 - `src/cli_lib.c` no longer carries inherited lizard debt
 - `src/binding.c` no longer carries inherited lizard debt
-- the inherited lizard debt count dropped from `126` to `120`
+- `src/cli/main.c` no longer carries inherited lizard debt in `cmd_new`, `cmd_test`, or `run_one_test`
+- the inherited lizard debt count dropped from `126` to `115`
 
 ## Clang-Tidy Snapshot
 
