@@ -60,6 +60,31 @@ static char *doc_render_helper(VigilDocTest *f, const char *src_text, const char
     return text; /* caller must free */
 }
 
+static vigil_status_t doc_render_status_helper(VigilDocTest *f, const char *src_text, const char *symbol, char **text,
+                                               size_t *length)
+{
+    vigil_source_id_t source_id = 0;
+    vigil_doc_module_t module;
+    vigil_status_t status;
+
+    *text = NULL;
+    if (length != NULL)
+        *length = 0;
+
+    if (vigil_source_registry_register_cstr(&f->registry, "test.vigil", src_text, &source_id, &f->error) !=
+        VIGIL_STATUS_OK)
+        return VIGIL_STATUS_INTERNAL;
+    if (vigil_lex_source(&f->registry, source_id, &f->tokens, &f->diagnostics, &f->error) != VIGIL_STATUS_OK)
+        return VIGIL_STATUS_INTERNAL;
+    if (vigil_doc_extract(NULL, "test.vigil", 9, src_text, strlen(src_text), &f->tokens, &module, &f->error) !=
+        VIGIL_STATUS_OK)
+        return VIGIL_STATUS_INTERNAL;
+
+    status = vigil_doc_render(&module, symbol, text, length, &f->error);
+    vigil_doc_module_free(&module);
+    return status;
+}
+
 TEST_F(VigilDocTest, ModuleViewShowsAllPublicSymbols)
 {
     char *out = doc_render_helper(F,
@@ -205,6 +230,67 @@ TEST_F(VigilDocTest, SymbolLookupFunction)
     free(out);
 }
 
+TEST_F(VigilDocTest, SymbolLookupVariable)
+{
+    char *out = doc_render_helper(F,
+                                  "// A mutable counter.\n"
+                                  "pub i32 count = 0;\n",
+                                  "count");
+
+    EXPECT_STREQ(out, "count i32\n\nA mutable counter.\n");
+    free(out);
+}
+
+TEST_F(VigilDocTest, SymbolLookupEnum)
+{
+    char *out = doc_render_helper(F,
+                                  "// Primary colors.\n"
+                                  "pub enum Color {\n"
+                                  "\tRed,\n"
+                                  "\tGreen,\n"
+                                  "\tBlue\n"
+                                  "}\n",
+                                  "Color");
+
+    EXPECT_STREQ(out, "Color\n\n  Primary colors.\n\n  Variants\n    Red\n    Green\n    Blue\n");
+    free(out);
+}
+
+TEST_F(VigilDocTest, SymbolLookupInterface)
+{
+    char *out = doc_render_helper(F,
+                                  "// A named formatter.\n"
+                                  "pub interface Formatter {\n"
+                                  "\t// Formats a label.\n"
+                                  "\tfn format(string label) -> string;\n"
+                                  "}\n",
+                                  "Formatter");
+
+    EXPECT_STREQ(out, "Formatter\n\n  A named formatter.\n\n  Methods\n    format(string label) -> string\n"
+                      "      Formats a label.\n");
+    free(out);
+}
+
+TEST_F(VigilDocTest, SymbolLookupClass)
+{
+    char *out = doc_render_helper(F,
+                                  "// A point in world space.\n"
+                                  "pub class Point implements Formatter {\n"
+                                  "\t// X coordinate.\n"
+                                  "\tpub i32 x;\n"
+                                  "\t// Formats the point name.\n"
+                                  "\tpub fn format(string label) -> string {\n"
+                                  "\t\treturn label;\n"
+                                  "\t}\n"
+                                  "}\n",
+                                  "Point");
+
+    EXPECT_STREQ(out, "Point implements Formatter\n\n  A point in world space.\n\n  Fields\n    x i32\n"
+                      "      X coordinate.\n\n  Methods\n    format(string label) -> string\n"
+                      "      Formats the point name.\n");
+    free(out);
+}
+
 TEST_F(VigilDocTest, SymbolLookupClassMember)
 {
     char *out = doc_render_helper(F,
@@ -250,23 +336,22 @@ TEST_F(VigilDocTest, SymbolLookupInterfaceMethod)
     free(out);
 }
 
-TEST_F(VigilDocTest, MissingSymbolReturnsError)
+TEST_F(VigilDocTest, MissingQualifiedSymbolReturnsError)
 {
-    vigil_source_id_t source_id = 0;
-    const char *src = "pub fn add(i32 a, i32 b) -> i32 {\n\treturn a + b;\n}\n";
-    ASSERT_EQ(vigil_source_registry_register_cstr(&F->registry, "test.vigil", src, &source_id, &F->error),
-              VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_lex_source(&F->registry, source_id, &F->tokens, &F->diagnostics, &F->error), VIGIL_STATUS_OK);
-
-    vigil_doc_module_t module;
-    ASSERT_EQ(vigil_doc_extract(NULL, "test.vigil", 9, src, strlen(src), &F->tokens, &module, &F->error),
-              VIGIL_STATUS_OK);
-
+    const char *src = "pub class Point {\n\tpub i32 x;\n}\n";
     char *text = NULL;
     size_t length = 0;
-    EXPECT_EQ(vigil_doc_render(&module, "missing", &text, &length, &F->error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(doc_render_status_helper(F, src, "Point.missing", &text, &length), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(text, NULL);
-    vigil_doc_module_free(&module);
+}
+
+TEST_F(VigilDocTest, MissingSymbolReturnsError)
+{
+    const char *src = "pub fn add(i32 a, i32 b) -> i32 {\n\treturn a + b;\n}\n";
+    char *text = NULL;
+    size_t length = 0;
+    EXPECT_EQ(doc_render_status_helper(F, src, "missing", &text, &length), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(text, NULL);
 }
 
 TEST_F(VigilDocTest, ComplexReturnTypes)
@@ -360,9 +445,14 @@ void register_doc_tests(void)
     REGISTER_TEST_F(VigilDocTest, EnumWithVariants);
     REGISTER_TEST_F(VigilDocTest, VariableDeclaration);
     REGISTER_TEST_F(VigilDocTest, SymbolLookupFunction);
+    REGISTER_TEST_F(VigilDocTest, SymbolLookupVariable);
+    REGISTER_TEST_F(VigilDocTest, SymbolLookupEnum);
+    REGISTER_TEST_F(VigilDocTest, SymbolLookupInterface);
+    REGISTER_TEST_F(VigilDocTest, SymbolLookupClass);
     REGISTER_TEST_F(VigilDocTest, SymbolLookupClassMember);
     REGISTER_TEST_F(VigilDocTest, SymbolLookupClassMethod);
     REGISTER_TEST_F(VigilDocTest, SymbolLookupInterfaceMethod);
+    REGISTER_TEST_F(VigilDocTest, MissingQualifiedSymbolReturnsError);
     REGISTER_TEST_F(VigilDocTest, MissingSymbolReturnsError);
     REGISTER_TEST_F(VigilDocTest, ComplexReturnTypes);
     REGISTER_TEST_F(VigilDocTest, GenericTypes);
