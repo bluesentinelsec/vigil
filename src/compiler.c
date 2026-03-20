@@ -675,138 +675,6 @@ static int vigil_program_path_is_absolute(const char *path, size_t length)
     return length >= 2U && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':';
 }
 
-static int vigil_program_normalize_compare_path(const char *path, size_t path_length, char *out_buf,
-                                                size_t out_buf_size)
-{
-    size_t i = 0U;
-    size_t out_len = 0U;
-    size_t segment_starts[256];
-    size_t segment_lengths[256];
-    size_t segment_count = 0U;
-    int absolute = 0;
-
-    if (path == NULL || out_buf == NULL || out_buf_size < 2U)
-        return 0;
-
-    if (path_length >= 2U && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) &&
-        path[1] == ':')
-    {
-        if (out_buf_size < 3U)
-            return 0;
-        out_buf[out_len++] = path[0];
-        out_buf[out_len++] = ':';
-        i = 2U;
-        absolute = 1;
-        if (i < path_length && (path[i] == '/' || path[i] == '\\'))
-        {
-            out_buf[out_len++] = '/';
-            i += 1U;
-            while (i < path_length && (path[i] == '/' || path[i] == '\\'))
-                i += 1U;
-        }
-    }
-    else if (path_length > 0U && (path[0] == '/' || path[0] == '\\'))
-    {
-        out_buf[out_len++] = '/';
-        i = 1U;
-        absolute = 1;
-        while (i < path_length && (path[i] == '/' || path[i] == '\\'))
-            i += 1U;
-    }
-
-    while (1)
-    {
-        size_t seg_start = i;
-        size_t seg_len;
-
-        while (i < path_length && path[i] != '/' && path[i] != '\\')
-            i += 1U;
-        seg_len = i - seg_start;
-
-        if (seg_len == 0U || (seg_len == 1U && path[seg_start] == '.'))
-        {
-            /* Skip empty and current-directory segments. */
-        }
-        else if (seg_len == 2U && path[seg_start] == '.' && path[seg_start + 1U] == '.')
-        {
-            if (segment_count > 0U &&
-                !(segment_lengths[segment_count - 1U] == 2U && out_buf[segment_starts[segment_count - 1U]] == '.' &&
-                  out_buf[segment_starts[segment_count - 1U] + 1U] == '.'))
-            {
-                out_len = segment_starts[segment_count - 1U];
-                if (out_len > 0U && out_buf[out_len - 1U] == '/' &&
-                    !(out_len == 1U || (out_len == 3U && out_buf[1] == ':')))
-                {
-                    out_len -= 1U;
-                }
-                out_buf[out_len] = '\0';
-                segment_count -= 1U;
-            }
-            else if (!absolute)
-            {
-                if (out_len > 0U && out_buf[out_len - 1U] != '/')
-                    out_buf[out_len++] = '/';
-                if (segment_count < sizeof(segment_starts) / sizeof(segment_starts[0]))
-                {
-                    segment_starts[segment_count] = out_len;
-                    segment_lengths[segment_count] = 2U;
-                    segment_count += 1U;
-                }
-                if (out_len + 2U >= out_buf_size)
-                    return 0;
-                out_buf[out_len++] = '.';
-                out_buf[out_len++] = '.';
-            }
-        }
-        else
-        {
-            size_t j;
-
-            if (out_len > 0U && out_buf[out_len - 1U] != '/')
-                out_buf[out_len++] = '/';
-            if (segment_count < sizeof(segment_starts) / sizeof(segment_starts[0]))
-            {
-                segment_starts[segment_count] = out_len;
-                segment_lengths[segment_count] = seg_len;
-                segment_count += 1U;
-            }
-            if (out_len + seg_len >= out_buf_size)
-                return 0;
-            for (j = 0U; j < seg_len; j += 1U)
-                out_buf[out_len++] = path[seg_start + j];
-        }
-
-        while (i < path_length && (path[i] == '/' || path[i] == '\\'))
-            i += 1U;
-        if (i >= path_length)
-            break;
-    }
-
-    if (out_len == 0U)
-    {
-        out_buf[0] = absolute ? '/' : '.';
-        out_buf[1] = '\0';
-        return 1;
-    }
-
-    out_buf[out_len] = '\0';
-    return 1;
-}
-
-static int vigil_program_paths_equal(const char *lhs, size_t lhs_length, const char *rhs, size_t rhs_length)
-{
-    char lhs_norm[4096];
-    char rhs_norm[4096];
-
-    if (lhs == NULL || rhs == NULL)
-        return 0;
-    if (!vigil_program_normalize_compare_path(lhs, lhs_length, lhs_norm, sizeof(lhs_norm)))
-        return vigil_program_names_equal(lhs, lhs_length, rhs, rhs_length);
-    if (!vigil_program_normalize_compare_path(rhs, rhs_length, rhs_norm, sizeof(rhs_norm)))
-        return vigil_program_names_equal(lhs, lhs_length, rhs, rhs_length);
-    return strcmp(lhs_norm, rhs_norm) == 0;
-}
-
 static vigil_status_t vigil_program_resolve_import_path(const vigil_program_state_t *program, const char *import_text,
                                                         size_t import_length, vigil_string_t *out_path)
 {
@@ -907,7 +775,7 @@ static int vigil_program_find_source_by_path(const vigil_program_state_t *progra
         {
             continue;
         }
-        if (vigil_program_paths_equal(vigil_string_c_str(&source->path), vigil_string_length(&source->path), path,
+        if (vigil_program_names_equal(vigil_string_c_str(&source->path), vigil_string_length(&source->path), path,
                                       path_length))
         {
             if (out_source_id != NULL)
