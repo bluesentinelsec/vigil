@@ -2149,97 +2149,26 @@ static char *build_test_wrapper_source(const char *original_source, size_t origi
     return combined;
 }
 
-typedef struct
+static char *build_test_wrapper_path(const char *test_file_path)
 {
-    vigil_runtime_t *runtime;
-    vigil_source_registry_t *registry;
-    vigil_source_id_t source_id;
-    const char *test_file_path;
-    const vigil_source_file_t **source;
-    vigil_error_t *error;
-} test_import_context_t;
+    static const char suffix[] = ".__vigil_test_wrapper__.vigil";
+    size_t path_length;
+    size_t suffix_length;
+    char *wrapper_path;
 
-static void register_test_import_path(const test_import_context_t *context, const char *import_text, size_t import_len)
-{
-    vigil_string_t import_path;
-    char project_root[4096];
-    const char *root =
-        find_project_root(context->test_file_path, project_root, sizeof(project_root)) ? project_root : NULL;
+    if (test_file_path == NULL)
+        return NULL;
 
-    vigil_string_init(&import_path, context->runtime);
-    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path), import_text + 1U,
-                            import_len - 2U, &import_path, context->error) == VIGIL_STATUS_OK)
-    {
-        (void)register_source_tree(context->registry, vigil_string_c_str(&import_path), root, NULL, context->error);
-        *context->source = vigil_source_registry_get(context->registry, context->source_id);
-    }
-    vigil_string_free(&import_path);
-}
+    path_length = strlen(test_file_path);
+    suffix_length = sizeof(suffix) - 1U;
+    wrapper_path = (char *)malloc(path_length + suffix_length + 1U);
+    if (wrapper_path == NULL)
+        return NULL;
 
-static void register_test_import_token(const test_import_context_t *context, const vigil_token_list_t *tokens,
-                                       size_t cursor)
-{
-    const vigil_token_t *path_tok = vigil_token_list_get(tokens, cursor + 1U);
-    size_t import_len;
-    const char *import_text;
-
-    if (path_tok == NULL)
-        return;
-    if (path_tok->kind != VIGIL_TOKEN_STRING_LITERAL && path_tok->kind != VIGIL_TOKEN_RAW_STRING_LITERAL)
-        return;
-
-    import_text = source_token_text(*context->source, path_tok, &import_len);
-    if (import_text == NULL || import_len < 2U || vigil_stdlib_is_known_module(import_text + 1U, import_len - 2U))
-        return;
-
-    register_test_import_path(context, import_text, import_len);
-}
-
-static void register_test_imports(vigil_runtime_t *runtime, vigil_source_registry_t *registry,
-                                  vigil_source_id_t source_id, const char *test_file_path, vigil_error_t *error)
-{
-    const vigil_source_file_t *source = vigil_source_registry_get(registry, source_id);
-    test_import_context_t context;
-    vigil_token_list_t tokens;
-    size_t cursor = 0U;
-    size_t brace_depth = 0U;
-
-    context.runtime = runtime;
-    context.registry = registry;
-    context.source_id = source_id;
-    context.test_file_path = test_file_path;
-    context.source = &source;
-    context.error = error;
-
-    vigil_token_list_init(&tokens, runtime);
-    if (vigil_lex_source(registry, source_id, &tokens, NULL, error) == VIGIL_STATUS_OK)
-    {
-        while (1)
-        {
-            const vigil_token_t *tok = vigil_token_list_get(&tokens, cursor);
-            if (tok == NULL || tok->kind == VIGIL_TOKEN_EOF)
-                break;
-            if (tok->kind == VIGIL_TOKEN_LBRACE)
-            {
-                brace_depth += 1U;
-                cursor += 1U;
-                continue;
-            }
-            if (tok->kind == VIGIL_TOKEN_RBRACE)
-            {
-                if (brace_depth != 0U)
-                    brace_depth -= 1U;
-                cursor += 1U;
-                continue;
-            }
-            if (brace_depth == 0U && tok->kind == VIGIL_TOKEN_IMPORT)
-            {
-                register_test_import_token(&context, &tokens, cursor);
-            }
-            cursor += 1U;
-        }
-    }
-    vigil_token_list_free(&tokens);
+    memcpy(wrapper_path, test_file_path, path_length);
+    memcpy(wrapper_path + path_length, suffix, suffix_length);
+    wrapper_path[path_length + suffix_length] = '\0';
+    return wrapper_path;
 }
 
 static vigil_status_t compile_test_source(vigil_source_registry_t *registry, vigil_source_id_t source_id,
@@ -2298,11 +2227,16 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     vigil_status_t status;
     int exit_code = 0;
     size_t total_len = 0U;
+    char project_root[4096];
+    const char *root = find_project_root(test_file_path, project_root, sizeof(project_root)) ? project_root : NULL;
     char *combined = build_test_wrapper_source(original_source, original_length, test_name, &total_len);
+    char *wrapper_path = build_test_wrapper_path(test_file_path);
 
-    if (combined == NULL)
+    if (combined == NULL || wrapper_path == NULL)
     {
         snprintf(err_msg, err_msg_size, "out of memory");
+        free(wrapper_path);
+        free(combined);
         return 1;
     }
 
@@ -2324,15 +2258,20 @@ static int run_one_test(const char *test_file_path, const char *original_source,
     vigil_diagnostic_list_init(&diagnostics, runtime);
     vigil_value_init_nil(&result);
 
-    if (vigil_source_registry_register(&registry, test_file_path, strlen(test_file_path), combined, total_len,
-                                       &source_id, &error) != VIGIL_STATUS_OK)
+    if (!register_source_tree(&registry, test_file_path, root, NULL, &error))
+    {
+        snprintf(err_msg, err_msg_size, "%s", vigil_error_message(&error));
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    if (vigil_source_registry_register(&registry, wrapper_path, strlen(wrapper_path), combined, total_len, &source_id,
+                                       &error) != VIGIL_STATUS_OK)
     {
         snprintf(err_msg, err_msg_size, "source registration failed");
         exit_code = 1;
         goto cleanup;
     }
-
-    register_test_imports(runtime, &registry, source_id, test_file_path, &error);
     status = compile_test_source(&registry, source_id, &function, &diagnostics, &error);
     if (status != VIGIL_STATUS_OK)
     {
@@ -2366,6 +2305,7 @@ cleanup:
     vigil_source_registry_free(&registry);
     vigil_vm_close(&vm);
     vigil_runtime_close(&runtime);
+    free(wrapper_path);
     free(combined);
     return exit_code;
 }
