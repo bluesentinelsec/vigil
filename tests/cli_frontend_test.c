@@ -52,6 +52,53 @@ static vigil_status_t write_text_fixture(const char *path, const char *text, vig
     return vigil_platform_write_file(path, text, strlen(text), error);
 }
 
+static int setup_project_root_fixture(const char *root, int with_manifest, vigil_error_t *error)
+{
+    static const char test_source[] = "import \"test\";\nfn test_ok(test.T t) -> void { t.assert(true, \"ok\"); }\n";
+    char path[4096];
+
+    if (vigil_platform_mkdir_p(root, error) != VIGIL_STATUS_OK)
+        return 0;
+    snprintf(path, sizeof(path), "%s/test", root);
+    if (vigil_platform_mkdir_p(path, error) != VIGIL_STATUS_OK)
+        return 0;
+    if (with_manifest)
+    {
+        snprintf(path, sizeof(path), "%s/vigil.toml", root);
+        if (write_text_fixture(path, "[project]\nname = \"root\"\n", error) != VIGIL_STATUS_OK)
+            return 0;
+    }
+    snprintf(path, sizeof(path), "%s/test/main_test.vigil", root);
+    if (write_text_fixture(path, test_source, error) != VIGIL_STATUS_OK)
+        return 0;
+    return 1;
+}
+
+static int setup_register_project_fixture(const char *root, const char *import_name, const char *main_source,
+                                          vigil_error_t *error)
+{
+    char path[4096];
+
+    if (vigil_platform_mkdir_p(root, error) != VIGIL_STATUS_OK)
+        return 0;
+    snprintf(path, sizeof(path), "%s/lib", root);
+    if (vigil_platform_mkdir_p(path, error) != VIGIL_STATUS_OK)
+        return 0;
+    snprintf(path, sizeof(path), "%s/vigil.toml", root);
+    if (write_text_fixture(path, "[project]\nname = \"register\"\n", error) != VIGIL_STATUS_OK)
+        return 0;
+    if (import_name != NULL)
+    {
+        snprintf(path, sizeof(path), "%s/lib/%s.vigil", root, import_name);
+        if (write_text_fixture(path, "pub fn value() -> i32 { return 7; }\n", error) != VIGIL_STATUS_OK)
+            return 0;
+    }
+    snprintf(path, sizeof(path), "%s/main.vigil", root);
+    if (write_text_fixture(path, main_source, error) != VIGIL_STATUS_OK)
+        return 0;
+    return 1;
+}
+
 static const vigil_source_file_t *find_registered_source(const vigil_source_registry_t *registry, const char *path)
 {
     size_t index;
@@ -72,21 +119,15 @@ static const vigil_source_file_t *find_registered_source(const vigil_source_regi
 TEST_F(CliFrontendTest, FindProjectRootReturnsProjectDirectory)
 {
     const char *root = "cli_frontend_root_proj";
-    const char *test_source = "import \"test\";\nfn test_ok(test.T t) -> void { t.assert(true, \"ok\"); }\n";
     char path[4096];
     char out[4096];
 
     remove_cli_frontend_project(root, "helper", ERR);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(root, ERR));
-    snprintf(path, sizeof(path), "%s/test", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(path, ERR));
-    snprintf(path, sizeof(path), "%s/vigil.toml", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(path, "[project]\nname = \"root\"\n", ERR));
+    ASSERT_TRUE(setup_project_root_fixture(root, 1, ERR));
     snprintf(path, sizeof(path), "%s/test/main_test.vigil", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(path, test_source, ERR));
 
     ASSERT_TRUE(find_project_root(path, out, sizeof(out)));
-    EXPECT_STREQ(out, root);
+    EXPECT_TRUE(strcmp(out, root) == 0);
 
     remove_cli_frontend_project(root, "helper", ERR);
 }
@@ -94,16 +135,12 @@ TEST_F(CliFrontendTest, FindProjectRootReturnsProjectDirectory)
 TEST_F(CliFrontendTest, FindProjectRootReturnsZeroWithoutManifest)
 {
     const char *root = "cli_frontend_no_manifest";
-    const char *test_source = "import \"test\";\nfn test_ok(test.T t) -> void { t.assert(true, \"ok\"); }\n";
     char path[4096];
     char out[4096];
 
     remove_cli_frontend_project(root, "helper", ERR);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(root, ERR));
-    snprintf(path, sizeof(path), "%s/test", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(path, ERR));
+    ASSERT_TRUE(setup_project_root_fixture(root, 0, ERR));
     snprintf(path, sizeof(path), "%s/test/main_test.vigil", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(path, test_source, ERR));
 
     EXPECT_FALSE(find_project_root(path, out, sizeof(out)));
 
@@ -125,15 +162,8 @@ TEST_F(CliFrontendTest, RegisterSourceTreeRegistersProjectLibImports)
     runtime = NULL;
     source_id = 0U;
     remove_cli_frontend_project(root, "helper", ERR);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(root, ERR));
-    snprintf(main_path, sizeof(main_path), "%s/lib", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(main_path, ERR));
-    snprintf(main_path, sizeof(main_path), "%s/vigil.toml", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(main_path, "[project]\nname = \"register\"\n", ERR));
-    snprintf(main_path, sizeof(main_path), "%s/lib/helper.vigil", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(main_path, "pub fn value() -> i32 { return 7; }\n", ERR));
+    ASSERT_TRUE(setup_register_project_fixture(root, "helper", main_source, ERR));
     snprintf(main_path, sizeof(main_path), "%s/main.vigil", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(main_path, main_source, ERR));
 
     ASSERT_TRUE(find_project_root(main_path, project_root, sizeof(project_root)));
     ASSERT_EQ(VIGIL_STATUS_OK, vigil_runtime_open(&runtime, NULL, ERR));
@@ -156,6 +186,7 @@ TEST_F(CliFrontendTest, RegisterSourceTreeRegistersProjectLibImports)
 TEST_F(CliFrontendTest, RegisterSourceTreeFailsForMissingImport)
 {
     const char *root = "cli_frontend_missing_import";
+    const char *main_source = "import \"missing\";\nfn main() -> i32 { return 0; }\n";
     vigil_runtime_t *runtime;
     vigil_source_registry_t registry;
     char main_path[4096];
@@ -163,19 +194,15 @@ TEST_F(CliFrontendTest, RegisterSourceTreeFailsForMissingImport)
 
     runtime = NULL;
     remove_cli_frontend_project(root, "missing", ERR);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_platform_mkdir_p(root, ERR));
-    snprintf(main_path, sizeof(main_path), "%s/vigil.toml", root);
-    ASSERT_EQ(VIGIL_STATUS_OK, write_text_fixture(main_path, "[project]\nname = \"missing\"\n", ERR));
+    ASSERT_TRUE(setup_register_project_fixture(root, NULL, main_source, ERR));
     snprintf(main_path, sizeof(main_path), "%s/main.vigil", root);
-    ASSERT_EQ(VIGIL_STATUS_OK,
-              write_text_fixture(main_path, "import \"missing\";\nfn main() -> i32 { return 0; }\n", ERR));
 
     ASSERT_TRUE(find_project_root(main_path, project_root, sizeof(project_root)));
     ASSERT_EQ(VIGIL_STATUS_OK, vigil_runtime_open(&runtime, NULL, ERR));
     vigil_source_registry_init(&registry, runtime);
 
     EXPECT_FALSE(register_source_tree(&registry, main_path, project_root, NULL, ERR));
-    EXPECT_STREQ(vigil_error_message(ERR), "failed to read imported source");
+    EXPECT_TRUE(strcmp(vigil_error_message(ERR), "failed to read imported source") == 0);
 
     vigil_source_registry_free(&registry);
     vigil_runtime_close(&runtime);

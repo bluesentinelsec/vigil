@@ -237,9 +237,87 @@ static int read_source_for_registration(const char *path, const char *project_ro
     return 0;
 }
 
+typedef struct import_register_context
+{
+    vigil_source_registry_t *registry;
+    const vigil_source_file_t **source;
+    vigil_runtime_t *runtime;
+    const char *project_root;
+    vigil_error_t *error;
+} import_register_context_t;
+
+static int advance_brace_depth(const vigil_token_t *token, size_t *brace_depth, size_t *cursor)
+{
+    if (token == NULL)
+        return 0;
+    if (token->kind == VIGIL_TOKEN_LBRACE)
+    {
+        *brace_depth += 1U;
+        *cursor += 1U;
+        return 1;
+    }
+    if (token->kind == VIGIL_TOKEN_RBRACE)
+    {
+        if (*brace_depth != 0U)
+            *brace_depth -= 1U;
+        *cursor += 1U;
+        return 1;
+    }
+    return 0;
+}
+
+static int register_single_import(import_register_context_t *context, const vigil_token_t *path_token)
+{
+    vigil_string_t import_path;
+    const char *import_text;
+    size_t import_length;
+
+    import_text = source_token_text(*context->source, path_token, &import_length);
+    if (import_text == NULL || import_length < 2U)
+        return 1;
+    if (vigil_stdlib_is_known_module(import_text + 1U, import_length - 2U))
+        return 1;
+
+    vigil_string_init(&import_path, context->runtime);
+    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path), import_text + 1U,
+                            import_length - 2U, &import_path, context->error) != VIGIL_STATUS_OK)
+    {
+        vigil_string_free(&import_path);
+        return 0;
+    }
+    if (!register_source_tree(context->registry, vigil_string_c_str(&import_path), context->project_root, NULL,
+                              context->error))
+    {
+        vigil_string_free(&import_path);
+        return 0;
+    }
+    vigil_string_free(&import_path);
+    *context->source = vigil_source_registry_get(context->registry, (*context->source)->id);
+    return 1;
+}
+
+static int register_import_at_cursor(import_register_context_t *context, vigil_token_list_t *tokens, size_t *cursor,
+                                     size_t brace_depth)
+{
+    const vigil_token_t *path_token;
+
+    if (brace_depth != 0U)
+        return 1;
+
+    *cursor += 1U;
+    path_token = vigil_token_list_get(tokens, *cursor);
+    if (path_token == NULL ||
+        (path_token->kind != VIGIL_TOKEN_STRING_LITERAL && path_token->kind != VIGIL_TOKEN_RAW_STRING_LITERAL))
+    {
+        return 1;
+    }
+    return register_single_import(context, path_token);
+}
+
 static int register_source_imports(vigil_source_registry_t *registry, vigil_source_id_t source_id,
                                    const char *project_root, vigil_error_t *error)
 {
+    import_register_context_t context;
     vigil_runtime_t *runtime;
     const vigil_source_file_t *source;
     vigil_token_list_t tokens;
@@ -249,6 +327,11 @@ static int register_source_imports(vigil_source_registry_t *registry, vigil_sour
 
     runtime = registry == NULL ? NULL : registry->runtime;
     source = vigil_source_registry_get(registry, source_id);
+    context.registry = registry;
+    context.source = &source;
+    context.runtime = runtime;
+    context.project_root = project_root;
+    context.error = error;
     if (source == NULL)
     {
         set_cli_frontend_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "registered source was not found");
@@ -274,60 +357,18 @@ static int register_source_imports(vigil_source_registry_t *registry, vigil_sour
         token = vigil_token_list_get(&tokens, cursor);
         if (token == NULL || token->kind == VIGIL_TOKEN_EOF)
             break;
-        if (token->kind == VIGIL_TOKEN_LBRACE)
+        if (advance_brace_depth(token, &brace_depth, &cursor))
         {
-            brace_depth += 1U;
-            cursor += 1U;
             continue;
         }
-        if (token->kind == VIGIL_TOKEN_RBRACE)
+        if (token->kind == VIGIL_TOKEN_IMPORT)
         {
-            if (brace_depth != 0U)
-                brace_depth -= 1U;
-            cursor += 1U;
-            continue;
-        }
-        if (brace_depth == 0U && token->kind == VIGIL_TOKEN_IMPORT)
-        {
-            const vigil_token_t *path_token;
-            vigil_string_t import_path;
-            const char *import_text;
-            size_t import_length;
-
-            cursor += 1U;
-            path_token = vigil_token_list_get(&tokens, cursor);
-            if (path_token == NULL ||
-                (path_token->kind != VIGIL_TOKEN_STRING_LITERAL && path_token->kind != VIGIL_TOKEN_RAW_STRING_LITERAL))
-                break;
-
-            import_text = source_token_text(source, path_token, &import_length);
-            if (import_text == NULL || import_length < 2U)
-                break;
-
-            if (vigil_stdlib_is_known_module(import_text + 1U, import_length - 2U))
+            if (!register_import_at_cursor(&context, &tokens, &cursor, brace_depth))
             {
-                cursor += 1U;
-                continue;
-            }
-
-            vigil_string_init(&import_path, runtime);
-            if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1U, import_length - 2U,
-                                    &import_path, error) != VIGIL_STATUS_OK)
-            {
-                vigil_string_free(&import_path);
                 vigil_token_list_free(&tokens);
                 vigil_diagnostic_list_free(&diagnostics);
                 return 0;
             }
-            if (!register_source_tree(registry, vigil_string_c_str(&import_path), project_root, NULL, error))
-            {
-                vigil_string_free(&import_path);
-                vigil_token_list_free(&tokens);
-                vigil_diagnostic_list_free(&diagnostics);
-                return 0;
-            }
-            vigil_string_free(&import_path);
-            source = vigil_source_registry_get(registry, source_id);
         }
         cursor += 1U;
     }
