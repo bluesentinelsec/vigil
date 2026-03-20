@@ -569,6 +569,71 @@ TEST_F(TomlTest, InlineTableKeyConflictError)
     EXPECT_NE(s, VIGIL_STATUS_OK);
 }
 
+TEST_F(TomlTest, TableHeaderMissingKey)
+{
+    vigil_status_t s = vigil_toml_parse(NULL, "[]\n", 3, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, TableHeaderMissingClosingBracket)
+{
+    const char *input = "[table\n";
+    vigil_status_t s =
+        vigil_toml_parse(NULL, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, TableHeaderConflictsWithScalar)
+{
+    const char *input = "a = 1\n[a]\n";
+    vigil_status_t s =
+        vigil_toml_parse(NULL, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, ArrayTableParentConflict)
+{
+    const char *input = "a = 1\n[[a.b]]\n";
+    vigil_status_t s =
+        vigil_toml_parse(NULL, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, ArrayTableConflictsWithTable)
+{
+    const char *input = "[a]\n[[a]]\n";
+    vigil_status_t s =
+        vigil_toml_parse(NULL, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, DottedKeysReuseExistingTable)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "a.b = 1\na.c = 2\n", vigil_test_failed_);
+    EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get_path(FIXTURE(TomlTest)->root, "a.b")), 1);
+    EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get_path(FIXTURE(TomlTest)->root, "a.c")), 2);
+}
+
+TEST_F(TomlTest, DottedKeyConflictError)
+{
+    const char *input = "a = 1\na.b = 2\n";
+    vigil_status_t s =
+        vigil_toml_parse(NULL, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, MissingEqualsError)
+{
+    vigil_status_t s = vigil_toml_parse(NULL, "a 1\n", 4, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, InvalidKeyValueKey)
+{
+    vigil_status_t s = vigil_toml_parse(NULL, "= 1\n", 4, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
 /* ── Emitter ─────────────────────────────────────────────────────── */
 
 TEST_F(TomlTest, EmitRoundTrip)
@@ -807,6 +872,15 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, UnterminatedString);
     REGISTER_TEST_F(TomlTest, InvalidBasicStringEscape);
     REGISTER_TEST_F(TomlTest, InlineTableKeyConflictError);
+    REGISTER_TEST_F(TomlTest, TableHeaderMissingKey);
+    REGISTER_TEST_F(TomlTest, TableHeaderMissingClosingBracket);
+    REGISTER_TEST_F(TomlTest, TableHeaderConflictsWithScalar);
+    REGISTER_TEST_F(TomlTest, ArrayTableParentConflict);
+    REGISTER_TEST_F(TomlTest, ArrayTableConflictsWithTable);
+    REGISTER_TEST_F(TomlTest, DottedKeysReuseExistingTable);
+    REGISTER_TEST_F(TomlTest, DottedKeyConflictError);
+    REGISTER_TEST_F(TomlTest, MissingEqualsError);
+    REGISTER_TEST_F(TomlTest, InvalidKeyValueKey);
     REGISTER_TEST_F(TomlTest, EmitRoundTrip);
     REGISTER_TEST_F(TomlTest, EmitTable);
     REGISTER_TEST_F(TomlTest, EmitFormatsNumbersAndBooleans);
