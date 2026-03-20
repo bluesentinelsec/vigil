@@ -354,32 +354,20 @@ TEST_F(TomlTest, FractionalSeconds)
     EXPECT_EQ(dt->nanosecond, 123456789);
 }
 
-TEST_F(TomlTest, LocalTimeFractionalSecondsVariants)
+TEST_F(TomlTest, LocalTimeFractionalSecondsPadNanoseconds)
 {
-    struct
-    {
-        const char *input;
-        int nanosecond;
-    } cases[] = {
-        {"t = 10:30:00.1", 100000000},
-        {"t = 10:30:00.123456789123", 123456789},
-    };
-    size_t i;
+    toml_parse_helper(FIXTURE(TomlTest), "t = 10:30:00.1", vigil_test_failed_);
+    const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "t"));
+    ASSERT_NE(dt, NULL);
+    EXPECT_EQ(dt->nanosecond, 100000000);
+}
 
-    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
-    {
-        vigil_toml_value_t *root = NULL;
-        vigil_error_t error;
-        const vigil_toml_datetime_t *dt;
-
-        memset(&error, 0, sizeof(error));
-        ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_parse(NULL, cases[i].input, strlen(cases[i].input), &root, &error));
-        dt = vigil_toml_datetime_value(vigil_toml_table_get(root, "t"));
-        ASSERT_NE(dt, NULL);
-        EXPECT_EQ(dt->nanosecond, cases[i].nanosecond);
-        vigil_toml_free(&root);
-        vigil_error_clear(&error);
-    }
+TEST_F(TomlTest, LocalTimeFractionalSecondsTrimExtraPrecision)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "t = 10:30:00.123456789123", vigil_test_failed_);
+    const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "t"));
+    ASSERT_NE(dt, NULL);
+    EXPECT_EQ(dt->nanosecond, 123456789);
 }
 
 TEST_F(TomlTest, InvalidDateTimeComponents)
@@ -605,7 +593,8 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, LocalDate);
     REGISTER_TEST_F(TomlTest, LocalTime);
     REGISTER_TEST_F(TomlTest, FractionalSeconds);
-    REGISTER_TEST_F(TomlTest, LocalTimeFractionalSecondsVariants);
+    REGISTER_TEST_F(TomlTest, LocalTimeFractionalSecondsPadNanoseconds);
+    REGISTER_TEST_F(TomlTest, LocalTimeFractionalSecondsTrimExtraPrecision);
     REGISTER_TEST_F(TomlTest, InvalidDateTimeComponents);
     REGISTER_TEST_F(TomlTest, Comments);
     REGISTER_TEST_F(TomlTest, DuplicateKeyError);
