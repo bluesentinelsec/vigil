@@ -1053,13 +1053,298 @@ static void parse_const_or_var(const vigil_allocator_t *a, const char *src, cons
 
 /* ── vigil_doc_extract ────────────────────────────────────────────── */
 
+typedef enum
+{
+    DOC_DECL_OTHER = 0,
+    DOC_DECL_IMPORT,
+    DOC_DECL_FUNCTION,
+    DOC_DECL_CLASS,
+    DOC_DECL_INTERFACE,
+    DOC_DECL_ENUM,
+    DOC_DECL_CONST,
+    DOC_DECL_VAR
+} doc_decl_kind_t;
+
+typedef struct
+{
+    const vigil_allocator_t *allocator;
+    const char *source_text;
+    size_t source_length;
+    const vigil_token_list_t *tokens;
+    vigil_doc_module_t *module;
+} doc_extract_ctx_t;
+
+static int is_module_decl_start(const vigil_token_t *t)
+{
+    return t != NULL && (t->kind == VIGIL_TOKEN_PUB || t->kind == VIGIL_TOKEN_FN || t->kind == VIGIL_TOKEN_CLASS ||
+                         t->kind == VIGIL_TOKEN_INTERFACE || t->kind == VIGIL_TOKEN_ENUM ||
+                         t->kind == VIGIL_TOKEN_CONST || t->kind == VIGIL_TOKEN_IMPORT || tok_is_type_start(t));
+}
+
+static size_t find_module_first_decl_offset(const vigil_token_list_t *tokens)
+{
+    size_t scan = 0;
+    int depth = 0;
+    const vigil_token_t *t;
+
+    while (1)
+    {
+        t = tok_at(tokens, scan);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
+            break;
+        if (t->kind == VIGIL_TOKEN_LBRACE)
+        {
+            depth++;
+            scan++;
+            continue;
+        }
+        if (t->kind == VIGIL_TOKEN_RBRACE)
+        {
+            if (depth > 0)
+                depth--;
+            scan++;
+            continue;
+        }
+        if (depth == 0 && is_module_decl_start(t))
+            return t->span.start_offset;
+        scan++;
+    }
+
+    return (size_t)-1;
+}
+
+static int module_contains_main(const char *source_text, const vigil_token_list_t *tokens)
+{
+    size_t scan = 0;
+
+    while (1)
+    {
+        const vigil_token_t *t = tok_at(tokens, scan);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
+            return 0;
+        if (t->kind == VIGIL_TOKEN_FN)
+        {
+            const vigil_token_t *name = tok_at(tokens, scan + 1);
+            if (name != NULL && name->kind == VIGIL_TOKEN_IDENTIFIER &&
+                name->span.end_offset - name->span.start_offset == 4 &&
+                memcmp(source_text + name->span.start_offset, "main", 4) == 0)
+            {
+                return 1;
+            }
+        }
+        scan++;
+    }
+}
+
+static void skip_to_semicolon(const vigil_token_list_t *tokens, size_t *cursor)
+{
+    const vigil_token_t *t;
+
+    while (1)
+    {
+        t = tok_at(tokens, *cursor);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
+            break;
+        (*cursor)++;
+    }
+    if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
+        (*cursor)++;
+}
+
+static void skip_named_block_decl(const vigil_token_list_t *tokens, size_t *cursor)
+{
+    const vigil_token_t *t;
+
+    (*cursor)++;
+    (*cursor)++;
+    while (1)
+    {
+        t = tok_at(tokens, *cursor);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
+            break;
+        (*cursor)++;
+    }
+    skip_brace_body(tokens, cursor);
+}
+
+static void skip_function_params(const vigil_token_list_t *tokens, size_t *cursor)
+{
+    const vigil_token_t *t;
+
+    t = tok_at(tokens, *cursor);
+    if (t != NULL && t->kind == VIGIL_TOKEN_LPAREN)
+    {
+        int depth = 1;
+        (*cursor)++;
+        while (depth > 0)
+        {
+            t = tok_at(tokens, *cursor);
+            if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
+                break;
+            if (t->kind == VIGIL_TOKEN_LPAREN)
+                depth++;
+            else if (t->kind == VIGIL_TOKEN_RPAREN)
+                depth--;
+            (*cursor)++;
+        }
+    }
+}
+
+static void skip_function_return_type(const vigil_token_list_t *tokens, size_t *cursor)
+{
+    const vigil_token_t *t = tok_at(tokens, *cursor);
+
+    if (t == NULL || t->kind != VIGIL_TOKEN_ARROW)
+        return;
+    (*cursor)++;
+    while (1)
+    {
+        t = tok_at(tokens, *cursor);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
+            break;
+        (*cursor)++;
+    }
+}
+
+static void skip_private_function_decl(const vigil_token_list_t *tokens, size_t *cursor)
+{
+    (*cursor)++;
+    (*cursor)++;
+    skip_function_params(tokens, cursor);
+    skip_function_return_type(tokens, cursor);
+    skip_brace_body(tokens, cursor);
+}
+
+static doc_decl_kind_t classify_module_decl(const vigil_token_t *t)
+{
+    if (t == NULL)
+        return DOC_DECL_OTHER;
+    if (t->kind == VIGIL_TOKEN_IMPORT)
+        return DOC_DECL_IMPORT;
+    if (t->kind == VIGIL_TOKEN_FN)
+        return DOC_DECL_FUNCTION;
+    if (t->kind == VIGIL_TOKEN_CLASS)
+        return DOC_DECL_CLASS;
+    if (t->kind == VIGIL_TOKEN_INTERFACE)
+        return DOC_DECL_INTERFACE;
+    if (t->kind == VIGIL_TOKEN_ENUM)
+        return DOC_DECL_ENUM;
+    if (t->kind == VIGIL_TOKEN_CONST)
+        return DOC_DECL_CONST;
+    if (tok_is_type_start(t))
+        return DOC_DECL_VAR;
+    return DOC_DECL_OTHER;
+}
+
+static void skip_hidden_decl(doc_decl_kind_t kind, const vigil_token_list_t *tokens, size_t *cursor)
+{
+    switch (kind)
+    {
+    case DOC_DECL_IMPORT:
+    case DOC_DECL_CONST:
+    case DOC_DECL_VAR:
+        skip_to_semicolon(tokens, cursor);
+        break;
+    case DOC_DECL_FUNCTION:
+        skip_private_function_decl(tokens, cursor);
+        break;
+    case DOC_DECL_CLASS:
+    case DOC_DECL_INTERFACE:
+    case DOC_DECL_ENUM:
+        skip_named_block_decl(tokens, cursor);
+        break;
+    case DOC_DECL_OTHER:
+    default:
+        (*cursor)++;
+        break;
+    }
+}
+
+static vigil_doc_symbol_t *begin_visible_decl(const doc_extract_ctx_t *ctx, size_t decl_start)
+{
+    vigil_doc_symbol_t *sym = module_add_symbol(ctx->module);
+    if (sym == NULL)
+        return NULL;
+    extract_comment_before(ctx->allocator, ctx->source_text, ctx->source_length, decl_start, &sym->comment);
+    return sym;
+}
+
+static vigil_status_t parse_visible_decl(const doc_extract_ctx_t *ctx, doc_decl_kind_t kind, size_t decl_start,
+                                         size_t *cursor)
+{
+    vigil_doc_symbol_t *sym = begin_visible_decl(ctx, decl_start);
+    if (sym == NULL)
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+
+    switch (kind)
+    {
+    case DOC_DECL_FUNCTION:
+        return parse_function(ctx->allocator, ctx->source_text, ctx->source_length, ctx->tokens, cursor, sym);
+    case DOC_DECL_CLASS:
+        return parse_class(ctx->allocator, ctx->source_text, ctx->source_length, ctx->tokens, cursor, sym);
+    case DOC_DECL_INTERFACE:
+        return parse_interface(ctx->allocator, ctx->source_text, ctx->source_length, ctx->tokens, cursor, sym);
+    case DOC_DECL_ENUM:
+        return parse_enum(ctx->allocator, ctx->source_text, ctx->source_length, ctx->tokens, cursor, sym);
+    case DOC_DECL_CONST:
+        parse_const_or_var(ctx->allocator, ctx->source_text, ctx->tokens, cursor, sym, 1);
+        return VIGIL_STATUS_OK;
+    case DOC_DECL_VAR:
+        parse_const_or_var(ctx->allocator, ctx->source_text, ctx->tokens, cursor, sym, 0);
+        return VIGIL_STATUS_OK;
+    case DOC_DECL_IMPORT:
+    case DOC_DECL_OTHER:
+    default:
+        return VIGIL_STATUS_OK;
+    }
+}
+
+static vigil_status_t handle_module_decl(const doc_extract_ctx_t *ctx, size_t *cursor, int is_script)
+{
+    const vigil_token_t *t = tok_at(ctx->tokens, *cursor);
+    size_t decl_start;
+    doc_decl_kind_t kind;
+    int is_pub = 0;
+
+    if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
+        return VIGIL_STATUS_OK;
+
+    decl_start = t->span.start_offset;
+    if (t->kind == VIGIL_TOKEN_PUB)
+    {
+        is_pub = 1;
+        (*cursor)++;
+        t = tok_at(ctx->tokens, *cursor);
+    }
+
+    kind = classify_module_decl(t);
+    if (kind == DOC_DECL_IMPORT)
+    {
+        skip_to_semicolon(ctx->tokens, cursor);
+        return VIGIL_STATUS_OK;
+    }
+    if (kind == DOC_DECL_OTHER)
+    {
+        (*cursor)++;
+        return VIGIL_STATUS_OK;
+    }
+    if (is_pub || is_script)
+        return parse_visible_decl(ctx, kind, decl_start, cursor);
+
+    skip_hidden_decl(kind, ctx->tokens, cursor);
+    return VIGIL_STATUS_OK;
+}
+
 vigil_status_t vigil_doc_extract(const vigil_allocator_t *allocator, const char *filename, size_t filename_length,
                                  const char *source_text, size_t source_length, const vigil_token_list_t *tokens,
                                  vigil_doc_module_t *out_module, vigil_error_t *error)
 {
+    doc_extract_ctx_t ctx;
     size_t cursor = 0;
+    size_t first_decl_offset;
     const vigil_token_t *t;
-    size_t first_decl_offset = (size_t)-1;
+    int is_script;
+    vigil_status_t status;
 
     (void)error;
     if (out_module == NULL)
@@ -1068,279 +1353,29 @@ vigil_status_t vigil_doc_extract(const vigil_allocator_t *allocator, const char 
     out_module->allocator = allocator;
 
     out_module->name = module_name_from_path(allocator, filename, filename_length, &out_module->name_length);
+    ctx.allocator = allocator;
+    ctx.source_text = source_text;
+    ctx.source_length = source_length;
+    ctx.tokens = tokens;
+    ctx.module = out_module;
 
-    /* First pass: find first declaration offset for module summary. */
-    {
-        size_t scan = 0;
-        int depth = 0;
-        while (1)
-        {
-            t = tok_at(tokens, scan);
-            if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
-                break;
-            if (t->kind == VIGIL_TOKEN_LBRACE)
-            {
-                depth++;
-                scan++;
-                continue;
-            }
-            if (t->kind == VIGIL_TOKEN_RBRACE)
-            {
-                if (depth > 0)
-                    depth--;
-                scan++;
-                continue;
-            }
-            if (depth == 0)
-            {
-                if (t->kind == VIGIL_TOKEN_PUB || t->kind == VIGIL_TOKEN_FN || t->kind == VIGIL_TOKEN_CLASS ||
-                    t->kind == VIGIL_TOKEN_INTERFACE || t->kind == VIGIL_TOKEN_ENUM || t->kind == VIGIL_TOKEN_CONST ||
-                    t->kind == VIGIL_TOKEN_IMPORT || tok_is_type_start(t))
-                {
-                    if (t->span.start_offset < first_decl_offset)
-                        first_decl_offset = t->span.start_offset;
-                    break;
-                }
-            }
-            scan++;
-        }
-    }
+    first_decl_offset = find_module_first_decl_offset(tokens);
 
     if (first_decl_offset != (size_t)-1)
     {
         extract_module_summary(allocator, source_text, source_length, first_decl_offset, &out_module->summary);
     }
 
-    /* Second pass: extract public declarations at brace depth 0.
-     * For script files (those containing a main function), also extract
-     * non-pub declarations so that `vigil doc` is useful on scripts. */
-    int is_script = 0;
-    {
-        size_t scan = 0;
-        while (1)
-        {
-            const vigil_token_t *st = tok_at(tokens, scan);
-            if (st == NULL || st->kind == VIGIL_TOKEN_EOF)
-                break;
-            if (st->kind == VIGIL_TOKEN_FN)
-            {
-                const vigil_token_t *nt = tok_at(tokens, scan + 1);
-                if (nt != NULL && nt->kind == VIGIL_TOKEN_IDENTIFIER &&
-                    nt->span.end_offset - nt->span.start_offset == 4 &&
-                    memcmp(source_text + nt->span.start_offset, "main", 4) == 0)
-                {
-                    is_script = 1;
-                    break;
-                }
-            }
-            scan++;
-        }
-    }
+    is_script = module_contains_main(source_text, tokens);
     cursor = 0;
     while (1)
     {
-        int is_pub = 0;
-        size_t decl_start;
-        vigil_doc_symbol_t *sym;
-
         t = tok_at(tokens, cursor);
         if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
             break;
-
-        /* Skip imports at top level. */
-        if (t->kind == VIGIL_TOKEN_IMPORT)
-        {
-            while (1)
-            {
-                t = tok_at(tokens, cursor);
-                if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
-                    break;
-                cursor++;
-            }
-            if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
-                cursor++;
-            continue;
-        }
-
-        decl_start = t->span.start_offset;
-
-        if (t->kind == VIGIL_TOKEN_PUB)
-        {
-            is_pub = 1;
-            cursor++;
-            t = tok_at(tokens, cursor);
-        }
-
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
-            break;
-
-        if (t->kind == VIGIL_TOKEN_FN)
-        {
-            if (is_pub || is_script)
-            {
-                sym = module_add_symbol(out_module);
-                if (sym == NULL)
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                extract_comment_before(allocator, source_text, source_length, decl_start, &sym->comment);
-                parse_function(allocator, source_text, source_length, tokens, &cursor, sym);
-            }
-            else
-            {
-                /* Skip private function. */
-                cursor++; /* fn */
-                cursor++; /* name */
-                t = tok_at(tokens, cursor);
-                if (t != NULL && t->kind == VIGIL_TOKEN_LPAREN)
-                {
-                    int depth = 1;
-                    cursor++;
-                    while (depth > 0)
-                    {
-                        t = tok_at(tokens, cursor);
-                        if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
-                            break;
-                        if (t->kind == VIGIL_TOKEN_LPAREN)
-                            depth++;
-                        else if (t->kind == VIGIL_TOKEN_RPAREN)
-                            depth--;
-                        cursor++;
-                    }
-                }
-                t = tok_at(tokens, cursor);
-                if (t != NULL && t->kind == VIGIL_TOKEN_ARROW)
-                {
-                    cursor++;
-                    /* Skip return type tokens until { */
-                    while (1)
-                    {
-                        t = tok_at(tokens, cursor);
-                        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
-                            break;
-                        cursor++;
-                    }
-                }
-                skip_brace_body(tokens, &cursor);
-            }
-        }
-        else if (t->kind == VIGIL_TOKEN_CLASS)
-        {
-            if (is_pub || is_script)
-            {
-                sym = module_add_symbol(out_module);
-                if (sym == NULL)
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                extract_comment_before(allocator, source_text, source_length, decl_start, &sym->comment);
-                parse_class(allocator, source_text, source_length, tokens, &cursor, sym);
-            }
-            else
-            {
-                /* Skip private class. */
-                cursor++; /* class */
-                cursor++; /* name */
-                /* Skip to { */
-                while (1)
-                {
-                    t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
-                        break;
-                    cursor++;
-                }
-                skip_brace_body(tokens, &cursor);
-            }
-        }
-        else if (t->kind == VIGIL_TOKEN_INTERFACE)
-        {
-            if (is_pub || is_script)
-            {
-                sym = module_add_symbol(out_module);
-                if (sym == NULL)
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                extract_comment_before(allocator, source_text, source_length, decl_start, &sym->comment);
-                parse_interface(allocator, source_text, source_length, tokens, &cursor, sym);
-            }
-            else
-            {
-                cursor++;
-                cursor++;
-                while (1)
-                {
-                    t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
-                        break;
-                    cursor++;
-                }
-                skip_brace_body(tokens, &cursor);
-            }
-        }
-        else if (t->kind == VIGIL_TOKEN_ENUM)
-        {
-            if (is_pub || is_script)
-            {
-                sym = module_add_symbol(out_module);
-                if (sym == NULL)
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                extract_comment_before(allocator, source_text, source_length, decl_start, &sym->comment);
-                parse_enum(allocator, source_text, source_length, tokens, &cursor, sym);
-            }
-            else
-            {
-                cursor++;
-                cursor++;
-                skip_brace_body(tokens, &cursor);
-            }
-        }
-        else if (t->kind == VIGIL_TOKEN_CONST)
-        {
-            if (is_pub || is_script)
-            {
-                sym = module_add_symbol(out_module);
-                if (sym == NULL)
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                extract_comment_before(allocator, source_text, source_length, decl_start, &sym->comment);
-                parse_const_or_var(allocator, source_text, tokens, &cursor, sym, 1);
-            }
-            else
-            {
-                /* Skip to semicolon. */
-                while (1)
-                {
-                    t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
-                        break;
-                    cursor++;
-                }
-                if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
-                    cursor++;
-            }
-        }
-        else if (tok_is_type_start(t))
-        {
-            /* Variable declaration: [pub] type name = ...; */
-            if (is_pub || is_script)
-            {
-                sym = module_add_symbol(out_module);
-                if (sym == NULL)
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                extract_comment_before(allocator, source_text, source_length, decl_start, &sym->comment);
-                parse_const_or_var(allocator, source_text, tokens, &cursor, sym, 0);
-            }
-            else
-            {
-                while (1)
-                {
-                    t = tok_at(tokens, cursor);
-                    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
-                        break;
-                    cursor++;
-                }
-                if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
-                    cursor++;
-            }
-        }
-        else
-        {
-            cursor++;
-        }
+        status = handle_module_decl(&ctx, &cursor, is_script);
+        if (status != VIGIL_STATUS_OK)
+            return status;
     }
 
     return VIGIL_STATUS_OK;

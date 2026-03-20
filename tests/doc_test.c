@@ -403,6 +403,29 @@ TEST_F(VigilDocTest, PrivateDeclarationsHidden)
     free(out);
 }
 
+TEST_F(VigilDocTest, ScriptModeShowsPrivateDeclarations)
+{
+    char *out = doc_render_helper(F,
+                                  "import std.io;\n"
+                                  "fn helper() -> i32 {\n"
+                                  "\treturn 1;\n"
+                                  "}\n"
+                                  "class LocalPoint {\n"
+                                  "\ti32 x;\n"
+                                  "}\n"
+                                  "i32 local_value = 7;\n"
+                                  "fn main() -> i32 {\n"
+                                  "\treturn helper();\n"
+                                  "}\n",
+                                  NULL);
+
+    EXPECT_TRUE(strstr(out, "FUNCTIONS\n  helper() -> i32") != NULL);
+    EXPECT_TRUE(strstr(out, "CLASSES\n  LocalPoint") != NULL);
+    EXPECT_TRUE(strstr(out, "VARIABLES\n  local_value i32") != NULL);
+    EXPECT_TRUE(strstr(out, "std.io") == NULL);
+    free(out);
+}
+
 TEST_F(VigilDocTest, EmptyFileShowsModuleOnly)
 {
     char *out = doc_render_helper(F, "", NULL);
@@ -457,6 +480,7 @@ void register_doc_tests(void)
     REGISTER_TEST_F(VigilDocTest, ComplexReturnTypes);
     REGISTER_TEST_F(VigilDocTest, GenericTypes);
     REGISTER_TEST_F(VigilDocTest, PrivateDeclarationsHidden);
+    REGISTER_TEST_F(VigilDocTest, ScriptModeShowsPrivateDeclarations);
     REGISTER_TEST_F(VigilDocTest, EmptyFileShowsModuleOnly);
     REGISTER_TEST_F(VigilDocTest, ModuleNameFromPath);
 }
