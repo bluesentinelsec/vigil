@@ -114,13 +114,13 @@ class TestVigilTest(unittest.TestCase):
             'pub fn message() -> string {\n'
             '    return "ok";\n'
             '}\n')
-        self._write("test/import_test.vigil",
+        test_path = self._write("test/import_test.vigil",
             'import "test";\n'
             'import "helper" as helper;\n'
             'fn test_import(test.T t) -> void {\n'
             '    t.assert(helper.message() == "ok", "import should resolve");\n'
             '}\n')
-        r = run_test(os.path.join("test", "import_test.vigil"), cwd=self.tmpdir)
+        r = run_test(test_path)
         self.assertEqual(r.returncode, 0, msg=f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         self.assertIn("PASS: 1 passed", r.stdout)
 
