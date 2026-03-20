@@ -119,95 +119,10 @@ static int path_is_absolute(const char *path, size_t length)
     return length >= 2U && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':';
 }
 
-/* Walk up from |start_path| (a file path) looking for vigil.toml.
-   Writes the directory containing it into |out_buf|.  Returns 1 on
-   success, 0 if no project root was found. */
-int find_project_root(const char *start_path, char *out_buf, size_t buf_size)
-{
-    char dir[4096];
-    size_t len;
-    if (start_path == NULL || buf_size == 0U)
-        return 0;
-
-    /* Start from the directory containing start_path. */
-    len = strlen(start_path);
-    if (len >= sizeof(dir))
-        return 0;
-    memcpy(dir, start_path, len + 1U);
-    /* Strip trailing filename. */
-    while (len > 0U && dir[len - 1U] != '/' && dir[len - 1U] != '\\')
-        len--;
-    if (len > 0U)
-        len--; /* remove the separator itself */
-    if (len == 0U)
-    {
-        dir[0] = '.';
-        len = 1U;
-    }
-    dir[len] = '\0';
-
-    for (;;)
-    {
-        char candidate[4096];
-        int exists = 0;
-        vigil_error_t err = {0};
-        if (vigil_platform_path_join(dir, "vigil.toml", candidate, sizeof(candidate), &err) != VIGIL_STATUS_OK)
-            return 0;
-        if (vigil_platform_file_exists(candidate, &exists) == VIGIL_STATUS_OK && exists)
-        {
-            if (len + 1U > buf_size)
-                return 0;
-            memcpy(out_buf, dir, len);
-            out_buf[len] = '\0';
-            return 1;
-        }
-        /* Go up one directory. */
-        while (len > 0U && dir[len - 1U] != '/' && dir[len - 1U] != '\\')
-            len--;
-        if (len == 0U)
-        {
-            /* If we haven't tried "." yet, try it as a last resort. */
-            if (dir[0] != '.')
-            {
-                dir[0] = '.';
-                dir[1] = '\0';
-                len = 1U;
-                continue;
-            }
-            return 0;
-        }
-        len--; /* remove separator */
-        dir[len] = '\0';
-    }
-}
-
-static int registry_find_source_path(const vigil_source_registry_t *registry, const char *path,
-                                     vigil_source_id_t *out_source_id)
-{
-    size_t index;
-    if (out_source_id != NULL)
-        *out_source_id = 0U;
-    if (registry == NULL || path == NULL)
-        return 0;
-    for (index = 1U; index <= vigil_source_registry_count(registry); index += 1U)
-    {
-        const vigil_source_file_t *source;
-        source = vigil_source_registry_get(registry, (vigil_source_id_t)index);
-        if (source == NULL)
-            continue;
-        if (strcmp(vigil_string_c_str(&source->path), path) == 0)
-        {
-            if (out_source_id != NULL)
-                *out_source_id = source->id;
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static const char *source_token_text(const vigil_source_file_t *source, const vigil_token_t *token, size_t *out_length)
 {
     size_t length;
+
     if (out_length != NULL)
         *out_length = 0U;
     if (source == NULL || token == NULL)
@@ -221,7 +136,9 @@ static const char *source_token_text(const vigil_source_file_t *source, const vi
 static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path, const char *import_text,
                                           size_t import_length, vigil_string_t *out_path, vigil_error_t *error)
 {
-    size_t base_length, prefix_length;
+    size_t base_length;
+    size_t prefix_length;
+
     vigil_string_clear(out_path);
     if (runtime == NULL || base_path == NULL || import_text == NULL || out_path == NULL)
     {
@@ -235,7 +152,9 @@ static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *
     prefix_length = base_length;
     while (prefix_length > 0U)
     {
-        char current = base_path[prefix_length - 1U];
+        char current;
+
+        current = base_path[prefix_length - 1U];
         if (current == '/' || current == '\\')
             break;
         prefix_length -= 1U;
@@ -258,197 +177,6 @@ static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *
     }
     (void)runtime;
     return VIGIL_STATUS_OK;
-}
-
-int register_source_tree(vigil_source_registry_t *registry, const char *path, const char *project_root,
-                         vigil_source_id_t *out_source_id, vigil_error_t *error)
-{
-    vigil_runtime_t *runtime;
-    vigil_source_id_t source_id;
-    char *file_text;
-    size_t file_length;
-    const vigil_source_file_t *source;
-    vigil_token_list_t tokens;
-    vigil_diagnostic_list_t diagnostics;
-    const vigil_token_t *token;
-    size_t cursor, brace_depth;
-    const char *register_path;
-
-    runtime = registry == NULL ? NULL : registry->runtime;
-    source_id = 0U;
-    if (registry_find_source_path(registry, path, &source_id))
-    {
-        if (out_source_id != NULL)
-            *out_source_id = source_id;
-        vigil_error_clear(error);
-        return 1;
-    }
-
-    /* Try reading the file at the resolved path.  If it does not exist
-       and we have a project root, fall back to <root>/lib/<name>.vigil.
-       The source is always registered under the original |path| so the
-       compiler's own import-path resolution finds it. */
-    register_path = path;
-    if (vigil_platform_read_file(NULL, path, &file_text, &file_length, error) != VIGIL_STATUS_OK)
-    {
-        int found_in_lib = 0;
-        if (project_root != NULL)
-        {
-            /* Extract the basename from path (strip directory prefix and .vigil). */
-            const char *base = path;
-            const char *p;
-            size_t blen;
-            char lib_candidate[4096];
-            vigil_error_t lib_err = {0};
-
-            for (p = path; *p; p++)
-                if (*p == '/' || *p == '\\')
-                    base = p + 1;
-            blen = strlen(base);
-
-            /* Try lib/ first */
-            {
-                char lib_dir[4096];
-                if (vigil_platform_path_join(project_root, "lib", lib_dir, sizeof(lib_dir), &lib_err) ==
-                        VIGIL_STATUS_OK &&
-                    vigil_platform_path_join(lib_dir, base, lib_candidate, sizeof(lib_candidate), &lib_err) ==
-                        VIGIL_STATUS_OK)
-                {
-                    vigil_error_clear(error);
-                    if (vigil_platform_read_file(NULL, lib_candidate, &file_text, &file_length, error) ==
-                        VIGIL_STATUS_OK)
-                    {
-                        found_in_lib = 1;
-                    }
-                }
-            }
-
-            /* Try deps/ for package imports (e.g. github.com/user/repo) */
-            if (!found_in_lib)
-            {
-                char deps_candidate[4096];
-                vigil_error_clear(&lib_err);
-                if (vigil_pkg_resolve_import(project_root, path, deps_candidate, sizeof(deps_candidate), &lib_err) ==
-                    VIGIL_STATUS_OK)
-                {
-                    vigil_error_clear(error);
-                    if (vigil_platform_read_file(NULL, deps_candidate, &file_text, &file_length, error) ==
-                        VIGIL_STATUS_OK)
-                    {
-                        found_in_lib = 1;
-                    }
-                }
-            }
-            (void)blen;
-        }
-        if (!found_in_lib)
-        {
-            set_cli_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "failed to read imported source");
-            return 0;
-        }
-    }
-
-    if (vigil_source_registry_register(registry, register_path, strlen(register_path), file_text, file_length,
-                                       &source_id, error) != VIGIL_STATUS_OK)
-    {
-        free(file_text);
-        return 0;
-    }
-    free(file_text);
-    if (out_source_id != NULL)
-        *out_source_id = source_id;
-
-    source = vigil_source_registry_get(registry, source_id);
-    if (source == NULL)
-    {
-        set_cli_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "registered source was not found");
-        return 0;
-    }
-
-    vigil_token_list_init(&tokens, runtime);
-    vigil_diagnostic_list_init(&diagnostics, runtime);
-    if (vigil_lex_source(registry, source_id, &tokens, &diagnostics, error) != VIGIL_STATUS_OK)
-    {
-        vigil_error_clear(error);
-        vigil_token_list_free(&tokens);
-        vigil_diagnostic_list_free(&diagnostics);
-        return 1;
-    }
-
-    cursor = 0U;
-    brace_depth = 0U;
-    while (1)
-    {
-        token = vigil_token_list_get(&tokens, cursor);
-        if (token == NULL || token->kind == VIGIL_TOKEN_EOF)
-            break;
-        if (token->kind == VIGIL_TOKEN_LBRACE)
-        {
-            brace_depth++;
-            cursor++;
-            continue;
-        }
-        if (token->kind == VIGIL_TOKEN_RBRACE)
-        {
-            if (brace_depth != 0U)
-                brace_depth--;
-            cursor++;
-            continue;
-        }
-        if (brace_depth == 0U && token->kind == VIGIL_TOKEN_IMPORT)
-        {
-            const vigil_token_t *path_token;
-            vigil_string_t import_path;
-            const char *import_text;
-            size_t import_length;
-
-            cursor++;
-            path_token = vigil_token_list_get(&tokens, cursor);
-            if (path_token == NULL ||
-                (path_token->kind != VIGIL_TOKEN_STRING_LITERAL && path_token->kind != VIGIL_TOKEN_RAW_STRING_LITERAL))
-                break;
-
-            import_text = source_token_text(source, path_token, &import_length);
-            if (import_text == NULL || import_length < 2U)
-                break;
-
-            if (vigil_stdlib_is_known_module(import_text + 1U, import_length - 2U))
-            {
-                cursor++;
-                continue;
-            }
-
-            vigil_string_init(&import_path, runtime);
-            if (resolve_import_path(runtime, vigil_string_c_str(&source->path), import_text + 1U, import_length - 2U,
-                                    &import_path, error) != VIGIL_STATUS_OK)
-            {
-                vigil_string_free(&import_path);
-                vigil_token_list_free(&tokens);
-                vigil_diagnostic_list_free(&diagnostics);
-                return 0;
-            }
-
-            if (!register_source_tree(registry, vigil_string_c_str(&import_path), project_root, NULL, error))
-            {
-                vigil_string_free(&import_path);
-                vigil_token_list_free(&tokens);
-                vigil_diagnostic_list_free(&diagnostics);
-                return 0;
-            }
-            vigil_string_free(&import_path);
-
-            /* The recursive register_source_tree call above may have grown
-               the source registry, invalidating our |source| pointer.
-               Re-fetch it so subsequent iterations read valid memory. */
-            source = vigil_source_registry_get(registry, source_id);
-        }
-        cursor++;
-    }
-
-    vigil_token_list_free(&tokens);
-    vigil_diagnostic_list_free(&diagnostics);
-    vigil_error_clear(error);
-    return 1;
 }
 
 /* ── run command ─────────────────────────────────────────────────── */

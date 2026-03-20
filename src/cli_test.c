@@ -487,6 +487,7 @@ static int cmd_test_parse_args(int argc, char **argv, test_options_t *options, s
 
 static void cmd_test_add_default_target(str_list_t *targets)
 {
+    int has_manifest;
     int is_dir;
 
     if (targets->count != 0U)
@@ -495,12 +496,9 @@ static void cmd_test_add_default_target(str_list_t *targets)
     is_dir = 0;
     if (vigil_platform_is_directory("test", &is_dir) == VIGIL_STATUS_OK && is_dir)
     {
-        FILE *file;
-
-        file = fopen("vigil.toml", "r");
-        if (file != NULL)
+        has_manifest = 0;
+        if (vigil_platform_file_exists("vigil.toml", &has_manifest) == VIGIL_STATUS_OK && has_manifest)
         {
-            fclose(file);
             sl_add(targets, "test");
             return;
         }

@@ -100,6 +100,16 @@ class TestVigilTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("no test files found", r.stdout)
 
+    def test_default_target_uses_current_directory_without_manifest(self):
+        self._write("cwd_test.vigil",
+            'import "test";\n'
+            'fn test_cwd(test.T t) -> void {\n'
+            '    t.assert(true, "should run from current directory");\n'
+            '}\n')
+        r = run_test(cwd=self.tmpdir)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("PASS: 1 passed", r.stdout)
+
     def test_project_default_target(self):
         self._write("vigil.toml", '[project]\nname = "myproj"\n')
         self._write("test/my_test.vigil",
@@ -124,6 +134,28 @@ class TestVigilTest(unittest.TestCase):
         r = run_test(test_path)
         self.assertEqual(r.returncode, 0, msg=f"stdout:\n{r.stdout}\nstderr:\n{r.stderr}")
         self.assertIn("PASS: 1 passed", r.stdout)
+
+    def test_explicit_non_test_file_argument_is_ignored(self):
+        target = self._write("regular.vigil", 'fn main() -> i32 { return 0; }\n')
+        r = run_test(target)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("no test files found", r.stdout)
+
+    def test_missing_run_pattern(self):
+        r = run_test("-run")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("-run requires a pattern", r.stderr)
+
+    def test_compile_error_reports_diagnostic(self):
+        bad_test = self._write("bad_test.vigil",
+            'import "test";\n'
+            'fn test_bad(test.T t) -> void {\n'
+            '    broken(\n'
+            '}\n')
+        r = run_test(bad_test)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("error:", r.stdout)
+        self.assertIn("bad_test.vigil", r.stdout)
 
     def test_mixed_pass_fail(self):
         self._write("mix_test.vigil",

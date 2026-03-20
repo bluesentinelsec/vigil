@@ -176,6 +176,7 @@ add_library(vigil ${VIGIL_LIBRARY_TYPE}
     ${VIGIL_STDLIB_OPTIONAL_SOURCES}
     src/url.c
     src/yaml.c
+    src/cli_frontend.c
 )
 
 # ── Platform abstraction layer ──────────────────────────────────────
@@ -288,6 +289,7 @@ if(VIGIL_BUILD_TESTS)
         tests/binding_test.c
         tests/checker_test.c
         tests/chunk_test.c
+        tests/cli_frontend_test.c
         tests/cli_lib_test.c
         tests/compiler_test.c
         tests/dap_test.c
