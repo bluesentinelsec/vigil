@@ -33,6 +33,78 @@ static void toml_parse_helper(TomlTest *self, const char *input, int *vigil_test
     ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_parse(NULL, input, strlen(input), &self->root, &self->error));
 }
 
+static vigil_status_t toml_emit_helper(TomlTest *self, char **out, size_t *len)
+{
+    return vigil_toml_emit(self->root, out, len, &self->error);
+}
+
+static vigil_status_t toml_parse_and_emit(TomlTest *self, const char *input, char **out, size_t *len)
+{
+    vigil_status_t s;
+
+    s = vigil_toml_parse(NULL, input, strlen(input), &self->root, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    return toml_emit_helper(self, out, len);
+}
+
+static vigil_status_t toml_build_quoted_section_root(TomlTest *self)
+{
+    vigil_status_t s;
+    vigil_toml_value_t *section = NULL;
+    vigil_toml_value_t *value = NULL;
+    vigil_toml_value_t *name = NULL;
+    vigil_toml_value_t *enabled = NULL;
+    vigil_toml_value_t *count = NULL;
+
+    s = vigil_toml_table_new(NULL, &self->root, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_table_new(NULL, &section, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_integer_new(NULL, 1, &value, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_string_new(NULL, "demo", 4, &name, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_bool_new(NULL, 1, &enabled, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_integer_new(NULL, 4, &count, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_table_set(section, "value", 5, value, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    value = NULL;
+    s = vigil_toml_table_set(section, "name", 4, name, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    name = NULL;
+    s = vigil_toml_table_set(section, "enabled", 7, enabled, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    enabled = NULL;
+    s = vigil_toml_table_set(section, "count", 5, count, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    count = NULL;
+    s = vigil_toml_table_set(self->root, "quoted key", 10, section, &self->error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    section = NULL;
+
+cleanup:
+    vigil_toml_free(&section);
+    vigil_toml_free(&value);
+    vigil_toml_free(&name);
+    vigil_toml_free(&enabled);
+    vigil_toml_free(&count);
+    return s;
+}
+
 /* ── Basic key/value ─────────────────────────────────────────────── */
 
 TEST_F(TomlTest, StringValue)
@@ -456,24 +528,18 @@ TEST_F(TomlTest, EmitTable)
     free(out);
 }
 
-TEST_F(TomlTest, EmitFormatsScalarValues)
+TEST_F(TomlTest, EmitFormatsNumbersAndBooleans)
 {
     const char *input = "whole = 1\n"
                         "floaty = 2.0\n"
                         "nan_val = nan\n"
                         "pos_inf = inf\n"
                         "neg_inf = -inf\n"
-                        "flag = true\n"
-                        "stamp = 2024-01-15T10:30:00.100000000Z\n"
-                        "offset = 2024-01-15T10:30:00-05:30\n"
-                        "clock = 10:30:00.123400000\n"
-                        "items = [1, 2]\n"
-                        "point = { x = 1, y = 2 }\n";
+                        "flag = true\n";
     char *out = NULL;
     size_t len = 0;
 
-    toml_parse_helper(FIXTURE(TomlTest), input, vigil_test_failed_);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_emit(FIXTURE(TomlTest)->root, &out, &len, &FIXTURE(TomlTest)->error));
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_parse_and_emit(FIXTURE(TomlTest), input, &out, &len));
     ASSERT_NE(out, NULL);
     EXPECT_NE(strstr(out, "whole = 1"), NULL);
     EXPECT_NE(strstr(out, "floaty = 2.0"), NULL);
@@ -481,9 +547,34 @@ TEST_F(TomlTest, EmitFormatsScalarValues)
     EXPECT_NE(strstr(out, "pos_inf = inf"), NULL);
     EXPECT_NE(strstr(out, "neg_inf = -inf"), NULL);
     EXPECT_NE(strstr(out, "flag = true"), NULL);
+    free(out);
+}
+
+TEST_F(TomlTest, EmitFormatsDateTimes)
+{
+    const char *input = "stamp = 2024-01-15T10:30:00.100000000Z\n"
+                        "offset = 2024-01-15T10:30:00-05:30\n"
+                        "clock = 10:30:00.123400000\n";
+    char *out = NULL;
+    size_t len = 0;
+
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_parse_and_emit(FIXTURE(TomlTest), input, &out, &len));
+    ASSERT_NE(out, NULL);
     EXPECT_NE(strstr(out, "stamp = 2024-01-15T10:30:00.1Z"), NULL);
     EXPECT_NE(strstr(out, "offset = 2024-01-15T10:30:00-05:30"), NULL);
     EXPECT_NE(strstr(out, "clock = 10:30:00.1234"), NULL);
+    free(out);
+}
+
+TEST_F(TomlTest, EmitFormatsArraysAndInlineTables)
+{
+    const char *input = "items = [1, 2]\n"
+                        "point = { x = 1, y = 2 }\n";
+    char *out = NULL;
+    size_t len = 0;
+
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_parse_and_emit(FIXTURE(TomlTest), input, &out, &len));
+    ASSERT_NE(out, NULL);
     EXPECT_NE(strstr(out, "items = [1, 2]"), NULL);
     EXPECT_NE(strstr(out, "point = { x = 1, y = 2 }"), NULL);
     free(out);
@@ -491,35 +582,18 @@ TEST_F(TomlTest, EmitFormatsScalarValues)
 
 TEST_F(TomlTest, EmitQuotedSectionHeader)
 {
-    vigil_toml_value_t *section = NULL;
-    vigil_toml_value_t *value = NULL;
-    vigil_toml_value_t *name = NULL;
-    vigil_toml_value_t *enabled = NULL;
-    vigil_toml_value_t *count = NULL;
     char *out = NULL;
     size_t len = 0;
 
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_table_new(NULL, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_table_new(NULL, &section, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_integer_new(NULL, 1, &value, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_string_new(NULL, "demo", 4, &name, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_bool_new(NULL, 1, &enabled, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_integer_new(NULL, 4, &count, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_table_set(section, "value", 5, value, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_table_set(section, "name", 4, name, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_table_set(section, "enabled", 7, enabled, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_table_set(section, "count", 5, count, &FIXTURE(TomlTest)->error));
-    ASSERT_EQ(VIGIL_STATUS_OK,
-              vigil_toml_table_set(FIXTURE(TomlTest)->root, "quoted key", 10, section, &FIXTURE(TomlTest)->error));
-
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_emit(FIXTURE(TomlTest)->root, &out, &len, &FIXTURE(TomlTest)->error));
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_build_quoted_section_root(FIXTURE(TomlTest)));
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_emit_helper(FIXTURE(TomlTest), &out, &len));
     ASSERT_NE(out, NULL);
     EXPECT_NE(strstr(out, "[\"quoted key\"]"), NULL);
     EXPECT_NE(strstr(out, "enabled = true"), NULL);
     free(out);
 }
 
-TEST_F(TomlTest, EmitArrayOfTables)
+TEST_F(TomlTest, EmitArrayOfTablesHeader)
 {
     const char *input = "[[servers]]\n"
                         "host = \"alpha\"\n"
@@ -529,11 +603,25 @@ TEST_F(TomlTest, EmitArrayOfTables)
     char *out = NULL;
     size_t len = 0;
 
-    toml_parse_helper(FIXTURE(TomlTest), input, vigil_test_failed_);
-    ASSERT_EQ(VIGIL_STATUS_OK, vigil_toml_emit(FIXTURE(TomlTest)->root, &out, &len, &FIXTURE(TomlTest)->error));
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_parse_and_emit(FIXTURE(TomlTest), input, &out, &len));
     ASSERT_NE(out, NULL);
     EXPECT_NE(strstr(out, "[[servers]]"), NULL);
     EXPECT_NE(strstr(out, "host = \"alpha\""), NULL);
+    free(out);
+}
+
+TEST_F(TomlTest, EmitArrayOfTablesSecondElement)
+{
+    const char *input = "[[servers]]\n"
+                        "host = \"alpha\"\n"
+                        "\n"
+                        "[[servers]]\n"
+                        "host = \"beta\"\n";
+    char *out = NULL;
+    size_t len = 0;
+
+    ASSERT_EQ(VIGIL_STATUS_OK, toml_parse_and_emit(FIXTURE(TomlTest), input, &out, &len));
+    ASSERT_NE(out, NULL);
     EXPECT_NE(strstr(out, "host = \"beta\""), NULL);
     free(out);
 }
@@ -685,9 +773,12 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, InlineTableKeyConflictError);
     REGISTER_TEST_F(TomlTest, EmitRoundTrip);
     REGISTER_TEST_F(TomlTest, EmitTable);
-    REGISTER_TEST_F(TomlTest, EmitFormatsScalarValues);
+    REGISTER_TEST_F(TomlTest, EmitFormatsNumbersAndBooleans);
+    REGISTER_TEST_F(TomlTest, EmitFormatsDateTimes);
+    REGISTER_TEST_F(TomlTest, EmitFormatsArraysAndInlineTables);
     REGISTER_TEST_F(TomlTest, EmitQuotedSectionHeader);
-    REGISTER_TEST_F(TomlTest, EmitArrayOfTables);
+    REGISTER_TEST_F(TomlTest, EmitArrayOfTablesHeader);
+    REGISTER_TEST_F(TomlTest, EmitArrayOfTablesSecondElement);
     REGISTER_TEST_F(TomlTest, VigilToml);
     REGISTER_TEST_F(TomlTest, ManualConstruction);
     REGISTER_TEST_F(TomlTest, CustomAllocator);
