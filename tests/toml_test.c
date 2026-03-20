@@ -43,10 +43,18 @@ static int toml_output_contains(char *out, const char *needle)
     return out != NULL && strstr(out, needle) != NULL;
 }
 
+static void toml_reset_fixture(TomlTest *self)
+{
+    vigil_toml_free(&self->root);
+    vigil_error_clear(&self->error);
+    memset(&self->error, 0, sizeof(self->error));
+}
+
 static vigil_status_t toml_parse_and_emit(TomlTest *self, const char *input, char **out, size_t *len)
 {
     vigil_status_t s;
 
+    toml_reset_fixture(self);
     s = vigil_toml_parse(NULL, input, strlen(input), &self->root, &self->error);
     if (s != VIGIL_STATUS_OK)
         return s;
@@ -118,6 +126,7 @@ static vigil_status_t toml_build_quoted_section_root(TomlTest *self)
     vigil_status_t s;
     vigil_toml_value_t *section = NULL;
 
+    toml_reset_fixture(self);
     s = vigil_toml_table_new(NULL, &self->root, &self->error);
     if (s != VIGIL_STATUS_OK)
         return s;
