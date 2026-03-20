@@ -1,59 +1,38 @@
-import "os";
-import "file";
-import "fmt";
 import "args";
-
-fn format_mode(i32 mode) -> string {
-    string result = "";
-    i32 perms = mode & 0o777;
-    
-    // Owner
-    if ((perms & 0o400) != 0) { result += "r"; } else { result += "-"; }
-    if ((perms & 0o200) != 0) { result += "w"; } else { result += "-"; }
-    if ((perms & 0o100) != 0) { result += "x"; } else { result += "-"; }
-    
-    // Group
-    if ((perms & 0o040) != 0) { result += "r"; } else { result += "-"; }
-    if ((perms & 0o020) != 0) { result += "w"; } else { result += "-"; }
-    if ((perms & 0o010) != 0) { result += "x"; } else { result += "-"; }
-    
-    // Other
-    if ((perms & 0o004) != 0) { result += "r"; } else { result += "-"; }
-    if ((perms & 0o002) != 0) { result += "w"; } else { result += "-"; }
-    if ((perms & 0o001) != 0) { result += "x"; } else { result += "-"; }
-    
-    return result;
-}
+import "fs";
+import "fmt";
 
 fn main() -> i32 {
-    args.ArgParser p = args.parser("vigil-ls", "list directory contents");
-    p.flag("long", "bool", "false", "use a long listing format");
-    p.flag("all", "bool", "false", "do not ignore entries starting with .");
-    map<string, string> result, err e = p.parse();
-    
+    args.Parser parser = args.Parser.new("vigil-ls", "list directory contents");
+    parser.flag("long", "l", "use a long listing format");
+    parser.flag("all", "a", "do not ignore entries starting with .");
+    parser.positional("dir", "directory to list");
+
+    err e = parser.parse(0);
     if (e != ok) {
         fmt.eprintln(f"vigil-ls: {e.message()}");
         return 1;
     }
-    
-    array<string> args = os.args();
+
+    array<string> positionals = parser.get_positionals();
     string dir = ".";
-    if (args.len() > 0) {
-        dir = args[0];
+    if (positionals.len() > 0) {
+        dir = positionals[0];
     }
-    
-    bool long_format = result["long"] == "true";
-    bool show_all = result["all"] == "true";
-    
-    array<string> entries, err e2 = file.list_dir(dir);
-    if (e2 != ok) {
-        fmt.eprintln(f"vigil-ls: {dir}: {e2.message()}");
+
+    bool long_format = parser.get_bool("long");
+    bool show_all = parser.get_bool("all");
+
+    if (!fs.exists(dir)) {
+        fmt.eprintln(f"vigil-ls: {dir}: No such file or directory");
         return 1;
     }
-    
+
+    array<string> entries = fs.list(dir);
+
     for (i32 i = 0; i < entries.len(); i++) {
         string name = entries[i];
-        
+
         // Skip hidden files unless -a
         if (!show_all && name.len() > 0) {
             string first_char, err ec = name.char_at(0);
@@ -61,25 +40,22 @@ fn main() -> i32 {
                 continue;
             }
         }
-        
+
         if (long_format) {
-            string path = dir + "/" + name;
-            FileStat info, err e3 = file.stat(path);
-            if (e3 != ok) {
-                fmt.eprintln(f"vigil-ls: {path}: {e3.message()}");
-                continue;
-            }
-            
+            string path = fs.join(dir, name);
+            bool is_dir = fs.is_dir(path);
+            i64 size = fs.size(path);
+            i64 mtime = fs.mtime(path);
+
             string type_char = "-";
-            if (info.is_dir) {
+            if (is_dir) {
                 type_char = "d";
             }
-            string perms = format_mode(info.mode);
-            fmt.println(f"{type_char}{perms} {info.size} {info.mod_time} {name}");
+            fmt.println(f"{type_char} {size} {mtime} {name}");
         } else {
             fmt.println(name);
         }
     }
-    
+
     return 0;
 }

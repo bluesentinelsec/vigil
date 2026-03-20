@@ -1,102 +1,30 @@
 import "args";
-import "file";
+import "fs";
 import "fmt";
-import "path";
 import "regex";
 
-fn main() -> i32 {
-    args.ArgParser parser = args.parser("grep", "Search for patterns in files");
-    
-    parser.flag("ignore-case", "bool", "false", "Case-insensitive search", "i");
-    parser.flag("invert-match", "bool", "false", "Select non-matching lines", "v");
-    parser.flag("line-number", "bool", "false", "Print line numbers", "n");
-    parser.flag("count", "bool", "false", "Only print count of matches", "c");
-    parser.flag("files-with-matches", "bool", "false", "Only print filenames", "l");
-    parser.flag("recursive", "bool", "false", "Recursively search directories", "r");
-    
-    parser.arg("pattern", "string", "Pattern to search for");
-    parser.arg("files", "string", "Files to search", true);
-    
-    guard args.Result result, err parseErr = parser.parse_result() {
-        fmt.eprintln(f"Error: {parseErr}");
-        return 2;
-    }
-    
-    string pattern = result.get_string("pattern");
-    if (pattern == "") {
-        fmt.eprintln("Error: pattern required");
-        return 2;
-    }
-    
-    array<string> files = result.get_list("files");
-    if (files.len() == 0) {
-        fmt.eprintln("Error: at least one file required");
-        return 2;
-    }
-    
-    bool ignoreCase = result.get_bool("ignore-case");
-    bool invertMatch = result.get_bool("invert-match");
-    bool lineNumber = result.get_bool("line-number");
-    bool countOnly = result.get_bool("count");
-    bool filesWithMatches = result.get_bool("files-with-matches");
-    bool recursive = result.get_bool("recursive");
-    
-    string regexPattern = pattern;
-    if (ignoreCase) {
-        regexPattern = "(?i)" + pattern;
-    }
-    
-    guard regex.Regex re, err compileErr = regex.compile(regexPattern) {
-        fmt.eprintln(f"grep: invalid pattern: {compileErr}");
-        return 2;
-    }
-    
-    i32 totalMatches = 0;
-    bool printFilename = files.len() > 1;
-    
-    for (i32 i = 0; i < files.len(); i++) {
-        string filepath = files[i];
-        
-        if (recursive) {
-            file.FileStat stat, err statErr = file.stat(filepath);
-            if (statErr == ok && stat.is_dir) {
-                i32 matches = grep_recursive(filepath, re, invertMatch, lineNumber, countOnly, filesWithMatches, true);
-                totalMatches = totalMatches + matches;
-                continue;
-            }
-        }
-        
-        i32 matches = grep_file(filepath, re, invertMatch, lineNumber, countOnly, filesWithMatches, printFilename);
-        totalMatches = totalMatches + matches;
-    }
-    
-    if (totalMatches > 0) {
+fn grep_file(string filepath, string pattern, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
+    if (!fs.exists(filepath)) {
+        fmt.eprintln(f"grep: {filepath}: No such file or directory");
         return 0;
     }
-    return 1;
-}
+    string content = fs.read(filepath);
 
-fn grep_file(string filepath, regex.Regex re, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
-    guard string content, err readErr = file.read_all(filepath) {
-        fmt.eprintln(f"grep: {filepath}: {readErr}");
-        return 0;
-    }
-    
     array<string> lines = content.split("\n");
     i32 matchCount = 0;
-    
+
     for (i32 i = 0; i < lines.len(); i++) {
         string line = lines[i];
         i32 lineNum = i + 1;
-        
-        bool matches = re.match(line);
+
+        bool matches = regex.match(pattern, line);
         if (invertMatch) {
             matches = !matches;
         }
-        
+
         if (matches) {
             matchCount++;
-            
+
             if (!countOnly && !filesWithMatches) {
                 string prefix = "";
                 if (printFilename) {
@@ -110,7 +38,7 @@ fn grep_file(string filepath, regex.Regex re, bool invertMatch, bool lineNumber,
             }
         }
     }
-    
+
     if (filesWithMatches && matchCount > 0) {
         fmt.println(filepath);
     }
@@ -121,38 +49,90 @@ fn grep_file(string filepath, regex.Regex re, bool invertMatch, bool lineNumber,
             fmt.println(f"{matchCount}");
         }
     }
-    
+
     return matchCount;
 }
 
-fn grep_recursive(string dirpath, regex.Regex re, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
-    guard array<string> entries, err readErr = file.read_dir(dirpath) {
-        fmt.eprintln(f"grep: {dirpath}: {readErr}");
-        return 0;
-    }
-    
+fn grep_recursive(string dirpath, string pattern, bool invertMatch, bool lineNumber, bool countOnly, bool filesWithMatches, bool printFilename) -> i32 {
+    array<string> entries = fs.walk(dirpath);
+
     i32 totalMatches = 0;
-    
+
     for (i32 i = 0; i < entries.len(); i++) {
-        string entry = entries[i];
-        if (entry == "." || entry == "..") {
-            continue;
+        string fullpath = entries[i];
+
+        if (!fs.is_dir(fullpath)) {
+            i32 matches = grep_file(fullpath, pattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+            totalMatches = totalMatches + matches;
         }
-        
-        string fullpath = path.join(dirpath, entry);
-        
-        guard file.FileStat stat, err statErr = file.stat(fullpath) {
-            continue;
-        }
-        
-        if (stat.is_dir) {
-            i32 matches = grep_recursive(fullpath, re, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+    }
+
+    return totalMatches;
+}
+
+fn main() -> i32 {
+    args.Parser parser = args.Parser.new("grep", "Search for patterns in files");
+
+    parser.flag("ignore-case", "i", "Case-insensitive search");
+    parser.flag("invert-match", "v", "Select non-matching lines");
+    parser.flag("line-number", "n", "Print line numbers");
+    parser.flag("count", "c", "Only print count of matches");
+    parser.flag("files-with-matches", "l", "Only print filenames");
+    parser.flag("recursive", "r", "Recursively search directories");
+    parser.positional("pattern", "Pattern to search for");
+
+    err e = parser.parse(0);
+    if (e != ok) {
+        fmt.eprintln(f"grep: {e.message()}");
+        return 2;
+    }
+
+    array<string> positionals = parser.get_positionals();
+    if (positionals.len() == 0) {
+        fmt.eprintln("grep: pattern required");
+        return 2;
+    }
+
+    string pattern = positionals[0];
+    array<string> files = [];
+    for (i32 i = 1; i < positionals.len(); i++) {
+        files.push(positionals[i]);
+    }
+
+    if (files.len() == 0) {
+        fmt.eprintln("grep: at least one file required");
+        return 2;
+    }
+
+    bool ignoreCase = parser.get_bool("ignore-case");
+    bool invertMatch = parser.get_bool("invert-match");
+    bool lineNumber = parser.get_bool("line-number");
+    bool countOnly = parser.get_bool("count");
+    bool filesWithMatches = parser.get_bool("files-with-matches");
+    bool recursive = parser.get_bool("recursive");
+
+    string regexPattern = pattern;
+    if (ignoreCase) {
+        regexPattern = "(?i)" + pattern;
+    }
+
+    i32 totalMatches = 0;
+    bool printFilename = files.len() > 1;
+
+    for (i32 i = 0; i < files.len(); i++) {
+        string filepath = files[i];
+
+        if (recursive && fs.is_dir(filepath)) {
+            i32 matches = grep_recursive(filepath, regexPattern, invertMatch, lineNumber, countOnly, filesWithMatches, true);
             totalMatches = totalMatches + matches;
         } else {
-            i32 matches = grep_file(fullpath, re, invertMatch, lineNumber, countOnly, filesWithMatches, true);
+            i32 matches = grep_file(filepath, regexPattern, invertMatch, lineNumber, countOnly, filesWithMatches, printFilename);
             totalMatches = totalMatches + matches;
         }
     }
-    
-    return totalMatches;
+
+    if (totalMatches > 0) {
+        return 0;
+    }
+    return 1;
 }

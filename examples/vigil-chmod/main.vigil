@@ -1,5 +1,6 @@
-import "os";
-import "file";
+import "args";
+import "ffi";
+import "unsafe";
 import "fmt";
 
 fn parse_octal(string s) -> (i32, err) {
@@ -27,30 +28,40 @@ fn parse_octal(string s) -> (i32, err) {
 }
 
 fn main() -> i32 {
-    array<string> args = os.args();
-    
-    if (args.len() < 2) {
+    if (args.count() < 2) {
         fmt.eprintln("vigil-chmod: missing operand");
+        fmt.eprintln("usage: vigil-chmod MODE FILE...");
         return 1;
     }
-    
-    string mode_str = args[0];
-    
+
+    string mode_str = args.at(0);
+
     // Parse octal mode
     i32 mode, err e1 = parse_octal(mode_str);
     if (e1 != ok) {
         fmt.eprintln(f"vigil-chmod: invalid mode: {mode_str}");
         return 1;
     }
-    
+
+    // Open libc
+    i64 lib = ffi.open("libSystem.B.dylib");
+    if (lib == i64(0)) { lib = ffi.open("libc.so.6"); }
+    if (lib == i64(0)) { lib = ffi.open(""); }
+    i64 h_chmod = ffi.bind(lib, "chmod", "i32(ptr,i32)");
+
     // Apply to all files
-    for (i32 i = 1; i < args.len(); i++) {
-        err e2 = file.chmod(args[i], mode);
-        if (e2 != ok) {
-            fmt.eprintln(f"vigil-chmod: {args[i]}: {e2.message()}");
+    for (i32 i = 1; i < args.count(); i++) {
+        string path = args.at(i);
+        i64 buf = unsafe.alloc(path.len() + 1);
+        unsafe.write_str(buf, 0, path);
+        i64 ptr_val = unsafe.ptr(buf);
+        i64 rc = ffi.call(h_chmod, ptr_val, i64(mode), i64(0), i64(0), i64(0), i64(0));
+        unsafe.free(buf);
+        if (rc != i64(0)) {
+            fmt.eprintln(f"vigil-chmod: {path}: chmod failed");
             return 1;
         }
     }
-    
+
     return 0;
 }

@@ -1,43 +1,39 @@
-import "file";
+import "fs";
 import "fmt";
 
 fn main() -> i32 {
     // Write to a file
     string content = "Hello from VIGIL!\nThis is line 2.\n";
-    err e = file.write_all("test.txt", content);
-    if (e != ok) {
-        fmt.println(f"Error writing file: {e}");
+    bool ok_write = fs.write("test.txt", content);
+    if (!ok_write) {
+        fmt.println("Error writing file");
         return 1;
     }
     fmt.println("File written successfully");
-    
+
     // Read from a file
-    string data, err e2 = file.read_all("test.txt");
-    if (e2 != ok) {
-        fmt.println(f"Error reading file: {e2}");
-        return 1;
-    }
+    string data = fs.read("test.txt");
     fmt.println(f"File contents:\n{data}");
-    
+
     // Check if file exists
-    bool exists = file.exists("test.txt");
+    bool exists = fs.exists("test.txt");
     fmt.println(f"File exists: {exists}");
-    
-    // Get file info
-    file.FileStat info, err e3 = file.stat("test.txt");
-    if (e3 == ok) {
-        fmt.println(f"File size: {info.size} bytes");
-        fmt.println(f"Is directory: {info.is_dir}");
-    }
-    
+
+    // Get file size and type
+    i64 size = fs.size("test.txt");
+    bool is_dir = fs.is_dir("test.txt");
+    fmt.println(f"File size: {size} bytes");
+    fmt.println(f"Is directory: {is_dir}");
+
     // List directory
-    array<string> files, err e4 = file.list_dir(".");
-    if (e4 == ok) {
-        fmt.println("\nFiles in current directory:");
-        for name in files {
-            fmt.println(f"  - {name}");
-        }
+    array<string> files = fs.list(".");
+    fmt.println("\nFiles in current directory:");
+    for name in files {
+        fmt.println(f"  - {name}");
     }
-    
+
+    // Clean up
+    fs.remove("test.txt");
+
     return 0;
 }

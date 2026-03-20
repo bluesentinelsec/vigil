@@ -1,22 +1,19 @@
-import "io";
 import "fmt";
+import "readline";
 
 fn main() -> i32 {
     string prev = "";
     bool first = true;
-    
-    while (true) {
-        string line, err e = io.read_line();
-        if (e != ok) {
-            break;
-        }
-        
+
+    string line = readline.input("");
+    while (!line.is_empty()) {
         if (first || line != prev) {
             fmt.println(line);
             prev = line;
             first = false;
         }
+        line = readline.input("");
     }
-    
+
     return 0;
 }

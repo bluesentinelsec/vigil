@@ -1,23 +1,22 @@
-import "os";
-import "file";
+import "args";
+import "fs";
 import "fmt";
 
 fn main() -> i32 {
-    array<string> args = os.args();
-    
-    if (args.len() < 2) {
+    if (args.count() < 2) {
         fmt.eprintln("vigil-mv: missing file operand");
+        fmt.eprintln("usage: vigil-mv SOURCE DEST");
         return 1;
     }
-    
-    string src = args[0];
-    string dst = args[1];
-    
-    err e = file.rename(src, dst);
-    if (e != ok) {
-        fmt.eprintln(f"vigil-mv: {e.message()}");
+
+    string src = args.at(0);
+    string dst = args.at(1);
+
+    bool ok2 = fs.move(src, dst);
+    if (!ok2) {
+        fmt.eprintln(f"vigil-mv: cannot move '{src}' to '{dst}'");
         return 1;
     }
-    
+
     return 0;
 }

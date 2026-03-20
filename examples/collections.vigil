@@ -11,7 +11,12 @@ fn main() -> i32 {
     // Add elements
     numbers.push(6);
     numbers.push(7);
-    fmt.println(f"  After push: {numbers}");
+    fmt.print("  After push: [");
+    for (i32 i = 0; i < numbers.len(); i++) {
+        if (i > 0) { fmt.print(", "); }
+        fmt.print(f"{numbers[i]}");
+    }
+    fmt.println("]");
     
     // Iterate over array
     fmt.println("  Elements:");
@@ -60,7 +65,12 @@ fn main() -> i32 {
     
     fmt.println("  Matrix:");
     for row in matrix {
-        fmt.println(f"    {row}");
+        fmt.print("    [");
+        for (i32 i = 0; i < row.len(); i++) {
+            if (i > 0) { fmt.print(", "); }
+            fmt.print(f"{row[i]}");
+        }
+        fmt.println("]");
     }
     
     return 0;
