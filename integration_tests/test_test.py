@@ -110,7 +110,8 @@ class TestVigilTest(unittest.TestCase):
         self.assertIn("PASS: 1 passed", r.stdout)
 
     def test_imported_helper_module(self):
-        self._write("test/helper.vigil",
+        self._write("vigil.toml", '[project]\nname = "myproj"\n')
+        self._write("lib/helper.vigil",
             'pub fn message() -> string {\n'
             '    return "ok";\n'
             '}\n')
