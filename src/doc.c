@@ -158,6 +158,90 @@ static int tok_is_type_start(const vigil_token_t *t)
 
 /* ── Comment extraction ──────────────────────────────────────────── */
 
+static size_t doc_find_line_start(const char *src, size_t pos)
+{
+    while (pos > 0 && src[pos - 1] != '\n')
+        pos--;
+    return pos;
+}
+
+static size_t doc_trim_line_end(const char *src, size_t line_start, size_t line_end)
+{
+    if (line_end > line_start && src[line_end - 1] == '\r')
+        line_end--;
+    return line_end;
+}
+
+static int doc_extract_comment_text(const char *src, size_t line_start, size_t line_end, const char **out_text,
+                                    size_t *out_len)
+{
+    const char *text = src + line_start;
+    size_t len = doc_trim_line_end(src, line_start, line_end) - line_start;
+
+    while (len > 0 && (*text == ' ' || *text == '\t'))
+    {
+        text++;
+        len--;
+    }
+
+    if (len < 2 || text[0] != '/' || text[1] != '/')
+        return 0;
+
+    text += 2;
+    len -= 2;
+    if (len > 0 && *text == ' ')
+    {
+        text++;
+        len--;
+    }
+
+    *out_text = text;
+    *out_len = len;
+    return 1;
+}
+
+static void doc_prepend_comment_line(doc_buf_t *buf, const vigil_allocator_t *a, const char *text, size_t len,
+                                     int *first)
+{
+    if (*first)
+    {
+        buf_append(buf, text, len);
+        *first = 0;
+        return;
+    }
+
+    {
+        char *old = buf->data;
+        size_t old_len = buf->length;
+        doc_buf_t new_buf;
+
+        buf_init(&new_buf, a);
+        buf_append(&new_buf, text, len);
+        buf_append_char(&new_buf, '\n');
+        buf_append(&new_buf, old, old_len);
+        buf_free(buf);
+        *buf = new_buf;
+    }
+}
+
+static void doc_append_comment_line(doc_buf_t *buf, const char *text, size_t len, int *found)
+{
+    if (*found)
+        buf_append_char(buf, '\n');
+    buf_append(buf, text, len);
+    *found = 1;
+}
+
+static size_t doc_skip_leading_blank_lines(const char *src, size_t limit)
+{
+    size_t pos = 0;
+
+    while (pos < limit && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n'))
+        pos++;
+
+    return pos;
+}
+
 static void extract_comment_before(const vigil_allocator_t *a, const char *src, size_t src_len, size_t decl_offset,
                                    vigil_doc_comment_t *out)
 {
@@ -172,16 +256,11 @@ static void extract_comment_before(const vigil_allocator_t *a, const char *src, 
         return;
 
     /* Move to the end of the line immediately before the declaration line. */
-    end = decl_offset;
-    /* Back up to start of declaration line. */
-    while (end > 0 && src[end - 1] != '\n')
-        end--;
+    end = doc_find_line_start(src, decl_offset);
     /* Now end is at the start of the decl line (or 0). Skip the \n. */
     if (end > 0)
         end--; /* skip \n */
-    /* Skip trailing \r. */
-    while (end > 0 && src[end - 1] == '\r')
-        end--;
+    end = doc_trim_line_end(src, 0, end);
 
     /* Walk backward collecting // comment lines. */
     buf_init(&buf, a);
@@ -190,62 +269,20 @@ static void extract_comment_before(const vigil_allocator_t *a, const char *src, 
     while (end > 0)
     {
         size_t line_end = end;
-        size_t line_start = end;
-        const char *trimmed;
-        size_t trimmed_len;
+        size_t line_start = doc_find_line_start(src, end);
+        const char *text;
+        size_t text_len;
 
-        /* Find start of this line. */
-        while (line_start > 0 && src[line_start - 1] != '\n')
-            line_start--;
-
-        /* Trim leading whitespace. */
-        trimmed = src + line_start;
-        trimmed_len = line_end - line_start;
-        while (trimmed_len > 0 && (*trimmed == ' ' || *trimmed == '\t'))
-        {
-            trimmed++;
-            trimmed_len--;
-        }
-
-        /* Must start with // */
-        if (trimmed_len < 2 || trimmed[0] != '/' || trimmed[1] != '/')
+        if (!doc_extract_comment_text(src, line_start, line_end, &text, &text_len))
             break;
 
-        /* Strip the // prefix and optional space. */
-        trimmed += 2;
-        trimmed_len -= 2;
-        if (trimmed_len > 0 && *trimmed == ' ')
-        {
-            trimmed++;
-            trimmed_len--;
-        }
-
-        /* Prepend to buffer (we're going backward). */
-        if (!first)
-        {
-            /* Insert newline before previous content. */
-            char *old = buf.data;
-            size_t old_len = buf.length;
-            doc_buf_t new_buf;
-            buf_init(&new_buf, a);
-            buf_append(&new_buf, trimmed, trimmed_len);
-            buf_append_char(&new_buf, '\n');
-            buf_append(&new_buf, old, old_len);
-            buf_free(&buf);
-            buf = new_buf;
-        }
-        else
-        {
-            buf_append(&buf, trimmed, trimmed_len);
-            first = 0;
-        }
+        doc_prepend_comment_line(&buf, a, text, text_len, &first);
 
         /* Move to previous line. */
         if (line_start == 0)
             break;
         end = line_start - 1; /* skip \n before this line */
-        while (end > 0 && src[end - 1] == '\r')
-            end--;
+        end = doc_trim_line_end(src, 0, end);
     }
 
     if (buf.length > 0)
@@ -263,7 +300,7 @@ static void extract_module_summary(const vigil_allocator_t *a, const char *src, 
                                    size_t first_decl_offset, vigil_doc_comment_t *out)
 {
     /* Module summary = leading // comments before any declaration. */
-    size_t pos = 0;
+    size_t pos;
     doc_buf_t buf;
     int found = 0;
 
@@ -273,8 +310,7 @@ static void extract_module_summary(const vigil_allocator_t *a, const char *src, 
         return;
 
     /* Skip leading blank lines. */
-    while (pos < first_decl_offset && (src[pos] == ' ' || src[pos] == '\t' || src[pos] == '\r' || src[pos] == '\n'))
-        pos++;
+    pos = doc_skip_leading_blank_lines(src, first_decl_offset);
 
     if (pos >= first_decl_offset)
         return;
@@ -287,44 +323,21 @@ static void extract_module_summary(const vigil_allocator_t *a, const char *src, 
 
     while (pos < first_decl_offset)
     {
-        const char *line_start = src + pos;
-        size_t line_len = 0;
-        const char *trimmed;
-        size_t trimmed_len;
+        size_t line_start = pos;
+        size_t line_end = pos;
+        const char *text;
+        size_t text_len;
 
         /* Find end of line. */
-        while (pos + line_len < src_len && src[pos + line_len] != '\n')
-            line_len++;
+        while (line_end < src_len && src[line_end] != '\n')
+            line_end++;
 
-        trimmed = line_start;
-        trimmed_len = line_len;
-        /* Trim trailing \r */
-        if (trimmed_len > 0 && trimmed[trimmed_len - 1] == '\r')
-            trimmed_len--;
-        /* Trim leading whitespace. */
-        while (trimmed_len > 0 && (*trimmed == ' ' || *trimmed == '\t'))
-        {
-            trimmed++;
-            trimmed_len--;
-        }
-
-        if (trimmed_len < 2 || trimmed[0] != '/' || trimmed[1] != '/')
+        if (!doc_extract_comment_text(src, line_start, line_end, &text, &text_len))
             break;
 
-        trimmed += 2;
-        trimmed_len -= 2;
-        if (trimmed_len > 0 && *trimmed == ' ')
-        {
-            trimmed++;
-            trimmed_len--;
-        }
+        doc_append_comment_line(&buf, text, text_len, &found);
 
-        if (found)
-            buf_append_char(&buf, '\n');
-        buf_append(&buf, trimmed, trimmed_len);
-        found = 1;
-
-        pos += line_len;
+        pos = line_end;
         if (pos < src_len && src[pos] == '\n')
             pos++;
     }
