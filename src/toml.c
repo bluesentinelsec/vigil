@@ -1297,12 +1297,10 @@ static vigil_status_t parse_fractional_nanoseconds(toml_parser_t *p, int *nanose
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t parse_time_fraction(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
+static void parse_time_fraction(toml_parser_t *p, vigil_toml_datetime_t *dt)
 {
-    (void)error;
     if (parser_match(p, '.'))
-        return parse_fractional_nanoseconds(p, &dt->nanosecond);
-    return VIGIL_STATUS_OK;
+        (void)parse_fractional_nanoseconds(p, &dt->nanosecond);
 }
 
 static vigil_status_t parse_time_fields(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
@@ -1320,7 +1318,8 @@ static vigil_status_t parse_time_fields(toml_parser_t *p, vigil_toml_datetime_t 
     dt->second = parse_n_digits(p, 2);
     if (dt->second < 0)
         return parser_error(p, "invalid second", error);
-    return parse_time_fraction(p, dt, error);
+    parse_time_fraction(p, dt);
+    return VIGIL_STATUS_OK;
 }
 
 static vigil_status_t parse_datetime_offset(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
@@ -1409,8 +1408,6 @@ static vigil_status_t parse_datetime_after_year(toml_parser_t *p, int year, vigi
 static vigil_status_t parse_local_time(toml_parser_t *p, int hour, vigil_toml_value_t **out, vigil_error_t *error)
 {
     vigil_toml_datetime_t dt;
-    vigil_status_t s;
-
     memset(&dt, 0, sizeof(dt));
     dt.has_time = 1;
     dt.hour = hour;
@@ -1424,9 +1421,8 @@ static vigil_status_t parse_local_time(toml_parser_t *p, int hour, vigil_toml_va
     dt.second = parse_n_digits(p, 2);
     if (dt.second < 0)
         return parser_error(p, "invalid second", error);
-    s = parse_time_fraction(p, &dt, error);
-    if (s != VIGIL_STATUS_OK)
-        return s;
+    (void)error;
+    parse_time_fraction(p, &dt);
     return vigil_toml_datetime_new(p->allocator, &dt, out, error);
 }
 
