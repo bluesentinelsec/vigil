@@ -676,13 +676,10 @@ static int translate_basic_string_escape(char c, char *out)
     }
 }
 
-static vigil_status_t parse_basic_string_escape(toml_parser_t *p, vigil_error_t *error)
+static vigil_status_t parse_basic_string_escape_char(toml_parser_t *p, char c, vigil_error_t *error)
 {
-    char c;
     char escaped;
 
-    parser_advance(p);
-    c = parser_advance(p);
     if (translate_basic_string_escape(c, &escaped))
         return buf_push(p, escaped, error);
     if (c == 'u')
@@ -690,6 +687,12 @@ static vigil_status_t parse_basic_string_escape(toml_parser_t *p, vigil_error_t 
     if (c == 'U')
         return parse_unicode_escape(p, 8, error);
     return parser_error(p, "invalid escape sequence", error);
+}
+
+static vigil_status_t parse_basic_string_escape(toml_parser_t *p, vigil_error_t *error)
+{
+    parser_advance(p);
+    return parse_basic_string_escape_char(p, parser_advance(p), error);
 }
 
 static vigil_status_t parse_basic_string(toml_parser_t *p, vigil_error_t *error)
@@ -724,6 +727,61 @@ static vigil_status_t parse_basic_string(toml_parser_t *p, vigil_error_t *error)
     return parser_error(p, "unterminated basic string", error);
 }
 
+static vigil_status_t parse_ml_basic_string_quotes(toml_parser_t *p, vigil_error_t *error, int *closed)
+{
+    vigil_status_t s;
+
+    *closed = 0;
+    parser_advance(p);
+    if (parser_peek(p) != '"')
+        return buf_push(p, '"', error);
+
+    parser_advance(p);
+    if (parser_peek(p) != '"')
+    {
+        s = buf_push(p, '"', error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        return buf_push(p, '"', error);
+    }
+
+    parser_advance(p);
+    *closed = 1;
+    while (parser_peek(p) == '"')
+    {
+        s = buf_push(p, '"', error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        parser_advance(p);
+        if (parser_peek(p) != '"')
+            break;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static void skip_ml_basic_string_line_continuation(toml_parser_t *p)
+{
+    while (!parser_eof(p))
+    {
+        char c = parser_peek(p);
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+            parser_advance(p);
+        else
+            break;
+    }
+}
+
+static vigil_status_t parse_ml_basic_string_escape(toml_parser_t *p, vigil_error_t *error)
+{
+    parser_advance(p);
+    if (parser_peek(p) == '\n' || parser_peek(p) == '\r')
+    {
+        skip_ml_basic_string_line_continuation(p);
+        return VIGIL_STATUS_OK;
+    }
+    return parse_basic_string_escape_char(p, parser_advance(p), error);
+}
+
 static vigil_status_t parse_ml_basic_string(toml_parser_t *p, vigil_error_t *error)
 {
     vigil_status_t s;
@@ -738,89 +796,18 @@ static vigil_status_t parse_ml_basic_string(toml_parser_t *p, vigil_error_t *err
         char c = parser_peek(p);
         if (c == '"')
         {
-            parser_advance(p);
-            if (parser_peek(p) == '"')
-            {
-                parser_advance(p);
-                if (parser_peek(p) == '"')
-                {
-                    parser_advance(p);
-                    /* Allow up to two extra quotes before closing. */
-                    if (parser_peek(p) == '"')
-                    {
-                        s = buf_push(p, '"', error);
-                        if (s != VIGIL_STATUS_OK)
-                            return s;
-                        parser_advance(p);
-                    }
-                    if (parser_peek(p) == '"')
-                    {
-                        s = buf_push(p, '"', error);
-                        if (s != VIGIL_STATUS_OK)
-                            return s;
-                        parser_advance(p);
-                    }
-                    return VIGIL_STATUS_OK;
-                }
-                s = buf_push(p, '"', error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-            }
-            s = buf_push(p, '"', error);
+            int closed;
+
+            s = parse_ml_basic_string_quotes(p, error, &closed);
             if (s != VIGIL_STATUS_OK)
                 return s;
+            if (closed)
+                return VIGIL_STATUS_OK;
             continue;
         }
         if (c == '\\')
         {
-            parser_advance(p);
-            c = parser_peek(p);
-            /* Line-ending backslash: trim whitespace. */
-            if (c == '\n' || c == '\r')
-            {
-                while (!parser_eof(p))
-                {
-                    c = parser_peek(p);
-                    if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
-                        parser_advance(p);
-                    else
-                        break;
-                }
-                continue;
-            }
-            c = parser_advance(p);
-            switch (c)
-            {
-            case 'b':
-                s = buf_push(p, '\b', error);
-                break;
-            case 't':
-                s = buf_push(p, '\t', error);
-                break;
-            case 'n':
-                s = buf_push(p, '\n', error);
-                break;
-            case 'f':
-                s = buf_push(p, '\f', error);
-                break;
-            case 'r':
-                s = buf_push(p, '\r', error);
-                break;
-            case '"':
-                s = buf_push(p, '"', error);
-                break;
-            case '\\':
-                s = buf_push(p, '\\', error);
-                break;
-            case 'u':
-                s = parse_unicode_escape(p, 4, error);
-                break;
-            case 'U':
-                s = parse_unicode_escape(p, 8, error);
-                break;
-            default:
-                return parser_error(p, "invalid escape sequence", error);
-            }
+            s = parse_ml_basic_string_escape(p, error);
             if (s != VIGIL_STATUS_OK)
                 return s;
         }
