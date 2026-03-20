@@ -48,49 +48,74 @@ static vigil_status_t toml_parse_and_emit(TomlTest *self, const char *input, cha
     return toml_emit_helper(self, out, len);
 }
 
+static vigil_status_t toml_add_integer_field(vigil_toml_value_t *table, const char *key, size_t key_len, int64_t value,
+                                             vigil_error_t *error)
+{
+    vigil_status_t s;
+    vigil_toml_value_t *field = NULL;
+
+    s = vigil_toml_integer_new(NULL, value, &field, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = vigil_toml_table_set(table, key, key_len, field, error);
+    if (s != VIGIL_STATUS_OK)
+        vigil_toml_free(&field);
+    return s;
+}
+
+static vigil_status_t toml_add_bool_field(vigil_toml_value_t *table, const char *key, size_t key_len, int value,
+                                          vigil_error_t *error)
+{
+    vigil_status_t s;
+    vigil_toml_value_t *field = NULL;
+
+    s = vigil_toml_bool_new(NULL, value, &field, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = vigil_toml_table_set(table, key, key_len, field, error);
+    if (s != VIGIL_STATUS_OK)
+        vigil_toml_free(&field);
+    return s;
+}
+
+static vigil_status_t toml_add_string_field(vigil_toml_value_t *table, const char *key, size_t key_len,
+                                            const char *value, size_t value_len, vigil_error_t *error)
+{
+    vigil_status_t s;
+    vigil_toml_value_t *field = NULL;
+
+    s = vigil_toml_string_new(NULL, value, value_len, &field, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = vigil_toml_table_set(table, key, key_len, field, error);
+    if (s != VIGIL_STATUS_OK)
+        vigil_toml_free(&field);
+    return s;
+}
+
 static vigil_status_t toml_build_quoted_section_root(TomlTest *self)
 {
     vigil_status_t s;
     vigil_toml_value_t *section = NULL;
-    vigil_toml_value_t *value = NULL;
-    vigil_toml_value_t *name = NULL;
-    vigil_toml_value_t *enabled = NULL;
-    vigil_toml_value_t *count = NULL;
 
     s = vigil_toml_table_new(NULL, &self->root, &self->error);
     if (s != VIGIL_STATUS_OK)
-        goto cleanup;
+        return s;
     s = vigil_toml_table_new(NULL, &section, &self->error);
     if (s != VIGIL_STATUS_OK)
-        goto cleanup;
-    s = vigil_toml_integer_new(NULL, 1, &value, &self->error);
+        return s;
+    s = toml_add_integer_field(section, "value", 5, 1, &self->error);
     if (s != VIGIL_STATUS_OK)
         goto cleanup;
-    s = vigil_toml_string_new(NULL, "demo", 4, &name, &self->error);
+    s = toml_add_string_field(section, "name", 4, "demo", 4, &self->error);
     if (s != VIGIL_STATUS_OK)
         goto cleanup;
-    s = vigil_toml_bool_new(NULL, 1, &enabled, &self->error);
+    s = toml_add_bool_field(section, "enabled", 7, 1, &self->error);
     if (s != VIGIL_STATUS_OK)
         goto cleanup;
-    s = vigil_toml_integer_new(NULL, 4, &count, &self->error);
+    s = toml_add_integer_field(section, "count", 5, 4, &self->error);
     if (s != VIGIL_STATUS_OK)
         goto cleanup;
-    s = vigil_toml_table_set(section, "value", 5, value, &self->error);
-    if (s != VIGIL_STATUS_OK)
-        goto cleanup;
-    value = NULL;
-    s = vigil_toml_table_set(section, "name", 4, name, &self->error);
-    if (s != VIGIL_STATUS_OK)
-        goto cleanup;
-    name = NULL;
-    s = vigil_toml_table_set(section, "enabled", 7, enabled, &self->error);
-    if (s != VIGIL_STATUS_OK)
-        goto cleanup;
-    enabled = NULL;
-    s = vigil_toml_table_set(section, "count", 5, count, &self->error);
-    if (s != VIGIL_STATUS_OK)
-        goto cleanup;
-    count = NULL;
     s = vigil_toml_table_set(self->root, "quoted key", 10, section, &self->error);
     if (s != VIGIL_STATUS_OK)
         goto cleanup;
@@ -98,10 +123,6 @@ static vigil_status_t toml_build_quoted_section_root(TomlTest *self)
 
 cleanup:
     vigil_toml_free(&section);
-    vigil_toml_free(&value);
-    vigil_toml_free(&name);
-    vigil_toml_free(&enabled);
-    vigil_toml_free(&count);
     return s;
 }
 
