@@ -1561,8 +1561,7 @@ static vigil_status_t parse_array_value(toml_parser_t *p, vigil_toml_value_t **o
     }
 }
 
-static int parse_boolean_literal(toml_parser_t *p, const char *literal, size_t length, int value,
-                                 vigil_toml_value_t **out, vigil_status_t *status, vigil_error_t *error)
+static int match_boolean_literal(toml_parser_t *p, const char *literal, size_t length)
 {
     char after;
 
@@ -1573,7 +1572,6 @@ static int parse_boolean_literal(toml_parser_t *p, const char *literal, size_t l
         return 0;
     p->pos += length;
     p->col += length;
-    *status = vigil_toml_bool_new(p->allocator, value, out, error);
     return 1;
 }
 
@@ -1582,10 +1580,16 @@ static int parse_boolean_value(toml_parser_t *p, vigil_toml_value_t **out, vigil
     char c;
 
     c = parser_peek(p);
-    if (c == 't')
-        return parse_boolean_literal(p, "true", 4, 1, out, status, error);
-    if (c == 'f')
-        return parse_boolean_literal(p, "false", 5, 0, out, status, error);
+    if (c == 't' && match_boolean_literal(p, "true", 4))
+    {
+        *status = vigil_toml_bool_new(p->allocator, 1, out, error);
+        return 1;
+    }
+    if (c == 'f' && match_boolean_literal(p, "false", 5))
+    {
+        *status = vigil_toml_bool_new(p->allocator, 0, out, error);
+        return 1;
+    }
     return 0;
 }
 
