@@ -86,6 +86,36 @@ TEST_F(VigilDocTest, ModuleViewShowsAllPublicSymbols)
     free(out);
 }
 
+TEST_F(VigilDocTest, ModuleSummarySkipsLeadingBlankLines)
+{
+    char *out = doc_render_helper(F,
+                                  "\n"
+                                  "\t\n"
+                                  "// Geometry helpers.\n"
+                                  "    // With normalization.\n"
+                                  "pub fn add(i32 a, i32 b) -> i32 {\n"
+                                  "\treturn a + b;\n"
+                                  "}\n",
+                                  NULL);
+
+    EXPECT_TRUE(strstr(out, "SUMMARY\n  Geometry helpers.\n  With normalization.") != NULL);
+    free(out);
+}
+
+TEST_F(VigilDocTest, DeclarationCommentCollectsMultipleIndentedLines)
+{
+    char *out = doc_render_helper(F,
+                                  "pub class Point {\n"
+                                  "\t// X coordinate.\n"
+                                  "\t   // Used by layout.\n"
+                                  "\tpub i32 x;\n"
+                                  "}\n",
+                                  "Point.x");
+
+    EXPECT_STREQ(out, "Point.x i32\n\nX coordinate.\nUsed by layout.\n");
+    free(out);
+}
+
 TEST_F(VigilDocTest, ClassWithFieldsAndMethods)
 {
     char *out = doc_render_helper(F,
@@ -323,6 +353,8 @@ TEST_F(VigilDocTest, ModuleNameFromPath)
 void register_doc_tests(void)
 {
     REGISTER_TEST_F(VigilDocTest, ModuleViewShowsAllPublicSymbols);
+    REGISTER_TEST_F(VigilDocTest, ModuleSummarySkipsLeadingBlankLines);
+    REGISTER_TEST_F(VigilDocTest, DeclarationCommentCollectsMultipleIndentedLines);
     REGISTER_TEST_F(VigilDocTest, ClassWithFieldsAndMethods);
     REGISTER_TEST_F(VigilDocTest, InterfaceWithMethods);
     REGISTER_TEST_F(VigilDocTest, EnumWithVariants);
