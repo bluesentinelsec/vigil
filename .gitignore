@@ -2,7 +2,9 @@
 /vigil
 /vigil.exe
 /build/
+/build-coverage*/
 /build-emscripten/
+/coverage-artifacts*/
 /compile_commands.json
 
 # C / CMake
