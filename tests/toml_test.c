@@ -135,6 +135,19 @@ TEST_F(TomlTest, MultilineBasicString)
     EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "hello\nworld");
 }
 
+TEST_F(TomlTest, MultilineBasicStringEscapes)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "s = \"\"\"\nleft\\nright slash \\\\ tail\"\"\"", vigil_test_failed_);
+    EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")),
+                 "left\nright slash \\ tail");
+}
+
+TEST_F(TomlTest, MultilineBasicStringExtraQuotes)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "s = \"\"\"\nhello\"\"\"\"\"", vigil_test_failed_);
+    EXPECT_STREQ(vigil_toml_string_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "s")), "hello\"\"");
+}
+
 TEST_F(TomlTest, MultilineLiteralString)
 {
     toml_parse_helper(FIXTURE(TomlTest), "s = '''\nhello\nworld'''", vigil_test_failed_);
@@ -500,6 +513,8 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, UnicodeEscape);
     REGISTER_TEST_F(TomlTest, LiteralString);
     REGISTER_TEST_F(TomlTest, MultilineBasicString);
+    REGISTER_TEST_F(TomlTest, MultilineBasicStringEscapes);
+    REGISTER_TEST_F(TomlTest, MultilineBasicStringExtraQuotes);
     REGISTER_TEST_F(TomlTest, MultilineLiteralString);
     REGISTER_TEST_F(TomlTest, MultilineLineContinuation);
     REGISTER_TEST_F(TomlTest, EmptyStrings);
