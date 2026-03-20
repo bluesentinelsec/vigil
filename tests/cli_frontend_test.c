@@ -276,7 +276,7 @@ static int verify_absolute_import_registration(const char *root, vigil_error_t *
     vigil_source_id_t source_id;
     char *cwd;
     char helper_path[4096];
-    char main_source[4096];
+    char main_source[8192];
     char main_path[4096];
     char project_root[4096];
     size_t index;
