@@ -781,7 +781,8 @@ static bool build_exact_brace_quantifier(parser_t *p, fragment_t *atom, fragment
     return false;
 }
 
-static bool build_unbounded_brace_quantifier(parser_t *p, fragment_t *atom, fragment_t *out, const quantifier_spec_t *spec)
+static bool build_unbounded_brace_quantifier(parser_t *p, fragment_t *atom, fragment_t *out,
+                                             const quantifier_spec_t *spec)
 {
     if (spec->min == 0U)
         return build_loop_quantifier(p, atom, out, spec->greedy, true);

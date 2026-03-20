@@ -103,6 +103,41 @@ fn main() -> i32 {
         rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
+    def test_match_lazy_quantifiers(self):
+        code = '''import "regex";
+fn main() -> i32 {
+    if (regex.match("a*?", "aaaa")
+        && regex.match("a+?", "aaaa")
+        && regex.match("a??", "")
+        && regex.match("a{0,}?", "aaaa")) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
+    def test_match_exact_one_quantifier(self):
+        code = '''import "regex";
+fn main() -> i32 {
+    if (regex.match("a{1}", "a") && !regex.match("a{1}", "")) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
+    def test_match_unsupported_brace_quantifiers_return_false(self):
+        code = '''import "regex";
+fn main() -> i32 {
+    if (!regex.match("a{2}", "aa")
+        && !regex.match("a{1", "a")
+        && !regex.match("a{101}", "a")
+        && !regex.match("a{0,11}", "")
+        && !regex.match("a{2,}", "aa")
+        && !regex.match("a{1,2}", "a")) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
     def test_match_char_class(self):
         code = '''import "regex";
 fn main() -> i32 {
