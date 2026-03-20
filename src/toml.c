@@ -1190,26 +1190,26 @@ static vigil_status_t parse_exponent_part(toml_parser_t *p, double *fval, vigil_
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t parse_decimal_number(toml_parser_t *p, int negative, vigil_toml_value_t **out,
-                                           vigil_error_t *error)
+static int is_decimal_float_marker(char c)
 {
-    int64_t ival;
-    double fval;
+    return c == '.' || c == 'e' || c == 'E';
+}
+
+static vigil_status_t parse_decimal_integer_value(toml_parser_t *p, int64_t ival, int negative,
+                                                  vigil_toml_value_t **out, vigil_error_t *error)
+{
+    if (negative)
+        ival = -ival;
+    return vigil_toml_integer_new(p->allocator, ival, out, error);
+}
+
+static vigil_status_t parse_decimal_float_value(toml_parser_t *p, double fval, int negative, vigil_toml_value_t **out,
+                                                vigil_error_t *error)
+{
     char c;
     vigil_status_t s;
 
-    if (parse_integer_digits(p, &ival, 10, error) != VIGIL_STATUS_OK)
-        return error->type;
-
     c = parser_peek(p);
-    if (c != '.' && c != 'e' && c != 'E')
-    {
-        if (negative)
-            ival = -ival;
-        return vigil_toml_integer_new(p->allocator, ival, out, error);
-    }
-
-    fval = (double)ival;
     if (c == '.')
     {
         s = parse_fractional_part(p, &fval, error);
@@ -1226,6 +1226,21 @@ static vigil_status_t parse_decimal_number(toml_parser_t *p, int negative, vigil
     if (negative)
         fval = -fval;
     return vigil_toml_float_new(p->allocator, fval, out, error);
+}
+
+static vigil_status_t parse_decimal_number(toml_parser_t *p, int negative, vigil_toml_value_t **out,
+                                           vigil_error_t *error)
+{
+    int64_t ival;
+    char c;
+
+    if (parse_integer_digits(p, &ival, 10, error) != VIGIL_STATUS_OK)
+        return error->type;
+
+    c = parser_peek(p);
+    if (!is_decimal_float_marker(c))
+        return parse_decimal_integer_value(p, ival, negative, out, error);
+    return parse_decimal_float_value(p, (double)ival, negative, out, error);
 }
 
 static vigil_status_t parse_number(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
@@ -1546,34 +1561,31 @@ static vigil_status_t parse_array_value(toml_parser_t *p, vigil_toml_value_t **o
     }
 }
 
-static int parse_boolean_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_status_t *status,
-                               vigil_error_t *error)
+static int parse_boolean_literal(toml_parser_t *p, const char *literal, size_t length, int value,
+                                 vigil_toml_value_t **out, vigil_status_t *status, vigil_error_t *error)
+{
+    char after;
+
+    if (p->pos + length > p->length || memcmp(p->input + p->pos, literal, length) != 0)
+        return 0;
+    after = (p->pos + length < p->length) ? p->input[p->pos + length] : '\0';
+    if (is_bare_key_char(after))
+        return 0;
+    p->pos += length;
+    p->col += length;
+    *status = vigil_toml_bool_new(p->allocator, value, out, error);
+    return 1;
+}
+
+static int parse_boolean_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_status_t *status, vigil_error_t *error)
 {
     char c;
 
     c = parser_peek(p);
-    if (c == 't' && p->pos + 4 <= p->length && memcmp(p->input + p->pos, "true", 4) == 0)
-    {
-        char after = (p->pos + 4 < p->length) ? p->input[p->pos + 4] : '\0';
-        if (!is_bare_key_char(after))
-        {
-            p->pos += 4;
-            p->col += 4;
-            *status = vigil_toml_bool_new(p->allocator, 1, out, error);
-            return 1;
-        }
-    }
-    if (c == 'f' && p->pos + 5 <= p->length && memcmp(p->input + p->pos, "false", 5) == 0)
-    {
-        char after = (p->pos + 5 < p->length) ? p->input[p->pos + 5] : '\0';
-        if (!is_bare_key_char(after))
-        {
-            p->pos += 5;
-            p->col += 5;
-            *status = vigil_toml_bool_new(p->allocator, 0, out, error);
-            return 1;
-        }
-    }
+    if (c == 't')
+        return parse_boolean_literal(p, "true", 4, 1, out, status, error);
+    if (c == 'f')
+        return parse_boolean_literal(p, "false", 5, 0, out, status, error);
     return 0;
 }
 
@@ -1604,8 +1616,7 @@ static int parser_looks_like_date_time_or_local_time(toml_parser_t *p, int *out_
     return 0;
 }
 
-static vigil_status_t parse_datetime_or_number_value(toml_parser_t *p, vigil_toml_value_t **out,
-                                                     vigil_error_t *error)
+static vigil_status_t parse_datetime_or_number_value(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
 {
     int prefix;
     int kind;
