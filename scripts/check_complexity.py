@@ -5,6 +5,7 @@ import csv
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -38,10 +39,79 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_thresholds(path: Path) -> dict[str, int]:
+def load_thresholds(path: Path) -> dict:
     data = json.loads(path.read_text())
-    defaults = data.get("defaults", {})
-    return {metric: int(defaults[metric]) for metric in METRICS}
+    defaults = normalize_threshold_values(data.get("defaults", {}))
+    new_function = normalize_threshold_values(data.get("new_function", {}))
+    churn = data.get("churn", {})
+    churn_tiers = []
+    for tier in churn.get("tiers", []):
+        churn_tiers.append(
+            {
+                "name": tier["name"],
+                "min_commits": int(tier["min_commits"]),
+                "thresholds": normalize_threshold_values(tier.get("thresholds", {})),
+            }
+        )
+    churn_tiers.sort(key=lambda item: item["min_commits"], reverse=True)
+
+    overrides = []
+    for override in data.get("overrides", []):
+        overrides.append(
+            {
+                "path_prefix": override.get("path_prefix"),
+                "path": override.get("path"),
+                "thresholds": normalize_threshold_values(override.get("thresholds", {})),
+            }
+        )
+
+    return {
+        "defaults": defaults,
+        "new_function": new_function,
+        "churn": {
+            "since_days": int(churn.get("since_days", 180)),
+            "tiers": churn_tiers,
+        },
+        "overrides": overrides,
+    }
+
+
+def normalize_threshold_values(raw: dict) -> dict[str, int]:
+    return {metric: int(raw[metric]) for metric in METRICS if metric in raw}
+
+
+def collect_file_churn(root: Path, since_days: int) -> dict[str, int]:
+    since_date = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cmd = [
+        "git",
+        "log",
+        f"--since={since_date}",
+        "--format=COMMIT:%H",
+        "--name-only",
+        "--",
+        *SCAN_DIRS,
+    ]
+    result = subprocess.run(
+        cmd,
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    file_commits: dict[str, set[str]] = {}
+    current_commit = None
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        if line.startswith("COMMIT:"):
+            current_commit = line.removeprefix("COMMIT:")
+            continue
+        if current_commit is None:
+            continue
+        file_commits.setdefault(line, set()).add(current_commit)
+
+    return {path: len(commits) for path, commits in file_commits.items()}
 
 
 def run_lizard(root: Path) -> list[dict[str, str]]:
@@ -78,29 +148,95 @@ def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
 
 
 def row_key(row: dict[str, str]) -> tuple[str, str]:
-    return row["file"], row["function_name"]
+    return row["file"], row["long_name"]
 
 
 def metric_map(row: dict[str, str]) -> dict[str, int]:
     return {metric: int(row[metric]) for metric in METRICS}
 
 
+def merge_thresholds(base: dict[str, int], updates: dict[str, int]) -> dict[str, int]:
+    merged = dict(base)
+    merged.update(updates)
+    return merged
+
+
+def matching_override(overrides: list[dict], file_path: str) -> dict | None:
+    best = None
+    best_length = -1
+    for override in overrides:
+        exact_path = override.get("path")
+        prefix = override.get("path_prefix")
+        match_length = -1
+
+        if exact_path is not None and file_path == exact_path:
+            match_length = len(exact_path) + 100000
+        elif prefix is not None and file_path.startswith(prefix):
+            match_length = len(prefix)
+
+        if match_length > best_length:
+            best = override
+            best_length = match_length
+    return best
+
+
+def threshold_context(
+    threshold_config: dict,
+    file_churn: dict[str, int],
+    file_path: str,
+    is_new_function: bool,
+) -> dict:
+    thresholds = dict(threshold_config["defaults"])
+    churn_count = file_churn.get(file_path, 0)
+    churn_tier = None
+
+    for tier in threshold_config["churn"]["tiers"]:
+        if churn_count >= tier["min_commits"]:
+            thresholds = merge_thresholds(thresholds, tier["thresholds"])
+            churn_tier = tier["name"]
+            break
+
+    override = matching_override(threshold_config["overrides"], file_path)
+    if override is not None:
+        thresholds = merge_thresholds(thresholds, override["thresholds"])
+
+    if is_new_function:
+        thresholds = merge_thresholds(thresholds, threshold_config["new_function"])
+
+    return {
+        "thresholds": thresholds,
+        "churn_count": churn_count,
+        "churn_tier": churn_tier,
+        "override": override,
+        "is_new_function": is_new_function,
+    }
+
+
 def summarize_rows(
     candidate_rows: list[dict[str, str]],
     baseline_rows: list[dict[str, str]],
-    thresholds: dict[str, int],
+    threshold_config: dict,
+    file_churn: dict[str, int],
 ) -> dict:
     baseline_map = {row_key(row): row for row in baseline_rows}
     inherited = []
     regressions = []
 
     for row in candidate_rows:
+        baseline_row = baseline_map.get(row_key(row))
+        context = threshold_context(
+            threshold_config,
+            file_churn,
+            row["file"],
+            is_new_function=baseline_row is None,
+        )
         actual = metric_map(row)
-        exceeded = {metric: value for metric, value in actual.items() if value > thresholds[metric]}
+        exceeded = {
+            metric: value for metric, value in actual.items() if value > context["thresholds"][metric]
+        }
         if not exceeded:
             continue
 
-        baseline_row = baseline_map.get(row_key(row))
         inherited_metrics = {}
         regression_metrics = {}
 
@@ -109,17 +245,21 @@ def summarize_rows(
             if baseline_row is not None:
                 baseline_value = int(baseline_row[metric])
 
-            if baseline_value is not None and baseline_value > thresholds[metric] and value <= baseline_value:
+            if (
+                baseline_value is not None
+                and baseline_value > context["thresholds"][metric]
+                and value <= baseline_value
+            ):
                 inherited_metrics[metric] = {
                     "candidate": value,
                     "baseline": baseline_value,
-                    "threshold": thresholds[metric],
+                    "threshold": context["thresholds"][metric],
                 }
             else:
                 regression_metrics[metric] = {
                     "candidate": value,
                     "baseline": baseline_value,
-                    "threshold": thresholds[metric],
+                    "threshold": context["thresholds"][metric],
                 }
 
         if inherited_metrics:
@@ -128,6 +268,9 @@ def summarize_rows(
                     "file": row["file"],
                     "function": row["function_name"],
                     "start_line": int(row["start_line"]),
+                    "is_new_function": context["is_new_function"],
+                    "churn_count": context["churn_count"],
+                    "churn_tier": context["churn_tier"],
                     "metrics": inherited_metrics,
                 }
             )
@@ -137,6 +280,9 @@ def summarize_rows(
                     "file": row["file"],
                     "function": row["function_name"],
                     "start_line": int(row["start_line"]),
+                    "is_new_function": context["is_new_function"],
+                    "churn_count": context["churn_count"],
+                    "churn_tier": context["churn_tier"],
                     "metrics": regression_metrics,
                 }
             )
@@ -146,12 +292,18 @@ def summarize_rows(
 
     baseline_debt = 0
     for row in baseline_rows:
+        context = threshold_context(
+            threshold_config,
+            file_churn,
+            row["file"],
+            is_new_function=False,
+        )
         actual = metric_map(row)
-        if any(actual[metric] > thresholds[metric] for metric in METRICS):
+        if any(actual[metric] > context["thresholds"][metric] for metric in METRICS):
             baseline_debt += 1
 
     return {
-        "thresholds": thresholds,
+        "thresholds": threshold_config,
         "candidate_function_count": len(candidate_rows),
         "baseline_function_count": len(baseline_rows),
         "baseline_debt_count": baseline_debt,
@@ -163,7 +315,14 @@ def summarize_rows(
 
 
 def print_summary(summary: dict) -> None:
+    defaults = summary["thresholds"]["defaults"]
+    new_function = summary["thresholds"]["new_function"]
     print("## Complexity Report")
+    print()
+    print(
+        f"Thresholds: defaults(ccn={defaults.get('ccn')}, length={defaults.get('length')}, "
+        f"param={defaults.get('param')}), new-function ccn={new_function.get('ccn', defaults.get('ccn'))}"
+    )
     print()
     print(
         f"Functions analyzed: candidate={summary['candidate_function_count']}, "
@@ -182,7 +341,13 @@ def print_summary(summary: dict) -> None:
                 f"{metric}={values['candidate']} (baseline={values['baseline']}, limit={values['threshold']})"
                 for metric, values in item["metrics"].items()
             )
-            print(f"- {item['file']}:{item['start_line']} {item['function']}: {metrics}")
+            details = []
+            if item["is_new_function"]:
+                details.append("new")
+            if item["churn_tier"] is not None:
+                details.append(f"churn={item['churn_tier']}:{item['churn_count']}")
+            suffix = f" [{' '.join(details)}]" if details else ""
+            print(f"- {item['file']}:{item['start_line']} {item['function']}: {metrics}{suffix}")
         print()
 
     if summary["candidate_inherited_debt_count"]:
@@ -192,7 +357,11 @@ def print_summary(summary: dict) -> None:
                 f"{metric}={values['candidate']} (baseline={values['baseline']}, limit={values['threshold']})"
                 for metric, values in item["metrics"].items()
             )
-            print(f"- {item['file']}:{item['start_line']} {item['function']}: {metrics}")
+            details = []
+            if item["churn_tier"] is not None:
+                details.append(f"churn={item['churn_tier']}:{item['churn_count']}")
+            suffix = f" [{' '.join(details)}]" if details else ""
+            print(f"- {item['file']}:{item['start_line']} {item['function']}: {metrics}{suffix}")
         if summary["candidate_inherited_debt_count"] > 20:
             remaining = summary["candidate_inherited_debt_count"] - 20
             print(f"- ... {remaining} more inherited functions")
@@ -205,7 +374,8 @@ def main() -> int:
     summary_path = Path(args.summary)
     summary_path.parent.mkdir(parents=True, exist_ok=True)
 
-    thresholds = load_thresholds(Path(args.thresholds))
+    threshold_config = load_thresholds(Path(args.thresholds))
+    file_churn = collect_file_churn(candidate_root, threshold_config["churn"]["since_days"])
     candidate_rows = run_lizard(candidate_root)
     baseline_rows = run_lizard(baseline_root)
 
@@ -218,7 +388,7 @@ def main() -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         write_csv(path, baseline_rows)
 
-    summary = summarize_rows(candidate_rows, baseline_rows, thresholds)
+    summary = summarize_rows(candidate_rows, baseline_rows, threshold_config, file_churn)
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print_summary(summary)
     return 1 if summary["regression_count"] else 0
