@@ -2,6 +2,30 @@
 
 #include "vigil/type.h"
 
+typedef struct
+{
+    const char *name;
+    size_t length;
+    vigil_type_kind_t kind;
+} vigil_type_name_entry_t;
+
+typedef struct
+{
+    vigil_binary_operator_kind_t operator_kind;
+    vigil_type_binary_rule_t rule;
+} vigil_type_binary_rule_entry_t;
+
+typedef enum
+{
+    VIGIL_TYPE_BINARY_RULE_INVALID = 0,
+    VIGIL_TYPE_BINARY_RULE_ADD,
+    VIGIL_TYPE_BINARY_RULE_ARITHMETIC,
+    VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY,
+    VIGIL_TYPE_BINARY_RULE_ORDERED,
+    VIGIL_TYPE_BINARY_RULE_EQUALITY,
+    VIGIL_TYPE_BINARY_RULE_LOGICAL
+} vigil_type_binary_rule_t;
+
 static int vigil_type_kind_is_integer(vigil_type_kind_t kind)
 {
     return kind == VIGIL_TYPE_I32 || kind == VIGIL_TYPE_I64 || kind == VIGIL_TYPE_U8 || kind == VIGIL_TYPE_U32 ||
@@ -16,6 +40,49 @@ static int vigil_type_kind_is_signed_integer(vigil_type_kind_t kind)
 static int vigil_type_kinds_match(vigil_type_kind_t left_type, vigil_type_kind_t right_type)
 {
     return vigil_type_kind_is_valid(left_type) && vigil_type_kind_is_valid(right_type) && left_type == right_type;
+}
+
+static int vigil_type_kinds_are_matching_integers(vigil_type_kind_t left_type, vigil_type_kind_t right_type)
+{
+    return vigil_type_kind_is_integer(left_type) && vigil_type_kinds_match(left_type, right_type);
+}
+
+static int vigil_type_kinds_are(vigil_type_kind_t left_type, vigil_type_kind_t right_type, vigil_type_kind_t kind)
+{
+    return left_type == kind && right_type == kind;
+}
+
+static vigil_type_binary_rule_t vigil_type_binary_rule(vigil_binary_operator_kind_t operator_kind)
+{
+    static const vigil_type_binary_rule_entry_t entries[] = {
+        {VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_BINARY_RULE_ADD},
+        {VIGIL_BINARY_OPERATOR_SUBTRACT, VIGIL_TYPE_BINARY_RULE_ARITHMETIC},
+        {VIGIL_BINARY_OPERATOR_MULTIPLY, VIGIL_TYPE_BINARY_RULE_ARITHMETIC},
+        {VIGIL_BINARY_OPERATOR_DIVIDE, VIGIL_TYPE_BINARY_RULE_ARITHMETIC},
+        {VIGIL_BINARY_OPERATOR_MODULO, VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY},
+        {VIGIL_BINARY_OPERATOR_BITWISE_AND, VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY},
+        {VIGIL_BINARY_OPERATOR_BITWISE_OR, VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY},
+        {VIGIL_BINARY_OPERATOR_BITWISE_XOR, VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY},
+        {VIGIL_BINARY_OPERATOR_SHIFT_LEFT, VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY},
+        {VIGIL_BINARY_OPERATOR_SHIFT_RIGHT, VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY},
+        {VIGIL_BINARY_OPERATOR_GREATER, VIGIL_TYPE_BINARY_RULE_ORDERED},
+        {VIGIL_BINARY_OPERATOR_GREATER_EQUAL, VIGIL_TYPE_BINARY_RULE_ORDERED},
+        {VIGIL_BINARY_OPERATOR_LESS, VIGIL_TYPE_BINARY_RULE_ORDERED},
+        {VIGIL_BINARY_OPERATOR_LESS_EQUAL, VIGIL_TYPE_BINARY_RULE_ORDERED},
+        {VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BINARY_RULE_EQUALITY},
+        {VIGIL_BINARY_OPERATOR_NOT_EQUAL, VIGIL_TYPE_BINARY_RULE_EQUALITY},
+        {VIGIL_BINARY_OPERATOR_LOGICAL_AND, VIGIL_TYPE_BINARY_RULE_LOGICAL},
+        {VIGIL_BINARY_OPERATOR_LOGICAL_OR, VIGIL_TYPE_BINARY_RULE_LOGICAL},
+    };
+    size_t index;
+
+    for (index = 0U; index < sizeof(entries) / sizeof(entries[0]); index += 1U)
+    {
+        if (entries[index].operator_kind == operator_kind)
+            return entries[index].rule;
+    }
+
+    return VIGIL_TYPE_BINARY_RULE_INVALID;
 }
 
 const char *vigil_type_kind_name(vigil_type_kind_t kind)
@@ -58,64 +125,23 @@ int vigil_type_kind_is_valid(vigil_type_kind_t kind)
 
 vigil_type_kind_t vigil_type_kind_from_name(const char *text, size_t length)
 {
+    static const vigil_type_name_entry_t entries[] = {
+        {"i32", 3U, VIGIL_TYPE_I32},   {"i64", 3U, VIGIL_TYPE_I64},       {"u8", 2U, VIGIL_TYPE_U8},
+        {"u32", 3U, VIGIL_TYPE_U32},   {"u64", 3U, VIGIL_TYPE_U64},       {"f64", 3U, VIGIL_TYPE_F64},
+        {"bool", 4U, VIGIL_TYPE_BOOL}, {"string", 6U, VIGIL_TYPE_STRING}, {"err", 3U, VIGIL_TYPE_ERR},
+        {"void", 4U, VIGIL_TYPE_VOID}, {"nil", 3U, VIGIL_TYPE_NIL},
+    };
+    size_t index;
+
     if (text == NULL)
     {
         return VIGIL_TYPE_INVALID;
     }
 
-    if (length == 3U && memcmp(text, "i32", 3U) == 0)
+    for (index = 0U; index < sizeof(entries) / sizeof(entries[0]); index += 1U)
     {
-        return VIGIL_TYPE_I32;
-    }
-
-    if (length == 3U && memcmp(text, "i64", 3U) == 0)
-    {
-        return VIGIL_TYPE_I64;
-    }
-
-    if (length == 2U && memcmp(text, "u8", 2U) == 0)
-    {
-        return VIGIL_TYPE_U8;
-    }
-
-    if (length == 3U && memcmp(text, "u32", 3U) == 0)
-    {
-        return VIGIL_TYPE_U32;
-    }
-
-    if (length == 3U && memcmp(text, "u64", 3U) == 0)
-    {
-        return VIGIL_TYPE_U64;
-    }
-
-    if (length == 3U && memcmp(text, "f64", 3U) == 0)
-    {
-        return VIGIL_TYPE_F64;
-    }
-
-    if (length == 4U && memcmp(text, "bool", 4U) == 0)
-    {
-        return VIGIL_TYPE_BOOL;
-    }
-
-    if (length == 6U && memcmp(text, "string", 6U) == 0)
-    {
-        return VIGIL_TYPE_STRING;
-    }
-
-    if (length == 3U && memcmp(text, "err", 3U) == 0)
-    {
-        return VIGIL_TYPE_ERR;
-    }
-
-    if (length == 4U && memcmp(text, "void", 4U) == 0)
-    {
-        return VIGIL_TYPE_VOID;
-    }
-
-    if (length == 3U && memcmp(text, "nil", 3U) == 0)
-    {
-        return VIGIL_TYPE_NIL;
+        if (length == entries[index].length && memcmp(text, entries[index].name, length) == 0)
+            return entries[index].kind;
     }
 
     return VIGIL_TYPE_INVALID;
@@ -149,42 +175,34 @@ int vigil_type_supports_unary_operator(vigil_unary_operator_kind_t operator_kind
 int vigil_type_supports_binary_operator(vigil_binary_operator_kind_t operator_kind, vigil_type_kind_t left_type,
                                         vigil_type_kind_t right_type)
 {
+    vigil_type_binary_rule_t rule;
+
     if (!vigil_type_kind_is_valid(left_type) || !vigil_type_kind_is_valid(right_type))
     {
         return 0;
     }
 
-    switch (operator_kind)
+    rule = vigil_type_binary_rule(operator_kind);
+    switch (rule)
     {
-    case VIGIL_BINARY_OPERATOR_ADD:
-        return (vigil_type_kind_is_integer(left_type) && vigil_type_kinds_match(left_type, right_type)) ||
-               (left_type == VIGIL_TYPE_F64 && right_type == VIGIL_TYPE_F64) ||
-               (left_type == VIGIL_TYPE_STRING && right_type == VIGIL_TYPE_STRING);
-    case VIGIL_BINARY_OPERATOR_SUBTRACT:
-    case VIGIL_BINARY_OPERATOR_MULTIPLY:
-    case VIGIL_BINARY_OPERATOR_DIVIDE:
-        return (vigil_type_kind_is_integer(left_type) && vigil_type_kinds_match(left_type, right_type)) ||
-               (left_type == VIGIL_TYPE_F64 && right_type == VIGIL_TYPE_F64);
-    case VIGIL_BINARY_OPERATOR_MODULO:
-    case VIGIL_BINARY_OPERATOR_BITWISE_AND:
-    case VIGIL_BINARY_OPERATOR_BITWISE_OR:
-    case VIGIL_BINARY_OPERATOR_BITWISE_XOR:
-    case VIGIL_BINARY_OPERATOR_SHIFT_LEFT:
-    case VIGIL_BINARY_OPERATOR_SHIFT_RIGHT:
-        return vigil_type_kind_is_integer(left_type) && vigil_type_kinds_match(left_type, right_type);
-    case VIGIL_BINARY_OPERATOR_GREATER:
-    case VIGIL_BINARY_OPERATOR_GREATER_EQUAL:
-    case VIGIL_BINARY_OPERATOR_LESS:
-    case VIGIL_BINARY_OPERATOR_LESS_EQUAL:
-        return (vigil_type_kind_is_integer(left_type) && vigil_type_kinds_match(left_type, right_type)) ||
-               (left_type == VIGIL_TYPE_F64 && right_type == VIGIL_TYPE_F64) ||
-               (left_type == VIGIL_TYPE_STRING && right_type == VIGIL_TYPE_STRING);
-    case VIGIL_BINARY_OPERATOR_EQUAL:
-    case VIGIL_BINARY_OPERATOR_NOT_EQUAL:
+    case VIGIL_TYPE_BINARY_RULE_ADD:
+        return vigil_type_kinds_are_matching_integers(left_type, right_type) ||
+               vigil_type_kinds_are(left_type, right_type, VIGIL_TYPE_F64) ||
+               vigil_type_kinds_are(left_type, right_type, VIGIL_TYPE_STRING);
+    case VIGIL_TYPE_BINARY_RULE_ARITHMETIC:
+        return vigil_type_kinds_are_matching_integers(left_type, right_type) ||
+               vigil_type_kinds_are(left_type, right_type, VIGIL_TYPE_F64);
+    case VIGIL_TYPE_BINARY_RULE_INTEGER_ONLY:
+        return vigil_type_kinds_are_matching_integers(left_type, right_type);
+    case VIGIL_TYPE_BINARY_RULE_ORDERED:
+        return vigil_type_kinds_are_matching_integers(left_type, right_type) ||
+               vigil_type_kinds_are(left_type, right_type, VIGIL_TYPE_F64) ||
+               vigil_type_kinds_are(left_type, right_type, VIGIL_TYPE_STRING);
+    case VIGIL_TYPE_BINARY_RULE_EQUALITY:
         return vigil_type_kinds_match(left_type, right_type);
-    case VIGIL_BINARY_OPERATOR_LOGICAL_AND:
-    case VIGIL_BINARY_OPERATOR_LOGICAL_OR:
-        return left_type == VIGIL_TYPE_BOOL && right_type == VIGIL_TYPE_BOOL;
+    case VIGIL_TYPE_BINARY_RULE_LOGICAL:
+        return vigil_type_kinds_are(left_type, right_type, VIGIL_TYPE_BOOL);
+    case VIGIL_TYPE_BINARY_RULE_INVALID:
     default:
         return 0;
     }
