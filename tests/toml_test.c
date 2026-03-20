@@ -185,6 +185,16 @@ TEST_F(TomlTest, InlineTable)
     EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(pt, "y")), 2);
 }
 
+TEST_F(TomlTest, InlineTableDottedKeys)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "point = { pos.x = 1, pos.y = 2 }", vigil_test_failed_);
+    const vigil_toml_value_t *point = vigil_toml_table_get(FIXTURE(TomlTest)->root, "point");
+    const vigil_toml_value_t *pos = vigil_toml_table_get(point, "pos");
+    ASSERT_NE(pos, NULL);
+    EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(pos, "x")), 1);
+    EXPECT_EQ(vigil_toml_integer_value(vigil_toml_table_get(pos, "y")), 2);
+}
+
 TEST_F(TomlTest, QuotedKey)
 {
     toml_parse_helper(FIXTURE(TomlTest), "\"key with spaces\" = true", vigil_test_failed_);
@@ -325,6 +335,14 @@ TEST_F(TomlTest, DuplicateKeyError)
 TEST_F(TomlTest, UnterminatedString)
 {
     vigil_status_t s = vigil_toml_parse(NULL, "a = \"hello", 10, &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
+    EXPECT_NE(s, VIGIL_STATUS_OK);
+}
+
+TEST_F(TomlTest, InlineTableKeyConflictError)
+{
+    const char *input = "point = { pos = 1, pos.x = 2 }";
+    vigil_status_t s =
+        vigil_toml_parse(NULL, input, strlen(input), &FIXTURE(TomlTest)->root, &FIXTURE(TomlTest)->error);
     EXPECT_NE(s, VIGIL_STATUS_OK);
 }
 
@@ -474,6 +492,7 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, NestedTable);
     REGISTER_TEST_F(TomlTest, DottedKeys);
     REGISTER_TEST_F(TomlTest, InlineTable);
+    REGISTER_TEST_F(TomlTest, InlineTableDottedKeys);
     REGISTER_TEST_F(TomlTest, QuotedKey);
     REGISTER_TEST_F(TomlTest, SimpleArray);
     REGISTER_TEST_F(TomlTest, StringArray);
@@ -489,6 +508,7 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, Comments);
     REGISTER_TEST_F(TomlTest, DuplicateKeyError);
     REGISTER_TEST_F(TomlTest, UnterminatedString);
+    REGISTER_TEST_F(TomlTest, InlineTableKeyConflictError);
     REGISTER_TEST_F(TomlTest, EmitRoundTrip);
     REGISTER_TEST_F(TomlTest, EmitTable);
     REGISTER_TEST_F(TomlTest, VigilToml);
