@@ -646,6 +646,52 @@ static vigil_status_t parse_unicode_escape(toml_parser_t *p, int n, vigil_error_
     return buf_push_utf8(p, cp, error);
 }
 
+static int translate_basic_string_escape(char c, char *out)
+{
+    switch (c)
+    {
+    case 'b':
+        *out = '\b';
+        return 1;
+    case 't':
+        *out = '\t';
+        return 1;
+    case 'n':
+        *out = '\n';
+        return 1;
+    case 'f':
+        *out = '\f';
+        return 1;
+    case 'r':
+        *out = '\r';
+        return 1;
+    case '"':
+        *out = '"';
+        return 1;
+    case '\\':
+        *out = '\\';
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static vigil_status_t parse_basic_string_escape(toml_parser_t *p, vigil_error_t *error)
+{
+    char c;
+    char escaped;
+
+    parser_advance(p);
+    c = parser_advance(p);
+    if (translate_basic_string_escape(c, &escaped))
+        return buf_push(p, escaped, error);
+    if (c == 'u')
+        return parse_unicode_escape(p, 4, error);
+    if (c == 'U')
+        return parse_unicode_escape(p, 8, error);
+    return parser_error(p, "invalid escape sequence", error);
+}
+
 static vigil_status_t parse_basic_string(toml_parser_t *p, vigil_error_t *error)
 {
     vigil_status_t s;
@@ -663,40 +709,7 @@ static vigil_status_t parse_basic_string(toml_parser_t *p, vigil_error_t *error)
             return parser_error(p, "newline in basic string", error);
         if (c == '\\')
         {
-            parser_advance(p);
-            c = parser_advance(p);
-            switch (c)
-            {
-            case 'b':
-                s = buf_push(p, '\b', error);
-                break;
-            case 't':
-                s = buf_push(p, '\t', error);
-                break;
-            case 'n':
-                s = buf_push(p, '\n', error);
-                break;
-            case 'f':
-                s = buf_push(p, '\f', error);
-                break;
-            case 'r':
-                s = buf_push(p, '\r', error);
-                break;
-            case '"':
-                s = buf_push(p, '"', error);
-                break;
-            case '\\':
-                s = buf_push(p, '\\', error);
-                break;
-            case 'u':
-                s = parse_unicode_escape(p, 4, error);
-                break;
-            case 'U':
-                s = parse_unicode_escape(p, 8, error);
-                break;
-            default:
-                return parser_error(p, "invalid escape sequence", error);
-            }
+            s = parse_basic_string_escape(p, error);
             if (s != VIGIL_STATUS_OK)
                 return s;
         }
@@ -1405,6 +1418,85 @@ static vigil_status_t parse_local_time(toml_parser_t *p, int hour, vigil_toml_va
 
 /* ── Value parsing ───────────────────────────────────────────────── */
 
+static void free_inline_table_entry(key_path_t *kp, toml_parser_t *p, vigil_toml_value_t **val)
+{
+    key_path_free(kp, p->allocator);
+    vigil_toml_free(val);
+}
+
+static vigil_status_t resolve_inline_table_target(toml_parser_t *p, vigil_toml_value_t *tbl, key_path_t *kp,
+                                                  vigil_toml_value_t **target, vigil_error_t *error)
+{
+    size_t i;
+
+    *target = tbl;
+    for (i = 0; i + 1 < kp->count; i++)
+    {
+        const vigil_toml_value_t *existing = vigil_toml_table_get(*target, kp->segments[i]);
+        if (existing && vigil_toml_type(existing) == VIGIL_TOML_TABLE)
+        {
+            *target = (vigil_toml_value_t *)existing;
+            continue;
+        }
+        if (existing)
+            return parser_error(p, "key conflict in inline table", error);
+
+        {
+            vigil_toml_value_t *sub = NULL;
+            vigil_status_t s = vigil_toml_table_new(p->allocator, &sub, error);
+            if (s != VIGIL_STATUS_OK)
+                return s;
+            s = vigil_toml_table_set(*target, kp->segments[i], kp->lengths[i], sub, error);
+            if (s != VIGIL_STATUS_OK)
+            {
+                vigil_toml_free(&sub);
+                return s;
+            }
+            *target = sub;
+        }
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_inline_table_entry(toml_parser_t *p, vigil_toml_value_t *tbl, vigil_error_t *error)
+{
+    key_path_t kp;
+    vigil_toml_value_t *val;
+    vigil_toml_value_t *target;
+    vigil_status_t s;
+
+    memset(&kp, 0, sizeof(kp));
+    val = NULL;
+    target = tbl;
+    skip_ws(p);
+    s = parse_key_path(p, &kp, error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    skip_ws(p);
+    if (!parser_match(p, '='))
+    {
+        s = parser_error(p, "expected '=' in inline table", error);
+        goto cleanup;
+    }
+    skip_ws(p);
+    s = resolve_inline_table_target(p, tbl, &kp, &target, error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = parse_value(p, &val, error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+    s = vigil_toml_table_set(target, kp.segments[kp.count - 1], kp.lengths[kp.count - 1], val, error);
+    if (s != VIGIL_STATUS_OK)
+        goto cleanup;
+
+    key_path_free(&kp, p->allocator);
+    return VIGIL_STATUS_OK;
+
+cleanup:
+    free_inline_table_entry(&kp, p, &val);
+    return s;
+}
+
 static vigil_status_t parse_inline_table(toml_parser_t *p, vigil_toml_value_t **out, vigil_error_t *error)
 {
     vigil_toml_value_t *tbl = NULL;
@@ -1421,79 +1513,12 @@ static vigil_status_t parse_inline_table(toml_parser_t *p, vigil_toml_value_t **
     }
     for (;;)
     {
-        key_path_t kp;
-        vigil_toml_value_t *val = NULL;
-        vigil_toml_value_t *target = tbl;
-        size_t i;
-
-        memset(&kp, 0, sizeof(kp));
-        skip_ws(p);
-        s = parse_key_path(p, &kp, error);
+        s = parse_inline_table_entry(p, tbl, error);
         if (s != VIGIL_STATUS_OK)
         {
-            key_path_free(&kp, p->allocator);
             vigil_toml_free(&tbl);
             return s;
         }
-        skip_ws(p);
-        if (!parser_match(p, '='))
-        {
-            key_path_free(&kp, p->allocator);
-            vigil_toml_free(&tbl);
-            return parser_error(p, "expected '=' in inline table", error);
-        }
-        skip_ws(p);
-        /* Navigate/create intermediate tables for dotted keys. */
-        for (i = 0; i + 1 < kp.count; i++)
-        {
-            const vigil_toml_value_t *existing = vigil_toml_table_get(target, kp.segments[i]);
-            if (existing && vigil_toml_type(existing) == VIGIL_TOML_TABLE)
-            {
-                target = (vigil_toml_value_t *)existing;
-            }
-            else if (!existing)
-            {
-                vigil_toml_value_t *sub = NULL;
-                s = vigil_toml_table_new(p->allocator, &sub, error);
-                if (s != VIGIL_STATUS_OK)
-                {
-                    key_path_free(&kp, p->allocator);
-                    vigil_toml_free(&tbl);
-                    return s;
-                }
-                s = vigil_toml_table_set(target, kp.segments[i], kp.lengths[i], sub, error);
-                if (s != VIGIL_STATUS_OK)
-                {
-                    vigil_toml_free(&sub);
-                    key_path_free(&kp, p->allocator);
-                    vigil_toml_free(&tbl);
-                    return s;
-                }
-                target = sub;
-            }
-            else
-            {
-                key_path_free(&kp, p->allocator);
-                vigil_toml_free(&tbl);
-                return parser_error(p, "key conflict in inline table", error);
-            }
-        }
-        s = parse_value(p, &val, error);
-        if (s != VIGIL_STATUS_OK)
-        {
-            key_path_free(&kp, p->allocator);
-            vigil_toml_free(&tbl);
-            return s;
-        }
-        s = vigil_toml_table_set(target, kp.segments[kp.count - 1], kp.lengths[kp.count - 1], val, error);
-        if (s != VIGIL_STATUS_OK)
-        {
-            vigil_toml_free(&val);
-            key_path_free(&kp, p->allocator);
-            vigil_toml_free(&tbl);
-            return s;
-        }
-        key_path_free(&kp, p->allocator);
         skip_ws(p);
         if (parser_match(p, '}'))
         {
