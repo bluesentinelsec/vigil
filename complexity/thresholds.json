@@ -1,7 +1,68 @@
 {
   "defaults": {
-    "ccn": 30,
+    "ccn": 20,
     "length": 120,
     "param": 6
-  }
+  },
+  "new_function": {
+    "ccn": 10
+  },
+  "churn": {
+    "since_days": 180,
+    "tiers": [
+      {
+        "name": "high",
+        "min_commits": 12,
+        "thresholds": {
+          "ccn": 10
+        }
+      },
+      {
+        "name": "medium",
+        "min_commits": 6,
+        "thresholds": {
+          "ccn": 12
+        }
+      },
+      {
+        "name": "low",
+        "min_commits": 0,
+        "thresholds": {
+          "ccn": 20
+        }
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "path_prefix": "tests/",
+      "thresholds": {
+        "ccn": 10
+      }
+    },
+    {
+      "path": "src/cli/main.c",
+      "thresholds": {
+        "ccn": 10
+      }
+    },
+    {
+      "path": "src/cli_frontend.c",
+      "thresholds": {
+        "ccn": 10
+      }
+    },
+    {
+      "path": "src/cli_test.c",
+      "thresholds": {
+        "ccn": 10
+      }
+    },
+    {
+      "path": "src/cli_lib.c",
+      "thresholds": {
+        "ccn": 10
+      }
+    }
+  ]
 }
