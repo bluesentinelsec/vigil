@@ -263,6 +263,7 @@ endif()
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_executable(vigil_cli
         src/cli/main.c
+        src/cli_test.c
     )
 
     set_target_properties(vigil_cli PROPERTIES OUTPUT_NAME vigil)
