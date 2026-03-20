@@ -1273,24 +1273,118 @@ static int parse_n_digits(toml_parser_t *p, int n)
     return val;
 }
 
+static vigil_status_t parse_fractional_nanoseconds(toml_parser_t *p, int *nanosecond)
+{
+    int frac;
+    int digits;
+
+    frac = 0;
+    digits = 0;
+    while (is_digit(parser_peek(p)) && digits < 9)
+    {
+        frac = frac * 10 + (parser_peek(p) - '0');
+        parser_advance(p);
+        digits++;
+    }
+    while (digits < 9)
+    {
+        frac *= 10;
+        digits++;
+    }
+    *nanosecond = frac;
+    while (is_digit(parser_peek(p)))
+        parser_advance(p);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_time_fraction(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
+{
+    (void)error;
+    if (parser_match(p, '.'))
+        return parse_fractional_nanoseconds(p, &dt->nanosecond);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_time_fields(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
+{
+    dt->hour = parse_n_digits(p, 2);
+    if (dt->hour < 0)
+        return parser_error(p, "invalid hour", error);
+    if (!parser_match(p, ':'))
+        return parser_error(p, "expected ':' in time", error);
+    dt->minute = parse_n_digits(p, 2);
+    if (dt->minute < 0)
+        return parser_error(p, "invalid minute", error);
+    if (!parser_match(p, ':'))
+        return parser_error(p, "expected ':' in time", error);
+    dt->second = parse_n_digits(p, 2);
+    if (dt->second < 0)
+        return parser_error(p, "invalid second", error);
+    return parse_time_fraction(p, dt, error);
+}
+
+static vigil_status_t parse_datetime_offset(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
+{
+    char c;
+
+    c = parser_peek(p);
+    if (c == 'Z' || c == 'z')
+    {
+        parser_advance(p);
+        dt->has_offset = 1;
+        dt->offset_minutes = 0;
+        return VIGIL_STATUS_OK;
+    }
+    if (c == '+' || c == '-')
+    {
+        int sign;
+        int oh;
+        int om;
+
+        sign = (c == '-') ? -1 : 1;
+        parser_advance(p);
+        oh = parse_n_digits(p, 2);
+        if (oh < 0)
+            return parser_error(p, "invalid offset hour", error);
+        if (!parser_match(p, ':'))
+            return parser_error(p, "expected ':' in offset", error);
+        om = parse_n_digits(p, 2);
+        if (om < 0)
+            return parser_error(p, "invalid offset minute", error);
+        dt->has_offset = 1;
+        dt->offset_minutes = sign * (oh * 60 + om);
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_month_and_day(toml_parser_t *p, vigil_toml_datetime_t *dt, vigil_error_t *error)
+{
+    if (!parser_match(p, '-'))
+        return parser_error(p, "expected '-' in date", error);
+    dt->month = parse_n_digits(p, 2);
+    if (dt->month < 0)
+        return parser_error(p, "invalid month", error);
+    if (!parser_match(p, '-'))
+        return parser_error(p, "expected '-' in date", error);
+    dt->day = parse_n_digits(p, 2);
+    if (dt->day < 0)
+        return parser_error(p, "invalid day", error);
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t parse_datetime_after_year(toml_parser_t *p, int year, vigil_toml_value_t **out,
                                                 vigil_error_t *error)
 {
     vigil_toml_datetime_t dt;
+    vigil_status_t s;
+
     memset(&dt, 0, sizeof(dt));
     dt.year = year;
     dt.has_date = 1;
 
-    if (!parser_match(p, '-'))
-        return parser_error(p, "expected '-' in date", error);
-    dt.month = parse_n_digits(p, 2);
-    if (dt.month < 0)
-        return parser_error(p, "invalid month", error);
-    if (!parser_match(p, '-'))
-        return parser_error(p, "expected '-' in date", error);
-    dt.day = parse_n_digits(p, 2);
-    if (dt.day < 0)
-        return parser_error(p, "invalid day", error);
+    s = parse_month_and_day(p, &dt, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
 
     /* Optional time part. */
     {
@@ -1299,66 +1393,12 @@ static vigil_status_t parse_datetime_after_year(toml_parser_t *p, int year, vigi
         {
             parser_advance(p);
             dt.has_time = 1;
-            dt.hour = parse_n_digits(p, 2);
-            if (dt.hour < 0)
-                return parser_error(p, "invalid hour", error);
-            if (!parser_match(p, ':'))
-                return parser_error(p, "expected ':' in time", error);
-            dt.minute = parse_n_digits(p, 2);
-            if (dt.minute < 0)
-                return parser_error(p, "invalid minute", error);
-            if (!parser_match(p, ':'))
-                return parser_error(p, "expected ':' in time", error);
-            dt.second = parse_n_digits(p, 2);
-            if (dt.second < 0)
-                return parser_error(p, "invalid second", error);
-
-            /* Fractional seconds. */
-            if (parser_match(p, '.'))
-            {
-                int frac = 0, digits = 0;
-                while (is_digit(parser_peek(p)) && digits < 9)
-                {
-                    frac = frac * 10 + (parser_peek(p) - '0');
-                    parser_advance(p);
-                    digits++;
-                }
-                /* Pad to nanoseconds. */
-                while (digits < 9)
-                {
-                    frac *= 10;
-                    digits++;
-                }
-                dt.nanosecond = frac;
-                /* Skip extra precision digits. */
-                while (is_digit(parser_peek(p)))
-                    parser_advance(p);
-            }
-
-            /* Offset. */
-            c = parser_peek(p);
-            if (c == 'Z' || c == 'z')
-            {
-                parser_advance(p);
-                dt.has_offset = 1;
-                dt.offset_minutes = 0;
-            }
-            else if (c == '+' || c == '-')
-            {
-                int sign = (c == '-') ? -1 : 1;
-                int oh, om;
-                parser_advance(p);
-                oh = parse_n_digits(p, 2);
-                if (oh < 0)
-                    return parser_error(p, "invalid offset hour", error);
-                if (!parser_match(p, ':'))
-                    return parser_error(p, "expected ':' in offset", error);
-                om = parse_n_digits(p, 2);
-                if (om < 0)
-                    return parser_error(p, "invalid offset minute", error);
-                dt.has_offset = 1;
-                dt.offset_minutes = sign * (oh * 60 + om);
-            }
+            s = parse_time_fields(p, &dt, error);
+            if (s != VIGIL_STATUS_OK)
+                return s;
+            s = parse_datetime_offset(p, &dt, error);
+            if (s != VIGIL_STATUS_OK)
+                return s;
         }
     }
 
@@ -1369,6 +1409,8 @@ static vigil_status_t parse_datetime_after_year(toml_parser_t *p, int year, vigi
 static vigil_status_t parse_local_time(toml_parser_t *p, int hour, vigil_toml_value_t **out, vigil_error_t *error)
 {
     vigil_toml_datetime_t dt;
+    vigil_status_t s;
+
     memset(&dt, 0, sizeof(dt));
     dt.has_time = 1;
     dt.hour = hour;
@@ -1382,24 +1424,9 @@ static vigil_status_t parse_local_time(toml_parser_t *p, int hour, vigil_toml_va
     dt.second = parse_n_digits(p, 2);
     if (dt.second < 0)
         return parser_error(p, "invalid second", error);
-    if (parser_match(p, '.'))
-    {
-        int frac = 0, digits = 0;
-        while (is_digit(parser_peek(p)) && digits < 9)
-        {
-            frac = frac * 10 + (parser_peek(p) - '0');
-            parser_advance(p);
-            digits++;
-        }
-        while (digits < 9)
-        {
-            frac *= 10;
-            digits++;
-        }
-        dt.nanosecond = frac;
-        while (is_digit(parser_peek(p)))
-            parser_advance(p);
-    }
+    s = parse_time_fraction(p, &dt, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
     return vigil_toml_datetime_new(p->allocator, &dt, out, error);
 }
 

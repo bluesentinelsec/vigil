@@ -291,6 +291,16 @@ TEST_F(TomlTest, OffsetDateTime)
     EXPECT_EQ(dt->offset_minutes, 0);
 }
 
+TEST_F(TomlTest, OffsetDateTimeLowercaseSeparatorAndOffset)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15t10:30:00z", vigil_test_failed_);
+    const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt"));
+    EXPECT_TRUE(dt->has_date);
+    EXPECT_TRUE(dt->has_time);
+    EXPECT_TRUE(dt->has_offset);
+    EXPECT_EQ(dt->offset_minutes, 0);
+}
+
 TEST_F(TomlTest, OffsetDateTimeWithOffset)
 {
     toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15T10:30:00-05:00", vigil_test_failed_);
@@ -301,6 +311,15 @@ TEST_F(TomlTest, OffsetDateTimeWithOffset)
 TEST_F(TomlTest, LocalDateTime)
 {
     toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15T10:30:00", vigil_test_failed_);
+    const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt"));
+    EXPECT_TRUE(dt->has_date);
+    EXPECT_TRUE(dt->has_time);
+    EXPECT_FALSE(dt->has_offset);
+}
+
+TEST_F(TomlTest, LocalDateTimeWithSpaceSeparator)
+{
+    toml_parse_helper(FIXTURE(TomlTest), "dt = 2024-01-15 10:30:00", vigil_test_failed_);
     const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(vigil_toml_table_get(FIXTURE(TomlTest)->root, "dt"));
     EXPECT_TRUE(dt->has_date);
     EXPECT_TRUE(dt->has_time);
@@ -530,8 +549,10 @@ void register_toml_tests(void)
     REGISTER_TEST_F(TomlTest, NestedArray);
     REGISTER_TEST_F(TomlTest, ArrayOfTables);
     REGISTER_TEST_F(TomlTest, OffsetDateTime);
+    REGISTER_TEST_F(TomlTest, OffsetDateTimeLowercaseSeparatorAndOffset);
     REGISTER_TEST_F(TomlTest, OffsetDateTimeWithOffset);
     REGISTER_TEST_F(TomlTest, LocalDateTime);
+    REGISTER_TEST_F(TomlTest, LocalDateTimeWithSpaceSeparator);
     REGISTER_TEST_F(TomlTest, LocalDate);
     REGISTER_TEST_F(TomlTest, LocalTime);
     REGISTER_TEST_F(TomlTest, FractionalSeconds);
