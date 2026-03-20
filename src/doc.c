@@ -625,6 +625,8 @@ static vigil_doc_symbol_t *module_add_symbol(vigil_doc_module_t *m)
     return s;
 }
 
+static void free_symbol(const vigil_allocator_t *a, vigil_doc_symbol_t *sym);
+
 /* ── Parse function declaration ──────────────────────────────────── */
 
 static vigil_status_t parse_function(const vigil_allocator_t *a, const char *src, size_t src_len,
@@ -663,9 +665,135 @@ static vigil_status_t parse_function(const vigil_allocator_t *a, const char *src
 
 /* ── Parse class declaration ─────────────────────────────────────── */
 
+typedef struct
+{
+    const vigil_allocator_t *a;
+    const char *src;
+    size_t src_len;
+    const vigil_token_list_t *tokens;
+    size_t *cursor;
+    vigil_doc_symbol_t *sym;
+} class_parse_ctx_t;
+
+static void parse_class_implements_clause(const vigil_allocator_t *a, const char *src, const vigil_token_list_t *tokens,
+                                          size_t *cursor, vigil_doc_symbol_t *sym)
+{
+    const vigil_token_t *t = tok_at(tokens, *cursor);
+    doc_buf_t impl_buf;
+    int first = 1;
+    const char *name_text;
+    size_t name_len;
+
+    if (!tok_is_ident_text(src, t, "implements", 10))
+        return;
+
+    buf_init(&impl_buf, a);
+    (*cursor)++;
+    while (1)
+    {
+        t = tok_at(tokens, *cursor);
+        if (t == NULL || t->kind == VIGIL_TOKEN_LBRACE || t->kind == VIGIL_TOKEN_EOF)
+            break;
+        if (!first)
+            buf_append_cstr(&impl_buf, ", ");
+        first = 0;
+        name_text = tok_text(src, t, &name_len);
+        buf_append(&impl_buf, name_text, name_len);
+        (*cursor)++;
+        t = tok_at(tokens, *cursor);
+        if (t != NULL && t->kind == VIGIL_TOKEN_COMMA)
+            (*cursor)++;
+    }
+
+    sym->implements_text = impl_buf.data;
+    sym->implements_length = impl_buf.length;
+}
+
+static vigil_doc_symbol_t *grow_symbol_array(const vigil_allocator_t *a, vigil_doc_symbol_t *symbols, size_t *capacity)
+{
+    *capacity *= 2;
+    return (vigil_doc_symbol_t *)doc_realloc(a, symbols, *capacity * sizeof(vigil_doc_symbol_t));
+}
+
+static void discard_class_member(const vigil_allocator_t *a, vigil_doc_symbol_t *member)
+{
+    free_symbol(a, member);
+}
+
+static void skip_class_field_tail(const vigil_token_list_t *tokens, size_t *cursor)
+{
+    const vigil_token_t *t;
+
+    while (1)
+    {
+        t = tok_at(tokens, *cursor);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
+            break;
+        (*cursor)++;
+    }
+    if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
+        (*cursor)++;
+}
+
+static void parse_class_method_member(const class_parse_ctx_t *ctx, size_t *method_cap, int is_pub)
+{
+    vigil_doc_symbol_t member;
+    const vigil_token_t *t = tok_at(ctx->tokens, *ctx->cursor);
+
+    memset(&member, 0, sizeof(member));
+    extract_comment_before(ctx->a, ctx->src, ctx->src_len, t->span.start_offset, &member.comment);
+    parse_function(ctx->a, ctx->src, ctx->src_len, ctx->tokens, ctx->cursor, &member);
+
+    if (!is_pub)
+    {
+        discard_class_member(ctx->a, &member);
+        return;
+    }
+
+    if (ctx->sym->method_count >= *method_cap)
+        ctx->sym->methods = grow_symbol_array(ctx->a, ctx->sym->methods, method_cap);
+    ctx->sym->methods[ctx->sym->method_count++] = member;
+}
+
+static void parse_class_field_member(const class_parse_ctx_t *ctx, size_t *field_cap, int is_pub)
+{
+    vigil_doc_symbol_t member;
+    doc_buf_t type_buf;
+    const vigil_token_t *t = tok_at(ctx->tokens, *ctx->cursor);
+    size_t field_start = t->span.start_offset;
+    size_t fname_len;
+    const char *fname_text;
+
+    memset(&member, 0, sizeof(member));
+    buf_init(&type_buf, ctx->a);
+    extract_type_text(ctx->src, ctx->tokens, ctx->cursor, &type_buf);
+
+    t = tok_at(ctx->tokens, *ctx->cursor);
+    fname_text = tok_text(ctx->src, t, &fname_len);
+    (*ctx->cursor)++;
+    skip_class_field_tail(ctx->tokens, ctx->cursor);
+
+    if (!is_pub)
+    {
+        buf_free(&type_buf);
+        return;
+    }
+
+    extract_comment_before(ctx->a, ctx->src, ctx->src_len, field_start, &member.comment);
+    member.kind = VIGIL_DOC_VARIABLE;
+    member.name = doc_strdup(ctx->a, fname_text, fname_len);
+    member.name_length = fname_len;
+    member.type_text = type_buf.data;
+    member.type_length = type_buf.length;
+    if (ctx->sym->field_count >= *field_cap)
+        ctx->sym->fields = grow_symbol_array(ctx->a, ctx->sym->fields, field_cap);
+    ctx->sym->fields[ctx->sym->field_count++] = member;
+}
+
 static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, size_t src_len,
                                   const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *sym)
 {
+    class_parse_ctx_t ctx;
     const vigil_token_t *t;
     size_t name_len;
     const char *name_text;
@@ -683,38 +811,19 @@ static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, s
     sym->name_length = name_len;
     (*cursor)++;
 
-    /* implements clause */
-    t = tok_at(tokens, *cursor);
-    if (tok_is_ident_text(src, t, "implements", 10))
-    {
-        doc_buf_t impl_buf;
-        int first = 1;
-        buf_init(&impl_buf, a);
-        (*cursor)++;
-        while (1)
-        {
-            t = tok_at(tokens, *cursor);
-            if (t == NULL || t->kind == VIGIL_TOKEN_LBRACE || t->kind == VIGIL_TOKEN_EOF)
-                break;
-            if (!first)
-                buf_append_cstr(&impl_buf, ", ");
-            first = 0;
-            name_text = tok_text(src, t, &name_len);
-            buf_append(&impl_buf, name_text, name_len);
-            (*cursor)++;
-            t = tok_at(tokens, *cursor);
-            if (t != NULL && t->kind == VIGIL_TOKEN_COMMA)
-                (*cursor)++;
-        }
-        sym->implements_text = impl_buf.data;
-        sym->implements_length = impl_buf.length;
-    }
+    parse_class_implements_clause(a, src, tokens, cursor, sym);
 
     /* Allocate fields and methods arrays. */
     sym->fields = (vigil_doc_symbol_t *)doc_alloc(a, field_cap * sizeof(vigil_doc_symbol_t));
     sym->methods = (vigil_doc_symbol_t *)doc_alloc(a, method_cap * sizeof(vigil_doc_symbol_t));
     sym->field_count = 0;
     sym->method_count = 0;
+    ctx.a = a;
+    ctx.src = src;
+    ctx.src_len = src_len;
+    ctx.tokens = tokens;
+    ctx.cursor = cursor;
+    ctx.sym = sym;
 
     /* Open brace */
     t = tok_at(tokens, *cursor);
@@ -726,7 +835,6 @@ static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, s
     while (1)
     {
         int is_pub = 0;
-        vigil_doc_symbol_t member;
 
         t = tok_at(tokens, *cursor);
         if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE)
@@ -741,85 +849,11 @@ static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, s
 
         if (t != NULL && t->kind == VIGIL_TOKEN_FN)
         {
-            /* Method */
-            memset(&member, 0, sizeof(member));
-            extract_comment_before(a, src, src_len, t->span.start_offset, &member.comment);
-            parse_function(a, src, src_len, tokens, cursor, &member);
-            if (is_pub)
-            {
-                if (sym->method_count >= method_cap)
-                {
-                    method_cap *= 2;
-                    sym->methods =
-                        (vigil_doc_symbol_t *)doc_realloc(a, sym->methods, method_cap * sizeof(vigil_doc_symbol_t));
-                }
-                sym->methods[sym->method_count++] = member;
-            }
-            else
-            {
-                /* Free private method. */
-                doc_free_ptr(a, member.name);
-                doc_free_ptr(a, member.comment.text);
-                doc_free_ptr(a, member.return_text);
-                if (member.params)
-                {
-                    size_t pi;
-                    for (pi = 0; pi < member.param_count; pi++)
-                    {
-                        doc_free_ptr(a, member.params[pi].type_text);
-                        doc_free_ptr(a, member.params[pi].name);
-                    }
-                    doc_free_ptr(a, member.params);
-                }
-            }
+            parse_class_method_member(&ctx, &method_cap, is_pub);
         }
         else if (tok_is_type_start(t))
         {
-            /* Field: type name; */
-            doc_buf_t type_buf;
-            size_t fname_len;
-            const char *fname_text;
-            size_t field_start = t->span.start_offset;
-
-            memset(&member, 0, sizeof(member));
-            buf_init(&type_buf, a);
-            extract_type_text(src, tokens, cursor, &type_buf);
-
-            t = tok_at(tokens, *cursor);
-            fname_text = tok_text(src, t, &fname_len);
-            (*cursor)++;
-
-            /* Skip to semicolon. */
-            while (1)
-            {
-                t = tok_at(tokens, *cursor);
-                if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
-                    break;
-                (*cursor)++;
-            }
-            if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
-                (*cursor)++;
-
-            if (is_pub)
-            {
-                extract_comment_before(a, src, src_len, field_start, &member.comment);
-                member.kind = VIGIL_DOC_VARIABLE;
-                member.name = doc_strdup(a, fname_text, fname_len);
-                member.name_length = fname_len;
-                member.type_text = type_buf.data;
-                member.type_length = type_buf.length;
-                if (sym->field_count >= field_cap)
-                {
-                    field_cap *= 2;
-                    sym->fields =
-                        (vigil_doc_symbol_t *)doc_realloc(a, sym->fields, field_cap * sizeof(vigil_doc_symbol_t));
-                }
-                sym->fields[sym->field_count++] = member;
-            }
-            else
-            {
-                buf_free(&type_buf);
-            }
+            parse_class_field_member(&ctx, &field_cap, is_pub);
         }
         else
         {
