@@ -1,68 +1,47 @@
-import "os";
+import "args";
+import "fs";
 import "fmt";
-import "file";
-import "io";
+import "readline";
 
 fn main() -> i32 {
-    array<string> argv = os.args();
-    
     bool append_mode = false;
     array<string> files = [];
-    
+
     // Parse arguments
-    for (i32 i = 0; i < argv.len(); i++) {
-        string arg = argv[i];
+    for (i32 i = 0; i < args.count(); i++) {
+        string arg = args.at(i);
         if (arg == "-a" || arg == "--append") {
             append_mode = true;
         } else {
             files.push(arg);
         }
     }
-    
-    // Read all stdin
-    // Note: VIGIL currently lacks chunked stdin reading (io.read(count))
-    // so we must buffer the entire input. This is a known limitation.
-    string content, err e = io.read_all();
-    if (e != ok) {
-        fmt.eprintln(f"vigil-tee: stdin: {e}");
-        return 1;
+
+    // Read stdin line by line and collect content
+    string content = "";
+    string line = readline.input("");
+    while (!line.is_empty()) {
+        content += line + "\n";
+        line = readline.input("");
     }
-    
+
     // Write to stdout
     fmt.print(content);
-    
+
     // Write to all files
-    string mode = "w";
-    if (append_mode) {
-        mode = "a";
-    }
-    
-    bool had_error = false;
-    
-    for path in files {
-        File f, err e2 = file.open(path, mode);
-        if (e2 != ok) {
-            fmt.eprintln(f"vigil-tee: {path}: {e2}");
+    for (i32 i = 0; i < files.len(); i++) {
+        string path = files[i];
+        bool ok2 = false;
+        if (append_mode) {
+            ok2 = fs.append(path, content);
+        } else {
+            ok2 = fs.write(path, content);
+        }
+        if (!ok2) {
+            fmt.eprintln(f"vigil-tee: {path}: write failed");
             return 1;
         }
-        
-        err e3 = f.write(content);
-        if (e3 != ok) {
-            fmt.eprintln(f"vigil-tee: {path}: {e3}");
-            f.close();
-            return 1;
-        }
-        
-        err e4 = f.close();
-        if (e4 != ok) {
-            fmt.eprintln(f"vigil-tee: {path}: close: {e4}");
-            had_error = true;
-        }
     }
-    
-    if (had_error) {
-        return 1;
-    }
-    
+
     return 0;
 }

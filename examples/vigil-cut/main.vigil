@@ -1,30 +1,32 @@
-import "io";
-import "fmt";
 import "args";
+import "fmt";
+import "readline";
 
 fn main() -> i32 {
-    args.ArgParser p = args.parser("cut", "Extract fields from lines");
-    p.flag("f", "string", "", "field number (1-indexed)");
-    p.flag("d", "string", "\t", "field delimiter");
-    guard map<string, string> opts, err e = p.parse() {
-        fmt.eprintln(f"cut: {e}");
+    args.Parser parser = args.Parser.new("cut", "Extract fields from lines");
+    parser.option("f", "f", "field number (1-indexed)", "");
+    parser.option("d", "d", "field delimiter", "\t");
+
+    err e = parser.parse(0);
+    if (e != ok) {
+        fmt.eprintln(f"cut: {e.message()}");
         return 1;
     }
-    
-    if (opts["f"] == "") {
+
+    string field_str = parser.get("f");
+    if (field_str == "") {
         fmt.eprintln("cut: -f required");
         return 1;
     }
-    
-    string field_str = opts["f"];
+
     i32 field = 0;
-    
+
     // Parse field number - must be all digits
     if (field_str.len() == 0) {
         fmt.eprintln("cut: field number required");
         return 1;
     }
-    
+
     for (i32 i = 0; i < field_str.len(); i++) {
         u8 c = field_str.bytes()[i];
         if (c < u8(48) || c > u8(57)) {  // not '0'-'9'
@@ -33,25 +35,24 @@ fn main() -> i32 {
         }
         field = field * 10 + (i32(c) - 48);
     }
-    
+
     if (field < 1) {
         fmt.eprintln("cut: invalid field number");
         return 1;
     }
-    
-    string delim = opts["d"];
-    
-    while (true) {
-        guard string line, err e2 = io.read_line() {
-            break;
-        }
 
+    string delim = parser.get("d");
+
+    string line = readline.input("");
+    while (!line.is_empty()) {
         array<string> fields = line.split(delim);
-        
+
         if (field <= fields.len()) {
             fmt.println(fields[field - 1]);
         }
+
+        line = readline.input("");
     }
-    
+
     return 0;
 }

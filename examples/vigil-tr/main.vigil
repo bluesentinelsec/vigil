@@ -1,40 +1,30 @@
-import "io";
+import "args";
 import "fmt";
-import "os";
+import "readline";
 
 fn main() -> i32 {
-    array<string> argv = os.args();
-    
-    if (argv.len() < 2) {
+    if (args.count() < 2) {
         fmt.eprintln("usage: tr SET1 SET2");
         return 1;
     }
-    
-    string set1 = argv[0];
-    string set2 = argv[1];
-    
+
+    string set1 = args.at(0);
+    string set2 = args.at(1);
+
     if (set1.len() != set2.len()) {
         fmt.eprintln("tr: SET1 and SET2 must be same length");
         return 1;
     }
-    
-    while (true) {
-        string chunk, err e = io.read(4096);
-        if (e != ok) {
-            fmt.eprintln(f"tr: read error: {e}");
-            return 1;
-        }
-        if (chunk.len() == 0) {
-            break;
-        }
-        
+
+    string line = readline.input("");
+    while (!line.is_empty()) {
         string output = "";
-        for (i32 i = 0; i < chunk.len(); i++) {
-            string ch, err e2 = chunk.char_at(i);
+        for (i32 i = 0; i < line.len(); i++) {
+            string ch, err e2 = line.char_at(i);
             if (e2 != ok) {
                 continue;
             }
-            
+
             bool found = false;
             for (i32 j = 0; j < set1.len(); j++) {
                 string s1, err e3 = set1.char_at(j);
@@ -54,8 +44,9 @@ fn main() -> i32 {
                 output += ch;
             }
         }
-        fmt.print(output);
+        fmt.println(output);
+        line = readline.input("");
     }
-    
+
     return 0;
 }

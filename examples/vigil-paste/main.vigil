@@ -1,75 +1,48 @@
-import "io";
+import "args";
+import "fs";
 import "fmt";
-import "file";
-import "os";
 
 fn main() -> i32 {
-    array<string> argv = os.args();
-    
-    if (argv.len() < 1) {
+    if (args.count() < 1) {
         fmt.eprintln("usage: paste FILE1 [FILE2 ...]");
         return 1;
     }
-    
-    // Open all files
-    array<File> files = [];
-    for (i32 i = 0; i < argv.len(); i++) {
-        File f, err e = file.open(argv[i], "r");
-        if (e != ok) {
-            fmt.eprintln(f"paste: cannot open {argv[i]}");
+
+    // Read all files and split into line arrays
+    array<array<string>> file_lines = [];
+
+    for (i32 i = 0; i < args.count(); i++) {
+        string path = args.at(i);
+        if (!fs.exists(path)) {
+            fmt.eprintln(f"paste: cannot open {path}");
             return 1;
         }
-        files.push(f);
+        string content = fs.read(path);
+        array<string> lines = content.split("\n");
+        file_lines.push(lines);
     }
-    
-    // Read lines from all files in parallel
-    while (true) {
-        array<string> line_parts = [];
-        bool any_data = false;
-        bool had_error = false;
-        
-        for (i32 i = 0; i < files.len(); i++) {
-            string line, err e = files[i].read_line();
-            if (e == ok) {
-                line_parts.push(line);
-                any_data = true;
-            } else {
-                if (e.kind() == err.eof) {
-                    line_parts.push("");
-                } else {
-                    fmt.eprintln(f"paste: read error: {e}");
-                    had_error = true;
-                    break;
-                }
-            }
+
+    // Find max line count
+    i32 max_lines = 0;
+    for (i32 i = 0; i < file_lines.len(); i++) {
+        if (file_lines[i].len() > max_lines) {
+            max_lines = file_lines[i].len();
         }
-        
-        if (had_error) {
-            for f in files {
-                f.close();
-            }
-            return 1;
-        }
-        
-        if (!any_data) {
-            break;
-        }
-        
-        // Join with tabs
+    }
+
+    // Zip lines with tabs
+    for (i32 row = 0; row < max_lines; row++) {
         string output = "";
-        for (i32 i = 0; i < line_parts.len(); i++) {
-            if (i > 0) {
+        for (i32 col = 0; col < file_lines.len(); col++) {
+            if (col > 0) {
                 output += "\t";
             }
-            output += line_parts[i];
+            if (row < file_lines[col].len()) {
+                output += file_lines[col][row];
+            }
         }
         fmt.println(output);
     }
-    
-    // Close files
-    for f in files {
-        f.close();
-    }
-    
+
     return 0;
 }

@@ -1,60 +1,51 @@
-import "os";
-import "file";
-import "fmt";
 import "args";
-
-fn remove_recursive(string path) -> err {
-    array<file.Entry> entries, err walkErr = file.walk(path);
-    if (walkErr != ok) {
-        return walkErr;
-    }
-
-    // Remove deepest paths first so directories are empty when removed.
-    for (i32 i = entries.len() - 1; i >= 0; i--) {
-        err rmErr = file.remove(entries[i].path);
-        if (rmErr != ok) {
-            return rmErr;
-        }
-    }
-
-    return ok;
-}
+import "fs";
+import "fmt";
 
 fn main() -> i32 {
-    args.ArgParser p = args.parser("vigil-rm", "remove files or directories");
-    p.flag("recursive", "bool", "false", "remove directories and their contents recursively");
-    p.flag("force", "bool", "false", "ignore nonexistent files");
-    map<string, string> result, err e = p.parse();
-    
+    args.Parser parser = args.Parser.new("vigil-rm", "remove files or directories");
+    parser.flag("recursive", "r", "remove directories and their contents recursively");
+    parser.flag("force", "f", "ignore nonexistent files");
+    parser.positional("file", "file to remove");
+
+    err e = parser.parse(0);
     if (e != ok) {
         fmt.eprintln(f"vigil-rm: {e.message()}");
         return 1;
     }
-    
-    array<string> args = os.args();
-    if (args.len() == 0) {
+
+    array<string> positionals = parser.get_positionals();
+    if (positionals.len() == 0) {
         fmt.eprintln("vigil-rm: missing operand");
         return 1;
     }
-    
-    bool recursive = result["recursive"] == "true";
-    bool force = result["force"] == "true";
-    
-    for (i32 i = 0; i < args.len(); i++) {
-        string path = args[i];
-        
-        err e2 = ok;
-        if (recursive) {
-            e2 = remove_recursive(path);
-        } else {
-            e2 = file.remove(path);
+
+    bool recursive = parser.get_bool("recursive");
+    bool force = parser.get_bool("force");
+
+    for (i32 i = 0; i < positionals.len(); i++) {
+        string path = positionals[i];
+
+        if (!fs.exists(path)) {
+            if (!force) {
+                fmt.eprintln(f"vigil-rm: {path}: No such file or directory");
+                return 1;
+            }
+            continue;
         }
-        
-        if (e2 != ok && !force) {
-            fmt.eprintln(f"vigil-rm: {path}: {e2.message()}");
+
+        bool ok2 = false;
+        if (recursive) {
+            ok2 = fs.remove_all(path);
+        } else {
+            ok2 = fs.remove(path);
+        }
+
+        if (!ok2 && !force) {
+            fmt.eprintln(f"vigil-rm: {path}: cannot remove");
             return 1;
         }
     }
-    
+
     return 0;
 }
