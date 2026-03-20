@@ -2198,122 +2198,146 @@ static vigil_status_t emit_inline_table(toml_emitter_t *e, const vigil_toml_valu
     return emit_cstr(e, " }", error);
 }
 
-static vigil_status_t emit_value(toml_emitter_t *e, const vigil_toml_value_t *v, vigil_error_t *error)
+static vigil_status_t emit_integer_value(toml_emitter_t *e, const vigil_toml_value_t *v, vigil_error_t *error)
 {
     char tmp[64];
+
+    snprintf(tmp, sizeof(tmp), "%" PRId64, vigil_toml_integer_value(v));
+    return emit_cstr(e, tmp, error);
+}
+
+static vigil_status_t emit_float_value(toml_emitter_t *e, const vigil_toml_value_t *v, vigil_error_t *error)
+{
+    char tmp[64];
+    double f;
+
+    f = vigil_toml_float_value(v);
+    if (f != f)
+        return emit_cstr(e, "nan", error);
+    if (f == HUGE_VAL)
+        return emit_cstr(e, "inf", error);
+    if (f == -HUGE_VAL)
+        return emit_cstr(e, "-inf", error);
+    snprintf(tmp, sizeof(tmp), "%.17g", f);
+    if (!strchr(tmp, '.') && !strchr(tmp, 'e') && !strchr(tmp, 'E'))
+    {
+        size_t len = strlen(tmp);
+        tmp[len] = '.';
+        tmp[len + 1] = '0';
+        tmp[len + 2] = '\0';
+    }
+    return emit_cstr(e, tmp, error);
+}
+
+static vigil_status_t emit_datetime_fraction(toml_emitter_t *e, const vigil_toml_datetime_t *dt, vigil_error_t *error)
+{
+    char tmp[64];
+    size_t len;
+
+    if (!dt->nanosecond)
+        return VIGIL_STATUS_OK;
+
+    snprintf(tmp, sizeof(tmp), ".%09d", dt->nanosecond);
+    len = strlen(tmp);
+    while (len > 2 && tmp[len - 1] == '0')
+        len--;
+    tmp[len] = '\0';
+    return emit_cstr(e, tmp, error);
+}
+
+static vigil_status_t emit_datetime_offset(toml_emitter_t *e, const vigil_toml_datetime_t *dt, vigil_error_t *error)
+{
+    char tmp[64];
+    int off;
+    char sign;
+
+    if (!dt->has_offset)
+        return VIGIL_STATUS_OK;
+    if (dt->offset_minutes == 0)
+        return emit_char(e, 'Z', error);
+
+    off = dt->offset_minutes;
+    sign = off < 0 ? '-' : '+';
+    if (off < 0)
+        off = -off;
+    snprintf(tmp, sizeof(tmp), "%c%02d:%02d", sign, off / 60, off % 60);
+    return emit_cstr(e, tmp, error);
+}
+
+static vigil_status_t emit_datetime_value(toml_emitter_t *e, const vigil_toml_value_t *v, vigil_error_t *error)
+{
+    char tmp[64];
+    const vigil_toml_datetime_t *dt;
+    vigil_status_t s;
+
+    dt = vigil_toml_datetime_value(v);
+    if (dt->has_date)
+    {
+        snprintf(tmp, sizeof(tmp), "%04d-%02d-%02d", dt->year, dt->month, dt->day);
+        s = emit_cstr(e, tmp, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        if (dt->has_time)
+        {
+            s = emit_char(e, 'T', error);
+            if (s != VIGIL_STATUS_OK)
+                return s;
+        }
+    }
+    if (!dt->has_time)
+        return VIGIL_STATUS_OK;
+
+    snprintf(tmp, sizeof(tmp), "%02d:%02d:%02d", dt->hour, dt->minute, dt->second);
+    s = emit_cstr(e, tmp, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = emit_datetime_fraction(e, dt, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    return emit_datetime_offset(e, dt, error);
+}
+
+static vigil_status_t emit_array_value(toml_emitter_t *e, const vigil_toml_value_t *v, vigil_error_t *error)
+{
+    size_t i;
+    size_t count;
+    vigil_status_t s;
+
+    count = vigil_toml_array_count(v);
+    s = emit_char(e, '[', error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    for (i = 0; i < count; i++)
+    {
+        if (i > 0)
+        {
+            s = emit_cstr(e, ", ", error);
+            if (s != VIGIL_STATUS_OK)
+                return s;
+        }
+        s = emit_value(e, vigil_toml_array_get(v, i), error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+    }
+    return emit_char(e, ']', error);
+}
+
+static vigil_status_t emit_value(toml_emitter_t *e, const vigil_toml_value_t *v, vigil_error_t *error)
+{
     switch (vigil_toml_type(v))
     {
     case VIGIL_TOML_STRING:
         return emit_quoted_string(e, vigil_toml_string_value(v), vigil_toml_string_length(v), error);
     case VIGIL_TOML_INTEGER:
-        snprintf(tmp, sizeof(tmp), "%" PRId64, vigil_toml_integer_value(v));
-        return emit_cstr(e, tmp, error);
-    case VIGIL_TOML_FLOAT: {
-        double f = vigil_toml_float_value(v);
-        if (f != f)
-            return emit_cstr(e, "nan", error);
-        if (f == HUGE_VAL)
-            return emit_cstr(e, "inf", error);
-        if (f == -HUGE_VAL)
-            return emit_cstr(e, "-inf", error);
-        snprintf(tmp, sizeof(tmp), "%.17g", f);
-        /* Ensure there's a decimal point. */
-        if (!strchr(tmp, '.') && !strchr(tmp, 'e') && !strchr(tmp, 'E'))
-        {
-            size_t l = strlen(tmp);
-            tmp[l] = '.';
-            tmp[l + 1] = '0';
-            tmp[l + 2] = '\0';
-        }
-        return emit_cstr(e, tmp, error);
-    }
+        return emit_integer_value(e, v, error);
+    case VIGIL_TOML_FLOAT:
+        return emit_float_value(e, v, error);
     case VIGIL_TOML_BOOL:
         return emit_cstr(e, vigil_toml_bool_value(v) ? "true" : "false", error);
-    case VIGIL_TOML_DATETIME: {
-        const vigil_toml_datetime_t *dt = vigil_toml_datetime_value(v);
-        if (dt->has_date)
-        {
-            snprintf(tmp, sizeof(tmp), "%04d-%02d-%02d", dt->year, dt->month, dt->day);
-            {
-                vigil_status_t s = emit_cstr(e, tmp, error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-            }
-            if (dt->has_time)
-            {
-                vigil_status_t s = emit_char(e, 'T', error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-            }
-        }
-        if (dt->has_time)
-        {
-            snprintf(tmp, sizeof(tmp), "%02d:%02d:%02d", dt->hour, dt->minute, dt->second);
-            {
-                vigil_status_t s = emit_cstr(e, tmp, error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-            }
-            if (dt->nanosecond)
-            {
-                snprintf(tmp, sizeof(tmp), ".%09d", dt->nanosecond);
-                /* Trim trailing zeros. */
-                {
-                    size_t l = strlen(tmp);
-                    while (l > 2 && tmp[l - 1] == '0')
-                        l--;
-                    tmp[l] = '\0';
-                }
-                {
-                    vigil_status_t s = emit_cstr(e, tmp, error);
-                    if (s != VIGIL_STATUS_OK)
-                        return s;
-                }
-            }
-            if (dt->has_offset)
-            {
-                if (dt->offset_minutes == 0)
-                {
-                    vigil_status_t s = emit_char(e, 'Z', error);
-                    if (s != VIGIL_STATUS_OK)
-                        return s;
-                }
-                else
-                {
-                    int off = dt->offset_minutes;
-                    char sign = off < 0 ? '-' : '+';
-                    if (off < 0)
-                        off = -off;
-                    snprintf(tmp, sizeof(tmp), "%c%02d:%02d", sign, off / 60, off % 60);
-                    {
-                        vigil_status_t s = emit_cstr(e, tmp, error);
-                        if (s != VIGIL_STATUS_OK)
-                            return s;
-                    }
-                }
-            }
-        }
-        return VIGIL_STATUS_OK;
-    }
-    case VIGIL_TOML_ARRAY: {
-        size_t i, count = vigil_toml_array_count(v);
-        vigil_status_t s = emit_char(e, '[', error);
-        if (s != VIGIL_STATUS_OK)
-            return s;
-        for (i = 0; i < count; i++)
-        {
-            if (i > 0)
-            {
-                s = emit_cstr(e, ", ", error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-            }
-            s = emit_value(e, vigil_toml_array_get(v, i), error);
-            if (s != VIGIL_STATUS_OK)
-                return s;
-        }
-        return emit_char(e, ']', error);
-    }
+    case VIGIL_TOML_DATETIME:
+        return emit_datetime_value(e, v, error);
+    case VIGIL_TOML_ARRAY:
+        return emit_array_value(e, v, error);
     case VIGIL_TOML_TABLE:
         return emit_inline_table(e, v, error);
     }
@@ -2357,127 +2381,155 @@ static int is_array_of_tables(const vigil_toml_value_t *v)
 static vigil_status_t emit_table_body(toml_emitter_t *e, const vigil_toml_value_t *t, const char *prefix,
                                       size_t prefix_len, vigil_error_t *error);
 
-static vigil_status_t emit_table_body(toml_emitter_t *e, const vigil_toml_value_t *t, const char *prefix,
-                                      size_t prefix_len, vigil_error_t *error)
+static vigil_status_t emit_scalar_table_entry(toml_emitter_t *e, const char *key, size_t klen,
+                                              const vigil_toml_value_t *val, vigil_error_t *error)
 {
-    size_t i, count = vigil_toml_table_count(t);
     vigil_status_t s;
 
-    /* First pass: simple key/value pairs. */
+    s = emit_key(e, key, klen, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = emit_cstr(e, " = ", error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = emit_value(e, val, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    return emit_char(e, '\n', error);
+}
+
+static size_t build_section_key(const char *prefix, size_t prefix_len, const char *key, size_t klen,
+                                char section_key[512])
+{
+    size_t sk_len = 0;
+
+    if (prefix_len > 0)
+    {
+        memcpy(section_key, prefix, prefix_len);
+        sk_len = prefix_len;
+        section_key[sk_len++] = '.';
+    }
+    if (needs_quoting(key, klen))
+    {
+        section_key[sk_len++] = '"';
+        memcpy(section_key + sk_len, key, klen);
+        sk_len += klen;
+        section_key[sk_len++] = '"';
+    }
+    else
+    {
+        memcpy(section_key + sk_len, key, klen);
+        sk_len += klen;
+    }
+    section_key[sk_len] = '\0';
+    return sk_len;
+}
+
+static vigil_status_t emit_section_header(toml_emitter_t *e, const char *section_key, size_t sk_len, int is_array,
+                                          vigil_error_t *error)
+{
+    vigil_status_t s;
+
+    s = emit_cstr(e, is_array ? "\n[[" : "\n[", error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    s = emit_str(e, section_key, sk_len, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    return emit_cstr(e, is_array ? "]]\n" : "]\n", error);
+}
+
+static vigil_status_t emit_table_scalar_entries(toml_emitter_t *e, const vigil_toml_value_t *t, size_t count,
+                                                vigil_error_t *error)
+{
+    size_t i;
+
     for (i = 0; i < count; i++)
     {
         const char *key;
         size_t klen;
         const vigil_toml_value_t *val;
+        vigil_status_t s;
+
         vigil_toml_table_entry(t, i, &key, &klen, &val);
         if (is_section_table(val) || is_array_of_tables(val))
             continue;
-        s = emit_key(e, key, klen, error);
-        if (s != VIGIL_STATUS_OK)
-            return s;
-        s = emit_cstr(e, " = ", error);
-        if (s != VIGIL_STATUS_OK)
-            return s;
-        s = emit_value(e, val, error);
-        if (s != VIGIL_STATUS_OK)
-            return s;
-        s = emit_char(e, '\n', error);
+        s = emit_scalar_table_entry(e, key, klen, val, error);
         if (s != VIGIL_STATUS_OK)
             return s;
     }
+    return VIGIL_STATUS_OK;
+}
 
-    /* Second pass: sub-tables and arrays of tables. */
+static vigil_status_t emit_array_table_sections(toml_emitter_t *e, const vigil_toml_value_t *val,
+                                                const char *section_key, size_t sk_len, vigil_error_t *error)
+{
+    size_t j;
+    size_t arr_count;
+    vigil_status_t s;
+
+    arr_count = vigil_toml_array_count(val);
+    for (j = 0; j < arr_count; j++)
+    {
+        const vigil_toml_value_t *elem = vigil_toml_array_get(val, j);
+
+        s = emit_section_header(e, section_key, sk_len, 1, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        s = emit_table_body(e, elem, section_key, sk_len, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t emit_table_nested_entries(toml_emitter_t *e, const vigil_toml_value_t *t, const char *prefix,
+                                                size_t prefix_len, vigil_error_t *error)
+{
+    size_t i;
+    size_t count;
+
+    count = vigil_toml_table_count(t);
     for (i = 0; i < count; i++)
     {
+        char section_key[512];
         const char *key;
         size_t klen;
+        size_t sk_len;
         const vigil_toml_value_t *val;
-        vigil_toml_table_entry(t, i, &key, &klen, &val);
+        vigil_status_t s;
 
+        vigil_toml_table_entry(t, i, &key, &klen, &val);
+        if (!is_section_table(val) && !is_array_of_tables(val))
+            continue;
+
+        sk_len = build_section_key(prefix, prefix_len, key, klen, section_key);
         if (is_section_table(val))
         {
-            /* Build full key for section header. */
-            char section_key[512];
-            size_t sk_len = 0;
-            if (prefix_len > 0)
-            {
-                memcpy(section_key, prefix, prefix_len);
-                sk_len = prefix_len;
-                section_key[sk_len++] = '.';
-            }
-            /* Use bare or quoted key. */
-            if (needs_quoting(key, klen))
-            {
-                section_key[sk_len++] = '"';
-                memcpy(section_key + sk_len, key, klen);
-                sk_len += klen;
-                section_key[sk_len++] = '"';
-            }
-            else
-            {
-                memcpy(section_key + sk_len, key, klen);
-                sk_len += klen;
-            }
-            section_key[sk_len] = '\0';
-
-            s = emit_cstr(e, "\n[", error);
-            if (s != VIGIL_STATUS_OK)
-                return s;
-            s = emit_str(e, section_key, sk_len, error);
-            if (s != VIGIL_STATUS_OK)
-                return s;
-            s = emit_cstr(e, "]\n", error);
+            s = emit_section_header(e, section_key, sk_len, 0, error);
             if (s != VIGIL_STATUS_OK)
                 return s;
             s = emit_table_body(e, val, section_key, sk_len, error);
             if (s != VIGIL_STATUS_OK)
                 return s;
+            continue;
         }
-        else if (is_array_of_tables(val))
-        {
-            size_t j, arr_count = vigil_toml_array_count(val);
-            char section_key[512];
-            size_t sk_len = 0;
-            if (prefix_len > 0)
-            {
-                memcpy(section_key, prefix, prefix_len);
-                sk_len = prefix_len;
-                section_key[sk_len++] = '.';
-            }
-            if (needs_quoting(key, klen))
-            {
-                section_key[sk_len++] = '"';
-                memcpy(section_key + sk_len, key, klen);
-                sk_len += klen;
-                section_key[sk_len++] = '"';
-            }
-            else
-            {
-                memcpy(section_key + sk_len, key, klen);
-                sk_len += klen;
-            }
-            section_key[sk_len] = '\0';
 
-            for (j = 0; j < arr_count; j++)
-            {
-                const vigil_toml_value_t *elem = vigil_toml_array_get(val, j);
-                s = emit_cstr(e, "\n[[", error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-                s = emit_str(e, section_key, sk_len, error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-                s = emit_cstr(e, "]]\n", error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-                s = emit_table_body(e, elem, section_key, sk_len, error);
-                if (s != VIGIL_STATUS_OK)
-                    return s;
-            }
-        }
+        s = emit_array_table_sections(e, val, section_key, sk_len, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
     }
-
     return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t emit_table_body(toml_emitter_t *e, const vigil_toml_value_t *t, const char *prefix,
+                                      size_t prefix_len, vigil_error_t *error)
+{
+    size_t count = vigil_toml_table_count(t);
+    vigil_status_t s = emit_table_scalar_entries(e, t, count, error);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    return emit_table_nested_entries(e, t, prefix, prefix_len, error);
 }
 
 vigil_status_t vigil_toml_emit(const vigil_toml_value_t *value, char **out_string, size_t *out_length,
