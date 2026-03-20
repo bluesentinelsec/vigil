@@ -1353,6 +1353,121 @@ static void render_indent_comment(doc_buf_t *b, const vigil_doc_comment_t *c, in
     }
 }
 
+static void render_symbol_comment_block(doc_buf_t *b, const vigil_doc_comment_t *comment, int indent)
+{
+    if (comment->text == NULL)
+        return;
+    buf_append_char(b, '\n');
+    render_indent_comment(b, comment, indent);
+}
+
+static void render_named_typed_symbol(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    buf_append(b, sym->name, sym->name_length);
+    buf_append_char(b, ' ');
+    buf_append(b, sym->type_text, sym->type_length);
+    buf_append_char(b, '\n');
+}
+
+static void render_enum_variants(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    size_t j;
+
+    if (sym->variant_count == 0)
+        return;
+
+    buf_append_cstr(b, "\n  Variants\n");
+    for (j = 0; j < sym->variant_count; j++)
+    {
+        buf_append_cstr(b, "    ");
+        buf_append(b, sym->variant_names[j], sym->variant_name_lengths[j]);
+        buf_append_char(b, '\n');
+    }
+}
+
+static void render_interface_methods(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    size_t j;
+
+    if (sym->iface_method_count == 0)
+        return;
+
+    buf_append_cstr(b, "\n  Methods\n");
+    for (j = 0; j < sym->iface_method_count; j++)
+    {
+        buf_append_cstr(b, "    ");
+        render_func_sig(b, &sym->iface_methods[j]);
+        buf_append_char(b, '\n');
+        if (sym->iface_methods[j].comment.text != NULL)
+            render_indent_comment(b, &sym->iface_methods[j].comment, 6);
+    }
+}
+
+static void render_class_fields(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    size_t j;
+
+    if (sym->field_count == 0)
+        return;
+
+    buf_append_cstr(b, "\n  Fields\n");
+    for (j = 0; j < sym->field_count; j++)
+    {
+        buf_append_cstr(b, "    ");
+        render_named_typed_symbol(b, &sym->fields[j]);
+        if (sym->fields[j].comment.text != NULL)
+            render_indent_comment(b, &sym->fields[j].comment, 6);
+    }
+}
+
+static void render_class_methods(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    size_t j;
+
+    if (sym->method_count == 0)
+        return;
+
+    buf_append_cstr(b, "\n  Methods\n");
+    for (j = 0; j < sym->method_count; j++)
+    {
+        buf_append_cstr(b, "    ");
+        render_func_sig(b, &sym->methods[j]);
+        buf_append_char(b, '\n');
+        if (sym->methods[j].comment.text != NULL)
+            render_indent_comment(b, &sym->methods[j].comment, 6);
+    }
+}
+
+static void render_enum_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    buf_append(b, sym->name, sym->name_length);
+    buf_append_char(b, '\n');
+    render_symbol_comment_block(b, &sym->comment, 2);
+    render_enum_variants(b, sym);
+}
+
+static void render_interface_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    buf_append(b, sym->name, sym->name_length);
+    buf_append_char(b, '\n');
+    render_symbol_comment_block(b, &sym->comment, 2);
+    render_interface_methods(b, sym);
+}
+
+static void render_class_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym)
+{
+    buf_append(b, sym->name, sym->name_length);
+    if (sym->implements_text != NULL)
+    {
+        buf_append_cstr(b, " implements ");
+        buf_append(b, sym->implements_text, sym->implements_length);
+    }
+    buf_append_char(b, '\n');
+    render_symbol_comment_block(b, &sym->comment, 2);
+    render_class_fields(b, sym);
+    render_class_methods(b, sym);
+}
+
 /* ── Render module view ──────────────────────────────────────────── */
 
 static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
@@ -1553,121 +1668,38 @@ static void render_module_view(doc_buf_t *b, const vigil_doc_module_t *m)
 
 static void render_symbol_detail(doc_buf_t *b, const vigil_doc_symbol_t *sym)
 {
-    size_t j;
-
     switch (sym->kind)
     {
     case VIGIL_DOC_FUNCTION:
         render_func_sig(b, sym);
         buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 0);
-        }
+        render_symbol_comment_block(b, &sym->comment, 0);
         break;
 
     case VIGIL_DOC_CONSTANT:
     case VIGIL_DOC_VARIABLE:
-        buf_append(b, sym->name, sym->name_length);
-        buf_append_char(b, ' ');
-        buf_append(b, sym->type_text, sym->type_length);
-        buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 0);
-        }
+        render_named_typed_symbol(b, sym);
+        render_symbol_comment_block(b, &sym->comment, 0);
         break;
 
     case VIGIL_DOC_ENUM:
-        buf_append(b, sym->name, sym->name_length);
-        buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 2);
-        }
-        if (sym->variant_count > 0)
-        {
-            buf_append_cstr(b, "\n  Variants\n");
-            for (j = 0; j < sym->variant_count; j++)
-            {
-                buf_append_cstr(b, "    ");
-                buf_append(b, sym->variant_names[j], sym->variant_name_lengths[j]);
-                buf_append_char(b, '\n');
-            }
-        }
+        render_enum_detail(b, sym);
         break;
 
     case VIGIL_DOC_INTERFACE:
-        buf_append(b, sym->name, sym->name_length);
-        buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 2);
-        }
-        if (sym->iface_method_count > 0)
-        {
-            buf_append_cstr(b, "\n  Methods\n");
-            for (j = 0; j < sym->iface_method_count; j++)
-            {
-                buf_append_cstr(b, "    ");
-                render_func_sig(b, &sym->iface_methods[j]);
-                buf_append_char(b, '\n');
-                if (sym->iface_methods[j].comment.text != NULL)
-                    render_indent_comment(b, &sym->iface_methods[j].comment, 6);
-            }
-        }
+        render_interface_detail(b, sym);
         break;
 
     case VIGIL_DOC_CLASS:
-        buf_append(b, sym->name, sym->name_length);
-        if (sym->implements_text != NULL)
-        {
-            buf_append_cstr(b, " implements ");
-            buf_append(b, sym->implements_text, sym->implements_length);
-        }
-        buf_append_char(b, '\n');
-        if (sym->comment.text != NULL)
-        {
-            buf_append_char(b, '\n');
-            render_indent_comment(b, &sym->comment, 2);
-        }
-        if (sym->field_count > 0)
-        {
-            buf_append_cstr(b, "\n  Fields\n");
-            for (j = 0; j < sym->field_count; j++)
-            {
-                buf_append_cstr(b, "    ");
-                buf_append(b, sym->fields[j].name, sym->fields[j].name_length);
-                buf_append_char(b, ' ');
-                buf_append(b, sym->fields[j].type_text, sym->fields[j].type_length);
-                buf_append_char(b, '\n');
-                if (sym->fields[j].comment.text != NULL)
-                    render_indent_comment(b, &sym->fields[j].comment, 6);
-            }
-        }
-        if (sym->method_count > 0)
-        {
-            buf_append_cstr(b, "\n  Methods\n");
-            for (j = 0; j < sym->method_count; j++)
-            {
-                buf_append_cstr(b, "    ");
-                render_func_sig(b, &sym->methods[j]);
-                buf_append_char(b, '\n');
-                if (sym->methods[j].comment.text != NULL)
-                    render_indent_comment(b, &sym->methods[j].comment, 6);
-            }
-        }
+        render_class_detail(b, sym);
         break;
     }
 }
 
-static int find_symbol(const vigil_doc_module_t *m, const char *name, const vigil_doc_symbol_t **out)
+static int find_symbol_text(const vigil_doc_module_t *m, const char *name, size_t name_len,
+                            const vigil_doc_symbol_t **out)
 {
-    size_t i, name_len = strlen(name);
+    size_t i;
     for (i = 0; i < m->symbol_count; i++)
     {
         if (m->symbols[i].name_length == name_len && memcmp(m->symbols[i].name, name, name_len) == 0)
@@ -1677,6 +1709,11 @@ static int find_symbol(const vigil_doc_module_t *m, const char *name, const vigi
         }
     }
     return 0;
+}
+
+static int find_symbol(const vigil_doc_module_t *m, const char *name, const vigil_doc_symbol_t **out)
+{
+    return find_symbol_text(m, name, strlen(name), out);
 }
 
 static int find_class_member(const vigil_doc_symbol_t *cls, const char *member, size_t member_len,
@@ -1722,6 +1759,108 @@ static int find_iface_method(const vigil_doc_symbol_t *iface, const char *method
 
 /* ── vigil_doc_render ─────────────────────────────────────────────── */
 
+static void set_symbol_not_found_error(vigil_error_t *error)
+{
+    if (error == NULL)
+        return;
+
+    vigil_error_clear(error);
+    error->type = VIGIL_STATUS_INVALID_ARGUMENT;
+    error->value = "public symbol not found";
+    error->length = 23;
+}
+
+static vigil_status_t render_symbol_not_found(doc_buf_t *buf, vigil_error_t *error)
+{
+    buf_free(buf);
+    set_symbol_not_found_error(error);
+    return VIGIL_STATUS_INVALID_ARGUMENT;
+}
+
+static void render_qualified_symbol_prefix(doc_buf_t *b, const char *parent_name, size_t parent_len)
+{
+    buf_append(b, parent_name, parent_len);
+    buf_append_char(b, '.');
+}
+
+static int render_qualified_class_symbol(doc_buf_t *b, const vigil_doc_symbol_t *parent_sym, const char *parent_name,
+                                         size_t parent_len, const char *member_name, size_t member_len)
+{
+    const vigil_doc_symbol_t *member_sym;
+    int is_method = 0;
+
+    if (!find_class_member(parent_sym, member_name, member_len, &member_sym, &is_method))
+        return 0;
+
+    render_qualified_symbol_prefix(b, parent_name, parent_len);
+    if (is_method)
+    {
+        render_func_sig(b, member_sym);
+        buf_append_char(b, '\n');
+        render_symbol_comment_block(b, &member_sym->comment, 0);
+        return 1;
+    }
+
+    render_named_typed_symbol(b, member_sym);
+    render_symbol_comment_block(b, &member_sym->comment, 0);
+    return 1;
+}
+
+static int render_qualified_interface_symbol(doc_buf_t *b, const vigil_doc_symbol_t *parent_sym,
+                                             const char *parent_name, size_t parent_len, const char *member_name,
+                                             size_t member_len)
+{
+    const vigil_doc_symbol_t *member_sym;
+
+    if (!find_iface_method(parent_sym, member_name, member_len, &member_sym))
+        return 0;
+
+    render_qualified_symbol_prefix(b, parent_name, parent_len);
+    render_func_sig(b, member_sym);
+    buf_append_char(b, '\n');
+    render_symbol_comment_block(b, &member_sym->comment, 0);
+    return 1;
+}
+
+static vigil_status_t render_qualified_symbol(doc_buf_t *b, const vigil_doc_module_t *module, const char *symbol,
+                                              vigil_error_t *error)
+{
+    const char *dot = strchr(symbol, '.');
+    const char *parent_name = symbol;
+    size_t parent_len = (size_t)(dot - symbol);
+    const char *member_name = dot + 1;
+    size_t member_len = strlen(member_name);
+    const vigil_doc_symbol_t *parent_sym = NULL;
+
+    if (!find_symbol_text(module, parent_name, parent_len, &parent_sym))
+        return render_symbol_not_found(b, error);
+
+    if (parent_sym->kind == VIGIL_DOC_CLASS &&
+        render_qualified_class_symbol(b, parent_sym, parent_name, parent_len, member_name, member_len))
+        return VIGIL_STATUS_OK;
+
+    if (parent_sym->kind == VIGIL_DOC_INTERFACE &&
+        render_qualified_interface_symbol(b, parent_sym, parent_name, parent_len, member_name, member_len))
+        return VIGIL_STATUS_OK;
+
+    return render_symbol_not_found(b, error);
+}
+
+static vigil_status_t render_requested_symbol(doc_buf_t *b, const vigil_doc_module_t *module, const char *symbol,
+                                              vigil_error_t *error)
+{
+    const vigil_doc_symbol_t *sym;
+
+    if (strchr(symbol, '.') != NULL)
+        return render_qualified_symbol(b, module, symbol, error);
+
+    if (!find_symbol(module, symbol, &sym))
+        return render_symbol_not_found(b, error);
+
+    render_symbol_detail(b, sym);
+    return VIGIL_STATUS_OK;
+}
+
 vigil_status_t vigil_doc_render(const vigil_doc_module_t *module, const char *symbol, char **out_text,
                                 size_t *out_length, vigil_error_t *error)
 {
@@ -1739,109 +1878,9 @@ vigil_status_t vigil_doc_render(const vigil_doc_module_t *module, const char *sy
     {
         render_module_view(&buf, module);
     }
-    else
+    else if (render_requested_symbol(&buf, module, symbol, error) != VIGIL_STATUS_OK)
     {
-        /* Check for dot notation: Class.member */
-        const char *dot = strchr(symbol, '.');
-        if (dot != NULL)
-        {
-            const char *parent_name = symbol;
-            size_t parent_len = (size_t)(dot - symbol);
-            const char *member_name = dot + 1;
-            size_t member_len = strlen(member_name);
-            const vigil_doc_symbol_t *parent_sym;
-            const vigil_doc_symbol_t *member_sym;
-            int is_method = 0;
-            int found = 0;
-
-            /* Find parent. */
-            size_t i;
-            parent_sym = NULL;
-            for (i = 0; i < module->symbol_count; i++)
-            {
-                if (module->symbols[i].name_length == parent_len &&
-                    memcmp(module->symbols[i].name, parent_name, parent_len) == 0)
-                {
-                    parent_sym = &module->symbols[i];
-                    break;
-                }
-            }
-
-            if (parent_sym != NULL && parent_sym->kind == VIGIL_DOC_CLASS)
-            {
-                if (find_class_member(parent_sym, member_name, member_len, &member_sym, &is_method))
-                {
-                    buf_append(&buf, parent_name, parent_len);
-                    buf_append_char(&buf, '.');
-                    if (is_method)
-                    {
-                        render_func_sig(&buf, member_sym);
-                    }
-                    else
-                    {
-                        buf_append(&buf, member_sym->name, member_sym->name_length);
-                        buf_append_char(&buf, ' ');
-                        buf_append(&buf, member_sym->type_text, member_sym->type_length);
-                    }
-                    buf_append_char(&buf, '\n');
-                    if (member_sym->comment.text != NULL)
-                    {
-                        buf_append_char(&buf, '\n');
-                        render_indent_comment(&buf, &member_sym->comment, 0);
-                    }
-                    found = 1;
-                }
-            }
-            if (!found && parent_sym != NULL && parent_sym->kind == VIGIL_DOC_INTERFACE)
-            {
-                if (find_iface_method(parent_sym, member_name, member_len, &member_sym))
-                {
-                    buf_append(&buf, parent_name, parent_len);
-                    buf_append_char(&buf, '.');
-                    render_func_sig(&buf, member_sym);
-                    buf_append_char(&buf, '\n');
-                    if (member_sym->comment.text != NULL)
-                    {
-                        buf_append_char(&buf, '\n');
-                        render_indent_comment(&buf, &member_sym->comment, 0);
-                    }
-                    found = 1;
-                }
-            }
-            if (!found)
-            {
-                buf_free(&buf);
-                if (error != NULL)
-                {
-                    vigil_error_clear(error);
-                    error->type = VIGIL_STATUS_INVALID_ARGUMENT;
-                    /* Use a static message. */
-                    error->value = "public symbol not found";
-                    error->length = 23;
-                }
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-        }
-        else
-        {
-            const vigil_doc_symbol_t *sym;
-            if (find_symbol(module, symbol, &sym))
-            {
-                render_symbol_detail(&buf, sym);
-            }
-            else
-            {
-                buf_free(&buf);
-                if (error != NULL)
-                {
-                    vigil_error_clear(error);
-                    error->type = VIGIL_STATUS_INVALID_ARGUMENT;
-                    error->value = "public symbol not found";
-                    error->length = 23;
-                }
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-        }
+        return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
     *out_text = buf.data;
