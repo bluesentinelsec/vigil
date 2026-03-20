@@ -640,299 +640,206 @@ static bool parse_atom(parser_t *p, fragment_t *out)
 
 /* ── Quantifier Parsing ─────────────────────────────────────── */
 
+typedef struct
+{
+    size_t min;
+    size_t max;
+    bool has_max;
+    bool greedy;
+} quantifier_spec_t;
+
+static bool build_empty_quantifier_fragment(parser_t *p, fragment_t *out)
+{
+    nfa_state_t *jump = alloc_state(p->re, NFA_JUMP);
+    if (!jump)
+    {
+        parser_error(p, "out of memory");
+        return false;
+    }
+
+    fragment_init(out);
+    out->start = jump;
+    fragment_add_patch(out, &jump->out1);
+    return true;
+}
+
+static bool build_loop_quantifier(parser_t *p, fragment_t *atom, fragment_t *out, bool greedy, bool allow_empty)
+{
+    nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
+    nfa_state_t **exit_patch;
+
+    if (!split)
+    {
+        parser_error(p, "out of memory");
+        return false;
+    }
+
+    if (greedy)
+        split->out1 = atom->start;
+    else
+        split->out2 = atom->start;
+
+    exit_patch = greedy ? &split->out2 : &split->out1;
+    fragment_patch(atom, split);
+    fragment_init(out);
+    out->start = allow_empty ? split : atom->start;
+    fragment_add_patch(out, exit_patch);
+    fragment_free(atom);
+    return true;
+}
+
+static bool build_optional_quantifier(parser_t *p, fragment_t *atom, fragment_t *out, bool greedy)
+{
+    nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
+    nfa_state_t **skip_patch;
+
+    if (!split)
+    {
+        parser_error(p, "out of memory");
+        return false;
+    }
+
+    if (greedy)
+        split->out1 = atom->start;
+    else
+        split->out2 = atom->start;
+
+    skip_patch = greedy ? &split->out2 : &split->out1;
+    fragment_init(out);
+    out->start = split;
+    fragment_add_patch(out, skip_patch);
+    fragment_append(out, atom);
+    fragment_free(atom);
+    return true;
+}
+
+static bool parse_brace_quantifier_spec(parser_t *p, quantifier_spec_t *spec)
+{
+    spec->min = 0U;
+    spec->max = 0U;
+    spec->has_max = false;
+    spec->greedy = true;
+
+    while (isdigit(parser_peek(p)))
+        spec->min = spec->min * 10U + (size_t)(parser_advance(p) - '0');
+
+    if (parser_match(p, ','))
+    {
+        if (isdigit(parser_peek(p)))
+        {
+            spec->has_max = true;
+            while (isdigit(parser_peek(p)))
+                spec->max = spec->max * 10U + (size_t)(parser_advance(p) - '0');
+        }
+    }
+    else
+    {
+        spec->has_max = true;
+        spec->max = spec->min;
+    }
+
+    if (!parser_match(p, '}'))
+    {
+        parser_error(p, "invalid quantifier");
+        return false;
+    }
+
+    if (parser_match(p, '?'))
+        spec->greedy = false;
+    return true;
+}
+
+static bool validate_brace_quantifier_spec(parser_t *p, const quantifier_spec_t *spec)
+{
+    if (spec->min > 100U || (spec->has_max && spec->max > 100U))
+    {
+        parser_error(p, "quantifier too large");
+        return false;
+    }
+    if (spec->has_max && spec->max > 10U)
+    {
+        parser_error(p, "bounded quantifier max > 10 not yet supported");
+        return false;
+    }
+    return true;
+}
+
+static bool build_exact_brace_quantifier(parser_t *p, fragment_t *atom, fragment_t *out, size_t count)
+{
+    if (count == 0U)
+    {
+        fragment_free(atom);
+        return build_empty_quantifier_fragment(p, out);
+    }
+    if (count == 1U)
+    {
+        *out = *atom;
+        return true;
+    }
+
+    parser_error(p, "exact repetition > 1 not yet supported");
+    return false;
+}
+
+static bool build_unbounded_brace_quantifier(parser_t *p, fragment_t *atom, fragment_t *out,
+                                             const quantifier_spec_t *spec)
+{
+    if (spec->min == 0U)
+        return build_loop_quantifier(p, atom, out, spec->greedy, true);
+    if (spec->min == 1U)
+        return build_loop_quantifier(p, atom, out, spec->greedy, false);
+
+    parser_error(p, "{n,} with n > 1 not yet supported");
+    return false;
+}
+
+static bool build_brace_quantifier(parser_t *p, fragment_t *atom, fragment_t *out)
+{
+    quantifier_spec_t spec;
+
+    if (!parse_brace_quantifier_spec(p, &spec))
+        return false;
+    if (!validate_brace_quantifier_spec(p, &spec))
+        return false;
+    if (spec.has_max && spec.min == spec.max)
+        return build_exact_brace_quantifier(p, atom, out, spec.min);
+    if (!spec.has_max)
+        return build_unbounded_brace_quantifier(p, atom, out, &spec);
+
+    parser_error(p, "complex bounded quantifiers not yet supported");
+    return false;
+}
+
 static bool parse_quantifier(parser_t *p, fragment_t *atom, fragment_t *out)
 {
     char ch = parser_peek(p);
-    bool greedy = true;
+    bool greedy;
 
     if (ch == '*')
     {
         parser_advance(p);
-        if (parser_match(p, '?'))
-            greedy = false;
-
-        /* a* = split -> a -> loop back, or skip */
-        nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
-        if (!split)
-        {
-            parser_error(p, "out of memory");
-            return false;
-        }
-
-        if (greedy)
-        {
-            split->out1 = atom->start;
-        }
-        else
-        {
-            split->out2 = atom->start;
-        }
-        fragment_patch(atom, split);
-
-        fragment_init(out);
-        out->start = split;
-        if (greedy)
-        {
-            fragment_add_patch(out, &split->out2);
-        }
-        else
-        {
-            fragment_add_patch(out, &split->out1);
-        }
-        fragment_free(atom);
-        return true;
+        greedy = !parser_match(p, '?');
+        return build_loop_quantifier(p, atom, out, greedy, true);
     }
 
     if (ch == '+')
     {
         parser_advance(p);
-        if (parser_match(p, '?'))
-            greedy = false;
-
-        /* a+ = a -> split -> loop back or exit */
-        nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
-        if (!split)
-        {
-            parser_error(p, "out of memory");
-            return false;
-        }
-
-        if (greedy)
-        {
-            split->out1 = atom->start;
-        }
-        else
-        {
-            split->out2 = atom->start;
-        }
-        fragment_patch(atom, split);
-
-        fragment_init(out);
-        out->start = atom->start;
-        if (greedy)
-        {
-            fragment_add_patch(out, &split->out2);
-        }
-        else
-        {
-            fragment_add_patch(out, &split->out1);
-        }
-        fragment_free(atom);
-        return true;
+        greedy = !parser_match(p, '?');
+        return build_loop_quantifier(p, atom, out, greedy, false);
     }
 
     if (ch == '?')
     {
         parser_advance(p);
-        if (parser_match(p, '?'))
-            greedy = false;
-
-        /* a? = split -> a or skip */
-        nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
-        if (!split)
-        {
-            parser_error(p, "out of memory");
-            return false;
-        }
-
-        if (greedy)
-        {
-            split->out1 = atom->start;
-        }
-        else
-        {
-            split->out2 = atom->start;
-        }
-
-        fragment_init(out);
-        out->start = split;
-        if (greedy)
-        {
-            fragment_add_patch(out, &split->out2);
-        }
-        else
-        {
-            fragment_add_patch(out, &split->out1);
-        }
-        fragment_append(out, atom);
-        fragment_free(atom);
-        return true;
+        greedy = !parser_match(p, '?');
+        return build_optional_quantifier(p, atom, out, greedy);
     }
 
     if (ch == '{')
     {
         parser_advance(p);
-        size_t min = 0, max = 0;
-        bool has_max = false;
-
-        /* Parse min */
-        while (isdigit(parser_peek(p)))
-        {
-            min = min * 10 + (size_t)(parser_advance(p) - '0');
-        }
-
-        if (parser_match(p, ','))
-        {
-            if (isdigit(parser_peek(p)))
-            {
-                has_max = true;
-                while (isdigit(parser_peek(p)))
-                {
-                    max = max * 10 + (size_t)(parser_advance(p) - '0');
-                }
-            }
-            /* else: {n,} means n or more */
-        }
-        else
-        {
-            /* {n} means exactly n */
-            has_max = true;
-            max = min;
-        }
-
-        if (!parser_match(p, '}'))
-        {
-            parser_error(p, "invalid quantifier");
-            return false;
-        }
-
-        if (parser_match(p, '?'))
-            greedy = false;
-
-        /* Build repeated structure */
-        /* For simplicity, we expand {n,m} into concatenation + optional */
-        /* This is not optimal but correct */
-
-        if (min == 0 && has_max && max == 0)
-        {
-            /* {0} or {0,0} - matches empty string */
-            fragment_free(atom);
-            fragment_init(out);
-            nfa_state_t *jump = alloc_state(p->re, NFA_JUMP);
-            if (!jump)
-            {
-                parser_error(p, "out of memory");
-                return false;
-            }
-            out->start = jump;
-            fragment_add_patch(out, &jump->out1);
-            return true;
-        }
-
-        /* For now, limit expansion to reasonable size */
-        if (min > 100 || (has_max && max > 100))
-        {
-            parser_error(p, "quantifier too large");
-            return false;
-        }
-
-        /* We need to duplicate the atom structure for each repetition */
-        /* This is complex - for MVP, reject large bounded quantifiers */
-        if (has_max && max > 10)
-        {
-            parser_error(p, "bounded quantifier max > 10 not yet supported");
-            return false;
-        }
-
-        /* Simple case: {n} or {n,n} - exact repetition */
-        if (has_max && min == max)
-        {
-            if (min == 0)
-            {
-                fragment_free(atom);
-                fragment_init(out);
-                nfa_state_t *jump = alloc_state(p->re, NFA_JUMP);
-                if (!jump)
-                {
-                    parser_error(p, "out of memory");
-                    return false;
-                }
-                out->start = jump;
-                fragment_add_patch(out, &jump->out1);
-                return true;
-            }
-            /* Just use the atom as-is for {1} */
-            if (min == 1)
-            {
-                *out = *atom;
-                return true;
-            }
-            /* For larger exact counts, we'd need to duplicate - skip for MVP */
-            parser_error(p, "exact repetition > 1 not yet supported");
-            return false;
-        }
-
-        /* {n,} - n or more: use atom followed by atom* */
-        if (!has_max)
-        {
-            if (min == 0)
-            {
-                /* {0,} is same as * */
-                nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
-                if (!split)
-                {
-                    parser_error(p, "out of memory");
-                    return false;
-                }
-                if (greedy)
-                {
-                    split->out1 = atom->start;
-                }
-                else
-                {
-                    split->out2 = atom->start;
-                }
-                fragment_patch(atom, split);
-                fragment_init(out);
-                out->start = split;
-                if (greedy)
-                {
-                    fragment_add_patch(out, &split->out2);
-                }
-                else
-                {
-                    fragment_add_patch(out, &split->out1);
-                }
-                fragment_free(atom);
-                return true;
-            }
-            if (min == 1)
-            {
-                /* {1,} is same as + */
-                nfa_state_t *split = alloc_state(p->re, NFA_SPLIT);
-                if (!split)
-                {
-                    parser_error(p, "out of memory");
-                    return false;
-                }
-                if (greedy)
-                {
-                    split->out1 = atom->start;
-                }
-                else
-                {
-                    split->out2 = atom->start;
-                }
-                fragment_patch(atom, split);
-                fragment_init(out);
-                out->start = atom->start;
-                if (greedy)
-                {
-                    fragment_add_patch(out, &split->out2);
-                }
-                else
-                {
-                    fragment_add_patch(out, &split->out1);
-                }
-                fragment_free(atom);
-                return true;
-            }
-            parser_error(p, "{n,} with n > 1 not yet supported");
-            return false;
-        }
-
-        parser_error(p, "complex bounded quantifiers not yet supported");
-        return false;
+        return build_brace_quantifier(p, atom, out);
     }
 
     /* No quantifier - return atom as-is */
