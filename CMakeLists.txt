@@ -399,6 +399,7 @@ if(VIGIL_BUILD_TESTS)
 
         vigil_add_integration_test(VigilArgsTest test_args.py)
         vigil_add_integration_test(VigilAtomicTest test_atomic.py)
+        vigil_add_integration_test(VigilCheckTest test_check.py)
         vigil_add_integration_test(VigilCompressTest test_compress.py)
         vigil_add_integration_test(VigilCryptoTest test_crypto.py)
         vigil_add_integration_test(VigilCsvTest test_csv.py)

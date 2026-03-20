@@ -120,6 +120,19 @@ typedef struct runtime_registry_fixture
     vigil_source_registry_t registry;
 } runtime_registry_fixture_t;
 
+typedef struct register_project_request
+{
+    runtime_registry_fixture_t *fixture;
+    const char *root;
+    const char *import_name;
+    const char *main_source;
+    vigil_source_id_t *out_source_id;
+    char *main_path;
+    size_t main_path_size;
+    char *project_root;
+    size_t project_root_size;
+} register_project_request_t;
+
 static int open_runtime_registry(runtime_registry_fixture_t *fixture, vigil_error_t *error)
 {
     fixture->runtime = NULL;
@@ -133,6 +146,22 @@ static void close_runtime_registry(runtime_registry_fixture_t *fixture)
 {
     vigil_source_registry_free(&fixture->registry);
     vigil_runtime_close(&fixture->runtime);
+}
+
+static int register_project_main_source(const register_project_request_t *request, vigil_error_t *error)
+{
+    if (request->out_source_id != NULL)
+        *request->out_source_id = 0U;
+    request->fixture->runtime = NULL;
+    if (!setup_register_project_fixture(request->root, request->import_name, request->main_source, error))
+        return 0;
+    snprintf(request->main_path, request->main_path_size, "%s/main.vigil", request->root);
+    if (!find_project_root(request->main_path, request->project_root, request->project_root_size))
+        return 0;
+    if (!open_runtime_registry(request->fixture, error))
+        return 0;
+    return register_source_tree(&request->fixture->registry, request->main_path, request->project_root,
+                                request->out_source_id, error);
 }
 
 static int verify_registered_helper_module(const char *root, vigil_error_t *error)
@@ -168,6 +197,128 @@ static int verify_registered_helper_module(const char *root, vigil_error_t *erro
 
 cleanup:
     close_runtime_registry(&fixture);
+    return ok;
+}
+
+static int verify_stdlib_only_import_registration(const char *root, vigil_error_t *error)
+{
+    runtime_registry_fixture_t fixture;
+    register_project_request_t request;
+    vigil_source_id_t source_id;
+    char main_path[4096];
+    char project_root[4096];
+    int ok;
+
+    ok = 0;
+    source_id = 0U;
+    remove_cli_frontend_project(root, "helper", error);
+    request = (register_project_request_t){
+        &fixture,
+        root,
+        NULL,
+        "import \"fmt\";\nfn main() -> i32 { return 0; }\n",
+        &source_id,
+        main_path,
+        sizeof(main_path),
+        project_root,
+        sizeof(project_root),
+    };
+    if (!register_project_main_source(&request, error))
+    {
+        return 0;
+    }
+    ok = vigil_source_registry_count(&fixture.registry) == 1U && source_id != 0U;
+    close_runtime_registry(&fixture);
+    remove_cli_frontend_project(root, "helper", error);
+    return ok;
+}
+
+static int verify_existing_source_registration(const char *root, vigil_error_t *error)
+{
+    runtime_registry_fixture_t fixture;
+    register_project_request_t request;
+    vigil_source_id_t first_id;
+    vigil_source_id_t second_id;
+    char main_path[4096];
+    char project_root[4096];
+    int ok;
+
+    ok = 0;
+    first_id = 0U;
+    second_id = 0U;
+    remove_cli_frontend_project(root, "helper", error);
+    request = (register_project_request_t){
+        &fixture,
+        root,
+        NULL,
+        "fn main() -> i32 { return 0; }\n",
+        &first_id,
+        main_path,
+        sizeof(main_path),
+        project_root,
+        sizeof(project_root),
+    };
+    if (!register_project_main_source(&request, error))
+    {
+        return 0;
+    }
+    if (register_source_tree(&fixture.registry, main_path, project_root, &second_id, error))
+        ok = first_id == second_id && vigil_source_registry_count(&fixture.registry) == 1U;
+    close_runtime_registry(&fixture);
+    remove_cli_frontend_project(root, "helper", error);
+    return ok;
+}
+
+static int verify_absolute_import_registration(const char *root, vigil_error_t *error)
+{
+    runtime_registry_fixture_t fixture;
+    register_project_request_t request;
+    vigil_source_id_t source_id;
+    char *cwd;
+    char helper_path[4096];
+    char main_source[4096];
+    char main_path[4096];
+    char project_root[4096];
+    size_t index;
+    int ok;
+
+    cwd = NULL;
+    ok = 0;
+    source_id = 0U;
+    remove_cli_frontend_project(root, "helper", error);
+    if (vigil_platform_getcwd(&cwd, error) != VIGIL_STATUS_OK)
+        return 0;
+    snprintf(helper_path, sizeof(helper_path), "%s/%s/lib/helper.vigil", cwd, root);
+    snprintf(main_source, sizeof(main_source), "import \"%s\";\nfn main() -> i32 { return helper.value(); }\n",
+             helper_path);
+    request = (register_project_request_t){
+        &fixture,          root,         "helper",
+        main_source,       &source_id,   main_path,
+        sizeof(main_path), project_root, sizeof(project_root),
+    };
+    if (!register_project_main_source(&request, error))
+    {
+        free(cwd);
+        return 0;
+    }
+    ok = source_id != 0U && vigil_source_registry_count(&fixture.registry) == 2U;
+    for (index = 1U; ok && index <= vigil_source_registry_count(&fixture.registry); index += 1U)
+    {
+        const vigil_source_file_t *source;
+
+        source = vigil_source_registry_get(&fixture.registry, (vigil_source_id_t)index);
+        if (source == NULL)
+            continue;
+        if (strcmp(vigil_string_c_str(&source->path), main_path) != 0 &&
+            strstr(vigil_string_c_str(&source->text), "pub fn value") != NULL)
+        {
+            break;
+        }
+    }
+    ok = ok && index <= vigil_source_registry_count(&fixture.registry);
+    close_runtime_registry(&fixture);
+    free(cwd);
+    remove_cli_frontend_project(root, "helper", error);
     return ok;
 }
 
@@ -212,6 +363,21 @@ TEST_F(CliFrontendTest, FindProjectRootRejectsNullInputs)
     EXPECT_FALSE(find_project_root("main.vigil", NULL, 0U));
 }
 
+TEST_F(CliFrontendTest, FindProjectRootRejectsTooSmallOutputBuffer)
+{
+    const char *root = "cli_frontend_small_buffer";
+    char path[4096];
+    char out[4];
+
+    remove_cli_frontend_project(root, "helper", ERR);
+    ASSERT_TRUE(setup_project_root_fixture(root, 1, ERR));
+    snprintf(path, sizeof(path), "%s/test/main_test.vigil", root);
+
+    EXPECT_FALSE(find_project_root(path, out, sizeof(out)));
+
+    remove_cli_frontend_project(root, "helper", ERR);
+}
+
 TEST_F(CliFrontendTest, RegisterSourceTreeRegistersProjectLibImports)
 {
     const char *root = "cli_frontend_register_proj";
@@ -249,50 +415,22 @@ TEST_F(CliFrontendTest, RegisterSourceTreeFailsForMissingImport)
 TEST_F(CliFrontendTest, RegisterSourceTreeHandlesStdlibOnlyImport)
 {
     const char *root = "cli_frontend_stdlib_import";
-    const char *main_source = "import \"fmt\";\nfn main() -> i32 { return 0; }\n";
-    runtime_registry_fixture_t fixture;
-    vigil_source_id_t source_id;
-    char main_path[4096];
-    char project_root[4096];
 
-    source_id = 0U;
-    fixture.runtime = NULL;
-    remove_cli_frontend_project(root, "helper", ERR);
-    ASSERT_TRUE(setup_register_project_fixture(root, NULL, main_source, ERR));
-    snprintf(main_path, sizeof(main_path), "%s/main.vigil", root);
-    ASSERT_TRUE(find_project_root(main_path, project_root, sizeof(project_root)));
-    ASSERT_TRUE(open_runtime_registry(&fixture, ERR));
-    ASSERT_TRUE(register_source_tree(&fixture.registry, main_path, project_root, &source_id, ERR));
-    EXPECT_EQ(vigil_source_registry_count(&fixture.registry), 1U);
-    EXPECT_NE(source_id, 0U);
-    close_runtime_registry(&fixture);
-    remove_cli_frontend_project(root, "helper", ERR);
+    ASSERT_TRUE(verify_stdlib_only_import_registration(root, ERR));
 }
 
 TEST_F(CliFrontendTest, RegisterSourceTreeReturnsExistingSourceId)
 {
     const char *root = "cli_frontend_existing_source";
-    const char *main_source = "fn main() -> i32 { return 0; }\n";
-    runtime_registry_fixture_t fixture;
-    vigil_source_id_t first_id;
-    vigil_source_id_t second_id;
-    char main_path[4096];
-    char project_root[4096];
 
-    first_id = 0U;
-    second_id = 0U;
-    fixture.runtime = NULL;
-    remove_cli_frontend_project(root, "helper", ERR);
-    ASSERT_TRUE(setup_register_project_fixture(root, NULL, main_source, ERR));
-    snprintf(main_path, sizeof(main_path), "%s/main.vigil", root);
-    ASSERT_TRUE(find_project_root(main_path, project_root, sizeof(project_root)));
-    ASSERT_TRUE(open_runtime_registry(&fixture, ERR));
-    ASSERT_TRUE(register_source_tree(&fixture.registry, main_path, project_root, &first_id, ERR));
-    ASSERT_TRUE(register_source_tree(&fixture.registry, main_path, project_root, &second_id, ERR));
-    EXPECT_EQ(first_id, second_id);
-    EXPECT_EQ(vigil_source_registry_count(&fixture.registry), 1U);
-    close_runtime_registry(&fixture);
-    remove_cli_frontend_project(root, "helper", ERR);
+    ASSERT_TRUE(verify_existing_source_registration(root, ERR));
+}
+
+TEST_F(CliFrontendTest, RegisterSourceTreeHandlesAbsoluteImportPath)
+{
+    const char *root = "cli_frontend_absolute_import";
+
+    ASSERT_TRUE(verify_absolute_import_registration(root, ERR));
 }
 
 #undef ERR
@@ -302,8 +440,10 @@ void register_cli_frontend_tests(void)
     REGISTER_TEST_F(CliFrontendTest, FindProjectRootReturnsProjectDirectory);
     REGISTER_TEST_F(CliFrontendTest, FindProjectRootReturnsZeroWithoutManifest);
     REGISTER_TEST_F(CliFrontendTest, FindProjectRootRejectsNullInputs);
+    REGISTER_TEST_F(CliFrontendTest, FindProjectRootRejectsTooSmallOutputBuffer);
     REGISTER_TEST_F(CliFrontendTest, RegisterSourceTreeRegistersProjectLibImports);
     REGISTER_TEST_F(CliFrontendTest, RegisterSourceTreeFailsForMissingImport);
     REGISTER_TEST_F(CliFrontendTest, RegisterSourceTreeHandlesStdlibOnlyImport);
     REGISTER_TEST_F(CliFrontendTest, RegisterSourceTreeReturnsExistingSourceId);
+    REGISTER_TEST_F(CliFrontendTest, RegisterSourceTreeHandlesAbsoluteImportPath);
 }
