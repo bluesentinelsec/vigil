@@ -1,6 +1,7 @@
 #define VIGIL_TEST_IMPLEMENTATION
 #include "vigil_test.h"
 
+extern void register_regex_engine_tests(void);
 extern void register_array_tests(void);
 extern void register_vigil_new_tests(void);
 extern void register_binding_tests(void);
@@ -47,6 +48,7 @@ extern void register_vm_tests(void);
 
 int main(void)
 {
+    register_regex_engine_tests();
     register_array_tests();
     register_vigil_new_tests();
     register_binding_tests();

@@ -1025,12 +1025,8 @@ static void add_state(state_list_t *l, nfa_state_t *s, const size_t *saves, size
         return;
     case NFA_SAVE: {
         size_t scratch[VIGIL_REGEX_MAX_GROUPS * 2];
-        size_t n = l->save_count;
-        if (n > VIGIL_REGEX_MAX_GROUPS * 2)
-            n = VIGIL_REGEX_MAX_GROUPS * 2;
-        memcpy(scratch, saves, n * sizeof(size_t));
-        if (s->data.save_slot < n)
-            scratch[s->data.save_slot] = pos;
+        memcpy(scratch, saves, l->save_count * sizeof(size_t));
+        scratch[s->data.save_slot] = pos;
         add_state(l, s->out1, scratch, pos, input, input_len, visited, gen);
         return;
     }
