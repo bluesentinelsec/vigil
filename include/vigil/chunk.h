@@ -215,7 +215,14 @@ extern "C"
            grouping: 1 = insert thousands separators */
         VIGIL_OPCODE_FORMAT_SPEC = 150,
         VIGIL_OPCODE_DEFER_CALL_NATIVE = 151,
-        VIGIL_OPCODE_CALL_EXTERN = 152
+        VIGIL_OPCODE_CALL_EXTERN = 152,
+
+        /* Dedicated math intrinsics — bypass CALL_NATIVE overhead. */
+        VIGIL_OPCODE_MATH_SIN_F64 = 153,
+        VIGIL_OPCODE_MATH_COS_F64 = 154,
+        VIGIL_OPCODE_MATH_SQRT_F64 = 155,
+        VIGIL_OPCODE_MATH_LOG_F64 = 156,
+        VIGIL_OPCODE_MATH_POW_F64 = 157
     } vigil_opcode_t;
 
     typedef struct vigil_chunk

@@ -6,7 +6,7 @@
 #include "internal/vigil_internal.h"
 #include "vigil/chunk.h"
 
-static const char *const kVigilOpcodeNames[VIGIL_OPCODE_CALL_EXTERN + 1] = {
+static const char *const kVigilOpcodeNames[VIGIL_OPCODE_MATH_POW_F64 + 1] = {
     [VIGIL_OPCODE_CONSTANT] = "CONSTANT",
     [VIGIL_OPCODE_NIL] = "NIL",
     [VIGIL_OPCODE_TRUE] = "TRUE",
@@ -160,6 +160,11 @@ static const char *const kVigilOpcodeNames[VIGIL_OPCODE_CALL_EXTERN + 1] = {
     [VIGIL_OPCODE_FORMAT_SPEC] = "FORMAT_SPEC",
     [VIGIL_OPCODE_DEFER_CALL_NATIVE] = "DEFER_CALL_NATIVE",
     [VIGIL_OPCODE_CALL_EXTERN] = "CALL_EXTERN",
+    [VIGIL_OPCODE_MATH_SIN_F64] = "MATH_SIN_F64",
+    [VIGIL_OPCODE_MATH_COS_F64] = "MATH_COS_F64",
+    [VIGIL_OPCODE_MATH_SQRT_F64] = "MATH_SQRT_F64",
+    [VIGIL_OPCODE_MATH_LOG_F64] = "MATH_LOG_F64",
+    [VIGIL_OPCODE_MATH_POW_F64] = "MATH_POW_F64",
 };
 
 static vigil_status_t vigil_chunk_append_text(vigil_string_t *output, const char *text, vigil_error_t *error);
@@ -825,7 +830,7 @@ vigil_source_span_t vigil_chunk_span_at(const vigil_chunk_t *chunk, size_t offse
 
 const char *vigil_opcode_name(vigil_opcode_t opcode)
 {
-    if (opcode > VIGIL_OPCODE_CALL_EXTERN)
+    if (opcode > VIGIL_OPCODE_MATH_POW_F64)
     {
         return "UNKNOWN";
     }

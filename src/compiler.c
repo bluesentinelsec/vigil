@@ -7011,6 +7011,25 @@ static vigil_status_t vigil_native_type_to_binding_type(vigil_parser_state_t *st
     return VIGIL_STATUS_OK;
 }
 
+/* Returns a dedicated math intrinsic opcode for (mod, fn), or -1 if none. */
+static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *mod, const char *fn_name,
+                                              size_t fn_name_length)
+{
+    if (mod->name_length != 4U || memcmp(mod->name, "math", 4U) != 0)
+        return -1;
+    if (fn_name_length == 3U && memcmp(fn_name, "sin", 3U) == 0)
+        return (int)VIGIL_OPCODE_MATH_SIN_F64;
+    if (fn_name_length == 3U && memcmp(fn_name, "cos", 3U) == 0)
+        return (int)VIGIL_OPCODE_MATH_COS_F64;
+    if (fn_name_length == 4U && memcmp(fn_name, "sqrt", 4U) == 0)
+        return (int)VIGIL_OPCODE_MATH_SQRT_F64;
+    if (fn_name_length == 3U && memcmp(fn_name, "log", 3U) == 0)
+        return (int)VIGIL_OPCODE_MATH_LOG_F64;
+    if (fn_name_length == 3U && memcmp(fn_name, "pow", 3U) == 0)
+        return (int)VIGIL_OPCODE_MATH_POW_F64;
+    return -1;
+}
+
 static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state, const vigil_token_t *member_token,
                                                      vigil_source_id_t source_id, const char *member_name,
                                                      size_t member_name_length, vigil_expression_result_t *out_result)
@@ -7132,6 +7151,17 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
 
     /* Create native function object and store in constant pool. */
     native_obj = NULL;
+    {
+        int intrinsic_op = vigil_parser_math_intrinsic_opcode(mod, member_name, member_name_length);
+        if (intrinsic_op >= 0 && !defer_call)
+        {
+            status = vigil_parser_emit_opcode(state, (vigil_opcode_t)intrinsic_op, member_token->span);
+            if (status != VIGIL_STATUS_OK)
+                return status;
+            vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_F64));
+            return VIGIL_STATUS_OK;
+        }
+    }
     status = vigil_native_function_object_create(state->program->registry->runtime, fn->name, fn->name_length,
                                                  fn->param_count, fn->native_fn, &native_obj, state->program->error);
     if (status != VIGIL_STATUS_OK)
