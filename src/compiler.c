@@ -9269,8 +9269,10 @@ static vigil_status_t vigil_parser_parse_factor(vigil_parser_state_t *state, vig
         {
             return status;
         }
-        /* i32 opcodes already produce i32 results — skip the cast. */
-        if (!vigil_parser_type_is_i32(left_result.type) || !vigil_parser_type_is_i32(right_result.type))
+        /* i32 opcodes already produce i32 results — skip the cast.
+           i64 opcodes already produce i64 results — skip the cast. */
+        if ((!vigil_parser_type_is_i32(left_result.type) || !vigil_parser_type_is_i32(right_result.type)) &&
+            (!vigil_parser_type_is_i64(left_result.type) || !vigil_parser_type_is_i64(right_result.type)))
         {
             status = vigil_parser_emit_integer_cast(state, left_result.type, operator_span);
             if (status != VIGIL_STATUS_OK)
@@ -9366,7 +9368,8 @@ static vigil_status_t vigil_parser_parse_term(vigil_parser_state_t *state, vigil
         {
             left_result.type = vigil_binding_type_primitive(VIGIL_TYPE_STRING);
         }
-        else if (!(vigil_parser_type_is_i32(left_result.type) && vigil_parser_type_is_i32(right_result.type)))
+        else if (!(vigil_parser_type_is_i32(left_result.type) && vigil_parser_type_is_i32(right_result.type)) &&
+                 !(vigil_parser_type_is_i64(left_result.type) && vigil_parser_type_is_i64(right_result.type)))
         {
             status = vigil_parser_emit_integer_cast(state, left_result.type, operator_span);
             if (status != VIGIL_STATUS_OK)
@@ -12012,6 +12015,12 @@ vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, v
         return status;
     }
 
+    /* i32 constant → i32 target: no cast needed, constant is already i32. */
+    if (vigil_parser_type_is_i32(target_type))
+    {
+        return VIGIL_STATUS_OK;
+    }
+
     return vigil_parser_emit_integer_cast(state, target_type, span);
 }
 
@@ -12836,8 +12845,10 @@ static vigil_status_t vigil_parser_parse_assignment_statement_internal(vigil_par
         {
             return status;
         }
-        /* i32 opcodes already produce i32 results — skip the cast. */
-        if (!(vigil_parser_type_is_i32(target_type) && vigil_parser_type_is_i32(value_result.type)))
+        /* i32 opcodes already produce i32 results — skip the cast.
+           i64 opcodes already produce i64 results — skip the cast. */
+        if (!(vigil_parser_type_is_i32(target_type) && vigil_parser_type_is_i32(value_result.type)) &&
+            !(vigil_parser_type_is_i64(target_type) && vigil_parser_type_is_i64(value_result.type)))
         {
             status = vigil_parser_emit_integer_cast(state, target_type, operator_token->span);
             if (status != VIGIL_STATUS_OK)
