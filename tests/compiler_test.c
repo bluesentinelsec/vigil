@@ -3004,6 +3004,12 @@ TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape)
     vigil_runtime_close(&runtime);
 }
 
+static void register_compiler_defer_tests(void)
+{
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredFunctionValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredConstructorsWithoutInit);
+}
+
 void register_compiler_tests(void)
 {
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals);
@@ -3057,8 +3063,6 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesMultipleReturnValues);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues);
-    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredFunctionValues);
-    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredConstructorsWithoutInit);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
@@ -3124,4 +3128,5 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods);
     REGISTER_TEST(VigilCompilerTest, RejectsInvalidGuardBindings);
     REGISTER_TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape);
+    register_compiler_defer_tests();
 }
