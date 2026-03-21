@@ -53,81 +53,129 @@ enum
     KEY_ALT_D = 265
 };
 
+typedef enum
+{
+    LINE_EDIT_UNHANDLED = 0,
+    LINE_EDIT_REFRESH,
+    LINE_EDIT_SUBMIT,
+    LINE_EDIT_EOF
+} line_edit_result_t;
+
+typedef struct
+{
+    vigil_line_history_t *history;
+    size_t index;
+    char *saved_line;
+} line_history_nav_t;
+
+/* GCOVR_EXCL_START */
 /* Read a keypress, translating escape sequences. */
+static int read_key_bracket_number_sequence(int c3)
+{
+    int c4 = vigil_platform_terminal_read_byte();
+
+    if (c4 != '~')
+    {
+        return KEY_NONE;
+    }
+
+    switch (c3)
+    {
+    case '1':
+    case '7':
+        return KEY_HOME;
+    case '3':
+        return KEY_DELETE;
+    case '4':
+    case '8':
+        return KEY_END;
+    default:
+        return KEY_NONE;
+    }
+}
+
+static int read_key_bracket_sequence(void)
+{
+    int c3 = vigil_platform_terminal_read_byte();
+
+    if (c3 >= '0' && c3 <= '9')
+    {
+        return read_key_bracket_number_sequence(c3);
+    }
+
+    switch (c3)
+    {
+    case 'A':
+        return KEY_ARROW_UP;
+    case 'B':
+        return KEY_ARROW_DOWN;
+    case 'C':
+        return KEY_ARROW_RIGHT;
+    case 'D':
+        return KEY_ARROW_LEFT;
+    case 'H':
+        return KEY_HOME;
+    case 'F':
+        return KEY_END;
+    default:
+        return KEY_NONE;
+    }
+}
+
+static int read_key_o_sequence(void)
+{
+    int c3 = vigil_platform_terminal_read_byte();
+
+    switch (c3)
+    {
+    case 'H':
+        return KEY_HOME;
+    case 'F':
+        return KEY_END;
+    default:
+        return KEY_NONE;
+    }
+}
+
+static int read_key_alt_sequence(int c2)
+{
+    switch (c2)
+    {
+    case 'b':
+        return KEY_ALT_B;
+    case 'f':
+        return KEY_ALT_F;
+    case 'd':
+        return KEY_ALT_D;
+    default:
+        return KEY_NONE;
+    }
+}
+
 static int read_key(void)
 {
     int c = vigil_platform_terminal_read_byte();
+
     if (c != KEY_ESC)
+    {
         return c;
+    }
 
     int c2 = vigil_platform_terminal_read_byte();
     if (c2 == -1)
+    {
         return KEY_ESC;
+    }
     if (c2 == '[')
     {
-        int c3 = vigil_platform_terminal_read_byte();
-        if (c3 >= '0' && c3 <= '9')
-        {
-            int c4 = vigil_platform_terminal_read_byte();
-            if (c4 == '~')
-            {
-                switch (c3)
-                {
-                case '1':
-                    return KEY_HOME;
-                case '3':
-                    return KEY_DELETE;
-                case '4':
-                    return KEY_END;
-                case '7':
-                    return KEY_HOME;
-                case '8':
-                    return KEY_END;
-                }
-            }
-            return KEY_NONE;
-        }
-        switch (c3)
-        {
-        case 'A':
-            return KEY_ARROW_UP;
-        case 'B':
-            return KEY_ARROW_DOWN;
-        case 'C':
-            return KEY_ARROW_RIGHT;
-        case 'D':
-            return KEY_ARROW_LEFT;
-        case 'H':
-            return KEY_HOME;
-        case 'F':
-            return KEY_END;
-        }
+        return read_key_bracket_sequence();
     }
-    else if (c2 == 'O')
+    if (c2 == 'O')
     {
-        int c3 = vigil_platform_terminal_read_byte();
-        switch (c3)
-        {
-        case 'H':
-            return KEY_HOME;
-        case 'F':
-            return KEY_END;
-        }
+        return read_key_o_sequence();
     }
-    else
-    {
-        /* Alt+key sends ESC followed by the key. */
-        switch (c2)
-        {
-        case 'b':
-            return KEY_ALT_B;
-        case 'f':
-            return KEY_ALT_F;
-        case 'd':
-            return KEY_ALT_D;
-        }
-    }
-    return KEY_NONE;
+
+    return read_key_alt_sequence(c2);
 }
 
 /* ── Line buffer ─────────────────────────────────────────────────── */
@@ -180,6 +228,80 @@ static void lb_set(line_buf_t *lb, const char *s)
     lb->buf[lb->len] = '\0';
 }
 
+static void lb_kill_to_end(line_buf_t *lb)
+{
+    lb->len = lb->pos;
+    lb->buf[lb->len] = '\0';
+}
+
+static void lb_kill_to_start(line_buf_t *lb)
+{
+    memmove(lb->buf, lb->buf + lb->pos, lb->len - lb->pos);
+    lb->len -= lb->pos;
+    lb->pos = 0;
+    lb->buf[lb->len] = '\0';
+}
+
+static void lb_move_word_backward(line_buf_t *lb)
+{
+    while (lb->pos > 0 && lb->buf[lb->pos - 1] == ' ')
+    {
+        lb->pos--;
+    }
+    while (lb->pos > 0 && lb->buf[lb->pos - 1] != ' ')
+    {
+        lb->pos--;
+    }
+}
+
+static void lb_move_word_forward(line_buf_t *lb)
+{
+    while (lb->pos < lb->len && lb->buf[lb->pos] == ' ')
+    {
+        lb->pos++;
+    }
+    while (lb->pos < lb->len && lb->buf[lb->pos] != ' ')
+    {
+        lb->pos++;
+    }
+}
+
+static void lb_kill_word_backward(line_buf_t *lb)
+{
+    size_t old = lb->pos;
+
+    lb_move_word_backward(lb);
+    memmove(lb->buf + lb->pos, lb->buf + old, lb->len - old);
+    lb->len -= (old - lb->pos);
+    lb->buf[lb->len] = '\0';
+}
+
+static void lb_kill_word_forward(line_buf_t *lb)
+{
+    size_t start = lb->pos;
+
+    lb_move_word_forward(lb);
+    memmove(lb->buf + start, lb->buf + lb->pos, lb->len - lb->pos);
+    lb->len -= (lb->pos - start);
+    lb->pos = start;
+    lb->buf[lb->len] = '\0';
+}
+
+static void lb_transpose_chars(line_buf_t *lb)
+{
+    char tmp;
+
+    if (lb->pos == 0 || lb->pos >= lb->len)
+    {
+        return;
+    }
+
+    tmp = lb->buf[lb->pos - 1];
+    lb->buf[lb->pos - 1] = lb->buf[lb->pos];
+    lb->buf[lb->pos] = tmp;
+    lb->pos++;
+}
+
 /* ── Screen refresh ──────────────────────────────────────────────── */
 
 static void refresh_line(const char *prompt, const line_buf_t *lb)
@@ -197,6 +319,61 @@ static void refresh_line(const char *prompt, const line_buf_t *lb)
         fprintf(stdout, "\r\x1b[%zuC", plen + lb->pos);
     }
     fflush(stdout);
+}
+/* GCOVR_EXCL_STOP */
+
+static void line_history_save_current(const line_buf_t *lb, line_history_nav_t *nav)
+{
+    if (nav->index != nav->history->count)
+    {
+        return;
+    }
+
+    free(nav->saved_line);
+    nav->saved_line = malloc(lb->len + 1);
+    if (nav->saved_line != NULL)
+    {
+        memcpy(nav->saved_line, lb->buf, lb->len + 1);
+    }
+}
+
+static int line_history_can_move_up(const line_history_nav_t *nav)
+{
+    return nav->history != NULL && nav->history->count > 0 && nav->index > 0;
+}
+
+static int line_history_can_move_down(const line_history_nav_t *nav)
+{
+    return nav->history != NULL && nav->history->count > 0 && nav->index < nav->history->count;
+}
+
+static void line_history_move_up(line_buf_t *lb, line_history_nav_t *nav)
+{
+    if (!line_history_can_move_up(nav))
+    {
+        return;
+    }
+
+    line_history_save_current(lb, nav);
+    nav->index--;
+    lb_set(lb, nav->history->entries[nav->index]);
+}
+
+static void line_history_move_down(line_buf_t *lb, line_history_nav_t *nav)
+{
+    if (!line_history_can_move_down(nav))
+    {
+        return;
+    }
+
+    nav->index++;
+    if (nav->index == nav->history->count)
+    {
+        lb_set(lb, nav->saved_line ? nav->saved_line : "");
+        return;
+    }
+
+    lb_set(lb, nav->history->entries[nav->index]);
 }
 
 /* ── History ─────────────────────────────────────────────────────── */
@@ -300,207 +477,262 @@ vigil_status_t vigil_line_history_save(const vigil_line_history_t *h, const char
 
 /* ── Main editing loop ───────────────────────────────────────────── */
 
+static line_edit_result_t edit_line_handle_terminal_keys(int key, line_buf_t *lb, char **saved_line)
+{
+    if (key == KEY_ENTER)
+    {
+        fputs("\r\n", stdout);
+        fflush(stdout);
+        free(*saved_line);
+        *saved_line = NULL;
+        return LINE_EDIT_SUBMIT;
+    }
+
+    if (key == KEY_CTRL_C)
+    {
+        lb->len = 0;
+        lb->pos = 0;
+        lb->buf[0] = '\0';
+        fputs("^C\r\n", stdout);
+        return LINE_EDIT_REFRESH;
+    }
+
+    if (key == -1 || key == KEY_CTRL_D)
+    {
+        if (lb->len == 0)
+        {
+            free(*saved_line);
+            *saved_line = NULL;
+            return LINE_EDIT_EOF;
+        }
+        lb_delete_at(lb, lb->pos);
+        return LINE_EDIT_REFRESH;
+    }
+
+    return LINE_EDIT_UNHANDLED;
+}
+
+static line_edit_result_t edit_line_handle_delete_keys(int key, line_buf_t *lb)
+{
+    switch (key)
+    {
+    case KEY_BACKSPACE:
+    case KEY_CTRL_H:
+        if (lb->pos > 0)
+        {
+            lb->pos--;
+            lb_delete_at(lb, lb->pos);
+        }
+        return LINE_EDIT_REFRESH;
+    case KEY_DELETE:
+        lb_delete_at(lb, lb->pos);
+        return LINE_EDIT_REFRESH;
+    default:
+        return LINE_EDIT_UNHANDLED;
+    }
+}
+
+static line_edit_result_t edit_line_handle_cursor_keys(int key, line_buf_t *lb)
+{
+    switch (key)
+    {
+    case KEY_ARROW_LEFT:
+    case KEY_CTRL_B:
+        if (lb->pos > 0)
+        {
+            lb->pos--;
+        }
+        return LINE_EDIT_REFRESH;
+    case KEY_ARROW_RIGHT:
+    case KEY_CTRL_F:
+        if (lb->pos < lb->len)
+        {
+            lb->pos++;
+        }
+        return LINE_EDIT_REFRESH;
+    default:
+        return LINE_EDIT_UNHANDLED;
+    }
+}
+
+static line_edit_result_t edit_line_handle_home_end_keys(int key, line_buf_t *lb)
+{
+    switch (key)
+    {
+    case KEY_HOME:
+    case KEY_CTRL_A:
+        lb->pos = 0;
+        return LINE_EDIT_REFRESH;
+    case KEY_END:
+    case KEY_CTRL_E:
+        lb->pos = lb->len;
+        return LINE_EDIT_REFRESH;
+    default:
+        return LINE_EDIT_UNHANDLED;
+    }
+}
+
+static line_edit_result_t edit_line_handle_history_keys(int key, line_buf_t *lb, line_history_nav_t *nav)
+{
+    switch (key)
+    {
+    case KEY_ARROW_UP:
+    case KEY_CTRL_P:
+        line_history_move_up(lb, nav);
+        return LINE_EDIT_REFRESH;
+    case KEY_ARROW_DOWN:
+    case KEY_CTRL_N:
+        line_history_move_down(lb, nav);
+        return LINE_EDIT_REFRESH;
+    default:
+        return LINE_EDIT_UNHANDLED;
+    }
+}
+
+static line_edit_result_t edit_line_handle_kill_keys(int key, line_buf_t *lb)
+{
+    switch (key)
+    {
+    case KEY_CTRL_K:
+        lb_kill_to_end(lb);
+        return LINE_EDIT_REFRESH;
+    case KEY_CTRL_U:
+        lb_kill_to_start(lb);
+        return LINE_EDIT_REFRESH;
+    case KEY_CTRL_W:
+        lb_kill_word_backward(lb);
+        return LINE_EDIT_REFRESH;
+    case KEY_CTRL_L:
+        fputs("\x1b[H\x1b[2J", stdout);
+        return LINE_EDIT_REFRESH;
+    case KEY_CTRL_T:
+        lb_transpose_chars(lb);
+        return LINE_EDIT_REFRESH;
+    default:
+        return LINE_EDIT_UNHANDLED;
+    }
+}
+
+static line_edit_result_t edit_line_handle_word_keys(int key, line_buf_t *lb)
+{
+    switch (key)
+    {
+    case KEY_ALT_B:
+        lb_move_word_backward(lb);
+        return LINE_EDIT_REFRESH;
+    case KEY_ALT_F:
+        lb_move_word_forward(lb);
+        return LINE_EDIT_REFRESH;
+    case KEY_ALT_D:
+        lb_kill_word_forward(lb);
+        return LINE_EDIT_REFRESH;
+    default:
+        return LINE_EDIT_UNHANDLED;
+    }
+}
+
+static line_edit_result_t edit_line_handle_literal_key(int key, line_buf_t *lb)
+{
+    if (key == KEY_TAB || key == KEY_NONE)
+    {
+        return LINE_EDIT_UNHANDLED;
+    }
+
+    if (key >= 32 && key < 127)
+    {
+        lb_insert(lb, (char)key);
+        return LINE_EDIT_REFRESH;
+    }
+
+    return LINE_EDIT_UNHANDLED;
+}
+
+static line_edit_result_t edit_line_dispatch_key(int key, line_buf_t *lb, line_history_nav_t *nav)
+{
+    line_edit_result_t result;
+
+    result = edit_line_handle_terminal_keys(key, lb, &nav->saved_line);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    result = edit_line_handle_delete_keys(key, lb);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    result = edit_line_handle_cursor_keys(key, lb);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    result = edit_line_handle_home_end_keys(key, lb);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    result = edit_line_handle_history_keys(key, lb, nav);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    result = edit_line_handle_kill_keys(key, lb);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    result = edit_line_handle_word_keys(key, lb);
+    if (result != LINE_EDIT_UNHANDLED)
+    {
+        return result;
+    }
+
+    return edit_line_handle_literal_key(key, lb);
+}
+
 static vigil_status_t edit_line(const char *prompt, char *out_buf, size_t buf_size, vigil_line_history_t *history)
 {
     line_buf_t lb;
-    size_t hist_index;
-    char *saved_line = NULL; /* saved current input when browsing history */
+    line_history_nav_t nav;
+    vigil_status_t status = VIGIL_STATUS_OK;
 
     lb_init(&lb, out_buf, buf_size);
-    hist_index = history ? history->count : 0;
+    nav.history = history;
+    nav.index = history ? history->count : 0;
+    nav.saved_line = NULL;
 
     refresh_line(prompt, &lb);
 
     for (;;)
     {
         int key = read_key();
-        if (key == -1 || key == KEY_CTRL_D)
+        line_edit_result_t result = edit_line_dispatch_key(key, &lb, &nav);
+
+        if (result == LINE_EDIT_SUBMIT)
         {
-            if (lb.len == 0)
-            {
-                free(saved_line);
-                return VIGIL_STATUS_INTERNAL; /* EOF */
-            }
-            /* Ctrl-D with content: delete char under cursor. */
-            lb_delete_at(&lb, lb.pos);
-            refresh_line(prompt, &lb);
-            continue;
+            goto done;
         }
-
-        switch (key)
+        if (result == LINE_EDIT_EOF)
         {
-        case KEY_ENTER:
-            fputs("\r\n", stdout);
-            fflush(stdout);
-            free(saved_line);
-            return VIGIL_STATUS_OK;
+            status = VIGIL_STATUS_INTERNAL;
+            goto done;
+        }
 
-        case KEY_CTRL_C:
-            lb.len = 0;
-            lb.pos = 0;
-            lb.buf[0] = '\0';
-            fputs("^C\r\n", stdout);
+        if (result == LINE_EDIT_REFRESH)
+        {
             refresh_line(prompt, &lb);
-            continue;
-
-        case KEY_BACKSPACE:
-        case KEY_CTRL_H:
-            if (lb.pos > 0)
-            {
-                lb.pos--;
-                lb_delete_at(&lb, lb.pos);
-            }
-            break;
-
-        case KEY_DELETE:
-            lb_delete_at(&lb, lb.pos);
-            break;
-
-        case KEY_ARROW_LEFT:
-        case KEY_CTRL_B:
-            if (lb.pos > 0)
-                lb.pos--;
-            break;
-
-        case KEY_ARROW_RIGHT:
-        case KEY_CTRL_F:
-            if (lb.pos < lb.len)
-                lb.pos++;
-            break;
-
-        case KEY_HOME:
-        case KEY_CTRL_A:
-            lb.pos = 0;
-            break;
-
-        case KEY_END:
-        case KEY_CTRL_E:
-            lb.pos = lb.len;
-            break;
-
-        case KEY_ARROW_UP:
-        case KEY_CTRL_P:
-            if (history && history->count > 0 && hist_index > 0)
-            {
-                /* Save current line if we're just starting to browse history. */
-                if (hist_index == history->count)
-                {
-                    free(saved_line);
-                    saved_line = malloc(lb.len + 1);
-                    if (saved_line)
-                    {
-                        memcpy(saved_line, lb.buf, lb.len + 1);
-                    }
-                }
-                hist_index--;
-                lb_set(&lb, history->entries[hist_index]);
-            }
-            break;
-
-        case KEY_ARROW_DOWN:
-        case KEY_CTRL_N:
-            if (history && history->count > 0 && hist_index < history->count)
-            {
-                hist_index++;
-                if (hist_index == history->count)
-                {
-                    /* Restore saved line. */
-                    lb_set(&lb, saved_line ? saved_line : "");
-                }
-                else
-                {
-                    lb_set(&lb, history->entries[hist_index]);
-                }
-            }
-            break;
-
-        case KEY_CTRL_K:
-            /* Kill to end of line. */
-            lb.len = lb.pos;
-            lb.buf[lb.len] = '\0';
-            break;
-
-        case KEY_CTRL_U:
-            /* Kill to start of line. */
-            memmove(lb.buf, lb.buf + lb.pos, lb.len - lb.pos);
-            lb.len -= lb.pos;
-            lb.pos = 0;
-            lb.buf[lb.len] = '\0';
-            break;
-
-        case KEY_CTRL_W: {
-            /* Kill word backwards. */
-            size_t old = lb.pos;
-            while (lb.pos > 0 && lb.buf[lb.pos - 1] == ' ')
-                lb.pos--;
-            while (lb.pos > 0 && lb.buf[lb.pos - 1] != ' ')
-                lb.pos--;
-            memmove(lb.buf + lb.pos, lb.buf + old, lb.len - old);
-            lb.len -= (old - lb.pos);
-            lb.buf[lb.len] = '\0';
-            break;
         }
-
-        case KEY_CTRL_L:
-            /* Clear screen. */
-            fputs("\x1b[H\x1b[2J", stdout);
-            break;
-
-        case KEY_CTRL_T:
-            /* Transpose chars. */
-            if (lb.pos > 0 && lb.pos < lb.len)
-            {
-                char tmp = lb.buf[lb.pos - 1];
-                lb.buf[lb.pos - 1] = lb.buf[lb.pos];
-                lb.buf[lb.pos] = tmp;
-                lb.pos++;
-            }
-            break;
-
-        case KEY_ALT_B:
-            /* Move word backward. */
-            while (lb.pos > 0 && lb.buf[lb.pos - 1] == ' ')
-                lb.pos--;
-            while (lb.pos > 0 && lb.buf[lb.pos - 1] != ' ')
-                lb.pos--;
-            break;
-
-        case KEY_ALT_F:
-            /* Move word forward. */
-            while (lb.pos < lb.len && lb.buf[lb.pos] == ' ')
-                lb.pos++;
-            while (lb.pos < lb.len && lb.buf[lb.pos] != ' ')
-                lb.pos++;
-            break;
-
-        case KEY_ALT_D: {
-            /* Kill word forward. */
-            size_t start = lb.pos;
-            while (lb.pos < lb.len && lb.buf[lb.pos] == ' ')
-                lb.pos++;
-            while (lb.pos < lb.len && lb.buf[lb.pos] != ' ')
-                lb.pos++;
-            memmove(lb.buf + start, lb.buf + lb.pos, lb.len - lb.pos);
-            lb.len -= (lb.pos - start);
-            lb.pos = start;
-            lb.buf[lb.len] = '\0';
-            break;
-        }
-
-        case KEY_TAB:
-        case KEY_NONE:
-            continue;
-
-        default:
-            if (key >= 32 && key < 127)
-            {
-                lb_insert(&lb, (char)key);
-            }
-            break;
-        }
-
-        refresh_line(prompt, &lb);
     }
+
+done:
+    free(nav.saved_line);
+    return status;
 }
 
 /* ── Public API ──────────────────────────────────────────────────── */

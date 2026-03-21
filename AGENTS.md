@@ -46,5 +46,7 @@
 ## Workflow
 
 - Keep changes scoped and reviewable.
+- Always work on a feature branch, committing and pushing progress before switching topics, and keep the worktree tidy.
+- Never merge a PR while any CICD job is failing; wait for the suite to pass before merging or closing.
 - Use git commands as part of content-editing work, e.g., use a feature branch per task and target `main` unless told to target a particular release.
 - You may use the 'gh' github client for convenience
