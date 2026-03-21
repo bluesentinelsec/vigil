@@ -932,6 +932,30 @@ class FStringAndStringTest(unittest.TestCase):
             }
         """, 0)
 
+    def test_fstring_rejects_integer_format_on_float(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
+            root = Path(d)
+            write_sources(root, {"main.vigil": """
+                fn main() -> i32 {
+                    f64 pi = 3.14;
+                    string s = f"{pi:d}";
+                    return 0;
+                }
+            """})
+            run_err(self, root, "main.vigil", "integer format specifier requires an integer value")
+
+    def test_fstring_rejects_float_format_on_int(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vigil_reg_") as d:
+            root = Path(d)
+            write_sources(root, {"main.vigil": """
+                fn main() -> i32 {
+                    i32 n = 3;
+                    string s = f"{n:f}";
+                    return 0;
+                }
+            """})
+            run_err(self, root, "main.vigil", "float format specifier 'f' requires an f64 value")
+
     def test_raw_string_no_escapes(self) -> None:
         self._run("""
             fn main() -> i32 {
