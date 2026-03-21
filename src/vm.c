@@ -2784,6 +2784,14 @@ static void vigil_vm_math_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
     }
 }
 
+/* Dispatch macro for math intrinsic handlers — avoids #if inside the
+   dispatch loop (which would add 1 lizard CCN). */
+#if VIGIL_VM_COMPUTED_GOTO
+#define VIGIL_VM_MATH_NEXT(dt, code, ip) goto *(dt)[(code)[(ip)]]
+#else
+#define VIGIL_VM_MATH_NEXT(dt, code, ip) VM_BREAK()
+#endif
+
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
 {
@@ -3587,13 +3595,8 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 VM_BREAK();
             }
             // clang-format off
-            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U;
+            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VIGIL_VM_MATH_NEXT(dispatch_table, code, frame->ip);
             // clang-format on
-#if VIGIL_VM_COMPUTED_GOTO
-            goto *dispatch_table[code[frame->ip]];
-#else
-            VM_BREAK();
-#endif
             // clang-format on
             VM_CASE(CALL_INTERFACE)
             {
