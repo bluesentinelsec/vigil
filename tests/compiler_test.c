@@ -1349,6 +1349,49 @@ TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormattin
         1);
 }
 
+TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithAlignmentAndRadixFormatting)
+{
+    EXPECT_EQ(
+        CompileAndRun(vigil_test_failed_,
+                      "fn main() -> i32 {"
+                      "    string name = \"Alice\";"
+                      "    i32 age = 30;"
+                      "    i32 negative = -30;"
+                      "    string empty = \"\";"
+                      "    f64 pi = 3.14159;"
+                      "    bool ready = true;"
+                      "    string left = f\"[{name:<10}]\";"
+                      "    string right = f\"[{name:>10}]\";"
+                      "    string center = f\"[{name:^10}]\";"
+                      "    string zero_pad = f\"[{age:0>8d}]\";"
+                      "    string decimal = f\"[{age:d}]\";"
+                      "    string hex_lower = f\"[{age:x}]\";"
+                      "    string hex_upper = f\"[{age:X}]\";"
+                      "    string binary = f\"[{age:b}]\";"
+                      "    string octal = f\"[{age:o}]\";"
+                      "    string grouped = f\"[{1234567:,}]\";"
+                      "    string negative_grouped = f\"[{-1234567:,}]\";"
+                      "    string float_text = f\"[{pi:.4f}]\";"
+                      "    string neg_hex = f\"[{negative:x}]\";"
+                      "    string neg_binary = f\"[{negative:b}]\";"
+                      "    string neg_octal = f\"[{negative:o}]\";"
+                      "    string zero_binary = f\"[{0:b}]\";"
+                      "    string bool_text = f\"[{ready}]\";"
+                      "    string empty_pad = f\"[{empty:>4}]\";"
+                      "    if (left == \"[Alice     ]\" && right == \"[     Alice]\" && center == \"[  Alice   ]\" &&"
+                      "        zero_pad == \"[00000030]\" && decimal == \"[30]\" && hex_lower == \"[1e]\" &&"
+                      "        hex_upper == \"[1E]\" && binary == \"[11110]\" && octal == \"[36]\" &&"
+                      "        grouped == \"[1,234,567]\" && negative_grouped == \"[-1,234,567]\" &&"
+                      "        float_text == \"[3.1416]\" && neg_hex == \"[-1e]\" && neg_binary == \"[-11110]\" &&"
+                      "        neg_octal == \"[-36]\" && zero_binary == \"[0]\" && bool_text == \"[true]\" &&"
+                      "        empty_pad == \"[    ]\") {"
+                      "        return 2;"
+                      "    }"
+                      "    return 0;"
+                      "}"),
+        2);
+}
+
 TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals)
 {
     const struct TestSource sources[] = {{"/project/contracts.vigil", "pub interface Reader {"
@@ -2927,6 +2970,7 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithAlignmentAndRadixFormatting);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals);
     REGISTER_TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles);

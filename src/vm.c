@@ -2119,58 +2119,6 @@ static int vigil_vm_format_spec_string_object(const vigil_value_t *val, const ch
     return 1;
 }
 
-static vigil_status_t vigil_vm_format_spec_string_int(const vigil_value_t *val, const char **out_text,
-                                                      size_t *out_length, char *buf, size_t buf_size,
-                                                      vigil_error_t *error)
-{
-    vigil_status_t status;
-    int len;
-
-    len = 0;
-    status = vigil_vm_format_spec_write_decimal(val, buf, buf_size, &len, error);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    *out_text = buf;
-    *out_length = (size_t)len;
-    return VIGIL_STATUS_OK;
-}
-
-static vigil_status_t vigil_vm_format_spec_string_double(const vigil_value_t *val, const char **out_text,
-                                                         size_t *out_length, char *buf, size_t buf_size,
-                                                         vigil_error_t *error)
-{
-    int len;
-
-    len = snprintf(buf, buf_size, "%g", vigil_nanbox_decode_double(*val));
-    if (len < 0 || (size_t)len >= buf_size)
-    {
-        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format float value");
-        return VIGIL_STATUS_INTERNAL;
-    }
-
-    *out_text = buf;
-    *out_length = (size_t)len;
-    return VIGIL_STATUS_OK;
-}
-
-static vigil_status_t vigil_vm_format_spec_string_bool(const vigil_value_t *val, const char **out_text,
-                                                       size_t *out_length)
-{
-    if (vigil_nanbox_decode_bool(*val))
-    {
-        *out_text = "true";
-        *out_length = 4U;
-    }
-    else
-    {
-        *out_text = "false";
-        *out_length = 5U;
-    }
-    return VIGIL_STATUS_OK;
-}
-
 static vigil_status_t vigil_vm_format_spec_write_octal(const vigil_value_t *val, char *buf, size_t buf_size,
                                                        int *out_len, vigil_error_t *error)
 {
@@ -2312,27 +2260,11 @@ static vigil_status_t vigil_vm_format_spec_float_value(const vigil_value_t *val,
 }
 
 static vigil_status_t vigil_vm_format_spec_string_value(const vigil_value_t *val, const char **out_text,
-                                                        size_t *out_length, char *buf, size_t buf_size,
-                                                        vigil_error_t *error)
+                                                        size_t *out_length)
 {
     if (vigil_vm_format_spec_string_object(val, out_text, out_length))
     {
         return VIGIL_STATUS_OK;
-    }
-
-    if (vigil_nanbox_is_int(*val))
-    {
-        return vigil_vm_format_spec_string_int(val, out_text, out_length, buf, buf_size, error);
-    }
-
-    if (vigil_nanbox_is_double(*val))
-    {
-        return vigil_vm_format_spec_string_double(val, out_text, out_length, buf, buf_size, error);
-    }
-
-    if (vigil_nanbox_is_bool(*val))
-    {
-        return vigil_vm_format_spec_string_bool(val, out_text, out_length);
     }
 
     *out_text = "";
@@ -2457,11 +2389,7 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
     }
     else
     {
-        status = vigil_vm_format_spec_string_value(val, &text, &text_len, buf, sizeof(buf), error);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
+        status = vigil_vm_format_spec_string_value(val, &text, &text_len);
         vigil_vm_format_spec_layout_t layout;
 
         layout.fill = fill;
