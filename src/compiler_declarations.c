@@ -532,8 +532,8 @@ vigil_status_t vigil_program_parse_global_variable_declaration(vigil_program_sta
 {
     vigil_named_global_decl_t declaration;
     vigil_status_t status;
-    size_t initializer_start;
-    size_t initializer_end;
+    size_t initializer_start = 0U;
+    size_t initializer_end = 0U;
 
     memset(&declaration, 0, sizeof(declaration));
     status = vigil_program_parse_global_variable_header(program, cursor, &declaration);

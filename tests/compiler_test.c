@@ -1446,6 +1446,225 @@ TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilCompilerTest, RejectsDuplicateGlobalVariableNames)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "i32 LIMIT = 1;"
+                               "i32 LIMIT = 2;"
+                               "fn main() -> i32 {"
+                               "    return LIMIT;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global variable is already declared");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithGlobalConstant)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "const i32 LIMIT = 1;"
+                               "i32 LIMIT = 2;"
+                               "fn main() -> i32 {"
+                               "    return LIMIT;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global variable name conflicts with global constant");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithGlobalVariable)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "i32 LIMIT = 1;"
+                               "const i32 LIMIT = 2;"
+                               "fn main() -> i32 {"
+                               "    return LIMIT;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global constant name conflicts with global variable");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilCompilerTest, RejectsGlobalVariableMissingInitializer)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "i32 LIMIT = ;"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "expected initializer expression for global variable");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithFunction)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "fn LIMIT() -> i32 {"
+                               "    return 1;"
+                               "}"
+                               "i32 LIMIT = 2;"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global variable name conflicts with function");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilCompilerTest, RejectsGlobalConstantInitializerTypeMismatch)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "const i32 LIMIT = true;"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "initializer type does not match global constant type");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithFunction)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    source_id = RegisterSource(vigil_test_failed_, &registry, "/project/main.vigil",
+                               "fn LIMIT() -> i32 {"
+                               "    return 1;"
+                               "}"
+                               "const i32 LIMIT = 2;"
+                               "fn main() -> i32 {"
+                               "    return 0;"
+                               "}",
+                               &error);
+
+    EXPECT_EQ(vigil_compile_source(&registry, source_id, &function, &diagnostics, &error), VIGIL_STATUS_SYNTAX_ERROR);
+    ASSERT_EQ(vigil_diagnostic_list_count(&diagnostics), 1U);
+    EXPECT_STREQ(vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message),
+                 "global constant name conflicts with function");
+
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
 TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable)
 {
     vigil_runtime_t *runtime = NULL;
@@ -2549,6 +2768,13 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions);
     REGISTER_TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsDuplicateGlobalVariableNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithGlobalConstant);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithGlobalVariable);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalVariableMissingInitializer);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithFunction);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantInitializerTypeMismatch);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithFunction);
     REGISTER_TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable);
     REGISTER_TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers);
     REGISTER_TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants);
