@@ -2072,3 +2072,143 @@ VIGIL_API vigil_status_t vigil_platform_http_request(const char *method, const c
     p_curl_easy_cleanup(curl);
     return VIGIL_STATUS_OK;
 }
+
+/* ── TLS certificate store ──────────────────────────────────────── */
+
+/* TARGET_OS_OSX is 1 only on macOS; it is 0 on iOS, tvOS, watchOS, etc.
+ * SecTrustCopyAnchorCertificates exists only in the macOS SDK, so we must
+ * guard with TARGET_OS_OSX and not just __APPLE__. */
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) && defined(TARGET_OS_OSX) && TARGET_OS_OSX
+
+#include <Security/Security.h>
+/* Security.h transitively pulls in ObjC headers that define nil.
+ * Undefine it here so the rest of this pure-C translation unit is unaffected. */
+#ifdef nil
+#undef nil
+#endif
+
+int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
+{
+    CFArrayRef anchors = NULL;
+    if (SecTrustCopyAnchorCertificates(&anchors) != errSecSuccess || !anchors)
+        return -1;
+    CFIndex n = CFArrayGetCount(anchors);
+    int count = 0;
+    for (CFIndex i = 0; i < n; i++)
+    {
+        SecCertificateRef cert =
+            (SecCertificateRef)CFArrayGetValueAtIndex(anchors, i);
+        CFDataRef data = SecCertificateCopyData(cert);
+        if (!data)
+            continue;
+        cb(CFDataGetBytePtr(data), (size_t)CFDataGetLength(data), userdata);
+        CFRelease(data);
+        count++;
+    }
+    CFRelease(anchors);
+    return count;
+}
+
+#else /* Linux / BSD / iOS: probe well-known PEM bundle paths */
+
+static const char *const tls_ca_paths_[] = {
+    "/etc/ssl/certs/ca-certificates.crt",                /* Debian / Ubuntu */
+    "/etc/ssl/cert.pem",                                  /* Alpine / OpenBSD */
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL / Fedora */
+    "/etc/ssl/ca-bundle.pem",                             /* SUSE */
+    NULL,
+};
+
+static int tls_b64val_(unsigned char c)
+{
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+static size_t tls_b64decode_(const char *b64, size_t b64_len,
+                             unsigned char *out, size_t max_out)
+{
+    size_t out_len = 0, i = 0;
+    while (i + 3 < b64_len && out_len + 3 <= max_out)
+    {
+        int v0 = tls_b64val_((unsigned char)b64[i]);
+        int v1 = tls_b64val_((unsigned char)b64[i + 1]);
+        int v2 = tls_b64val_((unsigned char)b64[i + 2]);
+        int v3 = tls_b64val_((unsigned char)b64[i + 3]);
+        if (v0 < 0 || v1 < 0) break;
+        out[out_len++] = (unsigned char)((v0 << 2) | (v1 >> 4));
+        if (v2 < 0) break;
+        out[out_len++] = (unsigned char)((v1 << 4) | (v2 >> 2));
+        if (v3 < 0) break;
+        out[out_len++] = (unsigned char)((v2 << 6) | v3);
+        i += 4;
+    }
+    return out_len;
+}
+
+static int tls_pem_next_cert_(FILE *f, unsigned char *out, size_t *out_len,
+                              size_t max_len)
+{
+    char line[256];
+    char b64[65536];
+    size_t b64_len = 0;
+    int in_cert = 0;
+
+    while (fgets(line, (int)sizeof(line), f))
+    {
+        size_t llen = strcspn(line, "\r\n");
+        line[llen] = '\0';
+        if (!in_cert)
+        {
+            if (strncmp(line, "-----BEGIN CERTIFICATE-----", 27) == 0 ||
+                strncmp(line, "-----BEGIN X509 CERTIFICATE-----", 32) == 0)
+            {
+                in_cert = 1;
+                b64_len = 0;
+            }
+        }
+        else if (strncmp(line, "-----END", 8) == 0)
+        {
+            *out_len = tls_b64decode_(b64, b64_len, out, max_len);
+            return (*out_len > 0) ? 1 : 0;
+        }
+        else if (b64_len + llen < sizeof(b64))
+        {
+            memcpy(b64 + b64_len, line, llen);
+            b64_len += llen;
+        }
+    }
+    return 0;
+}
+
+int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
+{
+    size_t i;
+    for (i = 0; tls_ca_paths_[i] != NULL; i++)
+    {
+        FILE *f = fopen(tls_ca_paths_[i], "rb");
+        if (!f)
+            continue;
+        unsigned char der[8192];
+        size_t der_len = 0;
+        int count = 0;
+        while (tls_pem_next_cert_(f, der, &der_len, sizeof(der)))
+        {
+            cb(der, der_len, userdata);
+            count++;
+        }
+        fclose(f);
+        return count;
+    }
+    return -1;
+}
+
+#endif /* TARGET_OS_OSX */

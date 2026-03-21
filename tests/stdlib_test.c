@@ -368,6 +368,34 @@ TEST(VigilStdlibMathTest, SinCosAtZero)
               0);
 }
 
+TEST(VigilStdlibMathTest, IntrinsicOpcodesSinCosSqrtLogPow)
+{
+    /* Exercises the dedicated MATH_*_F64 opcodes emitted for these five
+       functions instead of CALL_NATIVE. */
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "import \"math\";"
+                                                "fn main() -> i32 {"
+                                                "    if (math.sin(0.0) != 0.0)       { return 1; }"
+                                                "    if (math.cos(0.0) != 1.0)       { return 2; }"
+                                                "    if (math.sqrt(4.0) != 2.0)      { return 3; }"
+                                                "    if (math.log(1.0) != 0.0)       { return 4; }"
+                                                "    if (math.pow(2.0, 10.0) != 1024.0) { return 5; }"
+                                                "    return 0;"
+                                                "}"),
+              0);
+}
+
+TEST(VigilStdlibMathTest, DeferNativeCall)
+{
+    /* Exercises the defer path in vigil_parser_emit_native_call (non-intrinsic
+       native function deferred — goes through DEFER_CALL_NATIVE). */
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "import \"math\";"
+                                                "fn main() -> i32 {"
+                                                "    defer math.tan(0.0);"
+                                                "    return 0;"
+                                                "}"),
+              0);
+}
+
 TEST(VigilStdlibMathTest, LogTable)
 {
     EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
@@ -2234,6 +2262,8 @@ void register_stdlib_tests(void)
     REGISTER_TEST(VigilStdlibMathTest, SignTable);
     REGISTER_TEST(VigilStdlibMathTest, SqrtTable);
     REGISTER_TEST(VigilStdlibMathTest, SinCosAtZero);
+    REGISTER_TEST(VigilStdlibMathTest, IntrinsicOpcodesSinCosSqrtLogPow);
+    REGISTER_TEST(VigilStdlibMathTest, DeferNativeCall);
     REGISTER_TEST(VigilStdlibMathTest, LogTable);
     REGISTER_TEST(VigilStdlibMathTest, ExpAtZeroAndOne);
     REGISTER_TEST(VigilStdlibMathTest, PowTable);

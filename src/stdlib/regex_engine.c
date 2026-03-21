@@ -68,7 +68,9 @@ struct vigil_regex
     char_class_t *classes; /* Array of character classes */
     size_t class_count;
     size_t class_capacity;
-    size_t group_count; /* Number of capture groups */
+    size_t group_count;       /* Number of capture groups */
+    char_class_t first_bytes; /* Bitmap of bytes that can start a match */
+    bool has_first_bytes;     /* true if first_bytes filter is usable */
 };
 
 /* ── Parser State ───────────────────────────────────────────── */
@@ -1134,6 +1136,62 @@ static bool check_match(state_list_t *l, vigil_regex_result_t *result, size_t gr
     return false;
 }
 
+/* ── First-byte filter ──────────────────────────────────────── */
+
+/* Walk epsilon transitions from 'state' and collect all bytes that can
+ * be consumed as the first matching character.  If the NFA can match
+ * the empty string (reaches NFA_MATCH through epsilons) or if the
+ * reachable set includes NFA_ANY, the filter is not usable and we
+ * return false. */
+static void collect_class_bytes(const char_class_t *cclass, bool negate, char_class_t *out)
+{
+    for (unsigned c = 0; c < 256; c++)
+    {
+        if (class_test(cclass, (uint8_t)c) != negate)
+            class_set(out, (uint8_t)c);
+    }
+}
+
+static bool compute_first_bytes_walk(nfa_state_t *state, char_class_t *out, uint8_t *visited)
+{
+    if (state == NULL)
+        return true;
+    if (visited[state->id])
+        return true;
+    visited[state->id] = 1;
+
+    switch (state->type)
+    {
+    case NFA_LITERAL:
+        class_set(out, state->data.literal);
+        return true;
+    case NFA_CLASS:
+        collect_class_bytes(state->data.cclass, false, out);
+        return true;
+    case NFA_CLASS_NEG:
+        collect_class_bytes(state->data.cclass, true, out);
+        return true;
+    case NFA_ANY:
+    case NFA_MATCH:
+        return false;
+    case NFA_SPLIT:
+        return compute_first_bytes_walk(state->out1, out, visited) &&
+               compute_first_bytes_walk(state->out2, out, visited);
+    default:
+        return compute_first_bytes_walk(state->out1, out, visited);
+    }
+}
+
+static void regex_init_first_bytes(vigil_regex_t *re)
+{
+    uint8_t *fb_visited = calloc(re->state_count + 1, 1);
+    if (fb_visited)
+    {
+        re->has_first_bytes = compute_first_bytes_walk(re->start, &re->first_bytes, fb_visited);
+        free(fb_visited);
+    }
+}
+
 /* ── Public API ─────────────────────────────────────────────── */
 
 vigil_regex_t *vigil_regex_compile(const char *pattern, size_t pattern_len, char *error_buf, size_t error_buf_size)
@@ -1215,6 +1273,10 @@ vigil_regex_t *vigil_regex_compile(const char *pattern, size_t pattern_len, char
     re->start = save_start;
     re->group_count = p.group_count;
     fragment_free(&frag);
+
+    /* Compute first-byte filter for fast start-position skipping. */
+    regex_init_first_bytes(re);
+
     return re;
 }
 
@@ -1283,46 +1345,76 @@ bool vigil_regex_match(const vigil_regex_t *re, const char *input, size_t input_
     return matched;
 }
 
-bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_len, vigil_regex_result_t *result)
+/* Reusable NFA simulation context to avoid per-call allocations. */
+typedef struct
 {
-    if (!re || !re->start)
-        return false;
-
-    size_t save_slots = re->group_count * 2;
-    size_t state_cap = re->state_count + 1;
-    state_list_t curr, next;
+    state_list_t curr;
+    state_list_t next;
     uint8_t *visited;
     size_t *init_saves;
-    bool found = false;
+    size_t save_slots;
+} regex_sim_t;
 
-    if (!state_list_init(&curr, state_cap, save_slots))
+static bool regex_sim_init(regex_sim_t *sim, const vigil_regex_t *re)
+{
+    sim->save_slots = re->group_count * 2;
+    size_t state_cap = re->state_count + 1;
+    if (!state_list_init(&sim->curr, state_cap, sim->save_slots))
         return false;
-    if (!state_list_init(&next, state_cap, save_slots))
-    { state_list_free(&curr); return false; }
-    visited = calloc(state_cap, 1);
-    init_saves = malloc(save_slots * sizeof(size_t));
-    if (!visited || !init_saves)
-    { free(visited); free(init_saves); state_list_free(&curr); state_list_free(&next); return false; }
-
-    /* Try matching at each position */
-    for (size_t start = 0; start <= input_len; start++)
+    if (!state_list_init(&sim->next, state_cap, sim->save_slots))
     {
-        for (size_t i = 0; i < save_slots; i++)
-            init_saves[i] = SIZE_MAX;
+        state_list_free(&sim->curr);
+        return false;
+    }
+    sim->visited = calloc(state_cap, 1);
+    sim->init_saves = malloc(sim->save_slots * sizeof(size_t));
+    if (!sim->visited || !sim->init_saves)
+    {
+        free(sim->visited);
+        free(sim->init_saves);
+        state_list_free(&sim->curr);
+        state_list_free(&sim->next);
+        return false;
+    }
+    return true;
+}
 
-        state_list_clear(&curr);
-        state_list_clear(&next);
-        memset(visited, 0, state_cap);
+static void regex_sim_free(regex_sim_t *sim)
+{
+    free(sim->init_saves);
+    free(sim->visited);
+    state_list_free(&sim->curr);
+    state_list_free(&sim->next);
+}
+
+/* Searches for the first match starting at or after position 'start_pos'.
+ * Returns true if a match is found; offsets in result are absolute. */
+static bool regex_find_reuse(const vigil_regex_t *re, const char *input, size_t input_len, size_t start_pos,
+                             regex_sim_t *sim, vigil_regex_result_t *result)
+{
+    size_t state_cap = re->state_count + 1;
+    bool use_filter = re->has_first_bytes;
+
+    for (size_t start = start_pos; start <= input_len; start++)
+    {
+        /* Skip positions whose first byte cannot start a match. */
+        if (use_filter && start < input_len && !class_test(&re->first_bytes, (uint8_t)input[start]))
+            continue;
+
+        for (size_t i = 0; i < sim->save_slots; i++)
+            sim->init_saves[i] = SIZE_MAX;
+
+        state_list_clear(&sim->curr);
+        state_list_clear(&sim->next);
+        memset(sim->visited, 0, state_cap);
 
         size_t gen = 1;
-        add_state(&curr, re->start, init_saves, start, input, input_len, visited, gen);
+        add_state(&sim->curr, re->start, sim->init_saves, start, input, input_len, sim->visited, gen);
 
-        /* Track best (longest) match at this start position */
         vigil_regex_result_t best;
         best.matched = false;
 
-        /* Check for immediate match (empty pattern) */
-        if (check_match(&curr, &best, re->group_count))
+        if (check_match(&sim->curr, &best, re->group_count))
         {
             /* Continue to find longer match */
         }
@@ -1330,40 +1422,55 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
         for (size_t i = start; i < input_len; i++)
         {
             gen++;
-            memset(visited, 0, state_cap);
-            step(&curr, &next, input[i], i, input, input_len, visited, gen);
-            state_list_t tmp = curr;
-            curr = next;
-            next = tmp;
+            memset(sim->visited, 0, state_cap);
+            step(&sim->curr, &sim->next, input[i], i, input, input_len, sim->visited, gen);
+            state_list_t tmp = sim->curr;
+            sim->curr = sim->next;
+            sim->next = tmp;
 
             vigil_regex_result_t candidate;
-            if (check_match(&curr, &candidate, re->group_count))
+            if (check_match(&sim->curr, &candidate, re->group_count))
             {
                 best = candidate;
-                /* Continue to find longer match (greedy) */
             }
         }
 
         if (best.matched)
         {
-            if (result)
-                *result = best;
-            found = true;
-            break;
+            *result = best;
+            return true;
         }
     }
+    return false;
+}
 
-    free(init_saves);
-    free(visited);
-    state_list_free(&curr);
-    state_list_free(&next);
+bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_len, vigil_regex_result_t *result)
+{
+    if (!re || !re->start)
+        return false;
+
+    regex_sim_t sim;
+    if (!regex_sim_init(&sim, re))
+        return false;
+
+    vigil_regex_result_t dummy;
+    bool found = regex_find_reuse(re, input, input_len, 0, &sim, result ? result : &dummy);
+
+    regex_sim_free(&sim);
     return found;
 }
 
+/* Internal find that reuses pre-allocated NFA simulation buffers.
+ * Searches for the first match starting at or after position 'start_pos'.
+ * Returns true if a match is found; offsets in result are absolute. */
 size_t vigil_regex_find_all(const vigil_regex_t *re, const char *input, size_t input_len, vigil_regex_result_t *results,
                             size_t max_results)
 {
-    if (!re || !results || max_results == 0)
+    if (!re || !re->start || !results || max_results == 0)
+        return 0;
+
+    regex_sim_t sim;
+    if (!regex_sim_init(&sim, re))
         return 0;
 
     size_t count = 0;
@@ -1372,37 +1479,19 @@ size_t vigil_regex_find_all(const vigil_regex_t *re, const char *input, size_t i
     while (pos <= input_len && count < max_results)
     {
         vigil_regex_result_t r;
-        if (vigil_regex_find(re, input + pos, input_len - pos, &r))
-        {
-            /* Adjust offsets to be relative to original input */
-            for (size_t g = 0; g < r.group_count; g++)
-            {
-                if (r.groups[g].start != SIZE_MAX)
-                {
-                    r.groups[g].start += pos;
-                    r.groups[g].end += pos;
-                }
-            }
-            results[count++] = r;
-
-            /* Move past this match */
-            size_t match_end = r.groups[0].end;
-            if (match_end == pos + r.groups[0].start)
-            {
-                /* Empty match - advance by one to avoid infinite loop */
-                pos = match_end + 1;
-            }
-            else
-            {
-                pos = match_end;
-            }
-        }
-        else
-        {
+        if (!regex_find_reuse(re, input, input_len, pos, &sim, &r))
             break;
-        }
+
+        results[count++] = r;
+
+        size_t match_end = r.groups[0].end;
+        if (match_end <= pos)
+            pos = match_end + 1;
+        else
+            pos = match_end;
     }
 
+    regex_sim_free(&sim);
     return count;
 }
 

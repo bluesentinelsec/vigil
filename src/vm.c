@@ -2725,6 +2725,73 @@ static vigil_status_t vigil_vm_call_extern(vigil_vm_t *vm, const char *desc, siz
     return vigil_extern_call(vm, desc, desc_len, arg_count, error);
 }
 
+static void vigil_vm_math_sin(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, sin(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_cos(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, cos(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_sqrt(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, sqrt(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_log(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, log(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_pow(vigil_vm_t *vm)
+{
+    vigil_value_t b, a, r;
+    b = vigil_vm_pop_or_nil(vm);
+    a = vigil_vm_pop_or_nil(vm);
+    vigil_value_init_float(&r, pow(vigil_nanbox_decode_double(a), vigil_nanbox_decode_double(b)));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
+{
+    switch (op)
+    {
+    case VIGIL_OPCODE_MATH_SIN_F64:
+        vigil_vm_math_sin(vm);
+        break;
+    case VIGIL_OPCODE_MATH_COS_F64:
+        vigil_vm_math_cos(vm);
+        break;
+    case VIGIL_OPCODE_MATH_SQRT_F64:
+        vigil_vm_math_sqrt(vm);
+        break;
+    case VIGIL_OPCODE_MATH_LOG_F64:
+        vigil_vm_math_log(vm);
+        break;
+    default:
+        vigil_vm_math_pow(vm);
+        break;
+    }
+}
+
+/* Dispatch macro for math intrinsic handlers — avoids #if inside the
+   dispatch loop (which would add 1 lizard CCN). */
+#if VIGIL_VM_COMPUTED_GOTO
+#define VIGIL_VM_MATH_NEXT(dt, code, ip) goto *(dt)[(code)[(ip)]]
+#else
+#define VIGIL_VM_MATH_NEXT(dt, code, ip) VM_BREAK()
+#endif
+
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
 {
@@ -2744,21 +2811,17 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
     const uint8_t *code;
     size_t code_size;
     size_t local_index;
-
     object = NULL;
-
     status = vigil_vm_validate(vm, error);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
-
     if (out_value == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "out_value must not be null");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-
     if (function != NULL)
     {
         if (vigil_object_type(function) != VIGIL_OBJECT_FUNCTION && vigil_object_type(function) != VIGIL_OBJECT_CLOSURE)
@@ -2767,10 +2830,8 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                                     "function must be a function or closure object");
             return VIGIL_STATUS_INVALID_ARGUMENT;
         }
-
         const vigil_object_t *inner_fn = vigil_callable_object_function(function);
         size_t arity = vigil_function_object_arity(inner_fn);
-
         if (vm->stack_count < arity)
         {
             /* Zero-arity: clear stack and frames as before. */
@@ -2799,7 +2860,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             return status;
         }
     }
-
     while (1)
     {
         frame = &vm->frames[vm->frame_count - 1U];
@@ -2808,14 +2868,12 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "vm frame chunk must not be null");
             return VIGIL_STATUS_INVALID_ARGUMENT;
         }
-
         code = VIGIL_VM_CHUNK_CODE(frame->chunk);
         code_size = VIGIL_VM_CHUNK_CODE_SIZE(frame->chunk);
         if (frame->ip >= code_size)
         {
             break;
         }
-
 #if VIGIL_VM_COMPUTED_GOTO
         /* Dispatch table — one label per opcode.  Entries for unused
            indices fall through to the default (unknown opcode) path.
@@ -2919,7 +2977,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_FORLOOP_I32] = &&op_FORLOOP_I32,
                 [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
                 [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
-                [VIGIL_OPCODE_CALL_EXTERN] = &&op_CALL_EXTERN,
+                // clang-format off
+                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64,
+                // clang-format on
                 [VIGIL_OPCODE_MODULO] = &&op_MODULO,
                 [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
                 [VIGIL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -2978,7 +3038,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_TO_U8] = &&op_TO_U8,
                 [VIGIL_OPCODE_TRUE] = &&op_TRUE,
             };
-
 #define VM_DISPATCH()                                                                                                  \
     do                                                                                                                 \
     {                                                                                                                  \
@@ -3015,7 +3074,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             goto vm_loop_end;                                                                                          \
         VM_DISPATCH();                                                                                                 \
     } while (0)
-
             VM_DISPATCH();
 #else
 #define VM_CASE(op) case VIGIL_OPCODE_##op:
@@ -3536,6 +3594,10 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 }
                 VM_BREAK();
             }
+            // clang-format off
+            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VIGIL_VM_MATH_NEXT(dispatch_table, code, frame->ip);
+            // clang-format on
+            // clang-format on
             VM_CASE(CALL_INTERFACE)
             {
                 size_t interface_index;
