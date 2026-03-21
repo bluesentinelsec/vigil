@@ -37,6 +37,12 @@ extern void collect_cookies(const char *hdrs, char **jar);
 extern char *build_request_headers(const char *cookie_jar, const char *existing);
 extern int redirect_changes_method(int code);
 
+#ifdef VIGIL_ENABLE_BEARSSL_TLS
+extern int bearssl_https_insecure_request(const char *method, const parsed_url_t *url,
+                                          const char *headers, const char *body,
+                                          size_t body_len, http_response_t *resp);
+#endif
+
 /* ── URL parsing tests (table-style) ─────────────────────────────── */
 
 TEST(VigilHttpTest, ParseUrlFull)
@@ -692,6 +698,170 @@ TEST(VigilHttpTest, ServerPostRoundTrip)
     EXPECT_TRUE(strcmp(ctx.received_path, "/submit") == 0);
 }
 
+/* ── BearSSL TLS loopback tests ──────────────────────────────────── */
+
+#if defined(VIGIL_ENABLE_BEARSSL_TLS) && defined(VIGIL_TLS_TEST_CERT_AVAILABLE)
+#include "bearssl.h"
+#include "http_tls_test_cert.h"
+
+#define TLS_TEST_PORT 18790
+
+/* Socket callbacks reused by the in-process TLS test server. */
+static int tls_srv_read_cb(void *ctx, unsigned char *buf, size_t len)
+{
+    vigil_socket_t sock = *(vigil_socket_t *)ctx;
+    size_t n = 0;
+    vigil_status_t st = vigil_platform_tcp_recv(sock, buf, len, &n, NULL);
+    return (st != VIGIL_STATUS_OK || n == 0) ? -1 : (int)n;
+}
+
+static int tls_srv_write_cb(void *ctx, const unsigned char *buf, size_t len)
+{
+    vigil_socket_t sock = *(vigil_socket_t *)ctx;
+    size_t n = 0;
+    return vigil_platform_tcp_send(sock, buf, len, &n, NULL) != VIGIL_STATUS_OK ? -1 : (int)n;
+}
+
+typedef struct
+{
+    vigil_socket_t listener;
+    volatile int ready;
+    const char *response;
+    int port;
+    br_skey_decoder_context kctx; /* keeps private key memory alive */
+} tls_test_server_t;
+
+static void tls_server_func(void *arg)
+{
+    tls_test_server_t *srv = (tls_test_server_t *)arg;
+
+    if (vigil_platform_tcp_listen("127.0.0.1", srv->port, &srv->listener, NULL) != VIGIL_STATUS_OK)
+        return;
+    srv->ready = 1;
+
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(srv->listener, &client, NULL) != VIGIL_STATUS_OK)
+        return;
+
+    br_skey_decoder_init(&srv->kctx);
+    br_skey_decoder_push(&srv->kctx, vigil_test_tls_key_der,
+                         vigil_test_tls_key_der_len);
+    if (br_skey_decoder_last_error(&srv->kctx) != 0 ||
+        br_skey_decoder_key_type(&srv->kctx) != BR_KEYTYPE_EC)
+    {
+        vigil_platform_tcp_close(client, NULL);
+        return;
+    }
+    const br_ec_private_key *sk = br_skey_decoder_get_ec(&srv->kctx);
+
+    br_x509_certificate chain[1];
+    chain[0].data = (unsigned char *)(uintptr_t)vigil_test_tls_cert_der;
+    chain[0].data_len = vigil_test_tls_cert_der_len;
+
+    br_ssl_server_context sc;
+    /* minf2g: ECDHE_ECDSA with AES-128-GCM-SHA256 — matches our EC P-256 key. */
+    br_ssl_server_init_minf2g(&sc, chain, 1, sk);
+
+    unsigned char iobuf[BR_SSL_BUFSIZE_BIDI];
+    br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof(iobuf), 1);
+    br_ssl_server_reset(&sc);
+
+    br_sslio_context ioc;
+    br_sslio_init(&ioc, &sc.eng, tls_srv_read_cb, &client,
+                  tls_srv_write_cb, &client);
+
+    /* Drain the request (enough to unblock the client write). */
+    char req[4096];
+    br_sslio_read(&ioc, req, sizeof(req) - 1);
+
+    br_sslio_write_all(&ioc, srv->response, strlen(srv->response));
+    br_sslio_flush(&ioc);
+    br_sslio_close(&ioc);
+    vigil_platform_tcp_close(client, NULL);
+}
+
+static int start_tls_server(tls_test_server_t *srv, const char *response,
+                            int port, vigil_platform_thread_t **thread)
+{
+    memset(srv, 0, sizeof(*srv));
+    srv->listener = VIGIL_INVALID_SOCKET;
+    srv->response = response;
+    srv->port = port;
+
+    vigil_platform_net_init(NULL);
+    vigil_status_t st = vigil_platform_thread_create(thread, tls_server_func, srv, NULL);
+    if (st != VIGIL_STATUS_OK)
+        return 0;
+
+    for (int i = 0; i < 200 && !srv->ready; i++)
+        vigil_platform_thread_sleep(10);
+    return srv->ready;
+}
+
+static void stop_tls_server(tls_test_server_t *srv, vigil_platform_thread_t *thread)
+{
+    if (srv->listener != VIGIL_INVALID_SOCKET)
+        vigil_platform_tcp_close(srv->listener, NULL);
+    vigil_platform_thread_join(thread, NULL);
+}
+
+/* Client-side: verify the BearSSL TLS transport carries a plain HTTP GET. */
+TEST(VigilHttpTest, BearSslHttpsGet)
+{
+    const char *canned = "HTTP/1.1 200 OK\r\n"
+                         "Content-Length: 2\r\n"
+                         "Connection: close\r\n"
+                         "\r\nOK";
+    tls_test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_tls_server(&srv, canned, TLS_TEST_PORT, &thr))
+        return;
+
+    parsed_url_t url;
+    char url_str[64];
+    snprintf(url_str, sizeof(url_str), "https://127.0.0.1:%d/hello", TLS_TEST_PORT);
+    parse_url(url_str, &url);
+
+    http_response_t resp;
+    int rc = bearssl_https_insecure_request("GET", &url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 200);
+    response_free(&resp);
+
+    stop_tls_server(&srv, thr);
+}
+
+/* Verify BearSSL TLS carries a POST with a request body. */
+TEST(VigilHttpTest, BearSslHttpsPost)
+{
+    const char *canned = "HTTP/1.1 201 Created\r\n"
+                         "Content-Length: 0\r\n"
+                         "Connection: close\r\n"
+                         "\r\n";
+    tls_test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_tls_server(&srv, canned, TLS_TEST_PORT + 1, &thr))
+        return;
+
+    parsed_url_t url;
+    char url_str[64];
+    snprintf(url_str, sizeof(url_str), "https://127.0.0.1:%d/upload", TLS_TEST_PORT + 1);
+    parse_url(url_str, &url);
+
+    const char *body = "payload";
+    http_response_t resp;
+    int rc = bearssl_https_insecure_request("POST", &url,
+                                            "Content-Type: text/plain\r\n",
+                                            body, strlen(body), &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 201);
+    response_free(&resp);
+
+    stop_tls_server(&srv, thr);
+}
+
+#endif /* VIGIL_ENABLE_BEARSSL_TLS && VIGIL_TLS_TEST_CERT_AVAILABLE */
+
 /* ── Test Registration ───────────────────────────────────────────── */
 
 void register_http_tests(void)
@@ -732,4 +902,9 @@ void register_http_tests(void)
     /* Server */
     REGISTER_TEST(VigilHttpTest, ServerRoundTrip);
     REGISTER_TEST(VigilHttpTest, ServerPostRoundTrip);
+#if defined(VIGIL_ENABLE_BEARSSL_TLS) && defined(VIGIL_TLS_TEST_CERT_AVAILABLE)
+    /* BearSSL TLS */
+    REGISTER_TEST(VigilHttpTest, BearSslHttpsGet);
+    REGISTER_TEST(VigilHttpTest, BearSslHttpsPost);
+#endif
 }
