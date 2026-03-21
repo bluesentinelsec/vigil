@@ -10,7 +10,6 @@ interface Describable {
 class Sample {
     pub string name;
     pub f64 weight;
-
     fn init(string name, f64 weight) -> void {
         self.name = name;
         self.weight = weight;
@@ -33,6 +32,7 @@ fn parse_numbers(array<string> raw) -> array<i32> {
             out.push(value);
         }
     }
+
     return out;
 }
 
@@ -41,6 +41,7 @@ fn fold_values(array<i32> values) -> i32 {
     for (i32 i = 0; i < values.len(); i++) {
         sum = sum + values[i];
     }
+
     return sum;
 }
 
@@ -51,6 +52,7 @@ fn score_line(string line) -> i32 {
     if (regex.match(".*critical.*", line)) {
         total = total + 10;
     }
+
     return total;
 }
 
@@ -59,29 +61,19 @@ fn project(array<Sample> samples) -> f64 {
     for (i32 i = 0; i < samples.len(); i++) {
         total = total + samples[i].scaled(f64(i + 1));
     }
+
     return total;
 }
 
 fn main() -> i32 {
-    array<Sample> samples = [
-        Sample("alpha", 1.25),
-        Sample("beta", 2.0),
-        Sample("gamma", 0.5),
-        Sample("delta", 3.75)
-    ];
-
+    array<Sample> samples = [Sample("alpha", 1.25), Sample("beta", 2.0), Sample("gamma", 0.5), Sample("delta", 3.75)];
     i32 line_score = score_line("12,7,8,critical,21");
     f64 projection = project(samples);
     f64 magnitude = math.hypot(projection, f64(line_score));
-    array<string> labels = [
-        samples[0].describe(),
-        samples[1].describe(),
-        samples[2].describe(),
-        samples[3].describe()
-    ];
-
+    array<string> labels = [samples[0].describe(), samples[1].describe(), samples[2].describe(), samples[3].describe()];
     if (labels.len() == 4 && magnitude > 0.0) {
         return 0;
     }
+
     return 1;
 }
