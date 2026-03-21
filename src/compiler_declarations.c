@@ -838,19 +838,23 @@ vigil_status_t vigil_program_parse_enum_declaration(vigil_program_state_t *progr
     return VIGIL_STATUS_OK;
 }
 
-vigil_status_t vigil_program_parse_interface_declaration(vigil_program_state_t *program, size_t *cursor, int is_public)
+static vigil_status_t vigil_program_parse_interface_header(vigil_program_state_t *program, size_t *cursor,
+                                                           int is_public, vigil_interface_decl_t **decl_out)
 {
+    static const vigil_global_name_conflict_messages_t messages = {
+        "interface name conflicts with function",
+        "interface is already declared",
+        "interface name conflicts with enum",
+        "interface name conflicts with class",
+        "interface name conflicts with global constant",
+        "interface name conflicts with global variable",
+    };
     vigil_status_t status;
     const vigil_token_t *interface_token;
     const vigil_token_t *name_token;
-    const vigil_token_t *type_token;
-    const vigil_token_t *method_name_token;
-    const vigil_token_t *param_name_token;
     const char *name_text;
     size_t name_length;
     vigil_interface_decl_t *decl;
-    vigil_interface_method_t *method;
-    vigil_parser_type_t param_type;
 
     interface_token = vigil_program_cursor_peek(program, *cursor);
     if (interface_token == NULL || interface_token->kind != VIGIL_TOKEN_INTERFACE)
@@ -866,35 +870,13 @@ vigil_status_t vigil_program_parse_interface_declaration(vigil_program_state_t *
     {
         return vigil_compile_report(program, interface_token->span, "expected interface name");
     }
+
     name_text = vigil_program_token_text(program, name_token, &name_length);
-    if (program->compile_mode != VIGIL_COMPILE_MODE_REPL)
+    status = vigil_program_check_global_name_conflicts(program, name_token, name_text, name_length, &messages);
+    if (status != VIGIL_STATUS_OK)
     {
-        if (vigil_program_find_interface_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "interface is already declared");
-        }
-        if (vigil_program_find_class_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "interface name conflicts with class");
-        }
-        if (vigil_program_find_constant_in_source(program, program->source->id, name_text, name_length, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "interface name conflicts with global constant");
-        }
-        if (vigil_program_find_enum_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "interface name conflicts with enum");
-        }
-        if (vigil_program_find_global_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "interface name conflicts with global variable");
-        }
-        if (vigil_program_find_top_level_function_name_in_source(program, program->source->id, name_text, name_length,
-                                                                 NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "interface name conflicts with function");
-        }
-    } /* end REPL redefinition guard */
+        return status;
+    }
 
     status = vigil_program_grow_interfaces(program, program->interface_count + 1U);
     if (status != VIGIL_STATUS_OK)
@@ -912,134 +894,251 @@ vigil_status_t vigil_program_parse_interface_declaration(vigil_program_state_t *
     program->interface_count += 1U;
     vigil_program_cursor_advance(program, cursor);
 
-    type_token = vigil_program_cursor_peek(program, *cursor);
-    if (type_token == NULL || type_token->kind != VIGIL_TOKEN_LBRACE)
+    *decl_out = decl;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_expect_interface_body_start(vigil_program_state_t *program, size_t *cursor,
+                                                                const vigil_interface_decl_t *decl)
+{
+    const vigil_token_t *token = vigil_program_cursor_peek(program, *cursor);
+
+    if (token == NULL || token->kind != VIGIL_TOKEN_LBRACE)
     {
-        return vigil_compile_report(program, name_token->span, "expected '{' after interface name");
+        return vigil_compile_report(program, decl->name_span, "expected '{' after interface name");
+    }
+
+    vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_expect_interface_method_token(vigil_program_state_t *program, size_t *cursor,
+                                                                  vigil_token_kind_t expected_kind,
+                                                                  vigil_source_span_t error_span, const char *message)
+{
+    const vigil_token_t *token = vigil_program_cursor_peek(program, *cursor);
+
+    if (token == NULL || token->kind != expected_kind)
+    {
+        return vigil_compile_report(program, error_span, message);
+    }
+
+    vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_interface_method_header(vigil_program_state_t *program, size_t *cursor,
+                                                                  vigil_interface_decl_t *decl,
+                                                                  const vigil_token_t **method_name_token_out,
+                                                                  vigil_interface_method_t **method_out)
+{
+    vigil_status_t status;
+    const vigil_token_t *token;
+    const vigil_token_t *method_name_token;
+    const char *name_text;
+    size_t name_length;
+    vigil_interface_method_t *method;
+
+    token = vigil_program_cursor_peek(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_FN)
+    {
+        return vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
+                                    "expected interface method declaration");
     }
     vigil_program_cursor_advance(program, cursor);
 
+    method_name_token = vigil_program_cursor_peek(program, *cursor);
+    if (method_name_token == NULL || method_name_token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
+        return vigil_compile_report(program, token->span, "expected method name");
+    }
+
+    name_text = vigil_program_token_text(program, method_name_token, &name_length);
+    if (vigil_interface_decl_find_method(decl, name_text, name_length, NULL, NULL))
+    {
+        return vigil_compile_report(program, method_name_token->span, "interface method is already declared");
+    }
+    vigil_program_cursor_advance(program, cursor);
+
+    status = vigil_interface_decl_grow_methods(program, decl, decl->method_count + 1U);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    method = &decl->methods[decl->method_count];
+    memset(method, 0, sizeof(*method));
+    method->name = name_text;
+    method->name_length = name_length;
+    method->name_span = method_name_token->span;
+    decl->method_count += 1U;
+
+    *method_name_token_out = method_name_token;
+    *method_out = method;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_interface_method_param(vigil_program_state_t *program, size_t *cursor,
+                                                                 const vigil_token_t *method_name_token,
+                                                                 vigil_interface_method_t *method)
+{
+    vigil_status_t status;
+    const vigil_token_t *param_type_token;
+    const vigil_token_t *param_name_token;
+    vigil_parser_type_t param_type;
+
+    param_type_token = vigil_program_cursor_peek(program, *cursor);
+    status = vigil_program_parse_type_reference(program, cursor, "unsupported function parameter type", &param_type);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_require_non_void_type(
+        program, param_type_token == NULL ? method_name_token->span : param_type_token->span, param_type,
+        "function parameters cannot use type void");
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    param_name_token = vigil_program_cursor_peek(program, *cursor);
+    if (param_name_token == NULL || param_name_token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
+        return vigil_compile_report(program,
+                                    param_type_token == NULL ? method_name_token->span : param_type_token->span,
+                                    "expected parameter name");
+    }
+    vigil_program_cursor_advance(program, cursor);
+
+    status = vigil_interface_method_grow_params(program, method, method->param_count + 1U);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    method->param_types[method->param_count] = param_type;
+    method->param_count += 1U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_interface_method_params(vigil_program_state_t *program, size_t *cursor,
+                                                                  const vigil_token_t *method_name_token,
+                                                                  vigil_interface_method_t *method)
+{
+    vigil_status_t status;
+    const vigil_token_t *token;
+
+    token = vigil_program_cursor_peek(program, *cursor);
+    if (token == NULL || token->kind == VIGIL_TOKEN_RPAREN)
+    {
+        return VIGIL_STATUS_OK;
+    }
+
     while (1)
     {
-        type_token = vigil_program_cursor_peek(program, *cursor);
-        if (type_token == NULL)
+        status = vigil_program_parse_interface_method_param(program, cursor, method_name_token, method);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+
+        token = vigil_program_cursor_peek(program, *cursor);
+        if (token == NULL || token->kind != VIGIL_TOKEN_COMMA)
+        {
+            break;
+        }
+        vigil_program_cursor_advance(program, cursor);
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_interface_method(vigil_program_state_t *program, size_t *cursor,
+                                                           vigil_interface_decl_t *decl)
+{
+    vigil_status_t status;
+    const vigil_token_t *method_name_token;
+    vigil_interface_method_t *method;
+
+    method_name_token = NULL;
+    method = NULL;
+    status = vigil_program_parse_interface_method_header(program, cursor, decl, &method_name_token, &method);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status = vigil_program_expect_interface_method_token(program, cursor, VIGIL_TOKEN_LPAREN, method_name_token->span,
+                                                         "expected '(' after method name");
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status = vigil_program_parse_interface_method_params(program, cursor, method_name_token, method);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status = vigil_program_expect_interface_method_token(program, cursor, VIGIL_TOKEN_RPAREN, method_name_token->span,
+                                                         "expected ')' after parameter list");
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status = vigil_program_expect_interface_method_token(program, cursor, VIGIL_TOKEN_ARROW, method_name_token->span,
+                                                         "expected '->' after method signature");
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status =
+        vigil_program_parse_interface_method_return_types(program, cursor, "unsupported function return type", method);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    return vigil_program_expect_interface_method_token(program, cursor, VIGIL_TOKEN_SEMICOLON, method_name_token->span,
+                                                       "expected ';' after interface method");
+}
+
+vigil_status_t vigil_program_parse_interface_declaration(vigil_program_state_t *program, size_t *cursor, int is_public)
+{
+    vigil_status_t status;
+    const vigil_token_t *token;
+    vigil_interface_decl_t *decl = NULL;
+
+    status = vigil_program_parse_interface_header(program, cursor, is_public, &decl);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_expect_interface_body_start(program, cursor, decl);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    while (1)
+    {
+        token = vigil_program_cursor_peek(program, *cursor);
+        if (token == NULL)
         {
             return vigil_compile_report(program, vigil_program_eof_span(program), "expected '}' after interface body");
         }
-        if (type_token->kind == VIGIL_TOKEN_RBRACE)
+        if (token->kind == VIGIL_TOKEN_RBRACE)
         {
             vigil_program_cursor_advance(program, cursor);
             break;
         }
-        if (type_token->kind != VIGIL_TOKEN_FN)
-        {
-            return vigil_compile_report(program, type_token->span, "expected interface method declaration");
-        }
-        vigil_program_cursor_advance(program, cursor);
-
-        method_name_token = vigil_program_cursor_peek(program, *cursor);
-        if (method_name_token == NULL || method_name_token->kind != VIGIL_TOKEN_IDENTIFIER)
-        {
-            return vigil_compile_report(program, type_token->span, "expected method name");
-        }
-        name_text = vigil_program_token_text(program, method_name_token, &name_length);
-        if (vigil_interface_decl_find_method(decl, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, method_name_token->span, "interface method is already declared");
-        }
-        vigil_program_cursor_advance(program, cursor);
-
-        status = vigil_interface_decl_grow_methods(program, decl, decl->method_count + 1U);
+        status = vigil_program_parse_interface_method(program, cursor, decl);
         if (status != VIGIL_STATUS_OK)
         {
             return status;
         }
-        method = &decl->methods[decl->method_count];
-        memset(method, 0, sizeof(*method));
-        method->name = name_text;
-        method->name_length = name_length;
-        method->name_span = method_name_token->span;
-        decl->method_count += 1U;
-
-        type_token = vigil_program_cursor_peek(program, *cursor);
-        if (type_token == NULL || type_token->kind != VIGIL_TOKEN_LPAREN)
-        {
-            return vigil_compile_report(program, method_name_token->span, "expected '(' after method name");
-        }
-        vigil_program_cursor_advance(program, cursor);
-
-        type_token = vigil_program_cursor_peek(program, *cursor);
-        if (type_token != NULL && type_token->kind != VIGIL_TOKEN_RPAREN)
-        {
-            while (1)
-            {
-                status = vigil_program_parse_type_reference(program, cursor, "unsupported function parameter type",
-                                                            &param_type);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                status = vigil_program_require_non_void_type(
-                    program, type_token == NULL ? method_name_token->span : type_token->span, param_type,
-                    "function parameters cannot use type void");
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-
-                param_name_token = vigil_program_cursor_peek(program, *cursor);
-                if (param_name_token == NULL || param_name_token->kind != VIGIL_TOKEN_IDENTIFIER)
-                {
-                    return vigil_compile_report(program, type_token->span, "expected parameter name");
-                }
-                vigil_program_cursor_advance(program, cursor);
-
-                status = vigil_interface_method_grow_params(program, method, method->param_count + 1U);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                method->param_types[method->param_count] = param_type;
-                method->param_count += 1U;
-
-                type_token = vigil_program_cursor_peek(program, *cursor);
-                if (type_token != NULL && type_token->kind == VIGIL_TOKEN_COMMA)
-                {
-                    vigil_program_cursor_advance(program, cursor);
-                    type_token = vigil_program_cursor_peek(program, *cursor);
-                    continue;
-                }
-                break;
-            }
-        }
-
-        type_token = vigil_program_cursor_peek(program, *cursor);
-        if (type_token == NULL || type_token->kind != VIGIL_TOKEN_RPAREN)
-        {
-            return vigil_compile_report(program, method_name_token->span, "expected ')' after parameter list");
-        }
-        vigil_program_cursor_advance(program, cursor);
-
-        type_token = vigil_program_cursor_peek(program, *cursor);
-        if (type_token == NULL || type_token->kind != VIGIL_TOKEN_ARROW)
-        {
-            return vigil_compile_report(program, method_name_token->span, "expected '->' after method signature");
-        }
-        vigil_program_cursor_advance(program, cursor);
-
-        status = vigil_program_parse_interface_method_return_types(program, cursor, "unsupported function return type",
-                                                                   method);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-
-        type_token = vigil_program_cursor_peek(program, *cursor);
-        if (type_token == NULL || type_token->kind != VIGIL_TOKEN_SEMICOLON)
-        {
-            return vigil_compile_report(program, method_name_token->span, "expected ';' after interface method");
-        }
-        vigil_program_cursor_advance(program, cursor);
     }
 
     return VIGIL_STATUS_OK;
