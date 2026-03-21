@@ -360,7 +360,6 @@ TEST_F(PlatformTest, EnumerateTlsCasCallback)
     if (rc > 0)
         EXPECT_GT(count, 0);
 }
-
 TEST_F(PlatformTest, LineHistoryEvictsOldEntries)
 {
     EXPECT_TRUE(platform_test_history_eviction_case());
