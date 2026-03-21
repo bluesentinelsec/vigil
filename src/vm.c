@@ -2824,7 +2824,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
         }
         const vigil_object_t *inner_fn = vigil_callable_object_function(function);
         size_t arity = vigil_function_object_arity(inner_fn);
-
         if (vm->stack_count < arity)
         {
             /* Zero-arity: clear stack and frames as before. */
@@ -2853,7 +2852,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             return status;
         }
     }
-
     while (1)
     {
         frame = &vm->frames[vm->frame_count - 1U];
@@ -2862,14 +2860,12 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "vm frame chunk must not be null");
             return VIGIL_STATUS_INVALID_ARGUMENT;
         }
-
         code = VIGIL_VM_CHUNK_CODE(frame->chunk);
         code_size = VIGIL_VM_CHUNK_CODE_SIZE(frame->chunk);
         if (frame->ip >= code_size)
         {
             break;
         }
-
 #if VIGIL_VM_COMPUTED_GOTO
         /* Dispatch table — one label per opcode.  Entries for unused
            indices fall through to the default (unknown opcode) path.
@@ -3034,7 +3030,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_TO_U8] = &&op_TO_U8,
                 [VIGIL_OPCODE_TRUE] = &&op_TRUE,
             };
-
 #define VM_DISPATCH()                                                                                                  \
     do                                                                                                                 \
     {                                                                                                                  \
@@ -3071,7 +3066,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             goto vm_loop_end;                                                                                          \
         VM_DISPATCH();                                                                                                 \
     } while (0)
-
             VM_DISPATCH();
 #else
 #define VM_CASE(op) case VIGIL_OPCODE_##op:
@@ -3593,7 +3587,13 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 VM_BREAK();
             }
             // clang-format off
-            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; goto *dispatch_table[code[frame->ip]];
+            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U;
+            // clang-format on
+#if VIGIL_VM_COMPUTED_GOTO
+            goto *dispatch_table[code[frame->ip]];
+#else
+            VM_BREAK();
+#endif
             // clang-format on
             VM_CASE(CALL_INTERFACE)
             {
