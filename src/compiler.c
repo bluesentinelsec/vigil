@@ -5228,6 +5228,19 @@ static vigil_opcode_t vigil_parser_try_fuse_locals_i64(vigil_parser_state_t *sta
 
 vigil_status_t vigil_parser_emit_opcode(vigil_parser_state_t *state, vigil_opcode_t opcode, vigil_source_span_t span)
 {
+    /* Peephole: TO_I64 after an i32 arith op → rewrite op to i64 variant. */
+    if (opcode == VIGIL_OPCODE_TO_I64 && state->chunk.code.length > 0U)
+    {
+        vigil_opcode_t last = (vigil_opcode_t)state->chunk.code.data[state->chunk.code.length - 1U];
+        vigil_opcode_t promoted;
+        if (vigil_opcode_produces_i64(last))
+            return VIGIL_STATUS_OK;
+        if (vigil_opcode_i32_to_i64(last, &promoted))
+        {
+            state->chunk.code.data[state->chunk.code.length - 1U] = (uint8_t)promoted;
+            return VIGIL_STATUS_OK;
+        }
+    }
     return vigil_chunk_write_opcode(&state->chunk, opcode, span, state->program->error);
 }
 
@@ -6324,12 +6337,7 @@ integer_conversion:
 
     if (needs_opcode)
     {
-        /* Integer casts go through emit_integer_cast for peephole opts;
-           other casts (f64, string) emit directly. */
-        status =
-            vigil_parser_type_is_integer(vigil_binding_type_primitive(target_kind))
-                ? vigil_parser_emit_integer_cast(state, vigil_binding_type_primitive(target_kind), name_token->span)
-                : vigil_parser_emit_opcode(state, opcode, name_token->span);
+        status = vigil_parser_emit_opcode(state, opcode, name_token->span);
         if (status != VIGIL_STATUS_OK)
         {
             return status;
