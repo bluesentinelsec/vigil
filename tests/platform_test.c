@@ -340,6 +340,27 @@ TEST_F(PlatformTest, RWLockReadThenWriteUnlocks)
     vigil_platform_rwlock_destroy(rwlock);
 }
 
+/* ── TLS CA enumeration ──────────────────────────────────────────── */
+
+static int count_tls_cas_cb(const unsigned char *der, size_t len, void *userdata)
+{
+    (void)der;
+    (void)len;
+    (*(int *)userdata)++;
+    return 0;
+}
+
+TEST_F(PlatformTest, EnumerateTlsCasCallback)
+{
+    int count = 0;
+    int rc = vigil_platform_enumerate_tls_cas(count_tls_cas_cb, &count);
+    /* On a system with a CA bundle (e.g. Linux CI), rc > 0 and count > 0.
+     * On stub / embedded platforms the function returns -1. */
+    EXPECT_GE(rc, -1);
+    if (rc > 0)
+        EXPECT_GT(count, 0);
+}
+
 TEST_F(PlatformTest, LineHistoryEvictsOldEntries)
 {
     EXPECT_TRUE(platform_test_history_eviction_case());
@@ -443,4 +464,5 @@ void register_platform_tests(void)
     REGISTER_TEST_F(PlatformTest, LineEditorReadlineFallsBackToStdin);
     REGISTER_TEST_F(PlatformTest, LineEditorReadlineFallbackEofFails);
     REGISTER_TEST_F(PlatformTest, FileExistsReturnsValidStatus);
+    REGISTER_TEST_F(PlatformTest, EnumerateTlsCasCallback);
 }

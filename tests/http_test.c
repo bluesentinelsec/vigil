@@ -27,6 +27,7 @@ typedef struct
 
 extern int parse_url(const char *url, parsed_url_t *out);
 extern void response_free(http_response_t *r);
+extern int parse_http_response(char *buf, size_t len, http_response_t *resp);
 extern int socket_request(const char *method, parsed_url_t *url, const char *headers, const char *body, size_t body_len,
                           http_response_t *resp);
 extern int do_request(const char *method, const char *url_str, const char *headers, const char *body, size_t body_len,
@@ -36,6 +37,12 @@ extern int hdr_name_matches(const char *line, const char *name, size_t namelen);
 extern void collect_cookies(const char *hdrs, char **jar);
 extern char *build_request_headers(const char *cookie_jar, const char *existing);
 extern int redirect_changes_method(int code);
+
+#ifdef VIGIL_ENABLE_BEARSSL_TLS
+extern int bearssl_https_insecure_request(const char *method, const parsed_url_t *url,
+                                          const char *headers, const char *body,
+                                          size_t body_len, http_response_t *resp);
+#endif
 
 /* ── URL parsing tests (table-style) ─────────────────────────────── */
 
@@ -518,6 +525,249 @@ TEST(VigilHttpTest, DoRequestHttpsFallbackFails)
     }
 }
 
+/* ── Additional URL parsing edge cases ───────────────────────────── */
+
+TEST(VigilHttpTest, ParseUrlSchemeTooLong)
+{
+    /* Scheme buffer is 16 bytes; a 20-char scheme must be rejected. */
+    parsed_url_t u;
+    EXPECT_EQ(parse_url("averylongschemename://host/path", &u), 0);
+}
+
+TEST(VigilHttpTest, ParseUrlHostTooLong)
+{
+    /* Host buffer is 256 bytes; 256-char hostname must be rejected. */
+    char url[512];
+    memcpy(url, "http://", 7);
+    memset(url + 7, 'a', 256);
+    memcpy(url + 7 + 256, "/path", 6);
+
+    parsed_url_t u;
+    EXPECT_EQ(parse_url(url, &u), 0);
+}
+
+/* ── parse_http_response happy path ──────────────────────────────── */
+
+TEST(VigilHttpTest, ParseHttpResponseValid)
+{
+    /* Full response: verify status, headers, and body are all parsed. */
+    char buf[] = "HTTP/1.1 201 Created\r\n"
+                 "Content-Type: text/plain\r\n"
+                 "Content-Length: 5\r\n"
+                 "\r\n"
+                 "hello";
+    http_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 201);
+    EXPECT_STREQ(resp.body, "hello"); /* EXPECT_STREQ fails safely on NULL */
+    response_free(&resp);
+}
+
+TEST(VigilHttpTest, ParseHttpResponseNoBody)
+{
+    /* Empty body — body_len == 0 and body is a valid empty string. */
+    char buf[] = "HTTP/1.1 204 No Content\r\n"
+                 "Content-Length: 0\r\n"
+                 "\r\n";
+    http_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 204);
+    EXPECT_EQ(resp.body_len, 0u);
+    response_free(&resp);
+}
+
+/* ── Cookie / header helper edge cases ───────────────────────────── */
+
+TEST(VigilHttpTest, CookieJarAppendTrailingWhitespace)
+{
+    /* Value that is only whitespace trims to zero length — no-op. */
+    char *jar = NULL;
+    cookie_jar_append(&jar, "   ", 3);
+    EXPECT_EQ(jar, NULL);
+
+    /* After a real cookie, appending whitespace leaves jar unchanged. */
+    cookie_jar_append(&jar, "x=1", 3);
+    char *prev = jar;
+    cookie_jar_append(&jar, "  \t ", 4);
+    EXPECT_EQ(jar, prev); /* pointer unchanged */
+    free(jar);
+}
+
+TEST(VigilHttpTest, CollectCookiesNoTrailingCrlf)
+{
+    /* Last header line has no CRLF — eol falls back to strlen path. */
+    const char *hdrs = "HTTP/1.1 200 OK\r\n"
+                       "Set-Cookie: last=val";
+    char *jar = NULL;
+    collect_cookies(hdrs, &jar);
+    EXPECT_NE(jar, NULL);
+    if (jar)
+        EXPECT_STRNE(strstr(jar, "last=val"), NULL);
+    free(jar);
+}
+
+TEST(VigilHttpTest, BuildRequestHeadersCookieOnly)
+{
+    /* NULL existing headers — output contains only the Cookie line. */
+    char *hdrs = build_request_headers("tok=abc", NULL);
+    ASSERT_NE(hdrs, NULL);
+    EXPECT_STREQ(hdrs, "Cookie: tok=abc\r\n");
+    free(hdrs);
+}
+
+/* ── do_request: 307 preserves method ───────────────────────────── */
+
+#define REDIR_307_PORT    18795
+#define DEST_307_PORT     18796
+
+typedef struct
+{
+    vigil_socket_t listener;
+    volatile int ready;
+    int port;
+    char received_method[32];
+    char received_body[256];
+    const char *response;
+} method_capture_server_t;
+
+static void method_capture_func(void *arg)
+{
+    method_capture_server_t *srv = (method_capture_server_t *)arg;
+    if (vigil_platform_tcp_listen("127.0.0.1", srv->port, &srv->listener, NULL) != VIGIL_STATUS_OK)
+        return;
+    srv->ready = 1;
+
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(srv->listener, &client, NULL) != VIGIL_STATUS_OK)
+        return;
+
+    char buf[4096];
+    size_t n = 0;
+    vigil_platform_tcp_recv(client, buf, sizeof(buf) - 1, &n, NULL);
+    buf[n] = '\0';
+
+    char *sp = strchr(buf, ' ');
+    if (sp)
+    {
+        size_t mlen = (size_t)(sp - buf);
+        if (mlen < sizeof(srv->received_method))
+        {
+            memcpy(srv->received_method, buf, mlen);
+            srv->received_method[mlen] = '\0';
+        }
+    }
+    char *body_start = strstr(buf, "\r\n\r\n");
+    if (body_start)
+    {
+        body_start += 4;
+        size_t blen = strlen(body_start);
+        if (blen < sizeof(srv->received_body))
+        {
+            memcpy(srv->received_body, body_start, blen);
+            srv->received_body[blen] = '\0';
+        }
+    }
+
+    vigil_platform_tcp_send(client, srv->response, strlen(srv->response), NULL, NULL);
+    vigil_platform_tcp_close(client, NULL);
+}
+
+TEST(VigilHttpTest, DoRequest307PreservesMethod)
+{
+    /* 307 Temporary Redirect must NOT change POST→GET. */
+    char redir_body[256];
+    snprintf(redir_body, sizeof(redir_body),
+             "HTTP/1.1 307 Temporary Redirect\r\n"
+             "Location: http://127.0.0.1:%d/dest\r\n"
+             "Content-Length: 0\r\n"
+             "\r\n",
+             DEST_307_PORT);
+
+    test_server_t srv_redir;
+    vigil_platform_thread_t *thr_redir = NULL;
+    if (!start_test_server_port(&srv_redir, redir_body, REDIR_307_PORT, &thr_redir))
+        return;
+
+    method_capture_server_t srv_dest;
+    memset(&srv_dest, 0, sizeof(srv_dest));
+    srv_dest.port = DEST_307_PORT;
+    srv_dest.response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+
+    vigil_platform_thread_t *thr_dest = NULL;
+    vigil_platform_net_init(NULL);
+    if (vigil_platform_thread_create(&thr_dest, method_capture_func, &srv_dest, NULL) != VIGIL_STATUS_OK)
+    {
+        stop_test_server(&srv_redir, thr_redir);
+        return;
+    }
+    for (int i = 0; i < 200 && !srv_dest.ready; i++)
+        vigil_platform_thread_sleep(10);
+    if (!srv_dest.ready)
+    {
+        stop_test_server(&srv_redir, thr_redir);
+        vigil_platform_thread_join(thr_dest, NULL);
+        return;
+    }
+
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/start", REDIR_307_PORT);
+    http_response_t resp;
+    int rc = do_request("POST", url, NULL, "payload", 7, &resp);
+    if (rc == 0)
+        response_free(&resp);
+
+    stop_test_server(&srv_redir, thr_redir);
+    if (srv_dest.listener != VIGIL_INVALID_SOCKET)
+        vigil_platform_tcp_close(srv_dest.listener, NULL);
+    vigil_platform_thread_join(thr_dest, NULL);
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_STREQ(srv_dest.received_method, "POST");
+}
+
+/* ── do_request: Location header too long to follow ─────────────── */
+
+#define LONG_LOC_PORT 18797
+
+static char g_long_loc_response[6000];
+
+TEST(VigilHttpTest, DoRequestRedirectLocationTooLong)
+{
+    /* Location value > 4095 bytes: find_location_header returns NULL,
+     * the redirect is silently dropped, and the 302 is returned as-is. */
+    memcpy(g_long_loc_response,
+           "HTTP/1.1 302 Found\r\nLocation: http://", 37);
+    memset(g_long_loc_response + 37, 'x', 4200);
+    memcpy(g_long_loc_response + 37 + 4200, "/\r\nContent-Length: 0\r\n\r\n", 24);
+    g_long_loc_response[37 + 4200 + 24] = '\0';
+
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_test_server_port(&srv, g_long_loc_response, LONG_LOC_PORT, &thr))
+        return;
+
+    http_response_t resp;
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/test", LONG_LOC_PORT);
+    int rc = do_request("GET", url, NULL, NULL, 0, &resp);
+    /* On Linux the socket fallback receives the 302 directly and returns
+     * it as-is (location too long to follow → find_location_header NULL).
+     * On Windows WinHTTP handles the redirect natively, fails DNS on the
+     * bogus hostname, and rc may be -1.  Accept either outcome; the key
+     * invariant is that the call does not crash or hang. */
+    if (rc == 0)
+    {
+        EXPECT_EQ(resp.status_code, 302);
+        response_free(&resp);
+    }
+
+    stop_test_server(&srv, thr);
+}
+
 /* ── Response free safety ────────────────────────────────────────── */
 
 TEST(VigilHttpTest, ResponseFreeNull)
@@ -527,6 +777,18 @@ TEST(VigilHttpTest, ResponseFreeNull)
     response_free(&resp); /* should not crash */
     EXPECT_EQ(resp.body, NULL);
     EXPECT_EQ(resp.headers, NULL);
+}
+
+TEST(VigilHttpTest, ParseHttpResponseMalformed)
+{
+    /* Buffer with no \r\n\r\n separator — parse must return -1. */
+    char buf[] = "HTTP/1.1 200 OK\r\nContent-Length: 0";
+    http_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
+    EXPECT_EQ(rc, -1);
+    EXPECT_EQ(resp.headers, NULL);
+    EXPECT_EQ(resp.body, NULL);
 }
 
 /* ── Server round-trip tests ──────────────────────────────────────── */
@@ -692,6 +954,170 @@ TEST(VigilHttpTest, ServerPostRoundTrip)
     EXPECT_TRUE(strcmp(ctx.received_path, "/submit") == 0);
 }
 
+/* ── BearSSL TLS loopback tests ──────────────────────────────────── */
+
+#if defined(VIGIL_ENABLE_BEARSSL_TLS) && defined(VIGIL_TLS_TEST_CERT_AVAILABLE)
+#include "bearssl.h"
+#include "http_tls_test_cert.h"
+
+#define TLS_TEST_PORT 18790
+
+/* Socket callbacks reused by the in-process TLS test server. */
+static int tls_srv_read_cb(void *ctx, unsigned char *buf, size_t len)
+{
+    vigil_socket_t sock = *(vigil_socket_t *)ctx;
+    size_t n = 0;
+    vigil_status_t st = vigil_platform_tcp_recv(sock, buf, len, &n, NULL);
+    return (st != VIGIL_STATUS_OK || n == 0) ? -1 : (int)n;
+}
+
+static int tls_srv_write_cb(void *ctx, const unsigned char *buf, size_t len)
+{
+    vigil_socket_t sock = *(vigil_socket_t *)ctx;
+    size_t n = 0;
+    return vigil_platform_tcp_send(sock, buf, len, &n, NULL) != VIGIL_STATUS_OK ? -1 : (int)n;
+}
+
+typedef struct
+{
+    vigil_socket_t listener;
+    volatile int ready;
+    const char *response;
+    int port;
+    br_skey_decoder_context kctx; /* keeps private key memory alive */
+} tls_test_server_t;
+
+static void tls_server_func(void *arg)
+{
+    tls_test_server_t *srv = (tls_test_server_t *)arg;
+
+    if (vigil_platform_tcp_listen("127.0.0.1", srv->port, &srv->listener, NULL) != VIGIL_STATUS_OK)
+        return;
+    srv->ready = 1;
+
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(srv->listener, &client, NULL) != VIGIL_STATUS_OK)
+        return;
+
+    br_skey_decoder_init(&srv->kctx);
+    br_skey_decoder_push(&srv->kctx, vigil_test_tls_key_der,
+                         vigil_test_tls_key_der_len);
+    if (br_skey_decoder_last_error(&srv->kctx) != 0 ||
+        br_skey_decoder_key_type(&srv->kctx) != BR_KEYTYPE_EC)
+    {
+        vigil_platform_tcp_close(client, NULL);
+        return;
+    }
+    const br_ec_private_key *sk = br_skey_decoder_get_ec(&srv->kctx);
+
+    br_x509_certificate chain[1];
+    chain[0].data = (unsigned char *)(uintptr_t)vigil_test_tls_cert_der;
+    chain[0].data_len = vigil_test_tls_cert_der_len;
+
+    br_ssl_server_context sc;
+    /* minf2g: ECDHE_ECDSA with AES-128-GCM-SHA256 — matches our EC P-256 key. */
+    br_ssl_server_init_minf2g(&sc, chain, 1, sk);
+
+    unsigned char iobuf[BR_SSL_BUFSIZE_BIDI];
+    br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof(iobuf), 1);
+    br_ssl_server_reset(&sc);
+
+    br_sslio_context ioc;
+    br_sslio_init(&ioc, &sc.eng, tls_srv_read_cb, &client,
+                  tls_srv_write_cb, &client);
+
+    /* Drain the request (enough to unblock the client write). */
+    char req[4096];
+    br_sslio_read(&ioc, req, sizeof(req) - 1);
+
+    br_sslio_write_all(&ioc, srv->response, strlen(srv->response));
+    br_sslio_flush(&ioc);
+    br_sslio_close(&ioc);
+    vigil_platform_tcp_close(client, NULL);
+}
+
+static int start_tls_server(tls_test_server_t *srv, const char *response,
+                            int port, vigil_platform_thread_t **thread)
+{
+    memset(srv, 0, sizeof(*srv));
+    srv->listener = VIGIL_INVALID_SOCKET;
+    srv->response = response;
+    srv->port = port;
+
+    vigil_platform_net_init(NULL);
+    vigil_status_t st = vigil_platform_thread_create(thread, tls_server_func, srv, NULL);
+    if (st != VIGIL_STATUS_OK)
+        return 0;
+
+    for (int i = 0; i < 200 && !srv->ready; i++)
+        vigil_platform_thread_sleep(10);
+    return srv->ready;
+}
+
+static void stop_tls_server(tls_test_server_t *srv, vigil_platform_thread_t *thread)
+{
+    if (srv->listener != VIGIL_INVALID_SOCKET)
+        vigil_platform_tcp_close(srv->listener, NULL);
+    vigil_platform_thread_join(thread, NULL);
+}
+
+/* Client-side: verify the BearSSL TLS transport carries a plain HTTP GET. */
+TEST(VigilHttpTest, BearSslHttpsGet)
+{
+    const char *canned = "HTTP/1.1 200 OK\r\n"
+                         "Content-Length: 2\r\n"
+                         "Connection: close\r\n"
+                         "\r\nOK";
+    tls_test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_tls_server(&srv, canned, TLS_TEST_PORT, &thr))
+        return;
+
+    parsed_url_t url;
+    char url_str[64];
+    snprintf(url_str, sizeof(url_str), "https://127.0.0.1:%d/hello", TLS_TEST_PORT);
+    parse_url(url_str, &url);
+
+    http_response_t resp;
+    int rc = bearssl_https_insecure_request("GET", &url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 200);
+    response_free(&resp);
+
+    stop_tls_server(&srv, thr);
+}
+
+/* Verify BearSSL TLS carries a POST with a request body. */
+TEST(VigilHttpTest, BearSslHttpsPost)
+{
+    const char *canned = "HTTP/1.1 201 Created\r\n"
+                         "Content-Length: 0\r\n"
+                         "Connection: close\r\n"
+                         "\r\n";
+    tls_test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_tls_server(&srv, canned, TLS_TEST_PORT + 1, &thr))
+        return;
+
+    parsed_url_t url;
+    char url_str[64];
+    snprintf(url_str, sizeof(url_str), "https://127.0.0.1:%d/upload", TLS_TEST_PORT + 1);
+    parse_url(url_str, &url);
+
+    const char *body = "payload";
+    http_response_t resp;
+    int rc = bearssl_https_insecure_request("POST", &url,
+                                            "Content-Type: text/plain\r\n",
+                                            body, strlen(body), &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 201);
+    response_free(&resp);
+
+    stop_tls_server(&srv, thr);
+}
+
+#endif /* VIGIL_ENABLE_BEARSSL_TLS && VIGIL_TLS_TEST_CERT_AVAILABLE */
+
 /* ── Test Registration ───────────────────────────────────────────── */
 
 void register_http_tests(void)
@@ -727,9 +1153,27 @@ void register_http_tests(void)
     /* URL parsing extras */
     REGISTER_TEST(VigilHttpTest, ParseUrlUppercaseScheme);
     REGISTER_TEST(VigilHttpTest, ParseUrlPathTooLong);
+    REGISTER_TEST(VigilHttpTest, ParseUrlSchemeTooLong);
+    REGISTER_TEST(VigilHttpTest, ParseUrlHostTooLong);
+    /* Response parsing */
+    REGISTER_TEST(VigilHttpTest, ParseHttpResponseValid);
+    REGISTER_TEST(VigilHttpTest, ParseHttpResponseNoBody);
+    /* Cookie / header helpers */
+    REGISTER_TEST(VigilHttpTest, CookieJarAppendTrailingWhitespace);
+    REGISTER_TEST(VigilHttpTest, CollectCookiesNoTrailingCrlf);
+    REGISTER_TEST(VigilHttpTest, BuildRequestHeadersCookieOnly);
+    /* do_request extras */
+    REGISTER_TEST(VigilHttpTest, DoRequest307PreservesMethod);
+    REGISTER_TEST(VigilHttpTest, DoRequestRedirectLocationTooLong);
     /* Misc */
     REGISTER_TEST(VigilHttpTest, ResponseFreeNull);
+    REGISTER_TEST(VigilHttpTest, ParseHttpResponseMalformed);
     /* Server */
     REGISTER_TEST(VigilHttpTest, ServerRoundTrip);
     REGISTER_TEST(VigilHttpTest, ServerPostRoundTrip);
+#if defined(VIGIL_ENABLE_BEARSSL_TLS) && defined(VIGIL_TLS_TEST_CERT_AVAILABLE)
+    /* BearSSL TLS */
+    REGISTER_TEST(VigilHttpTest, BearSslHttpsGet);
+    REGISTER_TEST(VigilHttpTest, BearSslHttpsPost);
+#endif
 }

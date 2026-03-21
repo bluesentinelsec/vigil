@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(VIGIL_BUILD_TESTS "Build VIGIL unit tests" ON)
 option(VIGIL_USE_LIBFFI "Build with vendored libffi for full FFI support" ON)
 option(VIGIL_ENABLE_COVERAGE "Build with coverage instrumentation" OFF)
+option(VIGIL_ENABLE_BEARSSL_TLS "Enable BearSSL TLS for the fallback HTTPS client" OFF)
 
 set(VIGIL_DESKTOP_OPTIONAL_STDLIB_DEFAULT ON)
 if(EMSCRIPTEN
@@ -181,10 +182,14 @@ add_library(vigil ${VIGIL_LIBRARY_TYPE}
 # ── Platform abstraction layer ──────────────────────────────────────
 if(WIN32)
     target_sources(vigil PRIVATE src/platform/platform_win32.c src/platform/line_editor.c)
+    target_link_libraries(vigil PRIVATE crypt32)
 elseif(EMSCRIPTEN)
     target_sources(vigil PRIVATE src/platform/platform_stub.c src/platform/line_editor.c)
 elseif(UNIX)
     target_sources(vigil PRIVATE src/platform/platform_posix.c src/platform/line_editor.c)
+    if(APPLE)
+        target_link_libraries(vigil PRIVATE "-framework Security" "-framework CoreFoundation")
+    endif()
 else()
     target_sources(vigil PRIVATE src/platform/platform_stub.c src/platform/line_editor.c)
 endif()
@@ -244,6 +249,17 @@ target_link_libraries(vigil PRIVATE lz4)
 # Vendored crypto for cryptographic operations.
 add_subdirectory(deps/crypto)
 target_link_libraries(vigil PRIVATE vigil_crypto)
+
+# Vendored BearSSL for TLS support in the fallback HTTP/S client.
+# Disabled on platforms without desktop TCP stacks.
+if(VIGIL_ENABLE_BEARSSL_TLS AND VIGIL_STDLIB_HTTP
+   AND NOT EMSCRIPTEN
+   AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"
+   AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_subdirectory(deps/bearssl)
+    target_link_libraries(vigil PRIVATE bearssl_static)
+    target_compile_definitions(vigil PRIVATE VIGIL_ENABLE_BEARSSL_TLS)
+endif()
 
 # On MSVC multi-config generators, an OBJECT-library-backed shared
 # library may place its import library (.lib) in a different directory
@@ -331,6 +347,43 @@ if(VIGIL_BUILD_TESTS)
 
     if(VIGIL_STDLIB_THREAD)
         target_sources(vigil_tests PRIVATE tests/thread_test.c)
+    endif()
+
+    # BearSSL: expose headers to tests and generate a loopback test certificate.
+    if(VIGIL_ENABLE_BEARSSL_TLS AND VIGIL_STDLIB_HTTP)
+        target_link_libraries(vigil_tests PRIVATE bearssl_static)
+        target_compile_definitions(vigil_tests PRIVATE VIGIL_ENABLE_BEARSSL_TLS)
+
+        find_program(VIGIL_OPENSSL_EXEC openssl)
+        if(VIGIL_OPENSSL_EXEC)
+            set(_tls_dir "${CMAKE_BINARY_DIR}/test_tls")
+            file(MAKE_DIRECTORY "${_tls_dir}")
+            execute_process(
+                COMMAND "${VIGIL_OPENSSL_EXEC}" req -x509 -newkey ec
+                        -pkeyopt ec_paramgen_curve:P-256
+                        -days 36500 -nodes
+                        -keyout "${_tls_dir}/key.pem"
+                        -out    "${_tls_dir}/cert.pem"
+                        -subj "/CN=vigil-test"
+                RESULT_VARIABLE _ssl_ret
+                ERROR_QUIET OUTPUT_QUIET
+            )
+            if(_ssl_ret EQUAL 0)
+                execute_process(
+                    COMMAND "${Python3_EXECUTABLE}"
+                            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/cert_to_header.py"
+                            "${_tls_dir}/cert.pem"
+                            "${_tls_dir}/key.pem"
+                            "${_tls_dir}/http_tls_test_cert.h"
+                    RESULT_VARIABLE _py_ret
+                )
+                if(_py_ret EQUAL 0)
+                    target_include_directories(vigil_tests PRIVATE "${_tls_dir}")
+                    target_compile_definitions(vigil_tests PRIVATE
+                        VIGIL_TLS_TEST_CERT_AVAILABLE)
+                endif()
+            endif()
+        endif()
     endif()
 
     target_link_libraries(vigil_tests PRIVATE vigil)
