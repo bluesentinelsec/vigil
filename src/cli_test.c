@@ -90,21 +90,6 @@ static void sl_free(str_list_t *sl)
     memset(sl, 0, sizeof(*sl));
 }
 
-static const char *test_source_token_text(const vigil_source_file_t *source, const vigil_token_t *token,
-                                          size_t *out_length)
-{
-    size_t length;
-
-    if (out_length != NULL)
-        *out_length = 0U;
-    if (source == NULL || token == NULL)
-        return NULL;
-
-    length = token->span.end_offset - token->span.start_offset;
-    if (out_length != NULL)
-        *out_length = length;
-    return vigil_string_c_str(&source->text) + token->span.start_offset;
-}
 
 static void collect_test_files(str_list_t *out, const char *dir)
 {
@@ -195,7 +180,7 @@ static void scan_test_functions(vigil_runtime_t *runtime, vigil_source_registry_
                 size_t name_length;
                 const char *name_text;
 
-                name_text = test_source_token_text(source, name_token, &name_length);
+                name_text = cli_source_token_text(source, name_token, &name_length);
                 if (name_text != NULL && name_length > 5U && memcmp(name_text, "test_", 5U) == 0 &&
                     name_length < sizeof(name))
                 {

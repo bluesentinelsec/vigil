@@ -128,6 +128,24 @@ class TestVigilFmt(unittest.TestCase):
         got, _ = fmt(src)
         self.assertIn("const i32 MAX = 100;\n\nfn main()", got)
 
+    def test_format_alias(self):
+        """vigil format is an alias for vigil fmt."""
+        src = 'fn main() -> i32 {\nreturn 0;\n}\n'
+        with tempfile.NamedTemporaryFile(suffix=".vigil", mode="wb", delete=False) as f:
+            f.write(src.encode("utf-8"))
+            path = f.name
+        try:
+            result = subprocess.run(
+                [VIGIL_BIN, "format", path],
+                capture_output=True, text=True, timeout=10
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            with open(path, "rb") as f:
+                got = f.read().decode("utf-8")
+            self.assertIn("    return 0;", got)
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()
