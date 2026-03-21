@@ -68,6 +68,7 @@ typedef struct
     char *saved_line;
 } line_history_nav_t;
 
+/* GCOVR_EXCL_START */
 /* Read a keypress, translating escape sequences. */
 static int read_key_bracket_number_sequence(int c3)
 {
@@ -319,6 +320,7 @@ static void refresh_line(const char *prompt, const line_buf_t *lb)
     }
     fflush(stdout);
 }
+/* GCOVR_EXCL_STOP */
 
 static void line_history_save_current(const line_buf_t *lb, line_history_nav_t *nav)
 {

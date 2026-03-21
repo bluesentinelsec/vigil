@@ -251,6 +251,154 @@ class TestReplInteractive(unittest.TestCase):
         self.send_line(child, ":quit")
         child.expect(pexpect.EOF)
 
+    def test_home_end_bracket_sequences(self):
+        """Test ESC [ Home/End sequences move to start and end of line."""
+        child = self.spawn_repl()
+        child.send("23")
+        child.send("\x1b[H")  # Home
+        child.send("1")
+        child.send("\x1b[F")  # End
+        child.send("4")
+        self.send_line(child, "")
+        child.expect("1234")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_home_end_numeric_sequences(self):
+        """Test ESC [1~/[4~ and [7~/[8~ home/end sequences."""
+        child = self.spawn_repl()
+        child.send("23")
+        child.send("\x1b[1~")  # Home
+        child.send("1")
+        child.send("\x1b[4~")  # End
+        child.send("4")
+        child.send("\x1b[7~")  # Home
+        child.send("0")
+        child.send("\x1b[8~")  # End
+        child.send("5")
+        self.send_line(child, "")
+        child.expect("012345")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_b_ctrl_f_cursor_movement(self):
+        """Test Ctrl-B and Ctrl-F move the cursor left and right."""
+        child = self.spawn_repl()
+        child.send("13")
+        child.send("\x02")  # Ctrl-B
+        child.send("\x06")  # Ctrl-F
+        child.send("\x02")  # Ctrl-B
+        child.send("2")
+        self.send_line(child, "")
+        child.expect("123")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_h_backspace_alias(self):
+        """Test Ctrl-H deletes the character before the cursor."""
+        child = self.spawn_repl()
+        child.send("124")
+        child.send("\x08")  # Ctrl-H
+        child.send("3")
+        self.send_line(child, "")
+        child.expect("123")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_p_ctrl_n_restore_saved_line(self):
+        """Test Ctrl-P/Ctrl-N history navigation restores the edited line."""
+        child = self.spawn_repl()
+        self.send_line(child, "10")
+        child.expect("10")
+        child.expect(">>>")
+        self.send_line(child, "20")
+        child.expect("20")
+        child.expect(">>>")
+        child.send("3")
+        child.send("\x10")  # Ctrl-P -> 20
+        child.send("\x10")  # Ctrl-P -> 10
+        child.send("\x0e")  # Ctrl-N -> 20
+        child.send("\x0e")  # Ctrl-N -> restore saved "3"
+        self.send_line(child, "")
+        child.expect("3")
+        child.expect(r"\r\n\r>>> ")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_alt_f_moves_forward_by_word(self):
+        """Test Alt-F moves forward by one word."""
+        child = self.spawn_repl()
+        child.send("12 + 34")
+        child.send("\x01")    # Ctrl-A
+        child.send("\x1bf")   # Alt-F
+        child.send("0")
+        self.send_line(child, "")
+        child.expect("154")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_alt_b_alt_d_edits_word_at_cursor(self):
+        """Test Alt-B and Alt-D move to and delete the next word."""
+        child = self.spawn_repl()
+        child.send("12 + 34")
+        child.send("\x1bb")  # Alt-B to start of 34
+        child.send("\x1bd")  # Alt-D delete 34
+        child.send("56")
+        self.send_line(child, "")
+        child.expect("68")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_w_kills_previous_word(self):
+        """Test Ctrl-W deletes the previous word."""
+        child = self.spawn_repl()
+        child.send("12 + 34")
+        child.send("\x17")  # Ctrl-W
+        child.send("56")
+        self.send_line(child, "")
+        child.expect("68")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_c_clears_current_line(self):
+        """Test Ctrl-C clears the current line without exiting the REPL."""
+        child = self.spawn_repl()
+        child.send("123")
+        child.send("\x03")  # Ctrl-C
+        child.expect(r"\^C\r\n")
+        child.expect(">>>")
+        child.send("4")
+        self.send_line(child, "")
+        child.expect("4")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_l_refreshes_line(self):
+        """Test Ctrl-L refreshes the line and keeps editing state."""
+        child = self.spawn_repl()
+        child.send("1")
+        child.send("\x0c")  # Ctrl-L
+        child.send(" + 1")
+        self.send_line(child, "")
+        child.expect("2")
+        child.expect(r"\r\n\r>>> ")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_d_on_empty_line_exits(self):
+        """Test Ctrl-D on an empty line exits the REPL."""
+        child = self.spawn_repl()
+        child.send("\x04")
+        child.expect(pexpect.EOF)
+
     def test_special_commands(self):
         """Test :help and :clear commands."""
         child = self.spawn_repl()

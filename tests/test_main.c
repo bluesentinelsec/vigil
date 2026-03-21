@@ -28,6 +28,7 @@ extern void register_thread_tests(void);
 extern void register_unsafe_tests(void);
 extern void register_json_tests(void);
 extern void register_lexer_tests(void);
+extern void register_line_editor_internal_tests(void);
 extern void register_log_tests(void);
 extern void register_map_tests(void);
 extern void register_platform_tests(void);
@@ -77,6 +78,7 @@ int main(void)
     register_unsafe_tests();
     register_json_tests();
     register_lexer_tests();
+    register_line_editor_internal_tests();
     register_log_tests();
     register_map_tests();
     register_platform_tests();
