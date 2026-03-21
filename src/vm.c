@@ -3550,9 +3550,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
         frame->ip += 1U;                                                                                               \
         math_arg = vigil_vm_pop_or_nil(vm);                                                                            \
         vigil_value_init_float(&math_result, cfn(vigil_nanbox_decode_double(math_arg)));                               \
-        status = vigil_vm_push(vm, &math_result, error);                                                               \
-        if (status != VIGIL_STATUS_OK)                                                                                 \
-            goto cleanup;                                                                                              \
+        VIGIL_VM_PUSH(vm, &math_result);                                                                               \
         VM_BREAK();                                                                                                    \
     }
             VIGIL_VM_MATH_UNARY(MATH_SIN_F64, sin)
@@ -3569,9 +3567,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 math_base = vigil_vm_pop_or_nil(vm);
                 vigil_value_init_float(
                     &math_result, pow(vigil_nanbox_decode_double(math_base), vigil_nanbox_decode_double(math_exp)));
-                status = vigil_vm_push(vm, &math_result, error);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
+                VIGIL_VM_PUSH(vm, &math_result);
                 VM_BREAK();
             }
 #undef VIGIL_VM_MATH_UNARY

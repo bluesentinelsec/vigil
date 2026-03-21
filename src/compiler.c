@@ -47,6 +47,14 @@ static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state
                                                      vigil_source_span_t span);
 static int vigil_opcode_produces_i64(vigil_opcode_t op);
 static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
+static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state, const vigil_native_module_t *mod,
+                                                    const vigil_native_module_function_t *fn,
+                                                    const vigil_token_t *member_token, size_t arg_count, int defer_call,
+                                                    vigil_expression_result_t *out_result);
+static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *state,
+                                                             const vigil_native_module_function_t *fn,
+                                                             const vigil_token_t *member_token,
+                                                             vigil_expression_result_t *out_result);
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
@@ -7037,6 +7045,109 @@ static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *mod, 
     return -1;
 }
 
+/* Emit the call instruction(s) for a resolved native module function and set
+ * out_result's type.  Handles math intrinsic fast-path and CALL_NATIVE. */
+static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *state,
+                                                             const vigil_native_module_function_t *fn,
+                                                             const vigil_token_t *member_token,
+                                                             vigil_expression_result_t *out_result)
+{
+    vigil_status_t status;
+
+    if (fn->return_count <= 1U)
+    {
+        if (fn->return_type_ext != NULL)
+        {
+            vigil_binding_type_t ret_type;
+            status = vigil_native_type_to_binding_type(state, fn->return_type_ext, &ret_type);
+            if (status != VIGIL_STATUS_OK)
+                return status;
+            vigil_expression_result_set_type(out_result, ret_type);
+        }
+        else if (fn->return_type == VIGIL_TYPE_OBJECT && fn->return_element_type != 0)
+        {
+            vigil_parser_type_t elem_type = vigil_binding_type_primitive((vigil_type_kind_t)fn->return_element_type);
+            size_t arr_idx;
+            if (vigil_program_find_array_type(state->program, elem_type, &arr_idx))
+                vigil_expression_result_set_type(out_result, vigil_binding_type_array(arr_idx));
+            else
+                vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_OBJECT));
+        }
+        else
+        {
+            vigil_expression_result_set_type(out_result,
+                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_type));
+        }
+    }
+    else
+    {
+        if (fn->return_types == NULL)
+            return vigil_parser_report(state, member_token->span,
+                                       "native function declares multiple returns but has no return type list");
+        if (fn->return_count == 2U)
+            vigil_expression_result_set_pair(out_result,
+                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
+                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]));
+        else if (fn->return_count >= 3U)
+            vigil_expression_result_set_triple(out_result,
+                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
+                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]),
+                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[2]));
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state, const vigil_native_module_t *mod,
+                                                    const vigil_native_module_function_t *fn,
+                                                    const vigil_token_t *member_token, size_t arg_count, int defer_call,
+                                                    vigil_expression_result_t *out_result)
+{
+    vigil_status_t status;
+    vigil_object_t *native_obj;
+    vigil_value_t native_val;
+    int intrinsic_op;
+
+    intrinsic_op = vigil_parser_math_intrinsic_opcode(mod, fn->name, fn->name_length);
+    if (intrinsic_op >= 0 && !defer_call)
+    {
+        vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_F64));
+        return vigil_parser_emit_opcode(state, (vigil_opcode_t)intrinsic_op, member_token->span);
+    }
+
+    native_obj = NULL;
+    status = vigil_native_function_object_create(state->program->registry->runtime, fn->name, fn->name_length,
+                                                 fn->param_count, fn->native_fn, &native_obj, state->program->error);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    vigil_value_init_object(&native_val, &native_obj);
+    {
+        size_t const_idx = 0U;
+        status = vigil_chunk_add_constant(&state->chunk, &native_val, &const_idx, state->program->error);
+        vigil_value_release(&native_val);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_opcode(state, defer_call ? VIGIL_OPCODE_DEFER_CALL_NATIVE : VIGIL_OPCODE_CALL_NATIVE,
+                                          member_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_u32(state, (uint32_t)const_idx, member_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_u32(state, (uint32_t)arg_count, member_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+    }
+
+    if (defer_call)
+    {
+        state->defer_emitted = 1;
+        vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_VOID));
+        return VIGIL_STATUS_OK;
+    }
+
+    return vigil_parser_set_native_fn_return_type(state, fn, member_token, out_result);
+}
+
 static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state, const vigil_token_t *member_token,
                                                      vigil_source_id_t source_id, const char *member_name,
                                                      size_t member_name_length, vigil_expression_result_t *out_result)
@@ -7048,8 +7159,6 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
     size_t mod_idx;
     size_t i;
     size_t arg_count;
-    vigil_object_t *native_obj;
-    vigil_value_t native_val;
     int defer_call;
 
     defer_call = state->defer_mode;
@@ -7156,119 +7265,7 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
         return vigil_parser_report(state, member_token->span, "call argument count does not match function signature");
     }
 
-    /* Create native function object and store in constant pool. */
-    native_obj = NULL;
-    {
-        int intrinsic_op = vigil_parser_math_intrinsic_opcode(mod, member_name, member_name_length);
-        if (intrinsic_op >= 0 && !defer_call)
-        {
-            status = vigil_parser_emit_opcode(state, (vigil_opcode_t)intrinsic_op, member_token->span);
-            if (status != VIGIL_STATUS_OK)
-                return status;
-            vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_F64));
-            return VIGIL_STATUS_OK;
-        }
-    }
-    status = vigil_native_function_object_create(state->program->registry->runtime, fn->name, fn->name_length,
-                                                 fn->param_count, fn->native_fn, &native_obj, state->program->error);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    vigil_value_init_object(&native_val, &native_obj);
-    {
-        size_t const_idx;
-
-        const_idx = 0U;
-        status = vigil_chunk_add_constant(&state->chunk, &native_val, &const_idx, state->program->error);
-        vigil_value_release(&native_val);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_opcode(state, defer_call ? VIGIL_OPCODE_DEFER_CALL_NATIVE : VIGIL_OPCODE_CALL_NATIVE,
-                                          member_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)const_idx, member_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)arg_count, member_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
-
-    if (defer_call)
-    {
-        state->defer_emitted = 1;
-        vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_VOID));
-        return VIGIL_STATUS_OK;
-    }
-
-    /* Set return type. */
-    if (fn->return_count <= 1U)
-    {
-        if (fn->return_type_ext != NULL)
-        {
-            /* Use extended return type info */
-            vigil_binding_type_t ret_type;
-            status = vigil_native_type_to_binding_type(state, fn->return_type_ext, &ret_type);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            vigil_expression_result_set_type(out_result, ret_type);
-        }
-        else if (fn->return_type == VIGIL_TYPE_OBJECT && fn->return_element_type != 0)
-        {
-            /* Array return - look up the pre-registered array type */
-            vigil_parser_type_t elem_type = vigil_binding_type_primitive((vigil_type_kind_t)fn->return_element_type);
-            size_t arr_idx;
-            if (vigil_program_find_array_type(state->program, elem_type, &arr_idx))
-            {
-                vigil_expression_result_set_type(out_result, vigil_binding_type_array(arr_idx));
-            }
-            else
-            {
-                /* Fallback to generic object if not found */
-                vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_OBJECT));
-            }
-        }
-        else
-        {
-            vigil_expression_result_set_type(out_result,
-                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_type));
-        }
-    }
-    else
-    {
-        /* Multi-return: use owned_types storage in the result. */
-        if (fn->return_types == NULL)
-        {
-            return vigil_parser_report(state, member_token->span,
-                                       "native function declares multiple returns but has no return type list");
-        }
-        if (fn->return_count == 2U)
-        {
-            vigil_expression_result_set_pair(out_result,
-                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
-                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]));
-        }
-        else if (fn->return_count >= 3U)
-        {
-            vigil_expression_result_set_triple(out_result,
-                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
-                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]),
-                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[2]));
-        }
-    }
-    return VIGIL_STATUS_OK;
+    return vigil_parser_emit_native_call(state, mod, fn, member_token, arg_count, defer_call, out_result);
 }
 
 /* Resolve the return class index for a native method.
