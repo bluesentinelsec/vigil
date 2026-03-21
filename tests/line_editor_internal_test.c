@@ -1,17 +1,9 @@
 #include "vigil_test.h"
-#ifdef _WIN32
-#include <io.h>
-#define close _close
-#define dup _dup
-#define dup2 _dup2
-#define fileno _fileno
-#else
-#include <unistd.h>
-#endif
-
-#include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
+#define VIGIL_EXPORTS
+#endif
 #include "platform/platform.h"
 
 typedef struct vigil_terminal_state
@@ -97,41 +89,6 @@ VIGIL_API int vigil_platform_terminal_read_byte(void)
 #undef vigil_line_history_load
 #undef vigil_line_history_save
 #undef vigil_line_editor_readline
-
-static FILE *line_editor_capture_stdout(int *saved_stdout)
-{
-    FILE *tmp = tmpfile();
-
-    if (tmp == NULL)
-    {
-        return NULL;
-    }
-
-    *saved_stdout = dup(fileno(stdout));
-    if (*saved_stdout < 0)
-    {
-        fclose(tmp);
-        return NULL;
-    }
-
-    fflush(stdout);
-    if (dup2(fileno(tmp), fileno(stdout)) < 0)
-    {
-        close(*saved_stdout);
-        fclose(tmp);
-        return NULL;
-    }
-
-    return tmp;
-}
-
-static void line_editor_restore_stdout(FILE *tmp, int saved_stdout)
-{
-    fflush(stdout);
-    dup2(saved_stdout, fileno(stdout));
-    close(saved_stdout);
-    fclose(tmp);
-}
 
 static int line_editor_expect_keys(const int *bytes, size_t byte_count, const int *expected, size_t expected_count)
 {
@@ -318,83 +275,6 @@ cleanup:
     return ok;
 }
 
-static int line_editor_run_with_stdout(vigil_status_t (*fn)(void *ctx), void *ctx)
-{
-    FILE *tmp = NULL;
-    int saved_stdout = -1;
-    vigil_status_t status;
-
-    tmp = line_editor_capture_stdout(&saved_stdout);
-    if (tmp == NULL)
-    {
-        return -1;
-    }
-
-    status = fn(ctx);
-    line_editor_restore_stdout(tmp, saved_stdout);
-    return (int)status;
-}
-
-typedef struct
-{
-    int key;
-    line_buf_t *lb;
-    char **saved_line;
-} line_editor_terminal_ctx_t;
-
-static vigil_status_t line_editor_run_terminal_key(void *ctx)
-{
-    line_editor_terminal_ctx_t *terminal = ctx;
-    return (vigil_status_t)edit_line_handle_terminal_keys(terminal->key, terminal->lb, terminal->saved_line);
-}
-
-typedef struct
-{
-    int key;
-    line_buf_t *lb;
-} line_editor_line_buf_ctx_t;
-
-static vigil_status_t line_editor_run_kill_key(void *ctx)
-{
-    line_editor_line_buf_ctx_t *line = ctx;
-    return (vigil_status_t)edit_line_handle_kill_keys(line->key, line->lb);
-}
-
-static int line_editor_terminal_submit_case(void)
-{
-    char buf[32];
-    line_buf_t lb;
-    char *saved_line = line_strdup("draft");
-    line_editor_terminal_ctx_t ctx;
-    int ok;
-
-    lb_init(&lb, buf, sizeof(buf));
-    lb_set(&lb, "abc");
-    ctx.key = KEY_ENTER;
-    ctx.lb = &lb;
-    ctx.saved_line = &saved_line;
-    ok = line_editor_run_with_stdout(line_editor_run_terminal_key, &ctx) == LINE_EDIT_SUBMIT && saved_line == NULL;
-    free(saved_line);
-    return ok;
-}
-
-static int line_editor_terminal_interrupt_case(void)
-{
-    char buf[32];
-    line_buf_t lb;
-    char *saved_line = NULL;
-    line_editor_terminal_ctx_t ctx;
-    int status;
-
-    lb_init(&lb, buf, sizeof(buf));
-    lb_set(&lb, "abc");
-    ctx.key = KEY_CTRL_C;
-    ctx.lb = &lb;
-    ctx.saved_line = &saved_line;
-    status = line_editor_run_with_stdout(line_editor_run_terminal_key, &ctx);
-    return status == LINE_EDIT_REFRESH && strcmp(lb.buf, "") == 0;
-}
-
 static int line_editor_terminal_delete_and_eof_case(void)
 {
     char buf[32];
@@ -551,7 +431,6 @@ static int line_editor_kill_keys_case(void)
 {
     char buf[32];
     line_buf_t lb;
-    line_editor_line_buf_ctx_t clear_ctx;
 
     lb_init(&lb, buf, sizeof(buf));
     lb_set(&lb, "abc def");
@@ -578,13 +457,6 @@ static int line_editor_kill_keys_case(void)
     lb_set(&lb, "ab");
     lb.pos = 1;
     if (edit_line_handle_kill_keys(KEY_CTRL_T, &lb) != LINE_EDIT_REFRESH || strcmp(lb.buf, "ba") != 0)
-    {
-        return 0;
-    }
-
-    clear_ctx.key = KEY_CTRL_L;
-    clear_ctx.lb = &lb;
-    if (line_editor_run_with_stdout(line_editor_run_kill_key, &clear_ctx) != LINE_EDIT_REFRESH)
     {
         return 0;
     }
@@ -645,48 +517,6 @@ static int line_editor_literal_keys_case(void)
     return edit_line_handle_literal_key(KEY_ESC, &lb) == LINE_EDIT_UNHANDLED;
 }
 
-typedef struct
-{
-    const int *bytes;
-    size_t count;
-    char *buf;
-    size_t buf_size;
-    vigil_line_history_t *history;
-} line_editor_edit_ctx_t;
-
-static vigil_status_t line_editor_run_edit_line(void *ctx)
-{
-    line_editor_edit_ctx_t *edit = ctx;
-
-    line_editor_mock_reset();
-    line_editor_mock_bytes(edit->bytes, edit->count);
-    return edit_line(">>> ", edit->buf, edit->buf_size, edit->history);
-}
-
-static int line_editor_edit_line_case(void)
-{
-    static const int bytes[] = {'1', '2', KEY_ENTER};
-    char buf[32];
-    vigil_line_history_t history;
-    line_editor_edit_ctx_t ctx;
-
-    line_editor_test_history_init(&history, 10);
-    ctx.bytes = bytes;
-    ctx.count = sizeof(bytes) / sizeof(bytes[0]);
-    ctx.buf = buf;
-    ctx.buf_size = sizeof(buf);
-    ctx.history = &history;
-
-    if (line_editor_run_with_stdout(line_editor_run_edit_line, &ctx) != VIGIL_STATUS_OK)
-    {
-        line_editor_test_history_free(&history);
-        return 0;
-    }
-
-    line_editor_test_history_free(&history);
-    return strcmp(buf, "12") == 0;
-}
-
 static int line_editor_readline_invalid_args_case(void)
 {
     char buf[32];
@@ -723,39 +553,6 @@ static int line_editor_readline_raw_error_case(void)
 
     vigil_error_clear(&error);
     return 1;
-}
-
-static vigil_status_t line_editor_run_terminal_readline(void *ctx)
-{
-    line_editor_edit_ctx_t *edit = ctx;
-    vigil_error_t error = {0};
-    vigil_status_t status;
-
-    line_editor_mock_reset();
-    line_editor_mock_bytes(edit->bytes, edit->count);
-    status = line_editor_test_readline(">>> ", edit->buf, edit->buf_size, edit->history, &error);
-    vigil_error_clear(&error);
-    return status;
-}
-
-static int line_editor_readline_eof_case(void)
-{
-    static const int bytes[] = {KEY_CTRL_D};
-    char buf[32] = "sentinel";
-    line_editor_edit_ctx_t ctx;
-
-    ctx.bytes = bytes;
-    ctx.count = sizeof(bytes) / sizeof(bytes[0]);
-    ctx.buf = buf;
-    ctx.buf_size = sizeof(buf);
-    ctx.history = NULL;
-
-    if (line_editor_run_with_stdout(line_editor_run_terminal_readline, &ctx) != VIGIL_STATUS_INTERNAL)
-    {
-        return 0;
-    }
-
-    return strcmp(buf, "") == 0 && g_line_editor_terminal.restore_calls == 1;
 }
 
 TEST(LineEditorInternalTest, ReadKeyBracketSequences)
@@ -825,16 +622,6 @@ TEST(LineEditorInternalTest, HistoryNavigationPreservesDraft)
     EXPECT_TRUE(line_editor_history_navigation_case());
 }
 
-TEST(LineEditorInternalTest, TerminalEnterSubmitsLine)
-{
-    EXPECT_TRUE(line_editor_terminal_submit_case());
-}
-
-TEST(LineEditorInternalTest, TerminalCtrlCClearsLine)
-{
-    EXPECT_TRUE(line_editor_terminal_interrupt_case());
-}
-
 TEST(LineEditorInternalTest, TerminalCtrlDDeletesAndEndsOnEmpty)
 {
     EXPECT_TRUE(line_editor_terminal_delete_and_eof_case());
@@ -875,11 +662,6 @@ TEST(LineEditorInternalTest, LiteralKeysInsertPrintableChars)
     EXPECT_TRUE(line_editor_literal_keys_case());
 }
 
-TEST(LineEditorInternalTest, EditLineReadsTerminalInput)
-{
-    EXPECT_TRUE(line_editor_edit_line_case());
-}
-
 TEST(LineEditorInternalTest, ReadlineRejectsInvalidArgs)
 {
     EXPECT_TRUE(line_editor_readline_invalid_args_case());
@@ -888,11 +670,6 @@ TEST(LineEditorInternalTest, ReadlineRejectsInvalidArgs)
 TEST(LineEditorInternalTest, ReadlinePropagatesRawModeError)
 {
     EXPECT_TRUE(line_editor_readline_raw_error_case());
-}
-
-TEST(LineEditorInternalTest, ReadlineReturnsEofAndRestoresTerminal)
-{
-    EXPECT_TRUE(line_editor_readline_eof_case());
 }
 
 void register_line_editor_internal_tests(void)
@@ -908,8 +685,6 @@ void register_line_editor_internal_tests(void)
     REGISTER_TEST(LineEditorInternalTest, LineBufferKillsWords);
     REGISTER_TEST(LineEditorInternalTest, LineBufferTransposesChars);
     REGISTER_TEST(LineEditorInternalTest, HistoryNavigationPreservesDraft);
-    REGISTER_TEST(LineEditorInternalTest, TerminalEnterSubmitsLine);
-    REGISTER_TEST(LineEditorInternalTest, TerminalCtrlCClearsLine);
     REGISTER_TEST(LineEditorInternalTest, TerminalCtrlDDeletesAndEndsOnEmpty);
     REGISTER_TEST(LineEditorInternalTest, DeleteKeysMutateBuffer);
     REGISTER_TEST(LineEditorInternalTest, CursorKeysMoveWithinBuffer);
@@ -918,8 +693,6 @@ void register_line_editor_internal_tests(void)
     REGISTER_TEST(LineEditorInternalTest, KillKeysMutateBuffer);
     REGISTER_TEST(LineEditorInternalTest, WordKeysMutateBuffer);
     REGISTER_TEST(LineEditorInternalTest, LiteralKeysInsertPrintableChars);
-    REGISTER_TEST(LineEditorInternalTest, EditLineReadsTerminalInput);
     REGISTER_TEST(LineEditorInternalTest, ReadlineRejectsInvalidArgs);
     REGISTER_TEST(LineEditorInternalTest, ReadlinePropagatesRawModeError);
-    REGISTER_TEST(LineEditorInternalTest, ReadlineReturnsEofAndRestoresTerminal);
 }

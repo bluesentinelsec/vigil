@@ -136,6 +136,30 @@ static vigil_status_t platform_test_readline_from_stdin(const char *input, char 
     return status;
 }
 
+static int platform_test_history_eviction_case(void)
+{
+    vigil_line_history_t history;
+    const char *entry0;
+    const char *entry1;
+    int entries_match;
+    int ok;
+
+    vigil_line_history_init(&history, 2);
+    vigil_line_history_add(&history, "");
+    vigil_line_history_add(&history, "alpha");
+    vigil_line_history_add(&history, "alpha");
+    vigil_line_history_add(&history, "beta");
+    vigil_line_history_add(&history, "gamma");
+    entry0 = vigil_line_history_get(&history, 0);
+    entry1 = vigil_line_history_get(&history, 1);
+    entries_match = entry0 != NULL && entry1 != NULL && strcmp(entry0, "beta") == 0 && strcmp(entry1, "gamma") == 0;
+
+    ok = history.count == 2u && entries_match && vigil_line_history_get(&history, 2) == NULL;
+
+    vigil_line_history_free(&history);
+    return ok;
+}
+
 /* ── File read/write round-trip ──────────────────────────────────── */
 
 TEST_F(PlatformTest, WriteAndReadFile)
@@ -318,22 +342,7 @@ TEST_F(PlatformTest, RWLockReadThenWriteUnlocks)
 
 TEST_F(PlatformTest, LineHistoryEvictsOldEntries)
 {
-    vigil_line_history_t history;
-
-    vigil_line_history_init(&history, 2);
-
-    vigil_line_history_add(&history, "");
-    vigil_line_history_add(&history, "alpha");
-    vigil_line_history_add(&history, "alpha");
-    vigil_line_history_add(&history, "beta");
-    vigil_line_history_add(&history, "gamma");
-
-    EXPECT_EQ(history.count, 2u);
-    EXPECT_STREQ(vigil_line_history_get(&history, 0), "beta");
-    EXPECT_STREQ(vigil_line_history_get(&history, 1), "gamma");
-    EXPECT_EQ(vigil_line_history_get(&history, 2), NULL);
-
-    vigil_line_history_free(&history);
+    EXPECT_TRUE(platform_test_history_eviction_case());
 }
 
 TEST_F(PlatformTest, LineHistoryClearRemovesEntries)
