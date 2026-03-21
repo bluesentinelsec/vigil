@@ -1274,6 +1274,45 @@ TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors)
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 32);
 }
 
+TEST(VigilCompilerTest, CompilesAndExecutesMultipleReturnValues)
+{
+    const char *source = "\n"
+                         "fn pair(i32 value) -> (i32, i32) {\n"
+                         "    return (value, value + 1);\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    i32 left, i32 right = pair(4);\n"
+                         "    return left * 10 + right;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 45);
+}
+
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues)
+{
+    const char *source = "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "fn bump() -> void {\n"
+                         "    state += 1;\n"
+                         "}\n"
+                         "\n"
+                         "fn pair(i32 value) -> (i32, i32) {\n"
+                         "    defer bump();\n"
+                         "    return (value, value + 1);\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    i32 left, i32 right = pair(4);\n"
+                         "    return state * 100 + left * 10 + right;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 145);
+}
+
 TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles)
 {
     const struct TestSource sources[] = {{"/project/lib.vigil", "pub i32 counter = 3;"
@@ -2965,6 +3004,8 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInterfaceCalls);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesMultipleReturnValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
