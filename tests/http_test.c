@@ -561,11 +561,8 @@ TEST(VigilHttpTest, ParseHttpResponseValid)
     int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
     EXPECT_EQ(rc, 0);
     EXPECT_EQ(resp.status_code, 201);
-    EXPECT_NE(resp.headers, NULL);
-    EXPECT_NE(resp.body, NULL);
+    EXPECT_STREQ(resp.body, "hello"); /* EXPECT_STREQ fails safely on NULL */
     EXPECT_EQ(resp.body_len, 5u);
-    if (resp.body)
-        EXPECT_STREQ(resp.body, "hello");
     response_free(&resp);
 }
 
@@ -619,11 +616,7 @@ TEST(VigilHttpTest, BuildRequestHeadersCookieOnly)
     /* NULL existing headers — output contains only the Cookie line. */
     char *hdrs = build_request_headers("tok=abc", NULL);
     ASSERT_NE(hdrs, NULL);
-    EXPECT_NE(strstr(hdrs, "Cookie: tok=abc"), NULL);
-    /* No garbage after the cookie CRLF. */
-    char *after = strstr(hdrs, "Cookie: tok=abc\r\n");
-    ASSERT_NE(after, NULL);
-    EXPECT_EQ(*(after + strlen("Cookie: tok=abc\r\n")), '\0');
+    EXPECT_STREQ(hdrs, "Cookie: tok=abc\r\n");
     free(hdrs);
 }
 
