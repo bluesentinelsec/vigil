@@ -37,6 +37,8 @@ extern int hdr_name_matches(const char *line, const char *name, size_t namelen);
 extern void collect_cookies(const char *hdrs, char **jar);
 extern char *build_request_headers(const char *cookie_jar, const char *existing);
 extern int redirect_changes_method(int code);
+extern const char *find_location_header(const char *hdrs, char *buf, size_t buf_sz);
+extern int route_matches(const char *pattern, const char *path);
 
 #ifdef VIGIL_ENABLE_BEARSSL_TLS
 extern int bearssl_https_insecure_request(const char *method, const parsed_url_t *url,
@@ -1118,6 +1120,129 @@ TEST(VigilHttpTest, BearSslHttpsPost)
 
 #endif /* VIGIL_ENABLE_BEARSSL_TLS && VIGIL_TLS_TEST_CERT_AVAILABLE */
 
+/* ── find_location_header tests ───────────────────────────────────── */
+
+TEST(VigilHttpTest, FindLocationHeaderBasic)
+{
+    char buf[1024];
+    const char *hdrs = "HTTP/1.1 302 Found\r\n"
+                       "Location: http://example.com/new\r\n"
+                       "Content-Length: 0\r\n";
+    const char *loc = find_location_header(hdrs, buf, sizeof(buf));
+    EXPECT_STREQ(loc, "http://example.com/new");
+}
+
+TEST(VigilHttpTest, FindLocationHeaderLowercase)
+{
+    /* Header name in all-lowercase must still match. */
+    char buf[1024];
+    const char *hdrs = "HTTP/1.1 302 Found\r\n"
+                       "location: http://example.com/lower\r\n";
+    const char *loc = find_location_header(hdrs, buf, sizeof(buf));
+    EXPECT_STREQ(loc, "http://example.com/lower");
+}
+
+TEST(VigilHttpTest, FindLocationHeaderLeadingSpaces)
+{
+    /* Leading spaces after the colon must be stripped. */
+    char buf[1024];
+    const char *hdrs = "HTTP/1.1 302 Found\r\n"
+                       "Location:   http://example.com/spaced\r\n";
+    const char *loc = find_location_header(hdrs, buf, sizeof(buf));
+    EXPECT_STREQ(loc, "http://example.com/spaced");
+}
+
+TEST(VigilHttpTest, FindLocationHeaderNull)
+{
+    char buf[64];
+    EXPECT_EQ(find_location_header(NULL, buf, sizeof(buf)), NULL);
+}
+
+TEST(VigilHttpTest, FindLocationHeaderValueTooLong)
+{
+    /* buf is smaller than the value — must return NULL. */
+    char buf[10];
+    const char *hdrs = "Location: http://example.com/path/that/is/quite/long\r\n";
+    EXPECT_EQ(find_location_header(hdrs, buf, sizeof(buf)), NULL);
+}
+
+TEST(VigilHttpTest, FindLocationHeaderNotPresent)
+{
+    char buf[1024];
+    const char *hdrs = "Content-Type: text/html\r\nContent-Length: 5\r\n";
+    EXPECT_EQ(find_location_header(hdrs, buf, sizeof(buf)), NULL);
+}
+
+/* ── route_matches tests ──────────────────────────────────────────── */
+
+TEST(VigilHttpTest, RouteMatchesExact)
+{
+    EXPECT_EQ(route_matches("/foo", "/foo"), 1);
+    EXPECT_EQ(route_matches("/foo", "/bar"), 0);
+    EXPECT_EQ(route_matches("/", "/"), 1);
+}
+
+TEST(VigilHttpTest, RouteMatchesPrefix)
+{
+    /* Pattern ending with '/' matches any path that starts with it. */
+    EXPECT_EQ(route_matches("/api/", "/api/v1"), 1);
+    EXPECT_EQ(route_matches("/api/", "/api/"), 1);
+    EXPECT_EQ(route_matches("/api/", "/other/v1"), 0);
+}
+
+TEST(VigilHttpTest, RouteMatchesQueryStripped)
+{
+    /* Query string in the path must not prevent a match. */
+    EXPECT_EQ(route_matches("/search", "/search?q=hello"), 1);
+    EXPECT_EQ(route_matches("/search", "/other?q=hello"), 0);
+}
+
+TEST(VigilHttpTest, RouteMatchesNull)
+{
+    EXPECT_EQ(route_matches(NULL, "/foo"), 0);
+    EXPECT_EQ(route_matches("/foo", NULL), 0);
+}
+
+/* ── collect_cookies with attributes ────────────────────────────────  */
+
+TEST(VigilHttpTest, CollectCookiesWithAttributes)
+{
+    /* Only name=value is kept; Path, HttpOnly, Secure etc. are stripped. */
+    const char *hdrs = "Set-Cookie: session=abc123; Path=/; HttpOnly\r\n"
+                       "Set-Cookie: user=bob; Secure\r\n";
+    char *jar = NULL;
+    collect_cookies(hdrs, &jar);
+    EXPECT_STREQ(jar, "session=abc123; user=bob");
+    free(jar);
+}
+
+/* ── do_request: 304 must not be followed as a redirect ──────────── */
+
+#define DO_REQ_304_PORT 18796
+
+TEST(VigilHttpTest, DoRequest304NotRedirected)
+{
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    const char *canned = "HTTP/1.1 304 Not Modified\r\n"
+                         "Content-Length: 0\r\n"
+                         "\r\n";
+    if (!start_test_server_port(&srv, canned, DO_REQ_304_PORT, &thr))
+        return;
+
+    http_response_t resp;
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/check", DO_REQ_304_PORT);
+    int rc = do_request("GET", url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    if (rc == 0)
+    {
+        EXPECT_EQ(resp.status_code, 304);
+        response_free(&resp);
+    }
+    stop_test_server(&srv, thr);
+}
+
 /* ── Test Registration ───────────────────────────────────────────── */
 
 void register_http_tests(void)
@@ -1171,6 +1296,22 @@ void register_http_tests(void)
     /* Server */
     REGISTER_TEST(VigilHttpTest, ServerRoundTrip);
     REGISTER_TEST(VigilHttpTest, ServerPostRoundTrip);
+    /* find_location_header */
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderBasic);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderLowercase);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderLeadingSpaces);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderNull);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderValueTooLong);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderNotPresent);
+    /* route_matches */
+    REGISTER_TEST(VigilHttpTest, RouteMatchesExact);
+    REGISTER_TEST(VigilHttpTest, RouteMatchesPrefix);
+    REGISTER_TEST(VigilHttpTest, RouteMatchesQueryStripped);
+    REGISTER_TEST(VigilHttpTest, RouteMatchesNull);
+    /* collect_cookies extras */
+    REGISTER_TEST(VigilHttpTest, CollectCookiesWithAttributes);
+    /* do_request extras */
+    REGISTER_TEST(VigilHttpTest, DoRequest304NotRedirected);
 #if defined(VIGIL_ENABLE_BEARSSL_TLS) && defined(VIGIL_TLS_TEST_CERT_AVAILABLE)
     /* BearSSL TLS */
     REGISTER_TEST(VigilHttpTest, BearSslHttpsGet);
