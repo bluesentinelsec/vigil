@@ -22,7 +22,7 @@ jobs:
         run: pip install gcovr pexpect
 
       - name: Fetch main
-        run: git fetch origin main --depth=1
+        run: git fetch origin main
 
       - name: Configure coverage build
         run: >

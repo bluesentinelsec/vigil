@@ -2075,7 +2075,14 @@ VIGIL_API vigil_status_t vigil_platform_http_request(const char *method, const c
 
 /* ── TLS certificate store ──────────────────────────────────────── */
 
+/* TARGET_OS_OSX is 1 only on macOS; it is 0 on iOS, tvOS, watchOS, etc.
+ * SecTrustCopyAnchorCertificates exists only in the macOS SDK, so we must
+ * guard with TARGET_OS_OSX and not just __APPLE__. */
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) && defined(TARGET_OS_OSX) && TARGET_OS_OSX
 
 #include <Security/Security.h>
 /* Security.h transitively pulls in ObjC headers that define nil.
@@ -2106,7 +2113,7 @@ int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
     return count;
 }
 
-#else /* Linux / BSD: probe well-known PEM bundle paths */
+#else /* Linux / BSD / iOS: probe well-known PEM bundle paths */
 
 static const char *const tls_ca_paths_[] = {
     "/etc/ssl/certs/ca-certificates.crt",                /* Debian / Ubuntu */
@@ -2204,4 +2211,4 @@ int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
     return -1;
 }
 
-#endif /* __APPLE__ */
+#endif /* TARGET_OS_OSX */
