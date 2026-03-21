@@ -264,8 +264,9 @@ TEST(VigilHttpTest, SocketConnectionRefused)
     EXPECT_EQ(rc, -1);
 }
 
-TEST(VigilHttpTest, SocketRequestRejectsOversizedHeaders)
+TEST(VigilHttpTest, SocketRequestLargeHeadersSucceed)
 {
+    /* Dynamic request buffer accommodates large custom headers. */
     test_server_t srv;
     vigil_platform_thread_t *thr = NULL;
     const char *canned = "HTTP/1.1 200 OK\r\n"
@@ -287,14 +288,39 @@ TEST(VigilHttpTest, SocketRequestRejectsOversizedHeaders)
     headers[5000] = '\0';
 
     parsed_url_t url;
-    parse_url("http://127.0.0.1:18787/too-large", &url);
+    parse_url("http://127.0.0.1:18787/large-headers", &url);
 
     http_response_t resp;
     int rc = socket_request("GET", &url, headers, NULL, 0, &resp);
-    EXPECT_EQ(rc, -1);
+    EXPECT_EQ(rc, 0);
+    if (rc == 0)
+        response_free(&resp);
 
     free(headers);
     stop_test_server(&srv, thr);
+}
+
+TEST(VigilHttpTest, ParseUrlUppercaseScheme)
+{
+    parsed_url_t u;
+    ASSERT_TRUE(parse_url("HTTPS://example.com/path", &u));
+    EXPECT_STREQ(u.scheme, "https");
+    EXPECT_STREQ(u.host, "example.com");
+    EXPECT_EQ(u.port, 443);
+}
+
+TEST(VigilHttpTest, ParseUrlPathTooLong)
+{
+    /* Path longer than 2047 chars must return 0 (error). */
+    char url[4096];
+    size_t i;
+    memcpy(url, "http://example.com/", 19);
+    for (i = 19; i < sizeof(url) - 1; i++)
+        url[i] = 'a';
+    url[sizeof(url) - 1] = '\0';
+
+    parsed_url_t u;
+    EXPECT_EQ(parse_url(url, &u), 0);
 }
 
 TEST(VigilHttpTest, DoRequestHttpsFallbackFails)
@@ -504,8 +530,11 @@ void register_http_tests(void)
     REGISTER_TEST(VigilHttpTest, Socket404Response);
     REGISTER_TEST(VigilHttpTest, SocketEmptyBody);
     REGISTER_TEST(VigilHttpTest, SocketConnectionRefused);
-    REGISTER_TEST(VigilHttpTest, SocketRequestRejectsOversizedHeaders);
+    REGISTER_TEST(VigilHttpTest, SocketRequestLargeHeadersSucceed);
     REGISTER_TEST(VigilHttpTest, DoRequestHttpsFallbackFails);
+    /* URL parsing extras */
+    REGISTER_TEST(VigilHttpTest, ParseUrlUppercaseScheme);
+    REGISTER_TEST(VigilHttpTest, ParseUrlPathTooLong);
     /* Misc */
     REGISTER_TEST(VigilHttpTest, ResponseFreeNull);
     /* Server */

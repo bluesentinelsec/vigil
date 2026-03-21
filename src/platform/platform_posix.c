@@ -1903,6 +1903,10 @@ typedef int CURLcode;
 #define CURLOPT_HEADERFUNCTION 20079
 #define CURLOPT_HEADERDATA 10029
 #define CURLINFO_RESPONSE_CODE 0x200002
+#define CURLOPT_HTTP_VERSION 84
+#define CURL_HTTP_VERSION_2TLS 4
+#define CURLOPT_ACCEPT_ENCODING 10102
+#define CURL_HDR_LIMIT (256U * 1024U)
 
 typedef CURL *(*curl_easy_init_t)(void);
 typedef void (*curl_easy_cleanup_t)(CURL *);
@@ -1950,16 +1954,22 @@ typedef struct
     char *data;
     size_t len;
     size_t cap;
+    size_t limit; /* 0 = unlimited */
 } curl_buf_t;
 
 static size_t curl_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
 {
     curl_buf_t *b = (curl_buf_t *)ud;
     size_t total = size * nmemb;
+    if (b->limit > 0 && b->len + total > b->limit)
+        return 0; /* signal error to curl */
     if (b->len + total >= b->cap)
     {
         b->cap = (b->len + total) * 2;
-        b->data = (char *)realloc(b->data, b->cap);
+        char *nb = (char *)realloc(b->data, b->cap);
+        if (!nb)
+            return 0;
+        b->data = nb;
     }
     memcpy(b->data + b->len, ptr, total);
     b->len += total;
@@ -1997,25 +2007,28 @@ VIGIL_API vigil_status_t vigil_platform_http_request(const char *method, const c
     if (!curl)
         return VIGIL_STATUS_INTERNAL;
 
-    curl_buf_t buf = {(char *)malloc(4096), 0, 4096};
-    curl_buf_t hdr_buf = {(char *)malloc(2048), 0, 2048};
+    curl_buf_t buf = {(char *)malloc(4096), 0, 4096, 0};
+    curl_buf_t hdr_buf = {(char *)malloc(2048), 0, 2048, CURL_HDR_LIMIT};
     p_curl_easy_setopt(curl, CURLOPT_URL, url);
     p_curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     p_curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
     p_curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_write_cb);
     p_curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hdr_buf);
     p_curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    p_curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_2TLS);
+    p_curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
     struct curl_slist *hdr_list = NULL;
     if (headers && *headers)
     {
         char *hcopy = strdup(headers);
-        char *line = strtok(hcopy, "\r\n");
+        char *saveptr = NULL;
+        char *line = strtok_r(hcopy, "\r\n", &saveptr);
         while (line)
         {
             if (*line)
                 hdr_list = p_curl_slist_append(hdr_list, line);
-            line = strtok(NULL, "\r\n");
+            line = strtok_r(NULL, "\r\n", &saveptr);
         }
         free(hcopy);
         if (hdr_list)

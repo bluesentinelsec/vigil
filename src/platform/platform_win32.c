@@ -1964,6 +1964,18 @@ static int winhttp_load(void)
            pw_ReadData && pw_CloseHandle;
 }
 
+static void win_str_tolower(char *s, size_t n)
+{
+    size_t i;
+    for (i = 0; i < n; i++)
+    {
+        if (s[i] >= 'A' && s[i] <= 'Z')
+            s[i] = (char)(s[i] + 32);
+    }
+}
+
+#define WINHTTP_HDR_LIMIT (256U * 1024U)
+
 /* Minimal URL parser for WinHTTP (scheme, host, port, path). */
 static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz, char *host, size_t host_sz, int *port,
                              char *path, size_t path_sz)
@@ -1977,6 +1989,7 @@ static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz, ch
             return 0;
         memcpy(scheme, p, slen);
         scheme[slen] = '\0';
+        win_str_tolower(scheme, slen); /* normalise to lowercase */
         p = se + 3;
     }
     else
@@ -2005,7 +2018,7 @@ static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz, ch
     {
         size_t plen = strlen(ps);
         if (plen >= path_sz)
-            plen = path_sz - 1;
+            return 0; /* path too long — fail rather than silently truncate */
         memcpy(path, ps, plen);
         path[plen] = '\0';
     }
@@ -2014,6 +2027,28 @@ static int winhttp_parse_url(const char *url, char *scheme, size_t scheme_sz, ch
         memcpy(path, "/", 2);
     }
     return 1;
+}
+
+static void winhttp_read_body(HINTERNET req, vigil_http_response_t *out)
+{
+    size_t cap = 8192, len = 0;
+    char *buf = (char *)malloc(cap);
+    DWORD downloaded;
+    while (buf && pw_ReadData(req, buf + len, (DWORD)(cap - len - 1), &downloaded) && downloaded > 0)
+    {
+        len += downloaded;
+        if (len + 1 >= cap)
+        {
+            cap *= 2;
+            buf = (char *)realloc(buf, cap);
+        }
+    }
+    if (buf)
+    {
+        buf[len] = '\0';
+        out->body = buf;
+        out->body_len = len;
+    }
 }
 
 VIGIL_API vigil_status_t vigil_platform_http_request(const char *method, const char *url, const char *headers,
@@ -2099,7 +2134,7 @@ VIGIL_API vigil_status_t vigil_platform_http_request(const char *method, const c
         DWORD hdr_sz = 0;
         pw_QueryHeaders(req, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, NULL, &hdr_sz,
                         WINHTTP_NO_HEADER_INDEX);
-        if (hdr_sz > 0)
+        if (hdr_sz > 0 && hdr_sz <= WINHTTP_HDR_LIMIT)
         {
             wchar_t *whdr = (wchar_t *)malloc(hdr_sz);
             if (whdr && pw_QueryHeaders(req, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, whdr,
@@ -2117,23 +2152,7 @@ VIGIL_API vigil_status_t vigil_platform_http_request(const char *method, const c
         }
     }
 
-    {
-        size_t cap = 8192, len = 0;
-        char *buf = (char *)malloc(cap);
-        DWORD downloaded;
-        while (pw_ReadData(req, buf + len, (DWORD)(cap - len - 1), &downloaded) && downloaded > 0)
-        {
-            len += downloaded;
-            if (len + 1 >= cap)
-            {
-                cap *= 2;
-                buf = (char *)realloc(buf, cap);
-            }
-        }
-        buf[len] = '\0';
-        out->body = buf;
-        out->body_len = len;
-    }
+    winhttp_read_body(req, out);
 
     pw_CloseHandle(req);
     pw_CloseHandle(conn);

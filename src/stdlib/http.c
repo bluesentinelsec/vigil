@@ -80,6 +80,16 @@ typedef struct
     char path[2048];
 } parsed_url_t;
 
+static void str_tolower(char *s, size_t n)
+{
+    size_t i;
+    for (i = 0; i < n; i++)
+    {
+        if (s[i] >= 'A' && s[i] <= 'Z')
+            s[i] = (char)(s[i] + 32);
+    }
+}
+
 HTTP_STATIC int parse_url(const char *url, parsed_url_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -93,6 +103,7 @@ HTTP_STATIC int parse_url(const char *url, parsed_url_t *out)
         if (slen >= sizeof(out->scheme))
             return 0;
         memcpy(out->scheme, p, slen);
+        str_tolower(out->scheme, slen); /* normalise to lowercase */
         p = scheme_end + 3;
     }
     else
@@ -124,7 +135,7 @@ HTTP_STATIC int parse_url(const char *url, parsed_url_t *out)
     {
         size_t plen = strlen(path_start);
         if (plen >= sizeof(out->path))
-            plen = sizeof(out->path) - 1;
+            return 0; /* path too long — fail rather than silently truncate */
         memcpy(out->path, path_start, plen);
         out->path[plen] = '\0';
     }
@@ -150,9 +161,12 @@ HTTP_STATIC void response_free(http_response_t *r)
 
 /* ── Socket-based HTTP/1.1 fallback (no TLS) ─────────────────────── */
 
-#define HTTP_MAX_REQUEST_SIZE 4096U
+#define HTTP_MAX_REQUEST_OVERHEAD 80U     /* method+path+host+fixed headers margin */
 #define HTTP_MAX_HEADER_BYTES (64U * 1024U)
 #define HTTP_MAX_BODY_BYTES (8U * 1024U * 1024U)
+#define HTTP_MAX_RESPONSE_HEADER_BYTES (256U * 1024U)
+#define HTTP_MAX_RESPONSE_BODY_BYTES (64U * 1024U * 1024U)
+#define HTTP_DEFAULT_TIMEOUT_MS 30000
 
 static int tcp_send_all(vigil_socket_t sock, const void *data, size_t len)
 {
@@ -173,6 +187,31 @@ static int tcp_send_all(vigil_socket_t sock, const void *data, size_t len)
     return 0;
 }
 
+static char *alloc_request_buf(const char *method, const char *path, const char *host, const char *headers,
+                               size_t body_len, size_t *out_len)
+{
+    size_t cap = strlen(method) + 1 + strlen(path) + 11 + 7 + strlen(host) + 2 + 19 +
+                 (headers ? strlen(headers) : 0) + HTTP_MAX_REQUEST_OVERHEAD + 1;
+    char *buf = (char *)malloc(cap);
+    if (!buf)
+        return NULL;
+    int len = snprintf(buf, cap,
+                       "%s %s HTTP/1.1\r\n"
+                       "Host: %s\r\n"
+                       "Connection: close\r\n"
+                       "%s"
+                       "Content-Length: %zu\r\n"
+                       "\r\n",
+                       method, path, host, headers ? headers : "", body_len);
+    if (len < 0 || (size_t)len >= cap)
+    {
+        free(buf);
+        return NULL;
+    }
+    *out_len = (size_t)len;
+    return buf;
+}
+
 HTTP_STATIC int socket_request(const char *method, parsed_url_t *url, const char *headers, const char *body,
                                size_t body_len, http_response_t *resp)
 {
@@ -183,27 +222,24 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url, const char
     if (vigil_platform_tcp_connect(url->host, url->port, &sock, NULL) != VIGIL_STATUS_OK)
         return -1;
 
-    char req_buf[HTTP_MAX_REQUEST_SIZE];
-    int req_len = snprintf(req_buf, sizeof(req_buf),
-                           "%s %s HTTP/1.1\r\n"
-                           "Host: %s\r\n"
-                           "Connection: close\r\n"
-                           "%s"
-                           "Content-Length: %zu\r\n"
-                           "\r\n",
-                           method, url->path, url->host, headers ? headers : "", body_len);
+    vigil_platform_tcp_set_timeout(sock, HTTP_DEFAULT_TIMEOUT_MS, NULL);
 
-    if (req_len < 0 || (size_t)req_len >= sizeof(req_buf))
+    size_t req_len = 0;
+    char *req_buf = alloc_request_buf(method, url->path, url->host, headers, body_len, &req_len);
+    if (!req_buf)
     {
         vigil_platform_tcp_close(sock, NULL);
         return -1;
     }
 
-    if (tcp_send_all(sock, req_buf, (size_t)req_len) != 0)
+    if (tcp_send_all(sock, req_buf, req_len) != 0)
     {
+        free(req_buf);
         vigil_platform_tcp_close(sock, NULL);
         return -1;
     }
+    free(req_buf);
+
     if (body && body_len > 0 && tcp_send_all(sock, body, body_len) != 0)
     {
         vigil_platform_tcp_close(sock, NULL);
@@ -225,6 +261,12 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url, const char
         if (st != VIGIL_STATUS_OK || n == 0)
             break;
         len += n;
+        if (len > HTTP_MAX_RESPONSE_BODY_BYTES)
+        {
+            free(buf);
+            vigil_platform_tcp_close(sock, NULL);
+            return -1;
+        }
         if (len + 1 >= cap)
         {
             cap *= 2;
@@ -288,17 +330,115 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url, const char
 
 /* ── Unified client request ──────────────────────────────────────── */
 
-HTTP_STATIC int do_request_once(const char *method, const char *url_str, const char *headers, const char *body,
-                                size_t body_len, http_response_t *resp)
+/* ── Cookie jar helpers ──────────────────────────────────────────── */
+
+static void cookie_jar_append(char **jar, const char *val, size_t vlen)
 {
+    while (vlen > 0 && (unsigned char)val[vlen - 1] <= ' ')
+        vlen--;
+    if (vlen == 0)
+        return;
+    size_t old = *jar ? strlen(*jar) : 0;
+    size_t sep = (old > 0) ? 2U : 0U;
+    char *n = (char *)realloc(*jar, old + sep + vlen + 1);
+    if (!n)
+        return;
+    if (sep)
+    {
+        n[old] = ';';
+        n[old + 1] = ' ';
+    }
+    memcpy(n + old + sep, val, vlen);
+    n[old + sep + vlen] = '\0';
+    *jar = n;
+}
+
+static int hdr_name_matches(const char *line, const char *name, size_t namelen)
+{
+    size_t i;
+    for (i = 0; i < namelen; i++)
+    {
+        char c = line[i];
+        if (c >= 'A' && c <= 'Z')
+            c = (char)(c + 32);
+        if (c != name[i])
+            return 0;
+    }
+    return line[namelen] == ':';
+}
+
+static void collect_cookies(const char *hdrs, char **jar)
+{
+    const char *p = hdrs;
+    if (!hdrs)
+        return;
+    while (*p)
+    {
+        const char *eol = strstr(p, "\r\n");
+        if (!eol)
+            eol = p + strlen(p);
+        if ((size_t)(eol - p) > 11 && hdr_name_matches(p, "set-cookie", 10))
+        {
+            const char *val = p + 11;
+            while (val < eol && *val == ' ')
+                val++;
+            const char *semi = (const char *)memchr(val, ';', (size_t)(eol - val));
+            size_t vlen = semi ? (size_t)(semi - val) : (size_t)(eol - val);
+            cookie_jar_append(jar, val, vlen);
+        }
+        if (*eol == '\0')
+            break;
+        p = eol + 2;
+    }
+}
+
+static char *build_request_headers(const char *cookie_jar, const char *existing)
+{
+    size_t clen, elen, off;
+    char *out;
+
+    if (!cookie_jar || !*cookie_jar)
+        return NULL;
+    clen = strlen(cookie_jar);
+    elen = existing ? strlen(existing) : 0;
+    out = (char *)malloc(9 + clen + 2 + elen + 1);
+    if (!out)
+        return NULL;
+    off = 0;
+    memcpy(out + off, "Cookie: ", 8);
+    off += 8;
+    memcpy(out + off, cookie_jar, clen);
+    off += clen;
+    out[off++] = '\r';
+    out[off++] = '\n';
+    if (existing && elen > 0)
+    {
+        memcpy(out + off, existing, elen);
+        off += elen;
+    }
+    out[off] = '\0';
+    return out;
+}
+
+HTTP_STATIC int do_request_once(const char *method, const char *url_str, const char *headers, const char *body,
+                                size_t body_len, const char *cookie_jar, http_response_t *resp)
+{
+    char *cookie_hdrs;
+    const char *eff_headers;
+    int rc;
+
     memset(resp, 0, sizeof(*resp));
+
+    cookie_hdrs = build_request_headers(cookie_jar, headers);
+    eff_headers = cookie_hdrs ? cookie_hdrs : headers;
 
     /* Try native HTTP library first (supports HTTPS). */
     vigil_http_response_t native_resp;
-    vigil_status_t st = vigil_platform_http_request(method, url_str, headers, body, body_len, &native_resp, NULL);
+    vigil_status_t st = vigil_platform_http_request(method, url_str, eff_headers, body, body_len, &native_resp, NULL);
 
     if (st == VIGIL_STATUS_OK)
     {
+        free(cookie_hdrs);
         resp->status_code = native_resp.status_code;
         resp->headers = native_resp.headers;
         resp->body = native_resp.body;
@@ -309,14 +449,21 @@ HTTP_STATIC int do_request_once(const char *method, const char *url_str, const c
     /* Native lib unavailable — fall back to sockets (HTTP only). */
     parsed_url_t url;
     if (!parse_url(url_str, &url))
+    {
+        free(cookie_hdrs);
         return -1;
+    }
 
     if (strcmp(url.scheme, "https") == 0)
     {
-        /* No TLS without native library. */
+        /* No TLS without native library — surface diagnostic. */
+        fprintf(stderr, "vigil: HTTPS requires libcurl (not available); request aborted\n");
+        free(cookie_hdrs);
         return -1;
     }
-    return socket_request(method, &url, headers, body, body_len, resp);
+    rc = socket_request(method, &url, eff_headers, body, body_len, resp);
+    free(cookie_hdrs);
+    return rc;
 }
 
 /* Extract Location header from response headers string. */
@@ -355,10 +502,17 @@ static const char *find_location_header(const char *hdrs, char *buf, size_t buf_
     return NULL;
 }
 
+static int redirect_changes_method(int code)
+{
+    return code == 301 || code == 302 || code == 303;
+}
+
 HTTP_STATIC int do_request(const char *method, const char *url_str, const char *headers, const char *body,
                            size_t body_len, http_response_t *resp)
 {
     char url_buf[4096];
+    char *cookie_jar = NULL;
+    int result = 0;
     size_t ulen = strlen(url_str);
     if (ulen >= sizeof(url_buf))
         ulen = sizeof(url_buf) - 1;
@@ -367,9 +521,11 @@ HTTP_STATIC int do_request(const char *method, const char *url_str, const char *
 
     for (int redirects = 0; redirects <= HTTP_MAX_REDIRECTS; redirects++)
     {
-        int rc = do_request_once(method, url_buf, headers, body, body_len, resp);
-        if (rc != 0)
-            return rc;
+        result = do_request_once(method, url_buf, headers, body, body_len, cookie_jar, resp);
+        if (result != 0)
+            break;
+
+        collect_cookies(resp->headers, &cookie_jar);
 
         if (resp->status_code >= 301 && resp->status_code <= 308 && resp->status_code != 304 &&
             resp->status_code != 305)
@@ -383,8 +539,7 @@ HTTP_STATIC int do_request(const char *method, const char *url_str, const char *
                 if (ulen >= sizeof(url_buf))
                     break;
                 memcpy(url_buf, loc, ulen + 1);
-                /* 301/302/303 change method to GET */
-                if (code == 301 || code == 302 || code == 303)
+                if (redirect_changes_method(code))
                 {
                     method = "GET";
                     body = NULL;
@@ -393,9 +548,10 @@ HTTP_STATIC int do_request(const char *method, const char *url_str, const char *
                 continue;
             }
         }
-        return 0;
+        break;
     }
-    return 0; /* max redirects reached, return last response */
+    free(cookie_jar);
+    return result;
 }
 
 /* ── HTTP server via platform TCP sockets ────────────────────────── */
