@@ -161,7 +161,7 @@ HTTP_STATIC void response_free(http_response_t *r)
 
 /* ── Socket-based HTTP/1.1 fallback (no TLS) ─────────────────────── */
 
-#define HTTP_MAX_REQUEST_OVERHEAD 80U     /* method+path+host+fixed headers margin */
+#define HTTP_MAX_REQUEST_OVERHEAD 80U /* method+path+host+fixed headers margin */
 #define HTTP_MAX_HEADER_BYTES (64U * 1024U)
 #define HTTP_MAX_BODY_BYTES (8U * 1024U * 1024U)
 #define HTTP_MAX_RESPONSE_HEADER_BYTES (256U * 1024U)
@@ -190,8 +190,8 @@ static int tcp_send_all(vigil_socket_t sock, const void *data, size_t len)
 static char *alloc_request_buf(const char *method, const char *path, const char *host, const char *headers,
                                size_t body_len, size_t *out_len)
 {
-    size_t cap = strlen(method) + 1 + strlen(path) + 11 + 7 + strlen(host) + 2 + 19 +
-                 (headers ? strlen(headers) : 0) + HTTP_MAX_REQUEST_OVERHEAD + 1;
+    size_t cap = strlen(method) + 1 + strlen(path) + 11 + 7 + strlen(host) + 2 + 19 + (headers ? strlen(headers) : 0) +
+                 HTTP_MAX_REQUEST_OVERHEAD + 1;
     char *buf = (char *)malloc(cap);
     if (!buf)
         return NULL;
@@ -484,8 +484,7 @@ static int tls_copy_rsa_key(br_x509_pkey *dst, br_x509_pkey *src)
 }
 
 /* Decode one DER certificate and append a trust anchor to *tas[*count]. */
-static int tls_decode_ta(const unsigned char *der, size_t der_len,
-                         br_x509_trust_anchor *ta)
+static int tls_decode_ta(const unsigned char *der, size_t der_len, br_x509_trust_anchor *ta)
 {
     tls_dn_acc_t dn_acc;
     br_x509_decoder_context xc;
@@ -531,8 +530,7 @@ typedef struct
 static int tls_ca_enum_cb(const unsigned char *der, size_t len, void *userdata)
 {
     tls_ca_ctx_t *ctx = (tls_ca_ctx_t *)userdata;
-    if (ctx->count < ctx->max_tas &&
-        tls_decode_ta(der, len, &ctx->tas[ctx->count]))
+    if (ctx->count < ctx->max_tas && tls_decode_ta(der, len, &ctx->tas[ctx->count]))
         ctx->count++;
     return 0;
 }
@@ -576,8 +574,8 @@ typedef struct
 static int tls_send_request(br_sslio_context *ioc, const tls_req_t *req)
 {
     size_t req_len = 0;
-    char *req_buf = alloc_request_buf(req->method, req->url->path, req->url->host,
-                                      req->headers, req->body_len, &req_len);
+    char *req_buf =
+        alloc_request_buf(req->method, req->url->path, req->url->host, req->headers, req->body_len, &req_len);
     if (!req_buf)
         return -1;
     int ok = (br_sslio_write_all(ioc, req_buf, req_len) == 0);
@@ -615,12 +613,10 @@ static char *tls_recv_response(br_sslio_context *ioc, size_t *out_len)
 }
 
 /* Core TLS request: sc must already be initialised with the right x509 engine. */
-static int bearssl_do_https(const tls_req_t *req, http_response_t *resp,
-                            br_ssl_client_context *sc)
+static int bearssl_do_https(const tls_req_t *req, http_response_t *resp, br_ssl_client_context *sc)
 {
     vigil_socket_t sock = VIGIL_INVALID_SOCKET;
-    if (vigil_platform_tcp_connect(req->url->host, req->url->port, &sock, NULL) !=
-        VIGIL_STATUS_OK)
+    if (vigil_platform_tcp_connect(req->url->host, req->url->port, &sock, NULL) != VIGIL_STATUS_OK)
         return -1;
     vigil_platform_tcp_set_timeout(sock, HTTP_DEFAULT_TIMEOUT_MS, NULL);
 
@@ -650,12 +646,10 @@ static int bearssl_do_https(const tls_req_t *req, http_response_t *resp,
 }
 
 /* Public: HTTPS with platform CA verification. */
-HTTP_STATIC int bearssl_https_request(const char *method, const parsed_url_t *url,
-                                      const char *headers, const char *body,
-                                      size_t body_len, http_response_t *resp)
+HTTP_STATIC int bearssl_https_request(const char *method, const parsed_url_t *url, const char *headers,
+                                      const char *body, size_t body_len, http_response_t *resp)
 {
-    br_x509_trust_anchor *tas = (br_x509_trust_anchor *)malloc(
-        TLS_MAX_TAS * sizeof(br_x509_trust_anchor));
+    br_x509_trust_anchor *tas = (br_x509_trust_anchor *)malloc(TLS_MAX_TAS * sizeof(br_x509_trust_anchor));
     if (!tas)
         return -1;
 
@@ -679,9 +673,8 @@ HTTP_STATIC int bearssl_https_request(const char *method, const parsed_url_t *ur
 }
 
 /* Public: HTTPS skipping certificate verification (test / emergency use). */
-HTTP_STATIC int bearssl_https_insecure_request(const char *method, const parsed_url_t *url,
-                                               const char *headers, const char *body,
-                                               size_t body_len, http_response_t *resp)
+HTTP_STATIC int bearssl_https_insecure_request(const char *method, const parsed_url_t *url, const char *headers,
+                                               const char *body, size_t body_len, http_response_t *resp)
 {
     br_x509_insecure_context ins_xc;
     ins_xc.vtable = &tls_x509_insecure_vtable;
@@ -856,8 +849,7 @@ static const char *extract_location_value(const char *p, const char *eol)
 
 /* If line [p, eol) is a Location header whose value fits in buf, copy it and
  * return buf; otherwise return NULL. */
-static const char *try_copy_location(const char *p, const char *eol,
-                                     char *buf, size_t buf_sz)
+static const char *try_copy_location(const char *p, const char *eol, char *buf, size_t buf_sz)
 {
     const char *val = extract_location_value(p, eol);
     if (!val)
@@ -905,9 +897,8 @@ static int is_redirect_status(int code)
 /* If resp is a followable redirect with a valid Location, update url_buf and
  * (for 301/302/303) reset method to GET.  Frees resp and returns 1 on
  * success; returns 0 without modifying anything on failure. */
-static int apply_redirect(http_response_t *resp, char *url_buf, size_t url_buf_sz,
-                          const char **method_out, const char **body_out,
-                          size_t *body_len_out)
+static int apply_redirect(http_response_t *resp, char *url_buf, size_t url_buf_sz, const char **method_out,
+                          const char **body_out, size_t *body_len_out)
 {
     if (!is_redirect_status(resp->status_code))
         return 0;
@@ -1069,7 +1060,7 @@ static http_conn_t *get_client(int64_t h)
 /* Parse an incoming HTTP request from a connected socket. */
 /* Ensure header buffer has room for len+1 bytes, growing up to
  * HTTP_MAX_HEADER_BYTES.  Returns NULL (buf freed) on limit or OOM. */
-static char *ensure_hdr_capacity(char *buf, size_t *cap, size_t len)
+HTTP_STATIC char *ensure_hdr_capacity(char *buf, size_t *cap, size_t len)
 {
     if (len + 1 < *cap)
         return buf;
@@ -1093,7 +1084,7 @@ static char *ensure_hdr_capacity(char *buf, size_t *cap, size_t len)
 
 /* Read from sock until "\r\n\r\n" is seen.  Returns a NUL-terminated
  * malloc'd buffer (caller frees), or NULL on error or oversized headers. */
-static char *recv_request_headers(vigil_socket_t sock, size_t *out_len)
+HTTP_STATIC char *recv_request_headers(vigil_socket_t sock, size_t *out_len)
 {
     size_t cap = 8192, len = 0;
     char *buf = (char *)malloc(cap);
@@ -1124,8 +1115,7 @@ static char *recv_request_headers(vigil_socket_t sock, size_t *out_len)
 /* Parse "METHOD PATH HTTP/x.x\r\n" at buf[0..line_end).
  * Sets *method_out and *path_out to newly malloc'd strings.
  * Returns 0 on success; both pointers are NULL on failure. */
-static int parse_request_line(const char *buf, const char *line_end,
-                              char **method_out, char **path_out)
+HTTP_STATIC int parse_request_line(const char *buf, const char *line_end, char **method_out, char **path_out)
 {
     const char *sp1 = strchr(buf, ' ');
     if (!sp1 || sp1 > line_end)
@@ -1159,7 +1149,7 @@ static int parse_request_line(const char *buf, const char *line_end,
 
 /* Extract Content-Length from headers.  Returns -1 if the value exceeds
  * HTTP_MAX_BODY_BYTES, 1 if found and valid (sets *out), 0 if absent. */
-static int parse_content_length(const char *headers, size_t *out)
+HTTP_STATIC int parse_content_length(const char *headers, size_t *out)
 {
     *out = 0;
     const char *cl = strstr(headers, "Content-Length:");
@@ -1176,8 +1166,8 @@ static int parse_content_length(const char *headers, size_t *out)
 
 /* Read exactly content_length bytes into body (pre-allocated, room for +1).
  * already bytes are pre-filled from bstart.  Returns 0 on success. */
-static int recv_body_bytes(vigil_socket_t sock, char *body, const char *bstart,
-                           size_t already, size_t content_length)
+HTTP_STATIC int recv_body_bytes(vigil_socket_t sock, char *body, const char *bstart, size_t already,
+                                size_t content_length)
 {
     if (already > 0)
         memcpy(body, bstart, already);
@@ -1185,8 +1175,7 @@ static int recv_body_bytes(vigil_socket_t sock, char *body, const char *bstart,
     while (got < content_length)
     {
         size_t n = 0;
-        if (vigil_platform_tcp_recv(sock, body + got, content_length - got, &n, NULL) != VIGIL_STATUS_OK
-            || n == 0)
+        if (vigil_platform_tcp_recv(sock, body + got, content_length - got, &n, NULL) != VIGIL_STATUS_OK || n == 0)
             return -1;
         got += n;
     }
@@ -1197,9 +1186,8 @@ static int recv_body_bytes(vigil_socket_t sock, char *body, const char *bstart,
 /* Build the request body from bytes already in the header buffer plus any
  * remaining bytes read from sock.  Returns a malloc'd NUL-terminated buffer
  * (caller frees) and sets *body_len_out; NULL on error. */
-static char *recv_request_body(vigil_socket_t sock, const char *headers,
-                               const char *bstart, size_t already,
-                               size_t *body_len_out)
+HTTP_STATIC char *recv_request_body(vigil_socket_t sock, const char *headers, const char *bstart, size_t already,
+                                    size_t *body_len_out)
 {
     if (already > HTTP_MAX_BODY_BYTES)
         return NULL;
@@ -1232,7 +1220,7 @@ static char *recv_request_body(vigil_socket_t sock, const char *headers,
     return body;
 }
 
-static int parse_incoming_request(http_conn_t *conn)
+HTTP_STATIC int parse_incoming_request(http_conn_t *conn)
 {
     size_t hdr_buf_len = 0;
     char *buf = recv_request_headers(conn->sock, &hdr_buf_len);
