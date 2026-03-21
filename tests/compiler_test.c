@@ -1,5 +1,6 @@
 #include "vigil_test.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "vigil/vigil.h"
@@ -107,6 +108,63 @@ static int64_t CompileAndRunMulti(int *vigil_test_failed_, const struct TestSour
     vigil_vm_close(&vm);
     vigil_runtime_close(&runtime);
     return output;
+}
+
+static void CompileSingleDiagnosticMessage(const char *source_text, char *message, size_t message_size)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_source_id_t source_id;
+    size_t diagnostic_count;
+    vigil_status_t status;
+
+    message[0] = '\0';
+    status = vigil_runtime_open(&runtime, NULL, &error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        snprintf(message, message_size, "<runtime-open:%d>", status);
+        return;
+    }
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+
+    status = vigil_source_registry_register_cstr(&registry, "/project/main.vigil", source_text, &source_id, &error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_compile_source(&registry, source_id, &function, &diagnostics, &error);
+    }
+
+    diagnostic_count = vigil_diagnostic_list_count(&diagnostics);
+    if (status == VIGIL_STATUS_SYNTAX_ERROR && diagnostic_count == 1U)
+    {
+        snprintf(message, message_size, "%s",
+                 vigil_string_c_str(&vigil_diagnostic_list_get(&diagnostics, 0U)->message));
+    }
+    else
+    {
+        snprintf(message, message_size, "<status:%d diagnostics:%zu>", status, diagnostic_count);
+    }
+
+    if (function != NULL)
+    {
+        vigil_object_release(&function);
+    }
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_runtime_close(&runtime);
+}
+
+static void ExpectSingleCompilerDiagnostic(int *vigil_test_failed_, const char *source_text,
+                                           const char *expected_message)
+{
+    char actual_message[256];
+
+    (void)vigil_test_failed_;
+    CompileSingleDiagnosticMessage(source_text, actual_message, sizeof(actual_message));
+    EXPECT_STREQ(actual_message, expected_message);
 }
 
 TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals)
@@ -1446,6 +1504,85 @@ TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilCompilerTest, RejectsDuplicateGlobalVariableNames)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "i32 LIMIT = 1;"
+                                   "i32 LIMIT = 2;"
+                                   "fn main() -> i32 {"
+                                   "    return LIMIT;"
+                                   "}",
+                                   "global variable is already declared");
+}
+
+TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithGlobalConstant)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "const i32 LIMIT = 1;"
+                                   "i32 LIMIT = 2;"
+                                   "fn main() -> i32 {"
+                                   "    return LIMIT;"
+                                   "}",
+                                   "global variable name conflicts with global constant");
+}
+
+TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithGlobalVariable)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "i32 LIMIT = 1;"
+                                   "const i32 LIMIT = 2;"
+                                   "fn main() -> i32 {"
+                                   "    return LIMIT;"
+                                   "}",
+                                   "global constant name conflicts with global variable");
+}
+
+TEST(VigilCompilerTest, RejectsGlobalVariableMissingInitializer)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "i32 LIMIT = ;"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected initializer expression for global variable");
+}
+
+TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithFunction)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "fn LIMIT() -> i32 {"
+                                   "    return 1;"
+                                   "}"
+                                   "i32 LIMIT = 2;"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "global variable name conflicts with function");
+}
+
+TEST(VigilCompilerTest, RejectsGlobalConstantInitializerTypeMismatch)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "const i32 LIMIT = true;"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "initializer type does not match global constant type");
+}
+
+TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithFunction)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "fn LIMIT() -> i32 {"
+                                   "    return 1;"
+                                   "}"
+                                   "const i32 LIMIT = 2;"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "global constant name conflicts with function");
+}
+
 TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable)
 {
     vigil_runtime_t *runtime = NULL;
@@ -2549,6 +2686,13 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedImportedEnumsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedConstantsWithBitwiseExpressions);
     REGISTER_TEST(VigilCompilerTest, RejectsDuplicateGlobalConstantNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsDuplicateGlobalVariableNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithGlobalConstant);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithGlobalVariable);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalVariableMissingInitializer);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalVariableNameConflictsWithFunction);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantInitializerTypeMismatch);
+    REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithFunction);
     REGISTER_TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable);
     REGISTER_TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers);
     REGISTER_TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants);
