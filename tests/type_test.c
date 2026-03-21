@@ -15,20 +15,30 @@ typedef struct
     vigil_type_kind_t kind;
 } type_parse_case_t;
 
-static void expect_type_name_cases(const type_name_case_t *cases, size_t count)
+static int type_name_cases_match(const type_name_case_t *cases, size_t count)
 {
     size_t index;
 
     for (index = 0U; index < count; index += 1U)
-        EXPECT_STREQ(vigil_type_kind_name(cases[index].kind), cases[index].name);
+    {
+        if (strcmp(vigil_type_kind_name(cases[index].kind), cases[index].name) != 0)
+            return 0;
+    }
+
+    return 1;
 }
 
-static void expect_type_parse_cases(const type_parse_case_t *cases, size_t count)
+static int type_parse_cases_match(const type_parse_case_t *cases, size_t count)
 {
     size_t index;
 
     for (index = 0U; index < count; index += 1U)
-        EXPECT_EQ(vigil_type_kind_from_name(cases[index].name, cases[index].length), cases[index].kind);
+    {
+        if (vigil_type_kind_from_name(cases[index].name, cases[index].length) != cases[index].kind)
+            return 0;
+    }
+
+    return 1;
 }
 
 TEST(VigilTypeTest, KindNamesAreStable)
@@ -40,7 +50,7 @@ TEST(VigilTypeTest, KindNamesAreStable)
         {VIGIL_TYPE_OBJECT, "object"},
     };
 
-    expect_type_name_cases(cases, sizeof(cases) / sizeof(cases[0]));
+    EXPECT_TRUE(type_name_cases_match(cases, sizeof(cases) / sizeof(cases[0])));
 }
 
 TEST(VigilTypeTest, KindParsingAcceptsBuiltinNames)
@@ -52,7 +62,7 @@ TEST(VigilTypeTest, KindParsingAcceptsBuiltinNames)
         {"void", 4U, VIGIL_TYPE_VOID}, {"nil", 3U, VIGIL_TYPE_NIL},
     };
 
-    expect_type_parse_cases(cases, sizeof(cases) / sizeof(cases[0]));
+    EXPECT_TRUE(type_parse_cases_match(cases, sizeof(cases) / sizeof(cases[0])));
 }
 
 TEST(VigilTypeTest, KindParsingRejectsUnknownNames)
