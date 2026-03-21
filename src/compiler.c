@@ -45,6 +45,7 @@ vigil_status_t vigil_parser_emit_string_constant_text(vigil_parser_state_t *stat
 vigil_status_t vigil_parser_emit_ok_constant(vigil_parser_state_t *state, vigil_source_span_t span);
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span);
+static int vigil_opcode_produces_i64(vigil_opcode_t op);
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
@@ -11967,12 +11968,37 @@ vigil_status_t vigil_parser_emit_f64_constant(vigil_parser_state_t *state, doubl
     return status;
 }
 
+/* Returns 1 if opcode already produces an i64 result (single-byte ops only). */
+static int vigil_opcode_produces_i64(vigil_opcode_t op)
+{
+    switch (op)
+    {
+    case VIGIL_OPCODE_ADD_I64:
+    case VIGIL_OPCODE_SUBTRACT_I64:
+    case VIGIL_OPCODE_MULTIPLY_I64:
+    case VIGIL_OPCODE_DIVIDE_I64:
+    case VIGIL_OPCODE_MODULO_I64:
+    case VIGIL_OPCODE_TO_I64:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span)
 {
     vigil_opcode_t opcode;
 
     if (!vigil_parser_type_is_integer(target_type))
+    {
+        return VIGIL_STATUS_OK;
+    }
+
+    /* Peephole: skip cast if the last single-byte opcode already produces
+       the target type. */
+    if (vigil_parser_type_is_i64(target_type) && state->chunk.code.length > 0U &&
+        vigil_opcode_produces_i64((vigil_opcode_t)state->chunk.code.data[state->chunk.code.length - 1U]))
     {
         return VIGIL_STATUS_OK;
     }
