@@ -501,174 +501,34 @@ static int tls_decode_ta(const unsigned char *der, size_t der_len,
     return 0;
 }
 
-/* tls_load_platform_cas: load trust anchors from the OS certificate store.
- * Returns count on success, -1 if no store is available. */
-#if defined(_WIN32)
+/* Load trust anchors via the platform abstraction layer.
+ * vigil_platform_enumerate_tls_cas is implemented in src/platform/ and
+ * handles Windows (WinCrypt), macOS (Security.framework), and Linux/BSD
+ * (PEM file probing) without pulling platform headers into this layer. */
 
-#include <windows.h>
-#include <wincrypt.h>
-
-static int tls_load_platform_cas(br_x509_trust_anchor *tas, size_t max_tas)
+typedef struct
 {
-    HCERTSTORE store = CertOpenSystemStoreA(0, "ROOT");
-    if (!store)
-        return -1;
-    size_t count = 0;
-    PCCERT_CONTEXT cert = NULL;
-    while (count < max_tas &&
-           (cert = CertEnumCertificatesInStore(store, cert)) != NULL)
-    {
-        if (tls_decode_ta(cert->pbCertEncoded, cert->cbCertEncoded, &tas[count]))
-            count++;
-    }
-    CertCloseStore(store, 0);
-    return (int)count;
-}
+    br_x509_trust_anchor *tas;
+    size_t max_tas;
+    size_t count;
+} tls_ca_ctx_t;
 
-#elif defined(__APPLE__)
-
-#include <Security/Security.h>
-/* Security.h transitively pulls in ObjC headers that define nil.
- * Undefine it here so the rest of this pure-C translation unit is unaffected. */
-#ifdef nil
-#undef nil
-#endif
-
-static int tls_load_platform_cas(br_x509_trust_anchor *tas, size_t max_tas)
+static int tls_ca_enum_cb(const unsigned char *der, size_t len, void *userdata)
 {
-    CFArrayRef anchors = NULL;
-    if (SecTrustCopyAnchorCertificates(&anchors) != errSecSuccess || !anchors)
-        return -1;
-    CFIndex n = CFArrayGetCount(anchors);
-    size_t count = 0;
-    for (CFIndex i = 0; i < n && count < max_tas; i++)
-    {
-        SecCertificateRef cert =
-            (SecCertificateRef)CFArrayGetValueAtIndex(anchors, i);
-        CFDataRef data = SecCertificateCopyData(cert);
-        if (!data)
-            continue;
-        if (tls_decode_ta(CFDataGetBytePtr(data), (size_t)CFDataGetLength(data),
-                          &tas[count]))
-            count++;
-        CFRelease(data);
-    }
-    CFRelease(anchors);
-    return (int)count;
-}
-
-#else /* Linux / BSD: probe well-known PEM bundle paths */
-
-static const char *const tls_ca_paths[] = {
-    "/etc/ssl/certs/ca-certificates.crt",                /* Debian / Ubuntu */
-    "/etc/ssl/cert.pem",                                  /* Alpine / OpenBSD */
-    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL / Fedora */
-    "/etc/ssl/ca-bundle.pem",                             /* SUSE */
-    NULL,
-};
-
-/* Minimal base64 decoder used by the PEM scanner. */
-static int tls_b64val(unsigned char c)
-{
-    if (c >= 'A' && c <= 'Z')
-        return c - 'A';
-    if (c >= 'a' && c <= 'z')
-        return c - 'a' + 26;
-    if (c >= '0' && c <= '9')
-        return c - '0' + 52;
-    if (c == '+')
-        return 62;
-    if (c == '/')
-        return 63;
-    return -1;
-}
-
-static size_t tls_b64decode(const char *b64, size_t b64_len,
-                            unsigned char *out, size_t max_out)
-{
-    size_t out_len = 0;
-    size_t i = 0;
-    while (i + 3 < b64_len && out_len + 3 <= max_out)
-    {
-        int v0 = tls_b64val((unsigned char)b64[i]);
-        int v1 = tls_b64val((unsigned char)b64[i + 1]);
-        int v2 = tls_b64val((unsigned char)b64[i + 2]);
-        int v3 = tls_b64val((unsigned char)b64[i + 3]);
-        if (v0 < 0 || v1 < 0)
-            break;
-        out[out_len++] = (unsigned char)((v0 << 2) | (v1 >> 4));
-        if (v2 < 0)
-            break;
-        out[out_len++] = (unsigned char)((v1 << 4) | (v2 >> 2));
-        if (v3 < 0)
-            break;
-        out[out_len++] = (unsigned char)((v2 << 6) | v3);
-        i += 4;
-    }
-    return out_len;
-}
-
-/* Read the next DER-encoded cert from a PEM stream, return 1 on success. */
-static int tls_pem_next_cert(FILE *f, unsigned char *out, size_t *out_len, size_t max_len)
-{
-    char line[256];
-    char b64[65536];
-    size_t b64_len = 0;
-    int in_cert = 0;
-
-    while (fgets(line, (int)sizeof(line), f))
-    {
-        size_t llen = strcspn(line, "\r\n");
-        line[llen] = '\0';
-
-        if (!in_cert)
-        {
-            if (strncmp(line, "-----BEGIN CERTIFICATE-----", 27) == 0 ||
-                strncmp(line, "-----BEGIN X509 CERTIFICATE-----", 32) == 0)
-            {
-                in_cert = 1;
-                b64_len = 0;
-            }
-        }
-        else if (strncmp(line, "-----END", 8) == 0)
-        {
-            *out_len = tls_b64decode(b64, b64_len, out, max_len);
-            return (*out_len > 0) ? 1 : 0;
-        }
-        else if (b64_len + llen < sizeof(b64))
-        {
-            memcpy(b64 + b64_len, line, llen);
-            b64_len += llen;
-        }
-    }
+    tls_ca_ctx_t *ctx = (tls_ca_ctx_t *)userdata;
+    if (ctx->count < ctx->max_tas &&
+        tls_decode_ta(der, len, &ctx->tas[ctx->count]))
+        ctx->count++;
     return 0;
 }
 
-/* Populate *tas (up to max_tas entries) from the system CA bundle. */
 static int tls_load_platform_cas(br_x509_trust_anchor *tas, size_t max_tas)
 {
-    size_t i;
-    for (i = 0; tls_ca_paths[i] != NULL; i++)
-    {
-        FILE *f = fopen(tls_ca_paths[i], "rb");
-        if (!f)
-            continue;
-
-        size_t count = 0;
-        unsigned char der[8192];
-        size_t der_len = 0;
-        while (count < max_tas && tls_pem_next_cert(f, der, &der_len, sizeof(der)))
-        {
-            if (tls_decode_ta(der, der_len, &tas[count]))
-                count++;
-        }
-        fclose(f);
-        return (int)count;
-    }
-    return -1;
+    tls_ca_ctx_t ctx = {tas, max_tas, 0};
+    if (vigil_platform_enumerate_tls_cas(tls_ca_enum_cb, &ctx) < 0)
+        return -1;
+    return (int)ctx.count;
 }
-
-#endif /* platform CA loading */
 
 static void tls_free_tas(br_x509_trust_anchor *tas, size_t count)
 {

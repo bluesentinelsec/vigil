@@ -460,6 +460,26 @@ extern "C"
     /** Issue a sequentially-consistent memory fence. */
     VIGIL_API void vigil_atomic_fence(void);
 
+    /* ── TLS certificate store ──────────────────────────────────────── */
+
+    /**
+     * Callback invoked once per DER-encoded trust anchor certificate.
+     * @param der      DER bytes (not NUL-terminated).
+     * @param der_len  Length of @der.
+     * @param userdata Caller-supplied context pointer.
+     * @return         0 to continue enumeration, non-zero to stop early.
+     */
+    typedef int (*vigil_tls_ca_cb_t)(const unsigned char *der, size_t der_len,
+                                     void *userdata);
+
+    /**
+     * Enumerate system TLS trust-anchor certificates.
+     * Calls @cb once for each certificate in the platform certificate store.
+     * @return Number of certificates delivered, or -1 if the store is unavailable.
+     */
+    VIGIL_API int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb,
+                                                   void *userdata);
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <direct.h>
 #include <windows.h>
+#include <wincrypt.h>
 
 #include "internal/vigil_internal.h"
 
@@ -2170,4 +2171,22 @@ fail:
         error->length = 22;
     }
     return VIGIL_STATUS_INTERNAL;
+}
+
+/* ── TLS certificate store ──────────────────────────────────────── */
+
+int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
+{
+    HCERTSTORE store = CertOpenSystemStoreA(0, "ROOT");
+    if (!store)
+        return -1;
+    int count = 0;
+    PCCERT_CONTEXT cert = NULL;
+    while ((cert = CertEnumCertificatesInStore(store, cert)) != NULL)
+    {
+        cb(cert->pbCertEncoded, (size_t)cert->cbCertEncoded, userdata);
+        count++;
+    }
+    CertCloseStore(store, 0);
+    return count;
 }

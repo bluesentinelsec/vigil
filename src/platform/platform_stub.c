@@ -744,3 +744,12 @@ int vigil_platform_glob_match(const char *pattern, const char *name)
         pattern++;
     return *pattern == '\0' && *name == '\0';
 }
+
+/* ── TLS certificate store ──────────────────────────────────────── */
+
+int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
+{
+    (void)cb;
+    (void)userdata;
+    return -1; /* no certificate store on this platform */
+}
