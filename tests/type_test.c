@@ -2,7 +2,7 @@
 
 #include "vigil/vigil.h"
 
-TEST(VigilTypeTest, KindNamesAndParsingAreStable)
+TEST(VigilTypeTest, KindNamesAreStable)
 {
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_INVALID), "invalid");
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_I32), "i32");
@@ -17,7 +17,10 @@ TEST(VigilTypeTest, KindNamesAndParsingAreStable)
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_VOID), "void");
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_NIL), "nil");
     EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_OBJECT), "object");
+}
 
+TEST(VigilTypeTest, KindParsingAcceptsBuiltinNames)
+{
     EXPECT_EQ(vigil_type_kind_from_name("i32", 3U), VIGIL_TYPE_I32);
     EXPECT_EQ(vigil_type_kind_from_name("i64", 3U), VIGIL_TYPE_I64);
     EXPECT_EQ(vigil_type_kind_from_name("u8", 2U), VIGIL_TYPE_U8);
@@ -29,6 +32,10 @@ TEST(VigilTypeTest, KindNamesAndParsingAreStable)
     EXPECT_EQ(vigil_type_kind_from_name("err", 3U), VIGIL_TYPE_ERR);
     EXPECT_EQ(vigil_type_kind_from_name("void", 4U), VIGIL_TYPE_VOID);
     EXPECT_EQ(vigil_type_kind_from_name("nil", 3U), VIGIL_TYPE_NIL);
+}
+
+TEST(VigilTypeTest, KindParsingRejectsUnknownNames)
+{
     EXPECT_EQ(vigil_type_kind_from_name("object", 6U), VIGIL_TYPE_INVALID);
     EXPECT_EQ(vigil_type_kind_from_name("unknown", 7U), VIGIL_TYPE_INVALID);
     EXPECT_EQ(vigil_type_kind_from_name(NULL, 0U), VIGIL_TYPE_INVALID);
@@ -51,7 +58,7 @@ TEST(VigilTypeTest, AssignabilityRequiresMatchingValidTypes)
     EXPECT_FALSE(vigil_type_is_assignable(VIGIL_TYPE_INVALID, VIGIL_TYPE_I32));
 }
 
-TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules)
+TEST(VigilTypeTest, UnaryOperatorSupportMatchesCurrentLanguageRules)
 {
     EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_I32));
     EXPECT_TRUE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_NEGATE, VIGIL_TYPE_I64));
@@ -63,7 +70,10 @@ TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules)
     EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_LOGICAL_NOT, VIGIL_TYPE_I32));
     EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_BITWISE_NOT, VIGIL_TYPE_F64));
     EXPECT_FALSE(vigil_type_supports_unary_operator(VIGIL_UNARY_OPERATOR_BITWISE_NOT, VIGIL_TYPE_U32));
+}
 
+TEST(VigilTypeTest, BinaryOperatorAddAndArithmeticRules)
+{
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_I32, VIGIL_TYPE_I32));
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_I64, VIGIL_TYPE_I64));
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_ADD, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
@@ -73,19 +83,31 @@ TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules)
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_DIVIDE, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
     EXPECT_FALSE(
         vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_MULTIPLY, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING));
-    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BOOL, VIGIL_TYPE_BOOL));
-    EXPECT_FALSE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BOOL, VIGIL_TYPE_I32));
-    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_NOT_EQUAL, VIGIL_TYPE_ERR, VIGIL_TYPE_ERR));
+}
+
+TEST(VigilTypeTest, BinaryOperatorBitwiseRules)
+{
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_BITWISE_AND, VIGIL_TYPE_U32, VIGIL_TYPE_U32));
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_BITWISE_AND, VIGIL_TYPE_I32, VIGIL_TYPE_I32));
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_SHIFT_LEFT, VIGIL_TYPE_U8, VIGIL_TYPE_U8));
     EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_SHIFT_LEFT, VIGIL_TYPE_I32, VIGIL_TYPE_I32));
-    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_GREATER, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
-    EXPECT_TRUE(
-        vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_LESS_EQUAL, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING));
     EXPECT_FALSE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_MODULO, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
     EXPECT_FALSE(
         vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_BITWISE_OR, VIGIL_TYPE_BOOL, VIGIL_TYPE_I32));
+}
+
+TEST(VigilTypeTest, BinaryOperatorComparisonAndEqualityRules)
+{
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BOOL, VIGIL_TYPE_BOOL));
+    EXPECT_FALSE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_EQUAL, VIGIL_TYPE_BOOL, VIGIL_TYPE_I32));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_NOT_EQUAL, VIGIL_TYPE_ERR, VIGIL_TYPE_ERR));
+    EXPECT_TRUE(vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_GREATER, VIGIL_TYPE_F64, VIGIL_TYPE_F64));
+    EXPECT_TRUE(
+        vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_LESS_EQUAL, VIGIL_TYPE_STRING, VIGIL_TYPE_STRING));
+}
+
+TEST(VigilTypeTest, BinaryOperatorLogicalRules)
+{
     EXPECT_TRUE(
         vigil_type_supports_binary_operator(VIGIL_BINARY_OPERATOR_LOGICAL_AND, VIGIL_TYPE_BOOL, VIGIL_TYPE_BOOL));
     EXPECT_TRUE(
@@ -112,8 +134,14 @@ TEST(VigilTypeTest, FunctionSignaturesValidateAndCheckArguments)
 
 void register_type_tests(void)
 {
-    REGISTER_TEST(VigilTypeTest, KindNamesAndParsingAreStable);
+    REGISTER_TEST(VigilTypeTest, KindNamesAreStable);
+    REGISTER_TEST(VigilTypeTest, KindParsingAcceptsBuiltinNames);
+    REGISTER_TEST(VigilTypeTest, KindParsingRejectsUnknownNames);
     REGISTER_TEST(VigilTypeTest, AssignabilityRequiresMatchingValidTypes);
-    REGISTER_TEST(VigilTypeTest, UnaryAndBinaryOperatorSupportMatchesCurrentLanguageRules);
+    REGISTER_TEST(VigilTypeTest, UnaryOperatorSupportMatchesCurrentLanguageRules);
+    REGISTER_TEST(VigilTypeTest, BinaryOperatorAddAndArithmeticRules);
+    REGISTER_TEST(VigilTypeTest, BinaryOperatorBitwiseRules);
+    REGISTER_TEST(VigilTypeTest, BinaryOperatorComparisonAndEqualityRules);
+    REGISTER_TEST(VigilTypeTest, BinaryOperatorLogicalRules);
     REGISTER_TEST(VigilTypeTest, FunctionSignaturesValidateAndCheckArguments);
 }
