@@ -199,6 +199,58 @@ class TestReplInteractive(unittest.TestCase):
         self.send_line(child, ":quit")
         child.expect(pexpect.EOF)
 
+    def test_delete_key(self):
+        """Test Delete removes the character under the cursor."""
+        child = self.spawn_repl()
+        child.send("123")
+        child.send("\x1b[D")    # Left arrow, cursor before 3
+        child.send("\x1b[3~")   # Delete
+        child.send("4")
+        self.send_line(child, "")
+        child.expect("124")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_d_deletes_character_under_cursor(self):
+        """Test Ctrl-D deletes the character under the cursor when line is not empty."""
+        child = self.spawn_repl()
+        child.send("123")
+        child.send("\x1b[D")  # Left arrow, cursor before 3
+        child.send("\x04")    # Ctrl-D
+        child.send("4")
+        self.send_line(child, "")
+        child.expect("124")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_ctrl_t_transposes_characters(self):
+        """Test Ctrl-T swaps the previous two characters."""
+        child = self.spawn_repl()
+        child.send("132")
+        child.send("\x1b[D")  # Left arrow, cursor before 2
+        child.send("\x14")    # Ctrl-T
+        self.send_line(child, "")
+        child.expect("123")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
+    def test_home_end_o_sequences(self):
+        """Test ESC O Home/End sequences move to start and end of line."""
+        child = self.spawn_repl()
+        child.send("23")
+        child.send("\x1bOH")  # Home
+        child.send("1")
+        child.send("\x1bOF")  # End
+        child.send("4")
+        self.send_line(child, "")
+        child.expect("1234")
+        child.expect(">>>")
+        self.send_line(child, ":quit")
+        child.expect(pexpect.EOF)
+
     def test_special_commands(self):
         """Test :help and :clear commands."""
         child = self.spawn_repl()
