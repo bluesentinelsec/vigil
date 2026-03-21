@@ -1066,53 +1066,96 @@ static vigil_status_t vigil_vm_execute_defer_values(vigil_vm_t *vm, const vigil_
     return VIGIL_STATUS_OK;
 }
 
+static void vigil_vm_execute_defer_mark_pushed_frame(int *out_pushed_frame)
+{
+    if (out_pushed_frame != NULL)
+    {
+        *out_pushed_frame = 1;
+    }
+}
+
+static vigil_status_t vigil_vm_execute_defer_call_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                         const vigil_vm_defer_action_t *action, int *out_pushed_frame,
+                                                         vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = vigil_vm_invoke_call(vm, frame, (size_t)action->operand_a, (size_t)action->arg_count, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_vm_execute_defer_mark_pushed_frame(out_pushed_frame);
+    }
+    return status;
+}
+
+static vigil_status_t vigil_vm_execute_defer_value_action(vigil_vm_t *vm, const vigil_vm_defer_action_t *action,
+                                                          int *out_pushed_frame, vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = vigil_vm_invoke_value_call(vm, (size_t)action->arg_count, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_vm_execute_defer_mark_pushed_frame(out_pushed_frame);
+    }
+    return status;
+}
+
+static vigil_status_t vigil_vm_execute_defer_interface_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                              const vigil_vm_defer_action_t *action,
+                                                              int *out_pushed_frame, vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = vigil_vm_invoke_interface_call(vm, frame, (size_t)action->operand_a, (size_t)action->operand_b,
+                                            (size_t)action->arg_count, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_vm_execute_defer_mark_pushed_frame(out_pushed_frame);
+    }
+    return status;
+}
+
+static vigil_status_t vigil_vm_execute_defer_new_instance_action(vigil_vm_t *vm, const vigil_vm_defer_action_t *action,
+                                                                 vigil_error_t *error)
+{
+    return vigil_vm_invoke_new_instance(vm, (size_t)action->operand_a, (size_t)action->arg_count, 1, error);
+}
+
+static vigil_status_t vigil_vm_execute_defer_native_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                           const vigil_vm_defer_action_t *action, vigil_error_t *error)
+{
+    const vigil_value_t *nval;
+    vigil_object_t *nobj;
+    vigil_native_fn_t nfn;
+
+    nval = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)action->operand_a);
+    nobj = (vigil_object_t *)vigil_nanbox_decode_ptr(*nval);
+    nfn = vigil_native_function_get(nobj);
+    if (nfn == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "deferred call target is not a native function");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    return nfn(vm, (size_t)action->arg_count, error);
+}
+
 static vigil_status_t vigil_vm_execute_defer_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
                                                     const vigil_vm_defer_action_t *action, int *out_pushed_frame,
                                                     vigil_error_t *error)
 {
-    vigil_status_t status;
-
     switch (action->kind)
     {
     case VIGIL_VM_DEFER_CALL:
-        status = vigil_vm_invoke_call(vm, frame, (size_t)action->operand_a, (size_t)action->arg_count, error);
-        if (status == VIGIL_STATUS_OK && out_pushed_frame != NULL)
-        {
-            *out_pushed_frame = 1;
-        }
-        return status;
+        return vigil_vm_execute_defer_call_action(vm, frame, action, out_pushed_frame, error);
     case VIGIL_VM_DEFER_CALL_VALUE:
-        status = vigil_vm_invoke_value_call(vm, (size_t)action->arg_count, error);
-        if (status == VIGIL_STATUS_OK && out_pushed_frame != NULL)
-        {
-            *out_pushed_frame = 1;
-        }
-        return status;
+        return vigil_vm_execute_defer_value_action(vm, action, out_pushed_frame, error);
     case VIGIL_VM_DEFER_CALL_INTERFACE:
-        status = vigil_vm_invoke_interface_call(vm, frame, (size_t)action->operand_a, (size_t)action->operand_b,
-                                                (size_t)action->arg_count, error);
-        if (status == VIGIL_STATUS_OK && out_pushed_frame != NULL)
-        {
-            *out_pushed_frame = 1;
-        }
-        return status;
+        return vigil_vm_execute_defer_interface_action(vm, frame, action, out_pushed_frame, error);
     case VIGIL_VM_DEFER_NEW_INSTANCE:
-        return vigil_vm_invoke_new_instance(vm, (size_t)action->operand_a, (size_t)action->arg_count, 1, error);
-    case VIGIL_VM_DEFER_CALL_NATIVE: {
-        const vigil_value_t *nval;
-        vigil_object_t *nobj;
-        vigil_native_fn_t nfn;
-
-        nval = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)action->operand_a);
-        nobj = (vigil_object_t *)vigil_nanbox_decode_ptr(*nval);
-        nfn = vigil_native_function_get(nobj);
-        if (nfn == NULL)
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "deferred call target is not a native function");
-            return VIGIL_STATUS_INTERNAL;
-        }
-        return nfn(vm, (size_t)action->arg_count, error);
-    }
+        return vigil_vm_execute_defer_new_instance_action(vm, action, error);
+    case VIGIL_VM_DEFER_CALL_NATIVE:
+        return vigil_vm_execute_defer_native_action(vm, frame, action, error);
     default:
         vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "defer target is invalid");
         return VIGIL_STATUS_INTERNAL;
@@ -1893,6 +1936,24 @@ static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value
 #define FSPEC_WIDTH(w) ((w) & 0xFFFFU)
 #define FSPEC_PREC(w) (((w) >> 16U) & 0xFFFFU)
 
+typedef struct
+{
+    char fill;
+    unsigned int align;
+    unsigned int width;
+    vigil_value_t *out_value;
+} vigil_vm_format_spec_layout_t;
+
+typedef struct
+{
+    unsigned int fmt_type;
+    unsigned int grouping;
+    char *buf;
+    size_t buf_size;
+    int *out_len;
+    vigil_error_t *error;
+} vigil_vm_format_spec_int_args_t;
+
 static uint64_t vigil_vm_format_spec_abs_i64(int64_t value)
 {
     if (value < 0)
@@ -2181,43 +2242,42 @@ static int vigil_vm_format_spec_apply_grouping(char *buf, int len)
     return dst;
 }
 
-static vigil_status_t vigil_vm_format_spec_integer_value(const vigil_value_t *val, unsigned int fmt_type,
-                                                         unsigned int grouping, char *buf, size_t buf_size,
-                                                         int *out_len, vigil_error_t *error)
+static vigil_status_t vigil_vm_format_spec_integer_value(const vigil_value_t *val,
+                                                         const vigil_vm_format_spec_int_args_t *args)
 {
     vigil_status_t status;
     int len;
 
-    if (fmt_type == 1U)
+    if (args->fmt_type == 1U)
     {
-        status = vigil_vm_format_spec_write_decimal(val, buf, buf_size, &len, error);
+        status = vigil_vm_format_spec_write_decimal(val, args->buf, args->buf_size, &len, args->error);
     }
-    else if (fmt_type == 2U)
+    else if (args->fmt_type == 2U)
     {
-        status = vigil_vm_format_spec_write_hex(val, buf, buf_size, 0, &len, error);
+        status = vigil_vm_format_spec_write_hex(val, args->buf, args->buf_size, 0, &len, args->error);
     }
-    else if (fmt_type == 3U)
+    else if (args->fmt_type == 3U)
     {
-        status = vigil_vm_format_spec_write_hex(val, buf, buf_size, 1, &len, error);
+        status = vigil_vm_format_spec_write_hex(val, args->buf, args->buf_size, 1, &len, args->error);
     }
-    else if (fmt_type == 4U)
+    else if (args->fmt_type == 4U)
     {
-        status = vigil_vm_format_spec_write_binary(val, buf, buf_size, &len, error);
+        status = vigil_vm_format_spec_write_binary(val, args->buf, args->buf_size, &len, args->error);
     }
     else
     {
-        status = vigil_vm_format_spec_write_octal(val, buf, buf_size, &len, error);
+        status = vigil_vm_format_spec_write_octal(val, args->buf, args->buf_size, &len, args->error);
     }
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
 
-    if (grouping != 0U && fmt_type == 1U)
+    if (args->grouping != 0U && args->fmt_type == 1U)
     {
-        len = vigil_vm_format_spec_apply_grouping(buf, len);
+        len = vigil_vm_format_spec_apply_grouping(args->buf, len);
     }
-    *out_len = len;
+    *args->out_len = len;
     return VIGIL_STATUS_OK;
 }
 
@@ -2280,9 +2340,8 @@ static vigil_status_t vigil_vm_format_spec_string_value(const vigil_value_t *val
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char *text, size_t text_len, char fill,
-                                                     unsigned int align, unsigned int width, vigil_value_t *out_value,
-                                                     vigil_error_t *error)
+static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char *text, size_t text_len,
+                                                     const vigil_vm_format_spec_layout_t *layout, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_object_t *object;
@@ -2293,10 +2352,10 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
     size_t rpad;
     char *out;
 
-    if (width > 0U && text_len < width)
+    if (layout->width > 0U && text_len < layout->width)
     {
-        pad = width - text_len;
-        total = width;
+        pad = layout->width - text_len;
+        total = layout->width;
         status = vigil_runtime_alloc(vm->runtime, total + 1U, &memory, error);
         if (status != VIGIL_STATUS_OK)
         {
@@ -2305,11 +2364,11 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
         out = (char *)memory;
         lpad = 0U;
         rpad = 0U;
-        if (align == 1U)
+        if (layout->align == 1U)
         {
             rpad = pad;
         }
-        else if (align == 3U)
+        else if (layout->align == 3U)
         {
             lpad = pad / 2U;
             rpad = pad - lpad;
@@ -2318,12 +2377,12 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
         {
             lpad = pad;
         }
-        memset(out, fill, lpad);
+        memset(out, layout->fill, lpad);
         if (text_len > 0U)
         {
             memcpy(out + lpad, text, text_len);
         }
-        memset(out + lpad + text_len, fill, rpad);
+        memset(out + lpad + text_len, layout->fill, rpad);
         object = NULL;
         status = vigil_string_object_new(vm->runtime, out, total, &object, error);
         vigil_runtime_free(vm->runtime, &memory);
@@ -2331,7 +2390,7 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
         {
             return status;
         }
-        vigil_value_init_object(out_value, &object);
+        vigil_value_init_object(layout->out_value, &object);
         vigil_object_release(&object);
         return VIGIL_STATUS_OK;
     }
@@ -2342,7 +2401,7 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
     {
         return status;
     }
-    vigil_value_init_object(out_value, &object);
+    vigil_value_init_object(layout->out_value, &object);
     vigil_object_release(&object);
     return VIGIL_STATUS_OK;
 }
@@ -2382,7 +2441,15 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
     }
     else if (fmt_type >= 1U && fmt_type <= 5U)
     {
-        status = vigil_vm_format_spec_integer_value(val, fmt_type, grouping, buf, sizeof(buf), &len, error);
+        vigil_vm_format_spec_int_args_t int_args;
+
+        int_args.fmt_type = fmt_type;
+        int_args.grouping = grouping;
+        int_args.buf = buf;
+        int_args.buf_size = sizeof(buf);
+        int_args.out_len = &len;
+        int_args.error = error;
+        status = vigil_vm_format_spec_integer_value(val, &int_args);
         if (status != VIGIL_STATUS_OK)
         {
             return status;
@@ -2395,10 +2462,22 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
         {
             return status;
         }
-        return vigil_vm_format_spec_emit_text(vm, text, text_len, fill, align, width, out_value, error);
+        vigil_vm_format_spec_layout_t layout;
+
+        layout.fill = fill;
+        layout.align = align;
+        layout.width = width;
+        layout.out_value = out_value;
+        return vigil_vm_format_spec_emit_text(vm, text, text_len, &layout, error);
     }
 
-    return vigil_vm_format_spec_emit_text(vm, buf, (size_t)len, fill, align, width, out_value, error);
+    vigil_vm_format_spec_layout_t layout;
+
+    layout.fill = fill;
+    layout.align = align;
+    layout.width = width;
+    layout.out_value = out_value;
+    return vigil_vm_format_spec_emit_text(vm, buf, (size_t)len, &layout, error);
 }
 
 static vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,

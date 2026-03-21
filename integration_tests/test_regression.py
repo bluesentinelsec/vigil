@@ -861,6 +861,57 @@ class FStringAndStringTest(unittest.TestCase):
             }
         """, 0)
 
+    def test_fstring_format_variants(self) -> None:
+        self._run("""
+            fn main() -> i32 {
+                string name = "Alice";
+                i32 age = 30;
+                i32 zero = 0;
+                i32 neg = -42;
+                f64 pi = 3.1415926535;
+                bool ready = true;
+                string a = f"{name}";
+                string b = f"{age}";
+                string c = f"{pi}";
+                string d = f"{ready}";
+                string e = f"{name:<10}";
+                string f = f"{name:>10}";
+                string g = f"{name:^11}";
+                string h = f"{age:0>8d}";
+                string i = f"{age:x}";
+                string j = f"{age:X}";
+                string k = f"{age:b}";
+                string l = f"{age:o}";
+                string m = f"{1234567:,}";
+                string n = f"{-1234567:,}";
+                string o = f"{zero:b}";
+                string p = f"{neg:x}";
+                string q = f"{neg:b}";
+                string r = f"{neg:o}";
+                string s = f"{pi:.4f}";
+                if (a != "Alice") { return 1; }
+                if (b != "30") { return 2; }
+                if (c != "3.1415926535000001") { return 3; }
+                if (d != "true") { return 4; }
+                if (e != "Alice     ") { return 5; }
+                if (f != "     Alice") { return 6; }
+                if (g != "   Alice   ") { return 7; }
+                if (h != "00000030") { return 8; }
+                if (i != "1e") { return 9; }
+                if (j != "1E") { return 10; }
+                if (k != "11110") { return 11; }
+                if (l != "36") { return 12; }
+                if (m != "1,234,567") { return 13; }
+                if (n != "-1,234,567") { return 14; }
+                if (o != "0") { return 15; }
+                if (p != "-2a") { return 16; }
+                if (q != "-101010") { return 17; }
+                if (r != "-52") { return 18; }
+                if (s != "3.1416") { return 19; }
+                return 0;
+            }
+        """, 0)
+
     def test_fstring_escaped_braces(self) -> None:
         self._run("""
             fn main() -> i32 {
