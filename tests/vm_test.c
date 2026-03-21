@@ -307,6 +307,10 @@ static vigil_status_t RunBinaryUintOpcode(vigil_opcode_t opcode, uint64_t left_v
     return status;
 }
 
+/* TEST() expands into generated functions with many assertion branches.
+   Suppress cognitive-complexity diagnostics for this assertion-heavy test region. */
+// NOLINTBEGIN(readability-function-cognitive-complexity)
+
 TEST(VigilVmTest, OptionsInitClearsFields)
 {
     vigil_vm_options_t options = {0};
@@ -1706,6 +1710,8 @@ TEST(VigilVmTest, ExecutesArrayAndMapIndexOpcodes)
     vigil_vm_close(&vm);
     vigil_runtime_close(&runtime);
 }
+
+// NOLINTEND(readability-function-cognitive-complexity)
 
 void register_vm_tests(void)
 {
