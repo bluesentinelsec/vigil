@@ -48,7 +48,7 @@ fn main() -> i32 {
 fn main() -> i32 {
     i64 ms = time.now_ms();
     i64 ns = time.now_ns();
-    if (ns > ms * i64(1000000)) { return 0; }
+    if (ns >= ms * i64(1000000)) { return 0; }
     return 1;
 }'''
         rc, out, err = run_vigil(code)
