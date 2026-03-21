@@ -46,6 +46,7 @@ vigil_status_t vigil_parser_emit_ok_constant(vigil_parser_state_t *state, vigil_
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span);
 static int vigil_opcode_produces_i64(vigil_opcode_t op);
+static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
@@ -5227,6 +5228,19 @@ static vigil_opcode_t vigil_parser_try_fuse_locals_i64(vigil_parser_state_t *sta
 
 vigil_status_t vigil_parser_emit_opcode(vigil_parser_state_t *state, vigil_opcode_t opcode, vigil_source_span_t span)
 {
+    /* Peephole: TO_I64 after an i32 arith op → rewrite op to i64 variant. */
+    if (opcode == VIGIL_OPCODE_TO_I64 && state->chunk.code.length > 0U)
+    {
+        vigil_opcode_t last = (vigil_opcode_t)state->chunk.code.data[state->chunk.code.length - 1U];
+        vigil_opcode_t promoted;
+        if (vigil_opcode_produces_i64(last))
+            return VIGIL_STATUS_OK;
+        if (vigil_opcode_i32_to_i64(last, &promoted))
+        {
+            state->chunk.code.data[state->chunk.code.length - 1U] = (uint8_t)promoted;
+            return VIGIL_STATUS_OK;
+        }
+    }
     return vigil_chunk_write_opcode(&state->chunk, opcode, span, state->program->error);
 }
 
@@ -11985,6 +11999,32 @@ static int vigil_opcode_produces_i64(vigil_opcode_t op)
     }
 }
 
+/* If op is an i32 arithmetic opcode, write the i64 equivalent into *out and
+ * return 1. Returns 0 if op has no i64 equivalent. */
+static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out)
+{
+    switch (op)
+    {
+    case VIGIL_OPCODE_ADD_I32:
+        *out = VIGIL_OPCODE_ADD_I64;
+        return 1;
+    case VIGIL_OPCODE_SUBTRACT_I32:
+        *out = VIGIL_OPCODE_SUBTRACT_I64;
+        return 1;
+    case VIGIL_OPCODE_MULTIPLY_I32:
+        *out = VIGIL_OPCODE_MULTIPLY_I64;
+        return 1;
+    case VIGIL_OPCODE_DIVIDE_I32:
+        *out = VIGIL_OPCODE_DIVIDE_I64;
+        return 1;
+    case VIGIL_OPCODE_MODULO_I32:
+        *out = VIGIL_OPCODE_MODULO_I64;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span)
 {
@@ -11995,12 +12035,19 @@ static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state
         return VIGIL_STATUS_OK;
     }
 
-    /* Peephole: skip cast if the last single-byte opcode already produces
-       the target type. */
-    if (vigil_parser_type_is_i64(target_type) && state->chunk.code.length > 0U &&
-        vigil_opcode_produces_i64((vigil_opcode_t)state->chunk.code.data[state->chunk.code.length - 1U]))
+    /* Peepholes for TO_I64: skip if already i64, or rewrite i32 arith op
+       to its i64 equivalent in-place (eliminates the cast byte). */
+    if (vigil_parser_type_is_i64(target_type) && state->chunk.code.length > 0U)
     {
-        return VIGIL_STATUS_OK;
+        vigil_opcode_t last = (vigil_opcode_t)state->chunk.code.data[state->chunk.code.length - 1U];
+        vigil_opcode_t promoted;
+        if (vigil_opcode_produces_i64(last))
+            return VIGIL_STATUS_OK;
+        if (vigil_opcode_i32_to_i64(last, &promoted))
+        {
+            state->chunk.code.data[state->chunk.code.length - 1U] = (uint8_t)promoted;
+            return VIGIL_STATUS_OK;
+        }
     }
 
     if (vigil_parser_type_is_i32(target_type))
