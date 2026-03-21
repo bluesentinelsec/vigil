@@ -1261,23 +1261,18 @@ static void incoming_sender_func(void *arg)
     vigil_platform_tcp_close(listener, NULL);
 }
 
-static vigil_socket_t connect_to_incoming_sender(int port, const char *request,
+/* ctx must be caller-owned (stack or otherwise) and outlive the joined thread. */
+static vigil_socket_t connect_to_incoming_sender(incoming_sender_ctx_t *ctx, int port,
+                                                  const char *request,
                                                   vigil_platform_thread_t **thr_out)
 {
-    incoming_sender_ctx_t *ctx =
-        (incoming_sender_ctx_t *)malloc(sizeof(incoming_sender_ctx_t));
-    if (!ctx)
-        return VIGIL_INVALID_SOCKET;
     ctx->port = port;
     ctx->request = request;
     ctx->ready = 0;
 
     vigil_platform_net_init(NULL);
     if (vigil_platform_thread_create(thr_out, incoming_sender_func, ctx, NULL) != VIGIL_STATUS_OK)
-    {
-        free(ctx);
         return VIGIL_INVALID_SOCKET;
-    }
     for (int i = 0; i < 200 && !ctx->ready; i++)
         vigil_platform_thread_sleep(10);
     if (!ctx->ready)
@@ -1293,8 +1288,9 @@ TEST(VigilHttpTest, ParseIncomingRequestGet)
     const char *req = "GET /hello HTTP/1.1\r\n"
                       "Host: localhost\r\n"
                       "\r\n";
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
-    vigil_socket_t sock = connect_to_incoming_sender(PARSE_INCOMING_PORT, req, &thr);
+    vigil_socket_t sock = connect_to_incoming_sender(&ctx, PARSE_INCOMING_PORT, req, &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
@@ -1321,9 +1317,10 @@ TEST(VigilHttpTest, ParseIncomingRequestPost)
                       "Content-Length: 9\r\n"
                       "\r\n"
                       "test_body";
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
     vigil_socket_t sock =
-        connect_to_incoming_sender(PARSE_INCOMING_PORT + 1, req, &thr);
+        connect_to_incoming_sender(&ctx, PARSE_INCOMING_PORT + 1, req, &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
@@ -1349,9 +1346,10 @@ TEST(VigilHttpTest, ParseIncomingRequestMalformed)
 {
     /* No request-line spaces — must return -1. */
     const char *req = "BADREQUEST\r\n\r\n";
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
     vigil_socket_t sock =
-        connect_to_incoming_sender(PARSE_INCOMING_PORT + 2, req, &thr);
+        connect_to_incoming_sender(&ctx, PARSE_INCOMING_PORT + 2, req, &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
@@ -1517,8 +1515,9 @@ TEST(VigilHttpTest, RecvBodyBytesPreBuffered)
 
 TEST(VigilHttpTest, RecvBodyBytesFromSocket)
 {
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
-    vigil_socket_t sock = connect_to_incoming_sender(RECV_BODY_BYTES_PORT, "world", &thr);
+    vigil_socket_t sock = connect_to_incoming_sender(&ctx, RECV_BODY_BYTES_PORT, "world", &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
@@ -1539,9 +1538,10 @@ TEST(VigilHttpTest, RecvBodyBytesFromSocket)
 TEST(VigilHttpTest, RecvRequestBodyWithRecv)
 {
     /* content_length > already: recv_request_body must read from socket. */
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
     vigil_socket_t sock =
-        connect_to_incoming_sender(RECV_REQUEST_BODY_PORT, "abcde", &thr);
+        connect_to_incoming_sender(&ctx, RECV_REQUEST_BODY_PORT, "abcde", &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
@@ -1563,9 +1563,10 @@ TEST(VigilHttpTest, RecvRequestBodyWithRecv)
 TEST(VigilHttpTest, ParseIncomingRequestConnectionClosed)
 {
     /* Sender closes without \r\n\r\n: recv_request_headers returns NULL. */
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
     vigil_socket_t sock =
-        connect_to_incoming_sender(PARSE_INC_CLOSED_PORT, "GET /path HTTP/1.1\r\n", &thr);
+        connect_to_incoming_sender(&ctx, PARSE_INC_CLOSED_PORT, "GET /path HTTP/1.1\r\n", &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
@@ -1589,9 +1590,10 @@ TEST(VigilHttpTest, ParseIncomingRequestBodyTooLarge)
     const char *req = "POST /submit HTTP/1.1\r\n"
                       "Content-Length: 99999999999\r\n"
                       "\r\n";
+    incoming_sender_ctx_t ctx;
     vigil_platform_thread_t *thr = NULL;
     vigil_socket_t sock =
-        connect_to_incoming_sender(PARSE_INC_TOOLARGE_PORT, req, &thr);
+        connect_to_incoming_sender(&ctx, PARSE_INC_TOOLARGE_PORT, req, &thr);
     if (sock == VIGIL_INVALID_SOCKET)
         return;
 
