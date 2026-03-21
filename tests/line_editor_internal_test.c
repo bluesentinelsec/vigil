@@ -4,12 +4,20 @@
 #ifdef _WIN32
 #define VIGIL_EXPORTS
 #endif
+#include "platform/platform.h"
+
+static void line_editor_test_error_set_literal(vigil_error_t *error, vigil_status_t type, const char *value)
+{
+    (void)error;
+    (void)type;
+    (void)value;
+}
 
 #define vigil_platform_is_terminal line_editor_test_platform_is_terminal
 #define vigil_platform_terminal_raw line_editor_test_platform_terminal_raw
 #define vigil_platform_terminal_restore line_editor_test_platform_terminal_restore
 #define vigil_platform_terminal_read_byte line_editor_test_platform_terminal_read_byte
-#include "platform/platform.h"
+#define vigil_error_set_literal line_editor_test_error_set_literal
 
 typedef struct vigil_terminal_state
 {
@@ -86,6 +94,7 @@ VIGIL_API int vigil_platform_terminal_read_byte(void)
 #define vigil_line_history_save line_editor_test_history_save
 #define vigil_line_editor_readline line_editor_test_readline
 #include "../src/platform/line_editor.c"
+#undef vigil_error_set_literal
 #undef vigil_platform_is_terminal
 #undef vigil_platform_terminal_raw
 #undef vigil_platform_terminal_restore
