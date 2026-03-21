@@ -1290,25 +1290,19 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
 
     size_t save_slots = re->group_count * 2;
     size_t state_cap = re->state_count + 1;
-
-    /* Allocate simulation buffers once, reuse across start positions */
     state_list_t curr, next;
-    uint8_t *visited = NULL;
-    size_t *init_saves = NULL;
+    uint8_t *visited;
+    size_t *init_saves;
     bool found = false;
 
     if (!state_list_init(&curr, state_cap, save_slots))
         return false;
-    if (!state_list_init(&next, state_cap, save_slots) ||
-        (visited = calloc(state_cap, 1)) == NULL ||
-        (init_saves = malloc(save_slots * sizeof(size_t))) == NULL)
-    {
-        free(visited);
-        free(init_saves);
-        state_list_free(&curr);
-        state_list_free(&next);
-        return false;
-    }
+    if (!state_list_init(&next, state_cap, save_slots))
+    { state_list_free(&curr); return false; }
+    visited = calloc(state_cap, 1);
+    init_saves = malloc(save_slots * sizeof(size_t));
+    if (!visited || !init_saves)
+    { free(visited); free(init_saves); state_list_free(&curr); state_list_free(&next); return false; }
 
     /* Try matching at each position */
     for (size_t start = 0; start <= input_len; start++)
