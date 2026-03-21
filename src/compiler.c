@@ -7015,18 +7015,25 @@ static vigil_status_t vigil_native_type_to_binding_type(vigil_parser_state_t *st
 static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *mod, const char *fn_name,
                                               size_t fn_name_length)
 {
+    static const struct
+    {
+        const char *name;
+        size_t len;
+        vigil_opcode_t opcode;
+    } kMathIntrinsics[] = {
+        {"sin", 3U, VIGIL_OPCODE_MATH_SIN_F64},   {"cos", 3U, VIGIL_OPCODE_MATH_COS_F64},
+        {"sqrt", 4U, VIGIL_OPCODE_MATH_SQRT_F64}, {"log", 3U, VIGIL_OPCODE_MATH_LOG_F64},
+        {"pow", 3U, VIGIL_OPCODE_MATH_POW_F64},
+    };
+    size_t i;
+
     if (mod->name_length != 4U || memcmp(mod->name, "math", 4U) != 0)
         return -1;
-    if (fn_name_length == 3U && memcmp(fn_name, "sin", 3U) == 0)
-        return (int)VIGIL_OPCODE_MATH_SIN_F64;
-    if (fn_name_length == 3U && memcmp(fn_name, "cos", 3U) == 0)
-        return (int)VIGIL_OPCODE_MATH_COS_F64;
-    if (fn_name_length == 4U && memcmp(fn_name, "sqrt", 4U) == 0)
-        return (int)VIGIL_OPCODE_MATH_SQRT_F64;
-    if (fn_name_length == 3U && memcmp(fn_name, "log", 3U) == 0)
-        return (int)VIGIL_OPCODE_MATH_LOG_F64;
-    if (fn_name_length == 3U && memcmp(fn_name, "pow", 3U) == 0)
-        return (int)VIGIL_OPCODE_MATH_POW_F64;
+    for (i = 0U; i < sizeof(kMathIntrinsics) / sizeof(kMathIntrinsics[0]); i++)
+    {
+        if (fn_name_length == kMathIntrinsics[i].len && memcmp(fn_name, kMathIntrinsics[i].name, fn_name_length) == 0)
+            return (int)kMathIntrinsics[i].opcode;
+    }
     return -1;
 }
 
