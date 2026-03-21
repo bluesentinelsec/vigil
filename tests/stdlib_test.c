@@ -2331,3 +2331,97 @@ void register_stdlib_tests(void)
     REGISTER_TEST(VigilStdlibCompressTest, GzipDecompressMax);
     REGISTER_TEST(VigilStdlibCompressTest, GzipInfo);
 }
+
+/* ── Regex stdlib tests (exercises pattern cache) ────────────────── */
+
+TEST(VigilStdlibRegexTest, FindAllCacheHit)
+{
+    /* Call find_all with the same pattern twice — second call is a cache hit */
+    int64_t result = RunWithStdlib(vigil_test_failed_,
+        "import \"regex\";\n"
+        "fn main() -> i32 {\n"
+        "    string t = \"a1 b2 c3\";\n"
+        "    array<string> m1 = regex.find_all(\"[a-z][0-9]\", t);\n"
+        "    array<string> m2 = regex.find_all(\"[a-z][0-9]\", t);\n"
+        "    if (m1.len() != 3) { return 1; }\n"
+        "    if (m2.len() != 3) { return 2; }\n"
+        "    return 0;\n"
+        "}\n");
+    EXPECT_EQ(result, 0);
+}
+
+TEST(VigilStdlibRegexTest, ReplaceAllCacheHit)
+{
+    int64_t result = RunWithStdlib(vigil_test_failed_,
+        "import \"regex\";\n"
+        "fn main() -> i32 {\n"
+        "    string s = regex.replace_all(\"[0-9]+\", \"abc123def456\", \"X\");\n"
+        "    string s2 = regex.replace_all(\"[0-9]+\", \"111\", \"Y\");\n"
+        "    if (s != \"abcXdefX\") { return 1; }\n"
+        "    if (s2 != \"Y\") { return 2; }\n"
+        "    return 0;\n"
+        "}\n");
+    EXPECT_EQ(result, 0);
+}
+
+TEST(VigilStdlibRegexTest, MatchAndFind)
+{
+    int64_t result = RunWithStdlib(vigil_test_failed_,
+        "import \"regex\";\n"
+        "fn main() -> i32 {\n"
+        "    bool m = regex.match(\"[a-z]+\", \"hello\");\n"
+        "    if (!m) { return 1; }\n"
+        "    string found, bool ok = regex.find(\"[0-9]+\", \"abc123\");\n"
+        "    if (!ok) { return 2; }\n"
+        "    if (found != \"123\") { return 3; }\n"
+        "    return 0;\n"
+        "}\n");
+    EXPECT_EQ(result, 0);
+}
+
+TEST(VigilStdlibRegexTest, NoMatch)
+{
+    int64_t result = RunWithStdlib(vigil_test_failed_,
+        "import \"regex\";\n"
+        "fn main() -> i32 {\n"
+        "    array<string> m = regex.find_all(\"[0-9]+\", \"abcdef\");\n"
+        "    if (m.len() != 0) { return 1; }\n"
+        "    return 0;\n"
+        "}\n");
+    EXPECT_EQ(result, 0);
+}
+
+TEST(VigilStdlibRegexTest, CacheEviction)
+{
+    /* Use 40 distinct patterns to force LRU eviction (cache size = 32) */
+    int64_t result = RunWithStdlib(vigil_test_failed_,
+        "import \"regex\";\n"
+        "fn main() -> i32 {\n"
+        "    string t = \"abc123\";\n"
+        "    regex.find_all(\"a\", t); regex.find_all(\"b\", t); regex.find_all(\"c\", t);\n"
+        "    regex.find_all(\"d\", t); regex.find_all(\"e\", t); regex.find_all(\"f\", t);\n"
+        "    regex.find_all(\"g\", t); regex.find_all(\"h\", t); regex.find_all(\"i\", t);\n"
+        "    regex.find_all(\"j\", t); regex.find_all(\"k\", t); regex.find_all(\"l\", t);\n"
+        "    regex.find_all(\"m\", t); regex.find_all(\"n\", t); regex.find_all(\"o\", t);\n"
+        "    regex.find_all(\"p\", t); regex.find_all(\"q\", t); regex.find_all(\"r\", t);\n"
+        "    regex.find_all(\"s\", t); regex.find_all(\"u\", t); regex.find_all(\"v\", t);\n"
+        "    regex.find_all(\"w\", t); regex.find_all(\"x\", t); regex.find_all(\"y\", t);\n"
+        "    regex.find_all(\"z\", t); regex.find_all(\"1\", t); regex.find_all(\"2\", t);\n"
+        "    regex.find_all(\"3\", t); regex.find_all(\"4\", t); regex.find_all(\"5\", t);\n"
+        "    regex.find_all(\"6\", t); regex.find_all(\"7\", t); regex.find_all(\"8\", t);\n"
+        "    regex.find_all(\"9\", t); regex.find_all(\"0\", t); regex.find_all(\"aa\", t);\n"
+        "    regex.find_all(\"bb\", t); regex.find_all(\"cc\", t); regex.find_all(\"dd\", t);\n"
+        "    regex.find_all(\"ee\", t); regex.find_all(\"ff\", t);\n"
+        "    return 0;\n"
+        "}\n");
+    EXPECT_EQ(result, 0);
+}
+
+void register_stdlib_regex_tests(void)
+{
+    REGISTER_TEST(VigilStdlibRegexTest, FindAllCacheHit);
+    REGISTER_TEST(VigilStdlibRegexTest, ReplaceAllCacheHit);
+    REGISTER_TEST(VigilStdlibRegexTest, MatchAndFind);
+    REGISTER_TEST(VigilStdlibRegexTest, NoMatch);
+    REGISTER_TEST(VigilStdlibRegexTest, CacheEviction);
+}

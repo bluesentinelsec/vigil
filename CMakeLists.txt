@@ -285,7 +285,6 @@ if(VIGIL_BUILD_TESTS)
     add_executable(vigil_tests
         tests/test_main.c
         tests/array_test.c
-        tests/regex_engine_test.c
         tests/vigil_new_test.c
         tests/binding_test.c
         tests/checker_test.c
