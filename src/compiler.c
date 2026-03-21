@@ -45,6 +45,7 @@ vigil_status_t vigil_parser_emit_string_constant_text(vigil_parser_state_t *stat
 vigil_status_t vigil_parser_emit_ok_constant(vigil_parser_state_t *state, vigil_source_span_t span);
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span);
+static int vigil_parser_binop_needs_cast(vigil_parser_type_t lhs, vigil_parser_type_t rhs);
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
@@ -9269,10 +9270,8 @@ static vigil_status_t vigil_parser_parse_factor(vigil_parser_state_t *state, vig
         {
             return status;
         }
-        /* i32 opcodes already produce i32 results — skip the cast.
-           i64 opcodes already produce i64 results — skip the cast. */
-        if ((!vigil_parser_type_is_i32(left_result.type) || !vigil_parser_type_is_i32(right_result.type)) &&
-            (!vigil_parser_type_is_i64(left_result.type) || !vigil_parser_type_is_i64(right_result.type)))
+        /* Typed ops already produce the correct result type — skip cast. */
+        if (vigil_parser_binop_needs_cast(left_result.type, right_result.type))
         {
             status = vigil_parser_emit_integer_cast(state, left_result.type, operator_span);
             if (status != VIGIL_STATUS_OK)
@@ -9368,8 +9367,7 @@ static vigil_status_t vigil_parser_parse_term(vigil_parser_state_t *state, vigil
         {
             left_result.type = vigil_binding_type_primitive(VIGIL_TYPE_STRING);
         }
-        else if (!(vigil_parser_type_is_i32(left_result.type) && vigil_parser_type_is_i32(right_result.type)) &&
-                 !(vigil_parser_type_is_i64(left_result.type) && vigil_parser_type_is_i64(right_result.type)))
+        else if (vigil_parser_binop_needs_cast(left_result.type, right_result.type))
         {
             status = vigil_parser_emit_integer_cast(state, left_result.type, operator_span);
             if (status != VIGIL_STATUS_OK)
@@ -11970,6 +11968,18 @@ vigil_status_t vigil_parser_emit_f64_constant(vigil_parser_state_t *state, doubl
     return status;
 }
 
+/* Returns 1 if a typed binary op (ADD_I32, ADD_I64, etc.) needs a trailing
+   integer cast opcode.  Typed ops already produce the correct result type,
+   so no cast is needed when both operands match the result type. */
+static int vigil_parser_binop_needs_cast(vigil_parser_type_t lhs, vigil_parser_type_t rhs)
+{
+    if (vigil_parser_type_is_i32(lhs) && vigil_parser_type_is_i32(rhs))
+        return 0;
+    if (vigil_parser_type_is_i64(lhs) && vigil_parser_type_is_i64(rhs))
+        return 0;
+    return 1;
+}
+
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span)
 {
@@ -12845,10 +12855,8 @@ static vigil_status_t vigil_parser_parse_assignment_statement_internal(vigil_par
         {
             return status;
         }
-        /* i32 opcodes already produce i32 results — skip the cast.
-           i64 opcodes already produce i64 results — skip the cast. */
-        if (!(vigil_parser_type_is_i32(target_type) && vigil_parser_type_is_i32(value_result.type)) &&
-            !(vigil_parser_type_is_i64(target_type) && vigil_parser_type_is_i64(value_result.type)))
+        /* Typed ops already produce the correct result type — skip cast. */
+        if (vigil_parser_binop_needs_cast(target_type, value_result.type))
         {
             status = vigil_parser_emit_integer_cast(state, target_type, operator_token->span);
             if (status != VIGIL_STATUS_OK)
