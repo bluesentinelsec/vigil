@@ -2,36 +2,57 @@
 
 #include "vigil/vigil.h"
 
+typedef struct
+{
+    vigil_type_kind_t kind;
+    const char *name;
+} type_name_case_t;
+
+typedef struct
+{
+    const char *name;
+    size_t length;
+    vigil_type_kind_t kind;
+} type_parse_case_t;
+
+static void expect_type_name_cases(const type_name_case_t *cases, size_t count)
+{
+    size_t index;
+
+    for (index = 0U; index < count; index += 1U)
+        EXPECT_STREQ(vigil_type_kind_name(cases[index].kind), cases[index].name);
+}
+
+static void expect_type_parse_cases(const type_parse_case_t *cases, size_t count)
+{
+    size_t index;
+
+    for (index = 0U; index < count; index += 1U)
+        EXPECT_EQ(vigil_type_kind_from_name(cases[index].name, cases[index].length), cases[index].kind);
+}
+
 TEST(VigilTypeTest, KindNamesAreStable)
 {
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_INVALID), "invalid");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_I32), "i32");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_I64), "i64");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_U8), "u8");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_U32), "u32");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_U64), "u64");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_F64), "f64");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_BOOL), "bool");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_STRING), "string");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_ERR), "err");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_VOID), "void");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_NIL), "nil");
-    EXPECT_STREQ(vigil_type_kind_name(VIGIL_TYPE_OBJECT), "object");
+    static const type_name_case_t cases[] = {
+        {VIGIL_TYPE_INVALID, "invalid"}, {VIGIL_TYPE_I32, "i32"}, {VIGIL_TYPE_I64, "i64"},   {VIGIL_TYPE_U8, "u8"},
+        {VIGIL_TYPE_U32, "u32"},         {VIGIL_TYPE_U64, "u64"}, {VIGIL_TYPE_F64, "f64"},   {VIGIL_TYPE_BOOL, "bool"},
+        {VIGIL_TYPE_STRING, "string"},   {VIGIL_TYPE_ERR, "err"}, {VIGIL_TYPE_VOID, "void"}, {VIGIL_TYPE_NIL, "nil"},
+        {VIGIL_TYPE_OBJECT, "object"},
+    };
+
+    expect_type_name_cases(cases, sizeof(cases) / sizeof(cases[0]));
 }
 
 TEST(VigilTypeTest, KindParsingAcceptsBuiltinNames)
 {
-    EXPECT_EQ(vigil_type_kind_from_name("i32", 3U), VIGIL_TYPE_I32);
-    EXPECT_EQ(vigil_type_kind_from_name("i64", 3U), VIGIL_TYPE_I64);
-    EXPECT_EQ(vigil_type_kind_from_name("u8", 2U), VIGIL_TYPE_U8);
-    EXPECT_EQ(vigil_type_kind_from_name("u32", 3U), VIGIL_TYPE_U32);
-    EXPECT_EQ(vigil_type_kind_from_name("u64", 3U), VIGIL_TYPE_U64);
-    EXPECT_EQ(vigil_type_kind_from_name("f64", 3U), VIGIL_TYPE_F64);
-    EXPECT_EQ(vigil_type_kind_from_name("bool", 4U), VIGIL_TYPE_BOOL);
-    EXPECT_EQ(vigil_type_kind_from_name("string", 6U), VIGIL_TYPE_STRING);
-    EXPECT_EQ(vigil_type_kind_from_name("err", 3U), VIGIL_TYPE_ERR);
-    EXPECT_EQ(vigil_type_kind_from_name("void", 4U), VIGIL_TYPE_VOID);
-    EXPECT_EQ(vigil_type_kind_from_name("nil", 3U), VIGIL_TYPE_NIL);
+    static const type_parse_case_t cases[] = {
+        {"i32", 3U, VIGIL_TYPE_I32},   {"i64", 3U, VIGIL_TYPE_I64},       {"u8", 2U, VIGIL_TYPE_U8},
+        {"u32", 3U, VIGIL_TYPE_U32},   {"u64", 3U, VIGIL_TYPE_U64},       {"f64", 3U, VIGIL_TYPE_F64},
+        {"bool", 4U, VIGIL_TYPE_BOOL}, {"string", 6U, VIGIL_TYPE_STRING}, {"err", 3U, VIGIL_TYPE_ERR},
+        {"void", 4U, VIGIL_TYPE_VOID}, {"nil", 3U, VIGIL_TYPE_NIL},
+    };
+
+    expect_type_parse_cases(cases, sizeof(cases) / sizeof(cases[0]));
 }
 
 TEST(VigilTypeTest, KindParsingRejectsUnknownNames)
