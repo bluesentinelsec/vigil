@@ -51,6 +51,8 @@ static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
 static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *, const char *, size_t);
 static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *, const vigil_native_module_function_t *, vigil_expression_result_t *);
 static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *, const vigil_native_module_t *, const vigil_native_module_function_t *, const vigil_token_t *, size_t, vigil_expression_result_t *);
+static vigil_status_t vigil_parser_parse_native_call_args(vigil_parser_state_t *, const vigil_token_t *, const vigil_native_module_function_t *, size_t *);
+static vigil_status_t vigil_parser_check_native_arg_type(vigil_parser_state_t *, const vigil_token_t *, const vigil_native_module_function_t *, size_t, vigil_binding_type_t);
 // clang-format on
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
@@ -7011,12 +7013,83 @@ static vigil_status_t vigil_native_type_to_binding_type(vigil_parser_state_t *st
     *out_type = vigil_binding_type_primitive(VIGIL_TYPE_OBJECT);
     return VIGIL_STATUS_OK;
 }
+static vigil_status_t vigil_parser_check_native_arg_type(vigil_parser_state_t *state, const vigil_token_t *member_token,
+                                                         const vigil_native_module_function_t *fn, size_t arg_count,
+                                                         vigil_binding_type_t arg_type)
+{
+    vigil_status_t status;
+    vigil_binding_type_t expected_type = vigil_binding_type_invalid();
+
+    if (fn->param_types_ext != NULL)
+    {
+        status = vigil_native_type_to_binding_type(state, &fn->param_types_ext[arg_count], &expected_type);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+    }
+    else if (fn->param_types[arg_count] != VIGIL_TYPE_OBJECT)
+    {
+        expected_type = vigil_binding_type_primitive((vigil_type_kind_t)fn->param_types[arg_count]);
+    }
+    else
+    {
+        return VIGIL_STATUS_OK;
+    }
+    return vigil_parser_require_type(state, member_token->span, arg_type, expected_type,
+                                     "call argument type does not match parameter type");
+}
+
+static vigil_status_t vigil_parser_parse_native_call_args(vigil_parser_state_t *state,
+                                                          const vigil_token_t *member_token,
+                                                          const vigil_native_module_function_t *fn, size_t *out_count)
+{
+    vigil_status_t status;
+    vigil_expression_result_t arg_result;
+    size_t arg_count = 0U;
+
+    if (vigil_parser_check(state, VIGIL_TOKEN_RPAREN))
+    {
+        *out_count = 0U;
+        return VIGIL_STATUS_OK;
+    }
+    while (1)
+    {
+        vigil_expression_result_clear(&arg_result);
+        status = vigil_parser_parse_expression(state, &arg_result);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+        if (arg_count < fn->param_count)
+        {
+            status = vigil_parser_require_scalar_expression(state, member_token->span, &arg_result,
+                                                            "call arguments must be single values");
+            if (status != VIGIL_STATUS_OK)
+            {
+                return status;
+            }
+            status = vigil_parser_check_native_arg_type(state, member_token, fn, arg_count, arg_result.type);
+            if (status != VIGIL_STATUS_OK)
+            {
+                return status;
+            }
+        }
+        arg_count += 1U;
+        if (!vigil_parser_match(state, VIGIL_TOKEN_COMMA))
+        {
+            break;
+        }
+    }
+    *out_count = arg_count;
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state, const vigil_token_t *member_token,
                                                      vigil_source_id_t source_id, const char *member_name,
                                                      size_t member_name_length, vigil_expression_result_t *out_result)
 {
     vigil_status_t status;
-    vigil_expression_result_t arg_result;
     const vigil_native_module_t *mod;
     const vigil_native_module_function_t *fn;
     size_t mod_idx;
@@ -7030,7 +7103,6 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
     }
     mod = state->program->natives->modules[mod_idx];
 
-    /* Find the function in the native module. */
     fn = NULL;
     for (i = 0U; i < mod->function_count; i++)
     {
@@ -7046,74 +7118,15 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
         return vigil_parser_report(state, member_token->span, "unknown function");
     }
 
-    /* Parse arguments. */
-    vigil_expression_result_clear(&arg_result);
     status = vigil_parser_expect(state, VIGIL_TOKEN_LPAREN, "expected '(' after function name", NULL);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
-    arg_count = 0U;
-    if (!vigil_parser_check(state, VIGIL_TOKEN_RPAREN))
+    status = vigil_parser_parse_native_call_args(state, member_token, fn, &arg_count);
+    if (status != VIGIL_STATUS_OK)
     {
-        while (1)
-        {
-            status = vigil_parser_parse_expression(state, &arg_result);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            if (arg_count < fn->param_count)
-            {
-                status = vigil_parser_require_scalar_expression(state, member_token->span, &arg_result,
-                                                                "call arguments must be single values");
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-            }
-            if (arg_count < fn->param_count)
-            {
-                /* Check if we should do type checking for this parameter */
-                int should_check = 1;
-                vigil_binding_type_t expected_type = vigil_binding_type_invalid();
-
-                if (fn->param_types_ext != NULL)
-                {
-                    /* Use extended type info - always check */
-                    status = vigil_native_type_to_binding_type(state, &fn->param_types_ext[arg_count], &expected_type);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        return status;
-                    }
-                }
-                else if (fn->param_types[arg_count] != VIGIL_TYPE_OBJECT)
-                {
-                    /* Legacy: check primitive types, skip generic OBJECT */
-                    expected_type = vigil_binding_type_primitive((vigil_type_kind_t)fn->param_types[arg_count]);
-                }
-                else
-                {
-                    /* Legacy OBJECT type - skip checking */
-                    should_check = 0;
-                }
-
-                if (should_check)
-                {
-                    status = vigil_parser_require_type(state, member_token->span, arg_result.type, expected_type,
-                                                       "call argument type does not match parameter type");
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        return status;
-                    }
-                }
-            }
-            arg_count += 1U;
-            if (!vigil_parser_match(state, VIGIL_TOKEN_COMMA))
-            {
-                break;
-            }
-        }
+        return status;
     }
     status = vigil_parser_expect(state, VIGIL_TOKEN_RPAREN, "expected ')' after argument list", NULL);
     if (status != VIGIL_STATUS_OK)
