@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "vigil/runtime.h"
+#include "vigil/status.h"
 #include "vigil/value.h"
 
 /* ── Regex pattern cache ─────────────────────────────────────────────
@@ -16,7 +17,7 @@ struct vigil_regex; /* forward-declared; defined in stdlib/regex_engine.c */
 
 typedef struct vigil_regex_cache_entry
 {
-    char *pattern;          /* heap-allocated copy; NULL = empty slot */
+    char *pattern; /* heap-allocated copy; NULL = empty slot */
     size_t pattern_len;
     struct vigil_regex *re; /* compiled regex; NULL = empty slot */
     unsigned int lru_clock; /* incremented on each access */
@@ -33,6 +34,9 @@ struct vigil_runtime
     vigil_allocator_t allocator;
     vigil_logger_t logger;
     vigil_regex_cache_t regex_cache;
+    /* Singleton "ok" error object — reused by stdlib functions that return
+       (value, err) on the success path to avoid a heap allocation per call. */
+    vigil_object_t *ok_error;
 };
 
 typedef struct vigil_runtime_interface_impl_init
@@ -66,5 +70,9 @@ const vigil_object_t *vigil_callable_object_function(const vigil_object_t *calla
 size_t vigil_callable_object_arity(const vigil_object_t *callable);
 size_t vigil_callable_object_return_count(const vigil_object_t *callable);
 const vigil_chunk_t *vigil_callable_object_chunk(const vigil_object_t *callable);
+
+/* Push the singleton "ok" error value onto the VM stack.
+   Avoids allocating a new error object on every stdlib success path. */
+vigil_status_t vigil_runtime_push_ok_error(vigil_runtime_t *runtime, vigil_vm_t *vm, vigil_error_t *error);
 
 #endif
