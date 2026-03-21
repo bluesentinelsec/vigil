@@ -683,7 +683,7 @@ static int class_has_implements_keyword(const char *src, const vigil_token_t *t)
 }
 
 static int parse_class_implement_name(const char *src, const vigil_token_list_t *tokens, size_t *cursor,
-                                     doc_buf_t *impl_buf, int *first)
+                                      doc_buf_t *impl_buf, int *first)
 {
     const vigil_token_t *t = tok_at(tokens, *cursor);
 
@@ -707,8 +707,8 @@ static int parse_class_implement_name(const char *src, const vigil_token_list_t 
     return 1;
 }
 
-static void parse_class_implements_clause(const vigil_allocator_t *a, const char *src,
-                                          const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *sym)
+static void parse_class_implements_clause(const vigil_allocator_t *a, const char *src, const vigil_token_list_t *tokens,
+                                          size_t *cursor, vigil_doc_symbol_t *sym)
 {
     const vigil_token_t *t = tok_at(tokens, *cursor);
     doc_buf_t impl_buf;
@@ -787,8 +787,8 @@ static void parse_field_name(const class_parse_ctx_t *ctx, const char **fname_te
     (*ctx->cursor)++;
 }
 
-static void store_class_field_symbol(const class_parse_ctx_t *ctx, size_t field_start,
-                                     const char *fname_text, size_t fname_len, doc_buf_t *type_buf)
+static void store_class_field_symbol(const class_parse_ctx_t *ctx, size_t field_start, const char *fname_text,
+                                     size_t fname_len, doc_buf_t *type_buf)
 {
     vigil_doc_symbol_t member;
 
