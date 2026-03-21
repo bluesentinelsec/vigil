@@ -27,6 +27,7 @@ typedef struct
 
 extern int parse_url(const char *url, parsed_url_t *out);
 extern void response_free(http_response_t *r);
+extern int parse_http_response(char *buf, size_t len, http_response_t *resp);
 extern int socket_request(const char *method, parsed_url_t *url, const char *headers, const char *body, size_t body_len,
                           http_response_t *resp);
 extern int do_request(const char *method, const char *url_str, const char *headers, const char *body, size_t body_len,
@@ -535,6 +536,18 @@ TEST(VigilHttpTest, ResponseFreeNull)
     EXPECT_EQ(resp.headers, NULL);
 }
 
+TEST(VigilHttpTest, ParseHttpResponseMalformed)
+{
+    /* Buffer with no \r\n\r\n separator — parse must return -1. */
+    char buf[] = "HTTP/1.1 200 OK\r\nContent-Length: 0";
+    http_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
+    EXPECT_EQ(rc, -1);
+    EXPECT_EQ(resp.headers, NULL);
+    EXPECT_EQ(resp.body, NULL);
+}
+
 /* ── Server round-trip tests ──────────────────────────────────────── */
 
 #define SERVER_TEST_PORT 18788
@@ -899,6 +912,7 @@ void register_http_tests(void)
     REGISTER_TEST(VigilHttpTest, ParseUrlPathTooLong);
     /* Misc */
     REGISTER_TEST(VigilHttpTest, ResponseFreeNull);
+    REGISTER_TEST(VigilHttpTest, ParseHttpResponseMalformed);
     /* Server */
     REGISTER_TEST(VigilHttpTest, ServerRoundTrip);
     REGISTER_TEST(VigilHttpTest, ServerPostRoundTrip);

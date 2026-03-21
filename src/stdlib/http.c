@@ -213,7 +213,7 @@ static char *alloc_request_buf(const char *method, const char *path, const char 
 }
 
 /* Parse a raw HTTP response buffer into resp.  buf[len] must be '\0'. */
-static int parse_http_response(char *buf, size_t len, http_response_t *resp)
+HTTP_STATIC int parse_http_response(char *buf, size_t len, http_response_t *resp)
 {
     char *header_end = strstr(buf, "\r\n\r\n");
     if (!header_end)
@@ -418,18 +418,9 @@ static const br_x509_class tls_x509_insecure_vtable = {
     x509_ins_get_pkey,
 };
 
-/* ---------- System CA bundle loading ------------------------------ */
+/* ---------- Platform CA bundle loading ---------------------------- */
 
 #define TLS_MAX_TAS 512
-
-/* Candidate paths for the system PEM CA bundle. */
-static const char *const tls_ca_paths[] = {
-    "/etc/ssl/certs/ca-certificates.crt",       /* Debian / Ubuntu */
-    "/etc/ssl/cert.pem",                         /* macOS / OpenBSD */
-    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL / Fedora */
-    "/etc/ssl/ca-bundle.pem",                    /* SUSE */
-    NULL,
-};
 
 typedef struct
 {
@@ -510,6 +501,72 @@ static int tls_decode_ta(const unsigned char *der, size_t der_len,
     return 0;
 }
 
+/* tls_load_platform_cas: load trust anchors from the OS certificate store.
+ * Returns count on success, -1 if no store is available. */
+#if defined(_WIN32)
+
+#include <windows.h>
+#include <wincrypt.h>
+
+static int tls_load_platform_cas(br_x509_trust_anchor *tas, size_t max_tas)
+{
+    HCERTSTORE store = CertOpenSystemStoreA(0, "ROOT");
+    if (!store)
+        return -1;
+    size_t count = 0;
+    PCCERT_CONTEXT cert = NULL;
+    while (count < max_tas &&
+           (cert = CertEnumCertificatesInStore(store, cert)) != NULL)
+    {
+        if (tls_decode_ta(cert->pbCertEncoded, cert->cbCertEncoded, &tas[count]))
+            count++;
+    }
+    CertCloseStore(store, 0);
+    return (int)count;
+}
+
+#elif defined(__APPLE__)
+
+#include <Security/Security.h>
+/* Security.h transitively pulls in ObjC headers that define nil.
+ * Undefine it here so the rest of this pure-C translation unit is unaffected. */
+#ifdef nil
+#undef nil
+#endif
+
+static int tls_load_platform_cas(br_x509_trust_anchor *tas, size_t max_tas)
+{
+    CFArrayRef anchors = NULL;
+    if (SecTrustCopyAnchorCertificates(&anchors) != errSecSuccess || !anchors)
+        return -1;
+    CFIndex n = CFArrayGetCount(anchors);
+    size_t count = 0;
+    for (CFIndex i = 0; i < n && count < max_tas; i++)
+    {
+        SecCertificateRef cert =
+            (SecCertificateRef)CFArrayGetValueAtIndex(anchors, i);
+        CFDataRef data = SecCertificateCopyData(cert);
+        if (!data)
+            continue;
+        if (tls_decode_ta(CFDataGetBytePtr(data), (size_t)CFDataGetLength(data),
+                          &tas[count]))
+            count++;
+        CFRelease(data);
+    }
+    CFRelease(anchors);
+    return (int)count;
+}
+
+#else /* Linux / BSD: probe well-known PEM bundle paths */
+
+static const char *const tls_ca_paths[] = {
+    "/etc/ssl/certs/ca-certificates.crt",                /* Debian / Ubuntu */
+    "/etc/ssl/cert.pem",                                  /* Alpine / OpenBSD */
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL / Fedora */
+    "/etc/ssl/ca-bundle.pem",                             /* SUSE */
+    NULL,
+};
+
 /* Minimal base64 decoder used by the PEM scanner. */
 static int tls_b64val(unsigned char c)
 {
@@ -561,9 +618,7 @@ static int tls_pem_next_cert(FILE *f, unsigned char *out, size_t *out_len, size_
 
     while (fgets(line, (int)sizeof(line), f))
     {
-        size_t llen = strlen(line);
-        while (llen > 0 && (line[llen - 1] == '\n' || line[llen - 1] == '\r'))
-            llen--;
+        size_t llen = strcspn(line, "\r\n");
         line[llen] = '\0';
 
         if (!in_cert)
@@ -589,9 +644,8 @@ static int tls_pem_next_cert(FILE *f, unsigned char *out, size_t *out_len, size_
     return 0;
 }
 
-/* Populate *tas (up to max_tas entries) from the system CA bundle.
- * Returns the number of trust anchors loaded, or -1 on hard failure. */
-static int tls_load_system_cas(br_x509_trust_anchor *tas, size_t max_tas)
+/* Populate *tas (up to max_tas entries) from the system CA bundle. */
+static int tls_load_platform_cas(br_x509_trust_anchor *tas, size_t max_tas)
 {
     size_t i;
     for (i = 0; tls_ca_paths[i] != NULL; i++)
@@ -611,8 +665,10 @@ static int tls_load_system_cas(br_x509_trust_anchor *tas, size_t max_tas)
         fclose(f);
         return (int)count;
     }
-    return -1; /* no CA bundle found */
+    return -1;
 }
+
+#endif /* platform CA loading */
 
 static void tls_free_tas(br_x509_trust_anchor *tas, size_t count)
 {
@@ -632,22 +688,30 @@ static void tls_free_tas(br_x509_trust_anchor *tas, size_t count)
 
 /* ---------- TLS request helpers ----------------------------------- */
 
-static int tls_send_request(br_sslio_context *ioc, const char *method,
-                            const parsed_url_t *url, const char *headers,
-                            const char *body, size_t body_len)
+/* Bundles the five HTTP request parameters so helpers stay under the param limit. */
+typedef struct
+{
+    const char *method;
+    const parsed_url_t *url;
+    const char *headers;
+    const char *body;
+    size_t body_len;
+} tls_req_t;
+
+static int tls_send_request(br_sslio_context *ioc, const tls_req_t *req)
 {
     size_t req_len = 0;
-    char *req_buf = alloc_request_buf(method, url->path, url->host, headers,
-                                      body_len, &req_len);
+    char *req_buf = alloc_request_buf(req->method, req->url->path, req->url->host,
+                                      req->headers, req->body_len, &req_len);
     if (!req_buf)
         return -1;
     int ok = (br_sslio_write_all(ioc, req_buf, req_len) == 0);
     free(req_buf);
     if (!ok)
         return -1;
-    if (body_len > 0 && body != NULL)
+    if (req->body_len > 0 && req->body != NULL)
     {
-        if (br_sslio_write_all(ioc, body, body_len) != 0)
+        if (br_sslio_write_all(ioc, req->body, req->body_len) != 0)
             return -1;
     }
     return br_sslio_flush(ioc) == 0 ? 0 : -1;
@@ -689,23 +753,23 @@ static char *tls_recv_response(br_sslio_context *ioc, size_t *out_len)
 }
 
 /* Core TLS request: sc must already be initialised with the right x509 engine. */
-static int bearssl_do_https(const char *method, const parsed_url_t *url,
-                            const char *headers, const char *body, size_t body_len,
-                            http_response_t *resp, br_ssl_client_context *sc)
+static int bearssl_do_https(const tls_req_t *req, http_response_t *resp,
+                            br_ssl_client_context *sc)
 {
     vigil_socket_t sock = VIGIL_INVALID_SOCKET;
-    if (vigil_platform_tcp_connect(url->host, url->port, &sock, NULL) != VIGIL_STATUS_OK)
+    if (vigil_platform_tcp_connect(req->url->host, req->url->port, &sock, NULL) !=
+        VIGIL_STATUS_OK)
         return -1;
     vigil_platform_tcp_set_timeout(sock, HTTP_DEFAULT_TIMEOUT_MS, NULL);
 
     unsigned char iobuf[BR_SSL_BUFSIZE_BIDI];
     br_ssl_engine_set_buffer(&sc->eng, iobuf, sizeof(iobuf), 1);
-    br_ssl_client_reset(sc, url->host, 0);
+    br_ssl_client_reset(sc, req->url->host, 0);
 
     br_sslio_context ioc;
     br_sslio_init(&ioc, &sc->eng, tls_read_cb, &sock, tls_write_cb, &sock);
 
-    if (tls_send_request(&ioc, method, url, headers, body, body_len) != 0)
+    if (tls_send_request(&ioc, req) != 0)
     {
         vigil_platform_tcp_close(sock, NULL);
         return -1;
@@ -723,7 +787,7 @@ static int bearssl_do_https(const char *method, const parsed_url_t *url,
     return result;
 }
 
-/* Public: HTTPS with system CA verification. */
+/* Public: HTTPS with platform CA verification. */
 HTTP_STATIC int bearssl_https_request(const char *method, const parsed_url_t *url,
                                       const char *headers, const char *body,
                                       size_t body_len, http_response_t *resp)
@@ -733,7 +797,7 @@ HTTP_STATIC int bearssl_https_request(const char *method, const parsed_url_t *ur
     if (!tas)
         return -1;
 
-    int ta_count = tls_load_system_cas(tas, TLS_MAX_TAS);
+    int ta_count = tls_load_platform_cas(tas, TLS_MAX_TAS);
     if (ta_count <= 0)
     {
         free(tas);
@@ -745,7 +809,8 @@ HTTP_STATIC int bearssl_https_request(const char *method, const parsed_url_t *ur
     br_x509_minimal_context xc;
     br_ssl_client_init_full(&sc, &xc, tas, (size_t)ta_count);
 
-    int result = bearssl_do_https(method, url, headers, body, body_len, resp, &sc);
+    tls_req_t req = {method, url, headers, body, body_len};
+    int result = bearssl_do_https(&req, resp, &sc);
     tls_free_tas(tas, (size_t)ta_count);
     free(tas);
     return result;
@@ -765,7 +830,8 @@ HTTP_STATIC int bearssl_https_insecure_request(const char *method, const parsed_
     br_ssl_client_init_full(&sc, &xc_dummy, NULL, 0);
     br_ssl_engine_set_x509(&sc.eng, &ins_xc.vtable);
 
-    return bearssl_do_https(method, url, headers, body, body_len, resp, &sc);
+    tls_req_t req = {method, url, headers, body, body_len};
+    return bearssl_do_https(&req, resp, &sc);
 }
 
 #endif /* VIGIL_ENABLE_BEARSSL_TLS */
