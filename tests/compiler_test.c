@@ -1932,6 +1932,79 @@ TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingSemicolons)
                                    "expected ';' after interface method");
 }
 
+TEST(VigilCompilerTest, RejectsInterfaceNameConflictsWithGlobalConstant)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "const i32 Reader = 1;"
+                                   "interface Reader {"
+                                   "    fn read() -> i32;"
+                                   "}"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "interface name conflicts with global constant");
+}
+
+TEST(VigilCompilerTest, RejectsInvalidInterfaceBodyMembers)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "interface Reader {"
+                                   "    i32 value;"
+                                   "}"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected interface method declaration");
+}
+
+TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingNames)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "interface Reader {"
+                                   "    fn () -> i32;"
+                                   "}"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected method name");
+}
+
+TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingOpeningParens)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "interface Reader {"
+                                   "    fn read -> i32;"
+                                   "}"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected '(' after method name");
+}
+
+TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingClosingParens)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "interface Reader {"
+                                   "    fn read(i32 value -> i32;"
+                                   "}"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected ')' after parameter list");
+}
+
+TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingReturnArrows)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "interface Reader {"
+                                   "    fn read() i32;"
+                                   "}"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected '->' after method signature");
+}
+
 TEST(VigilCompilerTest, RejectsUnknownClassFields)
 {
     vigil_runtime_t *runtime = NULL;
@@ -2858,6 +2931,12 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, RejectsDuplicateInterfaceMethods);
     REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingParameterNames);
     REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingSemicolons);
+    REGISTER_TEST(VigilCompilerTest, RejectsInterfaceNameConflictsWithGlobalConstant);
+    REGISTER_TEST(VigilCompilerTest, RejectsInvalidInterfaceBodyMembers);
+    REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingOpeningParens);
+    REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingClosingParens);
+    REGISTER_TEST(VigilCompilerTest, RejectsInterfaceMethodsMissingReturnArrows);
     REGISTER_TEST(VigilCompilerTest, RejectsUnknownClassFields);
     REGISTER_TEST(VigilCompilerTest, RejectsUnknownClassMethods);
     REGISTER_TEST(VigilCompilerTest, RejectsNonI32MainReturnTypesAndUnsupportedReturnExpressions);
