@@ -795,9 +795,9 @@ vigil_status_t vigil_program_parse_constant_declaration(vigil_program_state_t *p
 vigil_status_t vigil_program_parse_enum_declaration(vigil_program_state_t *program, size_t *cursor, int is_public)
 {
     vigil_status_t status;
-    const vigil_token_t *name_token;
+    const vigil_token_t *name_token = NULL;
     const vigil_token_t *token;
-    vigil_enum_decl_t *decl;
+    vigil_enum_decl_t *decl = NULL;
     vigil_constant_result_t value_result;
     int64_t next_value;
 
