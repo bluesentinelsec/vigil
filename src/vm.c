@@ -2725,28 +2725,64 @@ static vigil_status_t vigil_vm_call_extern(vigil_vm_t *vm, const char *desc, siz
     return vigil_extern_call(vm, desc, desc_len, arg_count, error);
 }
 
-/* Math intrinsic VM_CASE helpers — defined outside vigil_vm_execute_function
-   so they don't inflate its lizard length metric. */
-#define VIGIL_VM_MATH_F64_1(op, cfn)                                                                                   \
-    VM_CASE(op)                                                                                                        \
-    {                                                                                                                  \
-        vigil_value_t r_;                                                                                              \
-        frame->ip += 1U;                                                                                               \
-        vigil_value_init_float(&r_, cfn(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));                         \
-        VIGIL_VM_PUSH(vm, &r_);                                                                                        \
-        VM_BREAK();                                                                                                    \
+static void vigil_vm_math_sin(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, sin(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_cos(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, cos(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_sqrt(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, sqrt(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_log(vigil_vm_t *vm)
+{
+    vigil_value_t r;
+    vigil_value_init_float(&r, log(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_pow(vigil_vm_t *vm)
+{
+    vigil_value_t b, a, r;
+    b = vigil_vm_pop_or_nil(vm);
+    a = vigil_vm_pop_or_nil(vm);
+    vigil_value_init_float(&r, pow(vigil_nanbox_decode_double(a), vigil_nanbox_decode_double(b)));
+    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    vm->stack_count += 1U;
+}
+static void vigil_vm_math_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
+{
+    switch (op)
+    {
+    case VIGIL_OPCODE_MATH_SIN_F64:
+        vigil_vm_math_sin(vm);
+        break;
+    case VIGIL_OPCODE_MATH_COS_F64:
+        vigil_vm_math_cos(vm);
+        break;
+    case VIGIL_OPCODE_MATH_SQRT_F64:
+        vigil_vm_math_sqrt(vm);
+        break;
+    case VIGIL_OPCODE_MATH_LOG_F64:
+        vigil_vm_math_log(vm);
+        break;
+    default:
+        vigil_vm_math_pow(vm);
+        break;
     }
-#define VIGIL_VM_MATH_F64_2(op, cfn)                                                                                   \
-    VM_CASE(op)                                                                                                        \
-    {                                                                                                                  \
-        vigil_value_t b_, a_, r_;                                                                                      \
-        frame->ip += 1U;                                                                                               \
-        b_ = vigil_vm_pop_or_nil(vm);                                                                                  \
-        a_ = vigil_vm_pop_or_nil(vm);                                                                                  \
-        vigil_value_init_float(&r_, cfn(vigil_nanbox_decode_double(a_), vigil_nanbox_decode_double(b_)));              \
-        VIGIL_VM_PUSH(vm, &r_);                                                                                        \
-        VM_BREAK();                                                                                                    \
-    }
+}
 
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
@@ -2767,7 +2803,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
     const uint8_t *code;
     size_t code_size;
     size_t local_index;
+
     object = NULL;
+
     status = vigil_vm_validate(vm, error);
     if (status != VIGIL_STATUS_OK)
     {
@@ -3503,8 +3541,10 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 const vigil_value_t *native_val;
                 vigil_object_t *native_obj;
                 vigil_native_fn_t native_fn;
+
                 VIGIL_VM_READ_U32(code, frame->ip, constant_index);
                 VIGIL_VM_READ_RAW_U32(code, frame->ip, native_arg_count);
+
                 native_val = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)constant_index);
                 native_obj = (vigil_object_t *)vigil_nanbox_decode_ptr(*native_val);
                 native_fn = vigil_native_function_get(native_obj);
@@ -3524,8 +3564,10 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(DEFER_CALL_NATIVE)
             {
                 uint32_t native_defer_arg_count;
+
                 VIGIL_VM_READ_U32(code, frame->ip, constant_index);
                 VIGIL_VM_READ_RAW_U32(code, frame->ip, native_defer_arg_count);
+
                 frame = vigil_vm_current_frame(vm);
                 status = vigil_vm_schedule_defer(vm, frame, VIGIL_VM_DEFER_CALL_NATIVE, constant_index, 0U,
                                                  native_defer_arg_count, (size_t)native_defer_arg_count, error);
@@ -3542,12 +3584,15 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 const vigil_object_t *desc_obj;
                 const char *desc_data;
                 size_t desc_len;
+
                 VIGIL_VM_READ_U32(code, frame->ip, constant_index);
                 VIGIL_VM_READ_RAW_U32(code, frame->ip, extern_arg_count);
+
                 desc_val = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)constant_index);
                 desc_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(*desc_val);
                 desc_data = vigil_string_object_c_str(desc_obj);
                 desc_len = vigil_string_object_length(desc_obj);
+
                 status = vigil_vm_call_extern(vm, desc_data, desc_len, (size_t)extern_arg_count, error);
                 if (status != VIGIL_STATUS_OK)
                 {
@@ -3556,16 +3601,20 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 VM_BREAK();
             }
             /* Math intrinsics */
-            VIGIL_VM_MATH_F64_1(MATH_SIN_F64, sin)
-            VIGIL_VM_MATH_F64_1(MATH_COS_F64, cos)
-            VIGIL_VM_MATH_F64_1(MATH_SQRT_F64, sqrt)
-            VIGIL_VM_MATH_F64_1(MATH_LOG_F64, log)
-            VIGIL_VM_MATH_F64_2(MATH_POW_F64, pow)
+            VM_CASE(MATH_SIN_F64)
+            VM_CASE(MATH_COS_F64)
+            VM_CASE(MATH_SQRT_F64)
+            VM_CASE(MATH_LOG_F64)
+            VM_CASE(MATH_POW_F64)
+            vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]);
+            frame->ip += 1U;
+            VM_BREAK();
             VM_CASE(CALL_INTERFACE)
             {
                 size_t interface_index;
                 size_t method_index;
                 size_t arg_count;
+
                 status = vigil_vm_read_u32(vm, &constant_index, error);
                 if (status != VIGIL_STATUS_OK)
                 {
@@ -3578,6 +3627,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 }
                 interface_index = (size_t)constant_index;
                 method_index = (size_t)operand;
+
                 status = vigil_vm_read_raw_u32(vm, &operand, error);
                 if (status != VIGIL_STATUS_OK)
                 {
@@ -7356,5 +7406,3 @@ cleanup:
     vigil_vm_clear_frames(vm);
     return status;
 }
-#undef VIGIL_VM_MATH_F64_1
-#undef VIGIL_VM_MATH_F64_2
