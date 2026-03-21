@@ -9,12 +9,6 @@ typedef struct
     vigil_type_kind_t kind;
 } vigil_type_name_entry_t;
 
-typedef struct
-{
-    vigil_binary_operator_kind_t operator_kind;
-    vigil_type_binary_rule_t rule;
-} vigil_type_binary_rule_entry_t;
-
 typedef enum
 {
     VIGIL_TYPE_BINARY_RULE_INVALID = 0,
@@ -25,6 +19,12 @@ typedef enum
     VIGIL_TYPE_BINARY_RULE_EQUALITY,
     VIGIL_TYPE_BINARY_RULE_LOGICAL
 } vigil_type_binary_rule_t;
+
+typedef struct
+{
+    vigil_binary_operator_kind_t operator_kind;
+    vigil_type_binary_rule_t rule;
+} vigil_type_binary_rule_entry_t;
 
 static int vigil_type_kind_is_integer(vigil_type_kind_t kind)
 {
