@@ -3,7 +3,6 @@ import "csv";
 fn main() -> i32 {
     string line = "\"alpha,one\",42,\"say \"\"hi\"\"\",delta,999";
     i64 total = i64(0);
-
     for (i32 i = 0; i < 20000; i++) {
         array<string> row = csv.parse_row(line);
         if (row.len() != 5) {
@@ -19,5 +18,6 @@ fn main() -> i32 {
     if (total > i64(0)) {
         return 0;
     }
+
     return 1;
 }

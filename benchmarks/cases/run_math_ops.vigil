@@ -2,7 +2,6 @@ import "math";
 
 fn main() -> i32 {
     f64 acc = 0.0;
-
     for (i32 i = 0; i < 60000; i++) {
         f64 x = f64(i) * 0.001 + 1.0;
         acc = acc + math.sin(x);
@@ -15,5 +14,6 @@ fn main() -> i32 {
     if (acc != 0.0) {
         return 0;
     }
+
     return 1;
 }

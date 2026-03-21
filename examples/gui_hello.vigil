@@ -11,7 +11,6 @@ import "readline";
 fn main() -> i32 {
     fmt.println("VIGIL GUI Demo (terminal fallback — no gui module available)");
     fmt.println("─────────────────────────────────────────────────────────────");
-
     string text = readline.input("Enter text (default: hello): ");
     if (text.is_empty()) {
         text = "hello";
@@ -24,11 +23,9 @@ fn main() -> i32 {
 
     string verbose_in = readline.input("Enable verbose logging? [y/N]: ");
     bool verbose = verbose_in == "y" || verbose_in == "Y";
-
     fmt.println("─────────────────────────────────────────────────────────────");
     fmt.println(f"Applied: {text} [{mode}]");
     fmt.println(f"Verbose: {verbose}");
-
     if (verbose) {
         fmt.println(f"echo -> text={text}, mode={mode}");
     }

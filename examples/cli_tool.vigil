@@ -3,12 +3,7 @@ import "fmt";
 
 fn main() -> i32 {
     // Create argument parser using the builder pattern
-    args.Parser parser = args.Parser.new("mytool", "A simple CLI tool example")
-        .flag("verbose", "v", "Enable verbose output")
-        .option("output", "o", "Output file path", "")
-        .option_int("count", "c", "Number of iterations", "1")
-        .positional("input", "Input file path");
-
+    args.Parser parser = args.Parser.new("mytool", "A simple CLI tool example").flag("verbose", "v", "Enable verbose output").option("output", "o", "Output file path", "").option_int("count", "c", "Number of iterations", "1").positional("input", "Input file path");
     // Check for --help before parsing
     for (i32 i = 0; i < args.count(); i++) {
         string a = args.at(i);
@@ -17,7 +12,6 @@ fn main() -> i32 {
             return 0;
         }
     }
-
     // Parse arguments
     err e = parser.parse(0);
     if (e != ok) {
@@ -25,7 +19,6 @@ fn main() -> i32 {
         fmt.println(parser.help());
         return 1;
     }
-
     // Get parsed values
     bool verbose = parser.get_bool("verbose");
     string output = parser.get("output");
@@ -35,14 +28,12 @@ fn main() -> i32 {
     if (positionals.len() > 0) {
         input = positionals[0];
     }
-
     // Display parsed values
     fmt.println("Parsed arguments:");
     fmt.println(f"  Input: {input}");
     fmt.println(f"  Output: {output}");
     fmt.println(f"  Count: {countStr}");
     fmt.println(f"  Verbose: {verbose}");
-
     if (verbose) {
         fmt.println("\nVerbose mode enabled!");
         fmt.println(f"Processing {input} {countStr} times...");
