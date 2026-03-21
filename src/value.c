@@ -772,9 +772,9 @@ vigil_status_t vigil_value_init_uint_rt(vigil_value_t *value, uint64_t integer, 
 vigil_status_t vigil_string_object_new(vigil_runtime_t *runtime, const char *value, size_t length,
                                        vigil_object_t **out_object, vigil_error_t *error)
 {
-    vigil_status_t status;
     vigil_string_object_t *object;
     void *memory;
+    vigil_status_t status;
 
     vigil_error_clear(error);
 
@@ -796,9 +796,10 @@ vigil_status_t vigil_string_object_new(vigil_runtime_t *runtime, const char *val
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
+    /* Allocate object struct and string bytes in one block to halve allocation count. */
     *out_object = NULL;
     memory = NULL;
-    status = vigil_runtime_alloc(runtime, sizeof(*object), &memory, error);
+    status = vigil_runtime_alloc(runtime, sizeof(*object) + length + 1U, &memory, error);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
@@ -806,13 +807,18 @@ vigil_status_t vigil_string_object_new(vigil_runtime_t *runtime, const char *val
 
     object = (vigil_string_object_t *)memory;
     vigil_object_init(&object->base, runtime, VIGIL_OBJECT_STRING);
-    vigil_string_init(&object->value, runtime);
-    status = vigil_string_assign(&object->value, value, length, error);
-    if (status != VIGIL_STATUS_OK)
+    /* Point bytes.data at the inline region immediately after the struct.
+     * Set bytes.runtime = NULL so vigil_byte_buffer_free skips the free;
+     * the whole block is freed when the object itself is freed. */
+    object->value.bytes.runtime = NULL;
+    object->value.bytes.data = (uint8_t *)(object + 1);
+    object->value.bytes.capacity = length + 1U;
+    object->value.bytes.length = length + 1U;
+    if (length > 0U)
     {
-        vigil_object_destroy(&object->base);
-        return status;
+        memcpy(object->value.bytes.data, value, length);
     }
+    object->value.bytes.data[length] = '\0';
 
     *out_object = &object->base;
     return VIGIL_STATUS_OK;
