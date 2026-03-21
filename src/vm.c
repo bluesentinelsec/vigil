@@ -2880,8 +2880,10 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
            This is a GCC/Clang extension; the ISO C11 switch fallback
            is below.  See docs/stdlib-portability.md. */
         _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wpedantic\"")
+            _Pragma("GCC diagnostic ignored \"-Woverride-init\"")
         {
             static const void *dispatch_table[256] = {
+                [0 ... 255] = &&op_UNSUPPORTED,
                 [VIGIL_OPCODE_ADD] = &&op_ADD,
                 [VIGIL_OPCODE_ARRAY_CONTAINS] = &&op_ARRAY_CONTAINS,
                 [VIGIL_OPCODE_ARRAY_GET_SAFE] = &&op_ARRAY_GET_SAFE,
@@ -3048,11 +3050,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 status = VIGIL_STATUS_OK;                                                                              \
                 goto cleanup;                                                                                          \
             }                                                                                                          \
-        }                                                                                                              \
-        if (dispatch_table[code[frame->ip]] == NULL)                                                                   \
-        {                                                                                                              \
-            status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_UNSUPPORTED, "unsupported opcode", error);                   \
-            goto cleanup;                                                                                              \
         }                                                                                                              \
         goto *dispatch_table[code[frame->ip]];                                                                         \
     } while (0)
@@ -7375,6 +7372,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             goto cleanup;
 #endif
 #if VIGIL_VM_COMPUTED_GOTO
+        op_UNSUPPORTED:
+            status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_UNSUPPORTED, "unsupported opcode", error);
+            goto cleanup;
         vm_loop_end:
             (void)0;
             _Pragma("GCC diagnostic pop")
