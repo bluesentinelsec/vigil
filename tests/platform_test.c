@@ -1,4 +1,14 @@
 #include "vigil_test.h"
+#ifdef _WIN32
+#include <io.h>
+#define close _close
+#define dup _dup
+#define dup2 _dup2
+#define fileno _fileno
+#else
+#include <unistd.h>
+#endif
+
 #include <string.h>
 
 #include "platform/platform.h"
@@ -23,6 +33,131 @@ static void PlatformTest_SetUp(void *p)
 static void PlatformTest_TearDown(void *p)
 {
     vigil_error_clear(&((PlatformTest *)p)->error);
+}
+
+static FILE *platform_test_redirect_stdin(const char *text, int *saved_stdin)
+{
+    FILE *tmp = tmpfile();
+
+    if (tmp == NULL)
+    {
+        return NULL;
+    }
+
+    if (text != NULL && fputs(text, tmp) == EOF)
+    {
+        fclose(tmp);
+        return NULL;
+    }
+
+    rewind(tmp);
+    *saved_stdin = dup(fileno(stdin));
+    if (*saved_stdin < 0)
+    {
+        fclose(tmp);
+        return NULL;
+    }
+
+    if (dup2(fileno(tmp), fileno(stdin)) < 0)
+    {
+        close(*saved_stdin);
+        fclose(tmp);
+        return NULL;
+    }
+
+    return tmp;
+}
+
+static void platform_test_restore_stdin(FILE *tmp, int saved_stdin)
+{
+    dup2(saved_stdin, fileno(stdin));
+    close(saved_stdin);
+    fclose(tmp);
+}
+
+static int platform_test_history_matches(const vigil_line_history_t *history, const char *first, const char *second)
+{
+    const char *entry0 = vigil_line_history_get(history, 0);
+    const char *entry1 = vigil_line_history_get(history, 1);
+    int first_matches = entry0 != NULL && strcmp(entry0, first) == 0;
+    int second_matches = entry1 != NULL && strcmp(entry1, second) == 0;
+
+    return history->count == 2u && first_matches && second_matches && vigil_line_history_get(history, 2) == NULL;
+}
+
+static int platform_test_history_load_case(vigil_error_t *error)
+{
+    const char *path = "test_platform_history.tmp";
+    vigil_line_history_t saved;
+    vigil_line_history_t loaded;
+    int ok = 1;
+
+    vigil_line_history_init(&saved, 10);
+    vigil_line_history_init(&loaded, 10);
+    vigil_line_history_add(&saved, "alpha");
+    vigil_line_history_add(&saved, "beta");
+
+    if (vigil_line_history_save(&saved, path, error) != VIGIL_STATUS_OK)
+    {
+        ok = 0;
+        goto cleanup;
+    }
+
+    if (vigil_line_history_load(&loaded, path, error) != VIGIL_STATUS_OK)
+    {
+        ok = 0;
+        goto cleanup;
+    }
+
+    ok = platform_test_history_matches(&loaded, "alpha", "beta");
+
+cleanup:
+    vigil_line_history_free(&saved);
+    vigil_line_history_free(&loaded);
+    vigil_platform_remove(path, error);
+    return ok;
+}
+
+static vigil_status_t platform_test_readline_from_stdin(const char *input, char *buf, size_t buf_size,
+                                                        vigil_error_t *error)
+{
+    FILE *tmp = NULL;
+    int saved_stdin = -1;
+    vigil_status_t status;
+
+    tmp = platform_test_redirect_stdin(input, &saved_stdin);
+    if (tmp == NULL)
+    {
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    status = vigil_line_editor_readline("prompt> ", buf, buf_size, NULL, error);
+    platform_test_restore_stdin(tmp, saved_stdin);
+    return status;
+}
+
+static int platform_test_history_eviction_case(void)
+{
+    vigil_line_history_t history;
+    const char *entry0;
+    const char *entry1;
+    int entries_match;
+    int ok;
+
+    vigil_line_history_init(&history, 2);
+    vigil_line_history_add(&history, "");
+    vigil_line_history_add(&history, "alpha");
+    vigil_line_history_add(&history, "alpha");
+    vigil_line_history_add(&history, "beta");
+    vigil_line_history_add(&history, "gamma");
+    entry0 = vigil_line_history_get(&history, 0);
+    entry1 = vigil_line_history_get(&history, 1);
+    entries_match = entry0 != NULL && entry1 != NULL && strcmp(entry0, "beta") == 0 && strcmp(entry1, "gamma") == 0;
+
+    ok = history.count == 2u && entries_match && vigil_line_history_get(&history, 2) == NULL;
+
+    vigil_line_history_free(&history);
+    return ok;
 }
 
 /* ── File read/write round-trip ──────────────────────────────────── */
@@ -205,6 +340,75 @@ TEST_F(PlatformTest, RWLockReadThenWriteUnlocks)
     vigil_platform_rwlock_destroy(rwlock);
 }
 
+TEST_F(PlatformTest, LineHistoryEvictsOldEntries)
+{
+    EXPECT_TRUE(platform_test_history_eviction_case());
+}
+
+TEST_F(PlatformTest, LineHistoryClearRemovesEntries)
+{
+    vigil_line_history_t history;
+
+    vigil_line_history_init(&history, 2);
+    vigil_line_history_add(&history, "beta");
+    vigil_line_history_add(&history, "gamma");
+
+    vigil_line_history_clear(&history);
+    EXPECT_EQ(history.count, 0u);
+    EXPECT_EQ(vigil_line_history_get(&history, 0), NULL);
+
+    vigil_line_history_free(&history);
+}
+
+TEST_F(PlatformTest, LineHistorySaveAndLoadRoundTrips)
+{
+    EXPECT_TRUE(platform_test_history_load_case(&FIXTURE(PlatformTest)->error));
+}
+
+TEST_F(PlatformTest, LineHistoryLoadMissingFileIsOk)
+{
+    vigil_line_history_t history;
+
+    vigil_line_history_init(&history, 10);
+
+    EXPECT_EQ(VIGIL_STATUS_OK,
+              vigil_line_history_load(&history, "nonexistent_history_xyz.tmp", &FIXTURE(PlatformTest)->error));
+    EXPECT_EQ(history.count, 0u);
+
+    vigil_line_history_free(&history);
+}
+
+TEST_F(PlatformTest, LineHistorySaveInvalidPathFails)
+{
+    vigil_line_history_t history;
+
+    vigil_line_history_init(&history, 10);
+    vigil_line_history_add(&history, "alpha");
+
+    EXPECT_EQ(VIGIL_STATUS_INTERNAL,
+              vigil_line_history_save(&history, "missing_history_dir/test.tmp", &FIXTURE(PlatformTest)->error));
+
+    vigil_line_history_free(&history);
+}
+
+TEST_F(PlatformTest, LineEditorReadlineFallsBackToStdin)
+{
+    char buf[64];
+
+    ASSERT_EQ(VIGIL_STATUS_OK,
+              platform_test_readline_from_stdin("hello from stdin\n", buf, sizeof(buf), &FIXTURE(PlatformTest)->error));
+    EXPECT_STREQ(buf, "hello from stdin");
+}
+
+TEST_F(PlatformTest, LineEditorReadlineFallbackEofFails)
+{
+    char buf[16] = "sentinel";
+
+    ASSERT_EQ(VIGIL_STATUS_INTERNAL,
+              platform_test_readline_from_stdin(NULL, buf, sizeof(buf), &FIXTURE(PlatformTest)->error));
+    EXPECT_STREQ(buf, "");
+}
+
 /* ── Stub contract tests (always compiled) ───────────────────────── */
 
 /* These verify the stub returns UNSUPPORTED.  On native builds we
@@ -231,5 +435,12 @@ void register_platform_tests(void)
     REGISTER_TEST_F(PlatformTest, NullArgs);
     REGISTER_TEST_F(PlatformTest, WriteEmptyFile);
     REGISTER_TEST_F(PlatformTest, RWLockReadThenWriteUnlocks);
+    REGISTER_TEST_F(PlatformTest, LineHistoryEvictsOldEntries);
+    REGISTER_TEST_F(PlatformTest, LineHistoryClearRemovesEntries);
+    REGISTER_TEST_F(PlatformTest, LineHistorySaveAndLoadRoundTrips);
+    REGISTER_TEST_F(PlatformTest, LineHistoryLoadMissingFileIsOk);
+    REGISTER_TEST_F(PlatformTest, LineHistorySaveInvalidPathFails);
+    REGISTER_TEST_F(PlatformTest, LineEditorReadlineFallsBackToStdin);
+    REGISTER_TEST_F(PlatformTest, LineEditorReadlineFallbackEofFails);
     REGISTER_TEST_F(PlatformTest, FileExistsReturnsValidStatus);
 }

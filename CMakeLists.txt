@@ -302,6 +302,7 @@ if(VIGIL_BUILD_TESTS)
         tests/unsafe_test.c
         tests/json_test.c
         tests/lexer_test.c
+        tests/line_editor_internal_test.c
         tests/log_test.c
         tests/toml_test.c
         tests/url_test.c
