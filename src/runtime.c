@@ -195,18 +195,6 @@ vigil_status_t vigil_runtime_push_ok_error(vigil_runtime_t *runtime, vigil_vm_t 
     vigil_value_t v;
     vigil_status_t s;
 
-    if (runtime == NULL || runtime->ok_error == NULL)
-    {
-        /* Fallback: allocate a fresh one (shouldn't happen in normal use). */
-        obj = NULL;
-        s = vigil_error_object_new_cstr(runtime, "", 0, &obj, error);
-        if (s != VIGIL_STATUS_OK)
-            return s;
-        vigil_value_init_object(&v, &obj);
-        s = vigil_vm_stack_push(vm, &v, error);
-        vigil_value_release(&v);
-        return s;
-    }
     vigil_object_retain(runtime->ok_error);
     obj = runtime->ok_error;
     vigil_value_init_object(&v, &obj);

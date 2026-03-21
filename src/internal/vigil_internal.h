@@ -17,7 +17,7 @@ struct vigil_regex; /* forward-declared; defined in stdlib/regex_engine.c */
 
 typedef struct vigil_regex_cache_entry
 {
-    char *pattern;          /* heap-allocated copy; NULL = empty slot */
+    char *pattern; /* heap-allocated copy; NULL = empty slot */
     size_t pattern_len;
     struct vigil_regex *re; /* compiled regex; NULL = empty slot */
     unsigned int lru_clock; /* incremented on each access */

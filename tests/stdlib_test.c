@@ -2391,8 +2391,7 @@ TEST(VigilStdlibRegexTest, NoMatch)
     EXPECT_EQ(result, 0);
 }
 
-TEST(VigilStdlibRegexTest, CacheEviction)
-{
+TEST(VigilStdlibRegexTest, CacheEviction){
     /* Use 40 distinct patterns to force LRU eviction (cache size = 32) */
     int64_t result = RunWithStdlib(vigil_test_failed_,
         "import \"regex\";\n"
@@ -2424,4 +2423,31 @@ void register_stdlib_regex_tests(void)
     REGISTER_TEST(VigilStdlibRegexTest, MatchAndFind);
     REGISTER_TEST(VigilStdlibRegexTest, NoMatch);
     REGISTER_TEST(VigilStdlibRegexTest, CacheEviction);
+}
+
+/* ── Parse stdlib tests (covers ok_error singleton paths) ────────── */
+
+TEST(VigilStdlibParseTest, AllSuccessPaths)
+{
+    /* Exercise parse.i32, parse.i64, parse.f64, parse.bool (true and false)
+       to cover all vigil_runtime_push_ok_error call sites in parse.c. */
+    int64_t result = RunWithStdlib(vigil_test_failed_,
+        "import \"parse\";\n"
+        "fn main() -> i32 {\n"
+        "    i32 a, err ea = parse.i32(\"42\");\n"
+        "    i64 b, err eb = parse.i64(\"9999\");\n"
+        "    f64 c, err ec = parse.f64(\"3.14\");\n"
+        "    bool d, err ed = parse.bool(\"true\");\n"
+        "    bool e, err ee = parse.bool(\"false\");\n"
+        "    if (ea != ok || eb != ok || ec != ok || ed != ok || ee != ok) { return 1; }\n"
+        "    if (a != 42) { return 2; }\n"
+        "    if (!d || e) { return 3; }\n"
+        "    return 0;\n"
+        "}\n");
+    EXPECT_EQ(result, 0);
+}
+
+void register_stdlib_parse_tests(void)
+{
+    REGISTER_TEST(VigilStdlibParseTest, AllSuccessPaths);
 }
