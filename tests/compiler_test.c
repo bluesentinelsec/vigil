@@ -175,6 +175,26 @@ TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions)
               9);
 }
 
+TEST(VigilCompilerTest, CompilesAndExecutesI32ToI64ArithPromotion)
+{
+    /* Exercises the i32-arith → i64 peephole in vigil_parser_emit_integer_cast:
+       i64(i32_add), i64(i32_sub), i64(i32_mul), i64(i32_div), i64(i32_mod). */
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_,
+                            "fn main() -> i32 {"
+                            "    i32 a = 10; i32 b = 3;"
+                            "    i64 s = i64(a + b);"
+                            "    i64 d = i64(a - b);"
+                            "    i64 m = i64(a * b);"
+                            "    i64 q = i64(a / b);"
+                            "    i64 r = i64(a % b);"
+                            "    if (s == i64(13) && d == i64(7) && m == i64(30) && q == i64(3) && r == i64(1)) {"
+                            "        return 7;"
+                            "    }"
+                            "    return 0;"
+                            "}"),
+              7);
+}
+
 TEST(VigilCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls)
 {
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, "class Holder {"
@@ -2494,6 +2514,7 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFloatArithmeticAndComparison);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesConversionsConstLocalsAndBitwiseNot);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesI32ToI64ArithPromotion);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFunctionValuesAndIndirectCalls);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesAnonymousFunctionsClosuresAndLocalFunctions);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesExplicitErrorValues);
