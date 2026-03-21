@@ -18,12 +18,12 @@ static void set_cli_frontend_error(vigil_error_t *error, vigil_status_t type, co
     error->length = message == NULL ? 0U : strlen(message);
 }
 
-static int path_has_vigil_extension(const char *path, size_t length)
+int cli_path_has_vigil_extension(const char *path, size_t length)
 {
     return path != NULL && length >= 6U && memcmp(path + length - 6U, ".vigil", 6U) == 0;
 }
 
-static int path_is_absolute(const char *path, size_t length)
+int cli_path_is_absolute(const char *path, size_t length)
 {
     if (path == NULL || length == 0U)
         return 0;
@@ -58,7 +58,8 @@ static int registry_find_source_path(const vigil_source_registry_t *registry, co
     return 0;
 }
 
-static const char *source_token_text(const vigil_source_file_t *source, const vigil_token_t *token, size_t *out_length)
+const char *cli_source_token_text(const vigil_source_file_t *source, const vigil_token_t *token,
+                                  size_t *out_length)
 {
     size_t length;
 
@@ -72,8 +73,9 @@ static const char *source_token_text(const vigil_source_file_t *source, const vi
     return vigil_string_c_str(&source->text) + token->span.start_offset;
 }
 
-static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path, const char *import_text,
-                                          size_t import_length, vigil_string_t *out_path, vigil_error_t *error)
+vigil_status_t cli_resolve_import_path(vigil_runtime_t *runtime, const char *base_path,
+                                       const char *import_text, size_t import_length,
+                                       vigil_string_t *out_path, vigil_error_t *error)
 {
     size_t base_length;
     size_t prefix_length;
@@ -84,7 +86,7 @@ static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *
         set_cli_frontend_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "import path inputs must not be null");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-    if (path_is_absolute(import_text, import_length))
+    if (cli_path_is_absolute(import_text, import_length))
         return vigil_string_assign(out_path, import_text, import_length, error);
 
     base_length = strlen(base_path);
@@ -109,7 +111,7 @@ static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *
     {
         return error->type;
     }
-    if (!path_has_vigil_extension(vigil_string_c_str(out_path), vigil_string_length(out_path)))
+    if (!cli_path_has_vigil_extension(vigil_string_c_str(out_path), vigil_string_length(out_path)))
     {
         if (vigil_string_append_cstr(out_path, ".vigil", error) != VIGIL_STATUS_OK)
             return error->type;
@@ -272,15 +274,16 @@ static int register_single_import(import_register_context_t *context, const vigi
     const char *import_text;
     size_t import_length;
 
-    import_text = source_token_text(*context->source, path_token, &import_length);
+    import_text = cli_source_token_text(*context->source, path_token, &import_length);
     if (import_text == NULL || import_length < 2U)
         return 1;
     if (vigil_stdlib_is_known_module(import_text + 1U, import_length - 2U))
         return 1;
 
     vigil_string_init(&import_path, context->runtime);
-    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path), import_text + 1U,
-                            import_length - 2U, &import_path, context->error) != VIGIL_STATUS_OK)
+    if (cli_resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path),
+                                import_text + 1U, import_length - 2U, &import_path,
+                                context->error) != VIGIL_STATUS_OK)
     {
         vigil_string_free(&import_path);
         return 0;

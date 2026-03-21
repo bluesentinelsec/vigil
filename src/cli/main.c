@@ -105,80 +105,6 @@ static void print_error(const vigil_source_registry_t *registry, const char *pre
 
 /* ── Source loading ──────────────────────────────────────────────── */
 
-static int path_has_vigil_extension(const char *path, size_t length)
-{
-    return path != NULL && length >= 6U && memcmp(path + length - 6U, ".vigil", 6U) == 0;
-}
-
-static int path_is_absolute(const char *path, size_t length)
-{
-    if (path == NULL || length == 0U)
-        return 0;
-    if (path[0] == '/' || path[0] == '\\')
-        return 1;
-    return length >= 2U && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':';
-}
-
-static const char *source_token_text(const vigil_source_file_t *source, const vigil_token_t *token, size_t *out_length)
-{
-    size_t length;
-
-    if (out_length != NULL)
-        *out_length = 0U;
-    if (source == NULL || token == NULL)
-        return NULL;
-    length = token->span.end_offset - token->span.start_offset;
-    if (out_length != NULL)
-        *out_length = length;
-    return vigil_string_c_str(&source->text) + token->span.start_offset;
-}
-
-static vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path, const char *import_text,
-                                          size_t import_length, vigil_string_t *out_path, vigil_error_t *error)
-{
-    size_t base_length;
-    size_t prefix_length;
-
-    vigil_string_clear(out_path);
-    if (runtime == NULL || base_path == NULL || import_text == NULL || out_path == NULL)
-    {
-        set_cli_error(error, VIGIL_STATUS_INVALID_ARGUMENT, "import path inputs must not be null");
-        return VIGIL_STATUS_INVALID_ARGUMENT;
-    }
-    if (path_is_absolute(import_text, import_length))
-        return vigil_string_assign(out_path, import_text, import_length, error);
-
-    base_length = strlen(base_path);
-    prefix_length = base_length;
-    while (prefix_length > 0U)
-    {
-        char current;
-
-        current = base_path[prefix_length - 1U];
-        if (current == '/' || current == '\\')
-            break;
-        prefix_length -= 1U;
-    }
-    if (prefix_length != 0U)
-    {
-        if (vigil_string_assign(out_path, base_path, prefix_length, error) != VIGIL_STATUS_OK)
-            return error->type;
-        if (vigil_string_append(out_path, import_text, import_length, error) != VIGIL_STATUS_OK)
-            return error->type;
-    }
-    else if (vigil_string_assign(out_path, import_text, import_length, error) != VIGIL_STATUS_OK)
-    {
-        return error->type;
-    }
-    if (!path_has_vigil_extension(vigil_string_c_str(out_path), vigil_string_length(out_path)))
-    {
-        if (vigil_string_append_cstr(out_path, ".vigil", error) != VIGIL_STATUS_OK)
-            return error->type;
-    }
-    (void)runtime;
-    return VIGIL_STATUS_OK;
-}
-
 /* ── run command ─────────────────────────────────────────────────── */
 
 static int cmd_run(const char *script_path, const char *const *script_argv, size_t script_argc)
@@ -262,8 +188,6 @@ static int cmd_run(const char *script_path, const char *const *script_argv, size
     exit_code = (int)vigil_value_as_int(&result);
 
 cleanup:
-    if (vigil_diagnostic_list_count(&diagnostics) != 0U)
-        print_diagnostics(&registry, &diagnostics);
     vigil_value_release(&result);
     vigil_diagnostic_list_free(&diagnostics);
     vigil_source_registry_free(&registry);
@@ -372,11 +296,12 @@ static const char *new_resolve_project_name(const char *name, char *project_name
 }
 
 static const char *new_resolve_project_dir(const char *name, const char *output_dir, char *project_path,
-                                           size_t project_path_size)
+                                           size_t project_path_size, vigil_error_t *error)
 {
     if (output_dir != NULL && output_dir[0] != '\0')
     {
-        snprintf(project_path, project_path_size, "%s/%s", output_dir, name);
+        if (vigil_platform_path_join(output_dir, name, project_path, project_path_size, error) != VIGIL_STATUS_OK)
+            return NULL;
         return project_path;
     }
     return name;
@@ -536,6 +461,10 @@ static void new_print_summary(const char *dir, const char *name, int is_lib, int
     printf("  .gitignore\n");
 }
 
+/* Maximum project name length. Scaffold templates embed the name into fixed
+   buffers, so we enforce a safe upper bound here rather than silently truncating. */
+#define NEW_MAX_PROJECT_NAME 100
+
 static int cmd_new(const char *name, int is_lib, int scaffold, const char *output_dir)
 {
     vigil_error_t error = {0};
@@ -550,7 +479,17 @@ static int cmd_new(const char *name, int is_lib, int scaffold, const char *outpu
         fprintf(stderr, "error: %s\n", vigil_error_message(&error));
         return 1;
     }
-    dir = new_resolve_project_dir(name, output_dir, project_path, sizeof(project_path));
+    if (strlen(name) > NEW_MAX_PROJECT_NAME)
+    {
+        fprintf(stderr, "error: project name too long (max %d characters)\n", NEW_MAX_PROJECT_NAME);
+        return 1;
+    }
+    dir = new_resolve_project_dir(name, output_dir, project_path, sizeof(project_path), &error);
+    if (dir == NULL)
+    {
+        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
+        return 1;
+    }
 
     /* Check if directory already exists. */
     if (vigil_platform_file_exists(dir, &exists) == VIGIL_STATUS_OK && exists)
@@ -2312,15 +2251,15 @@ static int repl_compile_and_run(vigil_runtime_t *runtime, const char *source_tex
                     if (!path_token || (path_token->kind != VIGIL_TOKEN_STRING_LITERAL &&
                                         path_token->kind != VIGIL_TOKEN_RAW_STRING_LITERAL))
                         break;
-                    import_text = source_token_text(source, path_token, &import_length);
+                    import_text = cli_source_token_text(source, path_token, &import_length);
                     if (!import_text || import_length < 2)
                         break;
                     if (!vigil_stdlib_is_known_module(import_text + 1, import_length - 2))
                     {
                         vigil_string_t import_path;
                         vigil_string_init(&import_path, runtime);
-                        if (resolve_import_path(runtime, "<repl>", import_text + 1, import_length - 2, &import_path,
-                                                &error) == VIGIL_STATUS_OK)
+                        if (cli_resolve_import_path(runtime, "<repl>", import_text + 1, import_length - 2,
+                                                    &import_path, &error) == VIGIL_STATUS_OK)
                         {
                             register_source_tree(&registry, vigil_string_c_str(&import_path), project_root, NULL,
                                                  &error);
@@ -2986,7 +2925,7 @@ int main(int argc, char **argv)
             printf("  vigil get github.com/user/repo@v1.0.0  Install specific version\n");
             printf("  vigil get github.com/user/repo@main    Install branch\n");
             printf("\nOptions:\n");
-            printf("  -remove    Remove a package\n");
+            printf("  --remove   Remove a package\n");
             return 0;
         }
         return cmd_get(argc, argv);
@@ -3016,6 +2955,10 @@ int main(int argc, char **argv)
     vigil_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. sqrt or Point.x)", &doc_symbol);
 
     cmd = vigil_cli_add_command(&cli, "fmt", "Format VIGIL source files");
+    vigil_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
+    vigil_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
+
+    cmd = vigil_cli_add_command(&cli, "format", "Format VIGIL source files (alias for fmt)");
     vigil_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
     vigil_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
 
@@ -3096,7 +3039,7 @@ int main(int argc, char **argv)
         {
             return cmd_doc(doc_file, doc_symbol);
         }
-        if (strcmp(matched_name, "fmt") == 0)
+        if (strcmp(matched_name, "fmt") == 0 || strcmp(matched_name, "format") == 0)
         {
             if (fmt_file == NULL)
             {
