@@ -74,73 +74,73 @@ static void csv_skip_crlf(csv_reader_t *r)
 }
 
 /* Parse a single field, handling quotes. Returns allocated string. */
-static char *csv_parse_field(csv_reader_t *r, size_t *out_len)
+static int csv_is_field_end(int c)
 {
-    char *buf = NULL;
-    size_t cap = 0, len = 0;
-    int quoted = 0;
+    return c == ',' || c == '\r' || c == '\n';
+}
+static bool csv_field_spill(char **buf, char **heap_buf, size_t len, size_t *cap)
+{
+    size_t new_cap = (*cap + 1U) * 2U;
+    char *h = (char *)malloc(new_cap + 1U);
+    if (!h)
+        return false;
+    memcpy(h, *buf, len);
+    free(*heap_buf);
+    *heap_buf = h;
+    *buf = h;
+    *cap = new_cap;
+    return true;
+}
+
+/* Parse one CSV field into *out_data / *out_len.
+ * Uses stack_buf (stack_cap bytes) when the field fits; otherwise heap-allocates
+ * into *heap_buf (caller must free if *heap_buf != NULL on return).
+ * Returns false on allocation failure. */
+static bool csv_parse_field_buf(csv_reader_t *r, char *stack_buf, size_t stack_cap, char **heap_buf,
+                                const char **out_data, size_t *out_len)
+{
+    char *buf = stack_buf;
+    size_t cap = stack_cap - 1U;
+    size_t len = 0;
+    int quoted = (csv_peek(r) == '"');
     int c;
 
-    if (csv_peek(r) == '"')
-    {
-        quoted = 1;
+    *heap_buf = NULL;
+    if (quoted)
         csv_next(r);
-    }
 
     while ((c = csv_peek(r)) != -1)
     {
         if (quoted)
         {
-            if (c == '"')
+            if (c != '"')
             {
                 csv_next(r);
-                if (csv_peek(r) == '"')
-                {
-                    /* Escaped quote */
-                    csv_next(r);
-                }
-                else
-                {
-                    /* End of quoted field */
-                    break;
-                }
             }
             else
             {
+                csv_next(r);
+                if (csv_peek(r) != '"')
+                    break;
                 csv_next(r);
             }
         }
         else
         {
-            if (c == ',' || c == '\r' || c == '\n')
+            if (csv_is_field_end(c))
                 break;
             csv_next(r);
         }
 
-        /* Append character */
-        if (len + 1 >= cap)
-        {
-            cap = cap ? cap * 2 : 64;
-            char *newbuf = (char *)realloc(buf, cap);
-            if (!newbuf)
-            {
-                free(buf);
-                return NULL;
-            }
-            buf = newbuf;
-        }
+        if (len >= cap && !csv_field_spill(&buf, heap_buf, len, &cap))
+            return false;
         buf[len++] = (char)c;
     }
 
-    if (!buf)
-    {
-        buf = (char *)malloc(1);
-        if (!buf)
-            return NULL;
-    }
     buf[len] = '\0';
+    *out_data = buf;
     *out_len = len;
-    return buf;
+    return true;
 }
 
 /* ── csv.parse(data: string) -> array<array<string>> ─────────────── */
@@ -193,16 +193,18 @@ static vigil_status_t csv_parse(vigil_vm_t *vm, size_t arg_count, vigil_error_t 
             }
             first = 0;
 
+            char field_stack[256];
+            char *field_heap;
+            const char *field;
             size_t field_len;
-            char *field = csv_parse_field(&reader, &field_len);
-            if (!field)
+            if (!csv_parse_field_buf(&reader, field_stack, sizeof(field_stack), &field_heap, &field, &field_len))
             {
                 return VIGIL_STATUS_INTERNAL;
             }
 
             vigil_object_t *str_obj = NULL;
             s = vigil_string_object_new(vigil_vm_runtime(vm), field, field_len, &str_obj, error);
-            free(field);
+            free(field_heap);
             if (s != VIGIL_STATUS_OK)
                 return s;
 
@@ -271,16 +273,18 @@ static vigil_status_t csv_parse_row(vigil_vm_t *vm, size_t arg_count, vigil_erro
         }
         first = 0;
 
+        char field_stack[256];
+        char *field_heap;
+        const char *field;
         size_t field_len;
-        char *field = csv_parse_field(&reader, &field_len);
-        if (!field)
+        if (!csv_parse_field_buf(&reader, field_stack, sizeof(field_stack), &field_heap, &field, &field_len))
         {
             return VIGIL_STATUS_INTERNAL;
         }
 
         vigil_object_t *str_obj = NULL;
         s = vigil_string_object_new(vigil_vm_runtime(vm), field, field_len, &str_obj, error);
-        free(field);
+        free(field_heap);
         if (s != VIGIL_STATUS_OK)
             return s;
 

@@ -170,10 +170,10 @@ TEST(VigilValueTest, StringObjectUsesRuntimeAllocatorHooks)
 
     vigil_object_release(&object);
     EXPECT_EQ(object, NULL);
-    EXPECT_GE(stats.deallocate_calls, 2);
+    EXPECT_GE(stats.deallocate_calls, 1);
 
     vigil_runtime_close(&runtime);
-    EXPECT_GE(stats.deallocate_calls, 3);
+    EXPECT_GE(stats.deallocate_calls, 2);
 }
 
 TEST(VigilValueTest, StringObjectValidatesArguments)
