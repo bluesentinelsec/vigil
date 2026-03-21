@@ -525,6 +525,253 @@ TEST(VigilHttpTest, DoRequestHttpsFallbackFails)
     }
 }
 
+/* ── Additional URL parsing edge cases ───────────────────────────── */
+
+TEST(VigilHttpTest, ParseUrlSchemeTooLong)
+{
+    /* Scheme buffer is 16 bytes; a 20-char scheme must be rejected. */
+    parsed_url_t u;
+    EXPECT_EQ(parse_url("averylongschemename://host/path", &u), 0);
+}
+
+TEST(VigilHttpTest, ParseUrlHostTooLong)
+{
+    /* Host buffer is 256 bytes; 256-char hostname must be rejected. */
+    char url[512];
+    memcpy(url, "http://", 7);
+    memset(url + 7, 'a', 256);
+    memcpy(url + 7 + 256, "/path", 6);
+
+    parsed_url_t u;
+    EXPECT_EQ(parse_url(url, &u), 0);
+}
+
+/* ── parse_http_response happy path ──────────────────────────────── */
+
+TEST(VigilHttpTest, ParseHttpResponseValid)
+{
+    /* Full response: verify status, headers, and body are all parsed. */
+    char buf[] = "HTTP/1.1 201 Created\r\n"
+                 "Content-Type: text/plain\r\n"
+                 "Content-Length: 5\r\n"
+                 "\r\n"
+                 "hello";
+    http_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 201);
+    EXPECT_NE(resp.headers, NULL);
+    EXPECT_NE(resp.body, NULL);
+    EXPECT_EQ(resp.body_len, 5u);
+    if (resp.body)
+        EXPECT_STREQ(resp.body, "hello");
+    response_free(&resp);
+}
+
+TEST(VigilHttpTest, ParseHttpResponseNoBody)
+{
+    /* Empty body — body_len == 0 and body is a valid empty string. */
+    char buf[] = "HTTP/1.1 204 No Content\r\n"
+                 "Content-Length: 0\r\n"
+                 "\r\n";
+    http_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    int rc = parse_http_response(buf, sizeof(buf) - 1, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.status_code, 204);
+    EXPECT_EQ(resp.body_len, 0u);
+    response_free(&resp);
+}
+
+/* ── Cookie / header helper edge cases ───────────────────────────── */
+
+TEST(VigilHttpTest, CookieJarAppendTrailingWhitespace)
+{
+    /* Value that is only whitespace trims to zero length — no-op. */
+    char *jar = NULL;
+    cookie_jar_append(&jar, "   ", 3);
+    EXPECT_EQ(jar, NULL);
+
+    /* After a real cookie, appending whitespace leaves jar unchanged. */
+    cookie_jar_append(&jar, "x=1", 3);
+    char *prev = jar;
+    cookie_jar_append(&jar, "  \t ", 4);
+    EXPECT_EQ(jar, prev); /* pointer unchanged */
+    free(jar);
+}
+
+TEST(VigilHttpTest, CollectCookiesNoTrailingCrlf)
+{
+    /* Last header line has no CRLF — eol falls back to strlen path. */
+    const char *hdrs = "HTTP/1.1 200 OK\r\n"
+                       "Set-Cookie: last=val";
+    char *jar = NULL;
+    collect_cookies(hdrs, &jar);
+    EXPECT_NE(jar, NULL);
+    if (jar)
+        EXPECT_STRNE(strstr(jar, "last=val"), NULL);
+    free(jar);
+}
+
+TEST(VigilHttpTest, BuildRequestHeadersCookieOnly)
+{
+    /* NULL existing headers — output contains only the Cookie line. */
+    char *hdrs = build_request_headers("tok=abc", NULL);
+    ASSERT_NE(hdrs, NULL);
+    EXPECT_NE(strstr(hdrs, "Cookie: tok=abc"), NULL);
+    /* No garbage after the cookie CRLF. */
+    char *after = strstr(hdrs, "Cookie: tok=abc\r\n");
+    ASSERT_NE(after, NULL);
+    EXPECT_EQ(*(after + strlen("Cookie: tok=abc\r\n")), '\0');
+    free(hdrs);
+}
+
+/* ── do_request: 307 preserves method ───────────────────────────── */
+
+#define REDIR_307_PORT    18795
+#define DEST_307_PORT     18796
+
+typedef struct
+{
+    vigil_socket_t listener;
+    volatile int ready;
+    int port;
+    char received_method[32];
+    char received_body[256];
+    const char *response;
+} method_capture_server_t;
+
+static void method_capture_func(void *arg)
+{
+    method_capture_server_t *srv = (method_capture_server_t *)arg;
+    if (vigil_platform_tcp_listen("127.0.0.1", srv->port, &srv->listener, NULL) != VIGIL_STATUS_OK)
+        return;
+    srv->ready = 1;
+
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(srv->listener, &client, NULL) != VIGIL_STATUS_OK)
+        return;
+
+    char buf[4096];
+    size_t n = 0;
+    vigil_platform_tcp_recv(client, buf, sizeof(buf) - 1, &n, NULL);
+    buf[n] = '\0';
+
+    char *sp = strchr(buf, ' ');
+    if (sp)
+    {
+        size_t mlen = (size_t)(sp - buf);
+        if (mlen < sizeof(srv->received_method))
+        {
+            memcpy(srv->received_method, buf, mlen);
+            srv->received_method[mlen] = '\0';
+        }
+    }
+    char *body_start = strstr(buf, "\r\n\r\n");
+    if (body_start)
+    {
+        body_start += 4;
+        size_t blen = strlen(body_start);
+        if (blen < sizeof(srv->received_body))
+        {
+            memcpy(srv->received_body, body_start, blen);
+            srv->received_body[blen] = '\0';
+        }
+    }
+
+    vigil_platform_tcp_send(client, srv->response, strlen(srv->response), NULL, NULL);
+    vigil_platform_tcp_close(client, NULL);
+}
+
+TEST(VigilHttpTest, DoRequest307PreservesMethod)
+{
+    /* 307 Temporary Redirect must NOT change POST→GET. */
+    char redir_body[256];
+    snprintf(redir_body, sizeof(redir_body),
+             "HTTP/1.1 307 Temporary Redirect\r\n"
+             "Location: http://127.0.0.1:%d/dest\r\n"
+             "Content-Length: 0\r\n"
+             "\r\n",
+             DEST_307_PORT);
+
+    test_server_t srv_redir;
+    vigil_platform_thread_t *thr_redir = NULL;
+    if (!start_test_server_port(&srv_redir, redir_body, REDIR_307_PORT, &thr_redir))
+        return;
+
+    method_capture_server_t srv_dest;
+    memset(&srv_dest, 0, sizeof(srv_dest));
+    srv_dest.port = DEST_307_PORT;
+    srv_dest.response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+
+    vigil_platform_thread_t *thr_dest = NULL;
+    vigil_platform_net_init(NULL);
+    if (vigil_platform_thread_create(&thr_dest, method_capture_func, &srv_dest, NULL) != VIGIL_STATUS_OK)
+    {
+        stop_test_server(&srv_redir, thr_redir);
+        return;
+    }
+    for (int i = 0; i < 200 && !srv_dest.ready; i++)
+        vigil_platform_thread_sleep(10);
+    if (!srv_dest.ready)
+    {
+        stop_test_server(&srv_redir, thr_redir);
+        vigil_platform_thread_join(thr_dest, NULL);
+        return;
+    }
+
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/start", REDIR_307_PORT);
+    http_response_t resp;
+    int rc = do_request("POST", url, NULL, "payload", 7, &resp);
+    if (rc == 0)
+        response_free(&resp);
+
+    stop_test_server(&srv_redir, thr_redir);
+    if (srv_dest.listener != VIGIL_INVALID_SOCKET)
+        vigil_platform_tcp_close(srv_dest.listener, NULL);
+    vigil_platform_thread_join(thr_dest, NULL);
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_STREQ(srv_dest.received_method, "POST");
+}
+
+/* ── do_request: Location header too long to follow ─────────────── */
+
+#define LONG_LOC_PORT 18797
+
+static char g_long_loc_response[6000];
+
+TEST(VigilHttpTest, DoRequestRedirectLocationTooLong)
+{
+    /* Location value > 4095 bytes: find_location_header returns NULL,
+     * the redirect is silently dropped, and the 302 is returned as-is. */
+    memcpy(g_long_loc_response,
+           "HTTP/1.1 302 Found\r\nLocation: http://", 37);
+    memset(g_long_loc_response + 37, 'x', 4200);
+    memcpy(g_long_loc_response + 37 + 4200, "/\r\nContent-Length: 0\r\n\r\n", 24);
+    g_long_loc_response[37 + 4200 + 24] = '\0';
+
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_test_server_port(&srv, g_long_loc_response, LONG_LOC_PORT, &thr))
+        return;
+
+    http_response_t resp;
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/test", LONG_LOC_PORT);
+    int rc = do_request("GET", url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    if (rc == 0)
+    {
+        EXPECT_EQ(resp.status_code, 302);
+        response_free(&resp);
+    }
+
+    stop_test_server(&srv, thr);
+}
+
 /* ── Response free safety ────────────────────────────────────────── */
 
 TEST(VigilHttpTest, ResponseFreeNull)
@@ -910,6 +1157,18 @@ void register_http_tests(void)
     /* URL parsing extras */
     REGISTER_TEST(VigilHttpTest, ParseUrlUppercaseScheme);
     REGISTER_TEST(VigilHttpTest, ParseUrlPathTooLong);
+    REGISTER_TEST(VigilHttpTest, ParseUrlSchemeTooLong);
+    REGISTER_TEST(VigilHttpTest, ParseUrlHostTooLong);
+    /* Response parsing */
+    REGISTER_TEST(VigilHttpTest, ParseHttpResponseValid);
+    REGISTER_TEST(VigilHttpTest, ParseHttpResponseNoBody);
+    /* Cookie / header helpers */
+    REGISTER_TEST(VigilHttpTest, CookieJarAppendTrailingWhitespace);
+    REGISTER_TEST(VigilHttpTest, CollectCookiesNoTrailingCrlf);
+    REGISTER_TEST(VigilHttpTest, BuildRequestHeadersCookieOnly);
+    /* do_request extras */
+    REGISTER_TEST(VigilHttpTest, DoRequest307PreservesMethod);
+    REGISTER_TEST(VigilHttpTest, DoRequestRedirectLocationTooLong);
     /* Misc */
     REGISTER_TEST(VigilHttpTest, ResponseFreeNull);
     REGISTER_TEST(VigilHttpTest, ParseHttpResponseMalformed);
