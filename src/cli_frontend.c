@@ -73,7 +73,7 @@ const char *cli_source_token_text(const vigil_source_file_t *source, const vigil
     return vigil_string_c_str(&source->text) + token->span.start_offset;
 }
 
-vigil_status_t cli_resolve_import_path(vigil_runtime_t *runtime, const char *base_path,
+vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path,
                                        const char *import_text, size_t import_length,
                                        vigil_string_t *out_path, vigil_error_t *error)
 {
@@ -281,7 +281,7 @@ static int register_single_import(import_register_context_t *context, const vigi
         return 1;
 
     vigil_string_init(&import_path, context->runtime);
-    if (cli_resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path),
+    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path),
                                 import_text + 1U, import_length - 2U, &import_path,
                                 context->error) != VIGIL_STATUS_OK)
     {

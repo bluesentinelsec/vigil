@@ -296,12 +296,11 @@ static const char *new_resolve_project_name(const char *name, char *project_name
 }
 
 static const char *new_resolve_project_dir(const char *name, const char *output_dir, char *project_path,
-                                           size_t project_path_size, vigil_error_t *error)
+                                           size_t project_path_size)
 {
     if (output_dir != NULL && output_dir[0] != '\0')
     {
-        if (vigil_platform_path_join(output_dir, name, project_path, project_path_size, error) != VIGIL_STATUS_OK)
-            return NULL;
+        snprintf(project_path, project_path_size, "%s/%s", output_dir, name);
         return project_path;
     }
     return name;
@@ -484,12 +483,7 @@ static int cmd_new(const char *name, int is_lib, int scaffold, const char *outpu
         fprintf(stderr, "error: project name too long (max %d characters)\n", NEW_MAX_PROJECT_NAME);
         return 1;
     }
-    dir = new_resolve_project_dir(name, output_dir, project_path, sizeof(project_path), &error);
-    if (dir == NULL)
-    {
-        fprintf(stderr, "error: %s\n", vigil_error_message(&error));
-        return 1;
-    }
+    dir = new_resolve_project_dir(name, output_dir, project_path, sizeof(project_path));
 
     /* Check if directory already exists. */
     if (vigil_platform_file_exists(dir, &exists) == VIGIL_STATUS_OK && exists)
@@ -2258,7 +2252,7 @@ static int repl_compile_and_run(vigil_runtime_t *runtime, const char *source_tex
                     {
                         vigil_string_t import_path;
                         vigil_string_init(&import_path, runtime);
-                        if (cli_resolve_import_path(runtime, "<repl>", import_text + 1, import_length - 2,
+                        if (resolve_import_path(runtime, "<repl>", import_text + 1, import_length - 2,
                                                     &import_path, &error) == VIGIL_STATUS_OK)
                         {
                             register_source_tree(&registry, vigil_string_c_str(&import_path), project_root, NULL,
@@ -2822,6 +2816,12 @@ static int cmd_package(const char *entry_path, const char *output_path, const ch
 
 /* ── main ────────────────────────────────────────────────────────── */
 
+static void normalize_format_arg(int argc, char **argv)
+{
+    if (argc >= 2 && strcmp(argv[1], "format") == 0)
+        argv[1] = (char *)"fmt";
+}
+
 int main(int argc, char **argv)
 {
     vigil_cli_t cli;
@@ -2930,7 +2930,7 @@ int main(int argc, char **argv)
         }
         return cmd_get(argc, argv);
     }
-
+    normalize_format_arg(argc, argv);
     vigil_cli_init(&cli, "vigil", "The VIGIL Scripting Language");
 
     cmd = vigil_cli_add_command(&cli, "run", "Run a VIGIL script");
@@ -2955,10 +2955,6 @@ int main(int argc, char **argv)
     vigil_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. sqrt or Point.x)", &doc_symbol);
 
     cmd = vigil_cli_add_command(&cli, "fmt", "Format VIGIL source files");
-    vigil_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
-    vigil_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
-
-    cmd = vigil_cli_add_command(&cli, "format", "Format VIGIL source files (alias for fmt)");
     vigil_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
     vigil_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
 
@@ -3039,7 +3035,7 @@ int main(int argc, char **argv)
         {
             return cmd_doc(doc_file, doc_symbol);
         }
-        if (strcmp(matched_name, "fmt") == 0 || strcmp(matched_name, "format") == 0)
+        if (strcmp(matched_name, "fmt") == 0)
         {
             if (fmt_file == NULL)
             {

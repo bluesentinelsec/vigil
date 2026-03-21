@@ -107,6 +107,18 @@ class TestVigilNew(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("already exists", result.stderr)
 
+    def test_new_rejects_name_too_long(self):
+        long_name = "a" * 101
+        result = subprocess.run(
+            [*resolve_vigil_command(), "new", long_name],
+            cwd=self.tmpdir,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("project name too long", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

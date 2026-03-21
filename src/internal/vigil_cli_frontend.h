@@ -17,7 +17,7 @@ const char *cli_source_token_text(const vigil_source_file_t *source, const vigil
                                   size_t *out_length);
 
 /* Import path resolver. */
-vigil_status_t cli_resolve_import_path(vigil_runtime_t *runtime, const char *base_path,
+vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path,
                                        const char *import_text, size_t import_length,
                                        vigil_string_t *out_path, vigil_error_t *error);
 
