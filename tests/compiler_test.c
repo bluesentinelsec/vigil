@@ -177,16 +177,23 @@ TEST(VigilCompilerTest, CompilesAndExecutesWiderIntegerTypesAndConversions)
 
 TEST(VigilCompilerTest, CompilesAndExecutesI32ToI64ArithPromotion)
 {
-    /* Exercises the i32-arith → i64 peephole in vigil_parser_emit_integer_cast:
-       i64(i32_add), i64(i32_sub), i64(i32_mul), i64(i32_div), i64(i32_mod). */
+    /* Exercises the i32-arith → i64 peephole in vigil_parser_emit_integer_cast.
+       Uses nested i32 expressions so the last opcode before the i64() cast
+       is an i32 arith op (not already widened to i64). */
     EXPECT_EQ(CompileAndRun(vigil_test_failed_,
                             "fn main() -> i32 {"
                             "    i32 a = 10; i32 b = 3;"
-                            "    i64 s = i64(a + b);"
-                            "    i64 d = i64(a - b);"
-                            "    i64 m = i64(a * b);"
-                            "    i64 q = i64(a / b);"
-                            "    i64 r = i64(a % b);"
+                            /* Force i32 context by using i32 intermediate */
+                            "    i32 s32 = a + b;"
+                            "    i32 d32 = a - b;"
+                            "    i32 m32 = a * b;"
+                            "    i32 q32 = a / b;"
+                            "    i32 r32 = a % b;"
+                            "    i64 s = i64(s32 + 0);"
+                            "    i64 d = i64(d32 - 0);"
+                            "    i64 m = i64(m32 * 1);"
+                            "    i64 q = i64(q32 / 1);"
+                            "    i64 r = i64(r32 % 97);"
                             "    if (s == i64(13) && d == i64(7) && m == i64(30) && q == i64(3) && r == i64(1)) {"
                             "        return 7;"
                             "    }"

@@ -46,6 +46,7 @@ vigil_status_t vigil_parser_emit_ok_constant(vigil_parser_state_t *state, vigil_
 static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                      vigil_source_span_t span);
 static int vigil_opcode_produces_i64(vigil_opcode_t op);
+static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
@@ -6323,7 +6324,12 @@ integer_conversion:
 
     if (needs_opcode)
     {
-        status = vigil_parser_emit_opcode(state, opcode, name_token->span);
+        /* Integer casts go through emit_integer_cast for peephole opts;
+           other casts (f64, string) emit directly. */
+        status =
+            vigil_parser_type_is_integer(vigil_binding_type_primitive(target_kind))
+                ? vigil_parser_emit_integer_cast(state, vigil_binding_type_primitive(target_kind), name_token->span)
+                : vigil_parser_emit_opcode(state, opcode, name_token->span);
         if (status != VIGIL_STATUS_OK)
         {
             return status;
