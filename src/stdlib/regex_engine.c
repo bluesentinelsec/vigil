@@ -59,6 +59,9 @@ typedef struct nfa_state
 } nfa_state_t;
 
 /* Compiled regex structure */
+/* Maximum segments in a class-run fast path pattern (e.g. [a-z]+[0-9]+ = 2). */
+#define REGEX_CLASS_RUN_MAX 8
+
 struct vigil_regex
 {
     nfa_state_t *start;
@@ -68,9 +71,11 @@ struct vigil_regex
     char_class_t *classes; /* Array of character classes */
     size_t class_count;
     size_t class_capacity;
-    size_t group_count;       /* Number of capture groups */
-    char_class_t first_bytes; /* Bitmap of bytes that can start a match */
-    bool has_first_bytes;     /* true if first_bytes filter is usable */
+    size_t group_count;                          /* Number of capture groups */
+    char_class_t first_bytes;                    /* Bitmap of bytes that can start a match */
+    bool has_first_bytes;                        /* true if first_bytes filter is usable */
+    char_class_t class_run[REGEX_CLASS_RUN_MAX]; /* Fast-path class segments */
+    size_t class_run_count;                      /* 0 = no fast path */
 };
 
 /* ── Parser State ───────────────────────────────────────────── */
@@ -1192,6 +1197,72 @@ static void regex_init_first_bytes(vigil_regex_t *re)
     }
 }
 
+/* Skip epsilon states (SAVE, JUMP) to reach the next consuming or
+ * structural state.  Returns NULL if a cycle is detected. */
+static nfa_state_t *skip_epsilon(nfa_state_t *s, size_t limit)
+{
+    while (s && limit-- > 0)
+    {
+        if (s->type == NFA_SAVE || s->type == NFA_JUMP)
+            s = s->out1;
+        else
+            return s;
+    }
+    return NULL;
+}
+
+/* Build a char_class_t for a single literal byte. */
+static void class_from_literal(char_class_t *out, uint8_t ch)
+{
+    memset(out, 0, sizeof(*out));
+    class_set(out, ch);
+}
+
+/* Detect if the NFA is a simple concatenation of [class]+ segments.
+ * If so, populate re->class_run[] and set re->class_run_count. */
+static void regex_detect_class_run(vigil_regex_t *re)
+{
+    re->class_run_count = 0;
+    nfa_state_t *s = skip_epsilon(re->start, re->state_count);
+    while (s && re->class_run_count < REGEX_CLASS_RUN_MAX)
+    {
+        if (s->type == NFA_MATCH)
+            return; /* success — all segments recorded */
+
+        /* Expect a consuming state: CLASS, CLASS_NEG, or LITERAL. */
+        char_class_t seg;
+        if (s->type == NFA_CLASS)
+            seg = *s->data.cclass;
+        else if (s->type == NFA_CLASS_NEG)
+        {
+            collect_class_bytes(s->data.cclass, true, &seg);
+        }
+        else if (s->type == NFA_LITERAL)
+            class_from_literal(&seg, s->data.literal);
+        else
+        {
+            re->class_run_count = 0;
+            return; /* not a class-run pattern */
+        }
+
+        /* The consuming state's out1 should lead (through epsilons) to a
+         * SPLIT that loops back — this is the '+' quantifier structure. */
+        nfa_state_t *sp = skip_epsilon(s->out1, re->state_count);
+        if (!sp || sp->type != NFA_SPLIT)
+        {
+            re->class_run_count = 0;
+            return;
+        }
+
+        re->class_run[re->class_run_count++] = seg;
+
+        /* Follow the SPLIT's exit branch (out2 for greedy) to the next
+         * segment.  Skip epsilons to reach the next consuming state. */
+        s = skip_epsilon(sp->out2, re->state_count);
+    }
+    re->class_run_count = 0; /* too many segments or didn't reach MATCH */
+}
+
 /* ── Public API ─────────────────────────────────────────────── */
 
 vigil_regex_t *vigil_regex_compile(const char *pattern, size_t pattern_len, char *error_buf, size_t error_buf_size)
@@ -1276,6 +1347,7 @@ vigil_regex_t *vigil_regex_compile(const char *pattern, size_t pattern_len, char
 
     /* Compute first-byte filter for fast start-position skipping. */
     regex_init_first_bytes(re);
+    regex_detect_class_run(re);
 
     return re;
 }
@@ -1389,6 +1461,53 @@ static void regex_sim_free(regex_sim_t *sim)
 
 /* Searches for the first match starting at or after position 'start_pos'.
  * Returns true if a match is found; offsets in result are absolute. */
+/* Try to match a class-run pattern starting at *pos.  On success,
+ * advances *pos past the match and returns true. */
+static bool class_run_match_at(const vigil_regex_t *re, const char *input, size_t input_len, size_t *pos)
+{
+    size_t p = *pos;
+    for (size_t seg = 0; seg < re->class_run_count; seg++)
+    {
+        if (p >= input_len || !class_test(&re->class_run[seg], (uint8_t)input[p]))
+            return false;
+        while (p < input_len && class_test(&re->class_run[seg], (uint8_t)input[p]))
+            p++;
+    }
+    *pos = p;
+    return true;
+}
+
+/* Fast path for class-run patterns: scan bytes directly without NFA. */
+static size_t regex_class_run_find_all(const vigil_regex_t *re, const char *input, size_t input_len,
+                                       vigil_regex_result_t *results, size_t max_results)
+{
+    size_t count = 0;
+    size_t pos = 0;
+
+    while (pos < input_len && count < max_results)
+    {
+        /* Skip positions that can't start a match. */
+        while (pos < input_len && !class_test(&re->class_run[0], (uint8_t)input[pos]))
+            pos++;
+        if (pos >= input_len)
+            break;
+
+        size_t match_start = pos;
+        if (!class_run_match_at(re, input, input_len, &pos))
+        {
+            pos = match_start + 1;
+            continue;
+        }
+
+        results[count].matched = true;
+        results[count].group_count = 1;
+        results[count].groups[0].start = match_start;
+        results[count].groups[0].end = pos;
+        count++;
+    }
+    return count;
+}
+
 static bool regex_find_reuse(const vigil_regex_t *re, const char *input, size_t input_len, size_t start_pos,
                              regex_sim_t *sim, vigil_regex_result_t *result)
 {
@@ -1449,6 +1568,19 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
     if (!re || !re->start)
         return false;
 
+    /* Fast path for class-run patterns. */
+    if (re->class_run_count > 0)
+    {
+        vigil_regex_result_t r;
+        if (regex_class_run_find_all(re, input, input_len, &r, 1) > 0)
+        {
+            if (result)
+                *result = r;
+            return true;
+        }
+        return false;
+    }
+
     regex_sim_t sim;
     if (!regex_sim_init(&sim, re))
         return false;
@@ -1466,17 +1598,21 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
 size_t vigil_regex_find_all(const vigil_regex_t *re, const char *input, size_t input_len, vigil_regex_result_t *results,
                             size_t max_results)
 {
-    if (!re || !re->start || !results || max_results == 0)
+    if (!re || !results || max_results == 0)
         return 0;
 
+    /* Fast path for class-run patterns (e.g. [a-z]+[0-9]+). */
+    if (re->class_run_count > 0)
+        return regex_class_run_find_all(re, input, input_len, results, max_results);
+
     regex_sim_t sim;
-    if (!regex_sim_init(&sim, re))
+    if (!re->start || !regex_sim_init(&sim, re))
         return 0;
 
     size_t count = 0;
     size_t pos = 0;
 
-    while (pos <= input_len && count < max_results)
+    while (count < max_results)
     {
         vigil_regex_result_t r;
         if (!regex_find_reuse(re, input, input_len, pos, &sim, &r))
