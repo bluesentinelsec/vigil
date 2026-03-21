@@ -1313,6 +1313,57 @@ TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues)
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 145);
 }
 
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredFunctionValues)
+{
+    const char *source = "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "fn bump() -> void {\n"
+                         "    state = state * 10 + 1;\n"
+                         "}\n"
+                         "\n"
+                         "fn run() -> void {\n"
+                         "    fn() -> void action = bump;\n"
+                         "    defer action();\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run();\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 1);
+}
+
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredConstructorsWithoutInit)
+{
+    const char *source = "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "class Point {\n"
+                         "    i32 x;\n"
+                         "    i32 y;\n"
+                         "}\n"
+                         "\n"
+                         "fn mark() -> void {\n"
+                         "    state = state * 10 + 2;\n"
+                         "}\n"
+                         "\n"
+                         "fn run() -> void {\n"
+                         "    defer Point(3, 4);\n"
+                         "    defer mark();\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run();\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 2);
+}
+
 TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles)
 {
     const struct TestSource sources[] = {{"/project/lib.vigil", "pub i32 counter = 3;"
@@ -3006,6 +3057,8 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesMultipleReturnValues);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredFunctionValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredConstructorsWithoutInit);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
