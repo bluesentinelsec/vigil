@@ -1,13 +1,38 @@
 #ifndef VIGIL_INTERNAL_H
 #define VIGIL_INTERNAL_H
 
+#include <stddef.h>
+
 #include "vigil/runtime.h"
 #include "vigil/value.h"
+
+/* ── Regex pattern cache ─────────────────────────────────────────────
+ * Fixed-size open-addressing LRU-approximation cache for compiled regex
+ * patterns.  Stored inline in vigil_runtime to avoid extra allocation.
+ * VIGIL_REGEX_CACHE_SIZE must be a power of two. */
+#define VIGIL_REGEX_CACHE_SIZE 32U
+
+struct vigil_regex; /* forward-declared; defined in stdlib/regex_engine.c */
+
+typedef struct vigil_regex_cache_entry
+{
+    char *pattern;          /* heap-allocated copy; NULL = empty slot */
+    size_t pattern_len;
+    struct vigil_regex *re; /* compiled regex; NULL = empty slot */
+    unsigned int lru_clock; /* incremented on each access */
+} vigil_regex_cache_entry_t;
+
+typedef struct vigil_regex_cache
+{
+    vigil_regex_cache_entry_t entries[VIGIL_REGEX_CACHE_SIZE];
+    unsigned int clock; /* global access counter */
+} vigil_regex_cache_t;
 
 struct vigil_runtime
 {
     vigil_allocator_t allocator;
     vigil_logger_t logger;
+    vigil_regex_cache_t regex_cache;
 };
 
 typedef struct vigil_runtime_interface_impl_init
