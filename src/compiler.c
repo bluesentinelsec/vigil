@@ -47,13 +47,11 @@ static vigil_status_t vigil_parser_emit_integer_cast(vigil_parser_state_t *state
                                                      vigil_source_span_t span);
 static int vigil_opcode_produces_i64(vigil_opcode_t op);
 static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
+// clang-format off
 static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *, const char *, size_t);
-static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *,
-                                                             const vigil_native_module_function_t *,
-                                                             vigil_expression_result_t *);
-static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *, const vigil_native_module_t *,
-                                                    const vigil_native_module_function_t *, const vigil_token_t *,
-                                                    size_t, vigil_expression_result_t *);
+static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *, const vigil_native_module_function_t *, vigil_expression_result_t *);
+static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *, const vigil_native_module_t *, const vigil_native_module_function_t *, const vigil_token_t *, size_t, vigil_expression_result_t *);
+// clang-format on
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
@@ -6988,7 +6986,6 @@ static vigil_status_t vigil_native_type_to_binding_type(vigil_parser_state_t *st
 {
     vigil_status_t status;
     vigil_binding_type_t elem_type, key_type, value_type;
-
     if (native_type->object_kind == 0)
     {
         /* Primitive type */
@@ -7010,7 +7007,6 @@ static vigil_status_t vigil_native_type_to_binding_type(vigil_parser_state_t *st
         status = vigil_program_intern_map_type((vigil_program_state_t *)state->program, key_type, value_type, out_type);
         return status;
     }
-
     /* Unknown object kind, fall back to generic object */
     *out_type = vigil_binding_type_primitive(VIGIL_TYPE_OBJECT);
     return VIGIL_STATUS_OK;
