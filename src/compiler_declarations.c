@@ -256,85 +256,141 @@ vigil_status_t vigil_program_parse_interface_method_return_types(vigil_program_s
     method->return_type = return_type;
     return VIGIL_STATUS_OK;
 }
-vigil_status_t vigil_program_parse_global_variable_declaration(vigil_program_state_t *program, size_t *cursor,
-                                                               int is_public)
+
+typedef struct
 {
-    vigil_status_t status;
     const vigil_token_t *type_token;
     const vigil_token_t *name_token;
-    const vigil_token_t *token;
     vigil_parser_type_t declared_type;
+    const char *name_text;
+    size_t name_length;
+} vigil_named_global_decl_t;
+
+typedef struct
+{
+    const char *function_conflict;
+    const char *interface_conflict;
+    const char *enum_conflict;
+    const char *class_conflict;
+    const char *constant_conflict;
+    const char *global_conflict;
+} vigil_global_name_conflict_messages_t;
+
+static vigil_status_t vigil_program_check_global_name_conflicts(vigil_program_state_t *program,
+                                                                const vigil_token_t *name_token, const char *name_text,
+                                                                size_t name_length,
+                                                                const vigil_global_name_conflict_messages_t *messages)
+{
     const vigil_function_decl_t *existing_function;
     const vigil_global_constant_t *existing_constant;
     const vigil_global_variable_t *existing_global;
-    vigil_global_variable_t *global;
-    const char *name_text;
-    size_t name_length;
-    size_t initializer_start;
-    size_t initializer_end;
 
-    type_token = vigil_program_cursor_peek(program, *cursor);
-    status = vigil_program_parse_type_reference(program, cursor, "unsupported global variable type", &declared_type);
+    if (program->compile_mode == VIGIL_COMPILE_MODE_REPL)
+    {
+        return VIGIL_STATUS_OK;
+    }
+
+    if (vigil_program_find_top_level_function_name_in_source(program, program->source->id, name_text, name_length, NULL,
+                                                             &existing_function))
+    {
+        return vigil_compile_report(program, name_token->span, messages->function_conflict);
+    }
+    if (vigil_program_find_interface_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
+    {
+        return vigil_compile_report(program, name_token->span, messages->interface_conflict);
+    }
+    if (vigil_program_find_enum_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
+    {
+        return vigil_compile_report(program, name_token->span, messages->enum_conflict);
+    }
+    if (vigil_program_find_class_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
+    {
+        return vigil_compile_report(program, name_token->span, messages->class_conflict);
+    }
+    if (vigil_program_find_constant_in_source(program, program->source->id, name_text, name_length, &existing_constant))
+    {
+        return vigil_compile_report(program, name_token->span, messages->constant_conflict);
+    }
+    if (vigil_program_find_global_in_source(program, program->source->id, name_text, name_length, NULL,
+                                            &existing_global))
+    {
+        return vigil_compile_report(program, name_token->span, messages->global_conflict);
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_require_global_assignment(vigil_program_state_t *program, size_t *cursor,
+                                                              const vigil_token_t *name_token, const char *message)
+{
+    const vigil_token_t *token = vigil_program_cursor_peek(program, *cursor);
+
+    if (token == NULL || token->kind != VIGIL_TOKEN_ASSIGN)
+    {
+        return vigil_compile_report(program, name_token->span, message);
+    }
+
+    vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_global_variable_header(vigil_program_state_t *program, size_t *cursor,
+                                                                 vigil_named_global_decl_t *declaration)
+{
+    static const vigil_global_name_conflict_messages_t messages = {
+        "global variable name conflicts with function",
+        "global variable name conflicts with interface",
+        "global variable name conflicts with enum",
+        "global variable name conflicts with class",
+        "global variable name conflicts with global constant",
+        "global variable is already declared",
+    };
+    vigil_status_t status;
+
+    declaration->type_token = vigil_program_cursor_peek(program, *cursor);
+    status = vigil_program_parse_type_reference(program, cursor, "unsupported global variable type",
+                                                &declaration->declared_type);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
     status = vigil_program_require_non_void_type(
-        program, type_token == NULL ? vigil_program_eof_span(program) : type_token->span, declared_type,
-        "global variables cannot use type void");
+        program, declaration->type_token == NULL ? vigil_program_eof_span(program) : declaration->type_token->span,
+        declaration->declared_type, "global variables cannot use type void");
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
 
-    name_token = vigil_program_cursor_peek(program, *cursor);
-    if (name_token == NULL || name_token->kind != VIGIL_TOKEN_IDENTIFIER)
+    declaration->name_token = vigil_program_cursor_peek(program, *cursor);
+    if (declaration->name_token == NULL || declaration->name_token->kind != VIGIL_TOKEN_IDENTIFIER)
     {
-        return vigil_compile_report(program, type_token == NULL ? vigil_program_eof_span(program) : type_token->span,
-                                    "expected global variable name");
+        return vigil_compile_report(
+            program, declaration->type_token == NULL ? vigil_program_eof_span(program) : declaration->type_token->span,
+            "expected global variable name");
     }
-    name_text = vigil_program_token_text(program, name_token, &name_length);
-    if (program->compile_mode != VIGIL_COMPILE_MODE_REPL)
-    {
-        if (vigil_program_find_top_level_function_name_in_source(program, program->source->id, name_text, name_length,
-                                                                 NULL, &existing_function))
-        {
-            return vigil_compile_report(program, name_token->span, "global variable name conflicts with function");
-        }
-        if (vigil_program_find_interface_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "global variable name conflicts with interface");
-        }
-        if (vigil_program_find_enum_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "global variable name conflicts with enum");
-        }
-        if (vigil_program_find_class_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "global variable name conflicts with class");
-        }
-        if (vigil_program_find_constant_in_source(program, program->source->id, name_text, name_length,
-                                                  &existing_constant))
-        {
-            return vigil_compile_report(program, name_token->span,
-                                        "global variable name conflicts with global constant");
-        }
-        if (vigil_program_find_global_in_source(program, program->source->id, name_text, name_length, NULL,
-                                                &existing_global))
-        {
-            return vigil_compile_report(program, name_token->span, "global variable is already declared");
-        }
-    } /* end REPL redefinition guard */
-    vigil_program_cursor_advance(program, cursor);
 
-    token = vigil_program_cursor_peek(program, *cursor);
-    if (token == NULL || token->kind != VIGIL_TOKEN_ASSIGN)
+    declaration->name_text = vigil_program_token_text(program, declaration->name_token, &declaration->name_length);
+    status = vigil_program_check_global_name_conflicts(program, declaration->name_token, declaration->name_text,
+                                                       declaration->name_length, &messages);
+    if (status != VIGIL_STATUS_OK)
     {
-        return vigil_compile_report(program, name_token->span, "expected '=' in global variable declaration");
+        return status;
     }
-    vigil_program_cursor_advance(program, cursor);
 
-    initializer_start = *cursor;
+    vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_global_variable_initializer_range(vigil_program_state_t *program,
+                                                                            size_t *cursor,
+                                                                            const vigil_token_t *name_token,
+                                                                            size_t *initializer_start,
+                                                                            size_t *initializer_end)
+{
+    const vigil_token_t *token;
+
+    *initializer_start = *cursor;
     while (1)
     {
         token = vigil_program_cursor_peek(program, *cursor);
@@ -349,52 +405,48 @@ vigil_status_t vigil_program_parse_global_variable_declaration(vigil_program_sta
         }
         *cursor += 1U;
     }
-    initializer_end = *cursor;
-    if (initializer_start == initializer_end)
+
+    *initializer_end = *cursor;
+    if (*initializer_start == *initializer_end)
     {
         return vigil_compile_report(program, name_token->span, "expected initializer expression for global variable");
     }
+
     vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
 
-    status = vigil_program_grow_globals(program, program->global_count + 1U);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
+static void vigil_program_commit_global_variable(vigil_program_state_t *program,
+                                                 const vigil_named_global_decl_t *declaration, int is_public,
+                                                 size_t initializer_start, size_t initializer_end)
+{
+    vigil_global_variable_t *global = &program->globals[program->global_count];
 
-    global = &program->globals[program->global_count];
     memset(global, 0, sizeof(*global));
     global->source_id = program->source->id;
-    global->name = name_text;
-    global->name_length = name_length;
-    global->name_span = name_token->span;
+    global->name = declaration->name_text;
+    global->name_length = declaration->name_length;
+    global->name_span = declaration->name_token->span;
     global->is_public = is_public;
-    global->type = declared_type;
+    global->type = declaration->declared_type;
     global->source = program->source;
     global->tokens = program->tokens;
     global->initializer_start = initializer_start;
     global->initializer_end = initializer_end;
     program->global_count += 1U;
-    return VIGIL_STATUS_OK;
 }
 
-vigil_status_t vigil_program_parse_constant_declaration(vigil_program_state_t *program, size_t *cursor, int is_public)
+static vigil_status_t vigil_program_parse_constant_header(vigil_program_state_t *program, size_t *cursor,
+                                                          vigil_named_global_decl_t *declaration)
 {
+    static const vigil_global_name_conflict_messages_t messages = {
+        "global constant name conflicts with function", "global constant name conflicts with interface",
+        "global constant name conflicts with enum",     "global constant name conflicts with class",
+        "global constant is already declared",          "global constant name conflicts with global variable",
+    };
+    const vigil_token_t *const_token = vigil_program_cursor_peek(program, *cursor);
     vigil_status_t status;
-    const vigil_token_t *const_token;
-    const vigil_token_t *type_token;
-    const vigil_token_t *name_token;
-    vigil_parser_type_t declared_type;
-    vigil_constant_result_t value_result;
-    const char *name_text;
-    size_t name_length;
-    const vigil_function_decl_t *existing_function;
-    const vigil_global_constant_t *existing_constant;
-    const vigil_global_variable_t *existing_global;
-    vigil_global_constant_t *constant;
 
-    vigil_constant_result_clear(&value_result);
-    const_token = vigil_program_cursor_peek(program, *cursor);
     if (const_token == NULL || const_token->kind != VIGIL_TOKEN_CONST)
     {
         return vigil_compile_report(program, const_token == NULL ? vigil_program_eof_span(program) : const_token->span,
@@ -402,80 +454,142 @@ vigil_status_t vigil_program_parse_constant_declaration(vigil_program_state_t *p
     }
     vigil_program_cursor_advance(program, cursor);
 
-    type_token = vigil_program_cursor_peek(program, *cursor);
+    declaration->type_token = vigil_program_cursor_peek(program, *cursor);
     status = vigil_program_parse_primitive_type_reference(
-        program, cursor, "global constants must use a primitive value type", &declared_type);
+        program, cursor, "global constants must use a primitive value type", &declaration->declared_type);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
 
-    name_token = vigil_program_cursor_peek(program, *cursor);
-    if (name_token == NULL || name_token->kind != VIGIL_TOKEN_IDENTIFIER)
+    declaration->name_token = vigil_program_cursor_peek(program, *cursor);
+    if (declaration->name_token == NULL || declaration->name_token->kind != VIGIL_TOKEN_IDENTIFIER)
     {
-        return vigil_compile_report(program, type_token->span, "expected global constant name");
+        return vigil_compile_report(program, declaration->type_token->span, "expected global constant name");
     }
-    name_text = vigil_program_token_text(program, name_token, &name_length);
-    if (program->compile_mode != VIGIL_COMPILE_MODE_REPL)
-    {
-        if (vigil_program_find_top_level_function_name_in_source(program, program->source->id, name_text, name_length,
-                                                                 NULL, &existing_function))
-        {
-            return vigil_compile_report(program, name_token->span, "global constant name conflicts with function");
-        }
-        if (vigil_program_find_interface_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "global constant name conflicts with interface");
-        }
-        if (vigil_program_find_enum_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "global constant name conflicts with enum");
-        }
-        if (vigil_program_find_class_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "global constant name conflicts with class");
-        }
-        if (vigil_program_find_constant_in_source(program, program->source->id, name_text, name_length,
-                                                  &existing_constant))
-        {
-            return vigil_compile_report(program, name_token->span, "global constant is already declared");
-        }
-        if (vigil_program_find_global_in_source(program, program->source->id, name_text, name_length, NULL,
-                                                &existing_global))
-        {
-            return vigil_compile_report(program, name_token->span,
-                                        "global constant name conflicts with global variable");
-        }
-    } /* end REPL redefinition guard */
-    vigil_program_cursor_advance(program, cursor);
 
-    type_token = vigil_program_cursor_peek(program, *cursor);
-    if (type_token == NULL || type_token->kind != VIGIL_TOKEN_ASSIGN)
-    {
-        return vigil_compile_report(program, name_token->span, "expected '=' in global constant declaration");
-    }
-    vigil_program_cursor_advance(program, cursor);
-
-    status = vigil_program_parse_constant_expression(program, cursor, &value_result);
+    declaration->name_text = vigil_program_token_text(program, declaration->name_token, &declaration->name_length);
+    status = vigil_program_check_global_name_conflicts(program, declaration->name_token, declaration->name_text,
+                                                       declaration->name_length, &messages);
     if (status != VIGIL_STATUS_OK)
     {
-        vigil_constant_result_release(&value_result);
         return status;
     }
-    if (!vigil_program_type_is_assignable(program, declared_type, value_result.type))
+
+    vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_constant_initializer(vigil_program_state_t *program, size_t *cursor,
+                                                               const vigil_token_t *name_token,
+                                                               vigil_parser_type_t declared_type,
+                                                               vigil_constant_result_t *value_result)
+{
+    const vigil_token_t *token;
+    vigil_status_t status = vigil_program_parse_constant_expression(program, cursor, value_result);
+
+    if (status != VIGIL_STATUS_OK)
     {
-        vigil_constant_result_release(&value_result);
+        return status;
+    }
+    if (!vigil_program_type_is_assignable(program, declared_type, value_result->type))
+    {
         return vigil_compile_report(program, name_token->span, "initializer type does not match global constant type");
     }
 
-    type_token = vigil_program_cursor_peek(program, *cursor);
-    if (type_token == NULL || type_token->kind != VIGIL_TOKEN_SEMICOLON)
+    token = vigil_program_cursor_peek(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_SEMICOLON)
     {
-        vigil_constant_result_release(&value_result);
-        return vigil_compile_report(program, type_token == NULL ? vigil_program_eof_span(program) : type_token->span,
+        return vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
                                     "expected ';' after global constant declaration");
     }
+
     vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static void vigil_program_commit_global_constant(vigil_program_state_t *program,
+                                                 const vigil_named_global_decl_t *declaration, int is_public,
+                                                 vigil_constant_result_t *value_result)
+{
+    vigil_global_constant_t *constant = &program->constants[program->constant_count];
+
+    memset(constant, 0, sizeof(*constant));
+    constant->source_id = program->source->id;
+    constant->name = declaration->name_text;
+    constant->name_length = declaration->name_length;
+    constant->name_span = declaration->name_token->span;
+    constant->is_public = is_public;
+    constant->type = declaration->declared_type;
+    constant->value = value_result->value;
+    value_result->type = vigil_binding_type_invalid();
+    vigil_value_init_nil(&value_result->value);
+    program->constant_count += 1U;
+}
+
+vigil_status_t vigil_program_parse_global_variable_declaration(vigil_program_state_t *program, size_t *cursor,
+                                                               int is_public)
+{
+    vigil_named_global_decl_t declaration;
+    vigil_status_t status;
+    size_t initializer_start;
+    size_t initializer_end;
+
+    memset(&declaration, 0, sizeof(declaration));
+    status = vigil_program_parse_global_variable_header(program, cursor, &declaration);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_require_global_assignment(program, cursor, declaration.name_token,
+                                                     "expected '=' in global variable declaration");
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_parse_global_variable_initializer_range(program, cursor, declaration.name_token,
+                                                                   &initializer_start, &initializer_end);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status = vigil_program_grow_globals(program, program->global_count + 1U);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    vigil_program_commit_global_variable(program, &declaration, is_public, initializer_start, initializer_end);
+    return VIGIL_STATUS_OK;
+}
+
+vigil_status_t vigil_program_parse_constant_declaration(vigil_program_state_t *program, size_t *cursor, int is_public)
+{
+    vigil_named_global_decl_t declaration;
+    vigil_status_t status;
+    vigil_constant_result_t value_result;
+
+    vigil_constant_result_clear(&value_result);
+    memset(&declaration, 0, sizeof(declaration));
+    status = vigil_program_parse_constant_header(program, cursor, &declaration);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_require_global_assignment(program, cursor, declaration.name_token,
+                                                     "expected '=' in global constant declaration");
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_parse_constant_initializer(program, cursor, declaration.name_token,
+                                                      declaration.declared_type, &value_result);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_constant_result_release(&value_result);
+        return status;
+    }
 
     status = vigil_program_grow_constants(program, program->constant_count + 1U);
     if (status != VIGIL_STATUS_OK)
@@ -484,18 +598,7 @@ vigil_status_t vigil_program_parse_constant_declaration(vigil_program_state_t *p
         return status;
     }
 
-    constant = &program->constants[program->constant_count];
-    memset(constant, 0, sizeof(*constant));
-    constant->source_id = program->source->id;
-    constant->name = name_text;
-    constant->name_length = name_length;
-    constant->name_span = name_token->span;
-    constant->is_public = is_public;
-    constant->type = declared_type;
-    constant->value = value_result.value;
-    value_result.type = vigil_binding_type_invalid();
-    vigil_value_init_nil(&value_result.value);
-    program->constant_count += 1U;
+    vigil_program_commit_global_constant(program, &declaration, is_public, &value_result);
     return VIGIL_STATUS_OK;
 }
 
