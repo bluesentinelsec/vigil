@@ -37,6 +37,33 @@ extern int hdr_name_matches(const char *line, const char *name, size_t namelen);
 extern void collect_cookies(const char *hdrs, char **jar);
 extern char *build_request_headers(const char *cookie_jar, const char *existing);
 extern int redirect_changes_method(int code);
+extern const char *find_location_header(const char *hdrs, char *buf, size_t buf_sz);
+extern int route_matches(const char *pattern, const char *path);
+
+/* Server-side request parsing helpers (exposed via HTTP_STATIC) */
+typedef struct
+{
+    vigil_socket_t sock;
+    int in_use;
+    char *method;
+    char *path;
+    char *headers;
+    char *body;
+    size_t body_len;
+    char *pending_cookies;
+    size_t cookies_len;
+} http_conn_t;
+
+extern char *ensure_hdr_capacity(char *buf, size_t *cap, size_t len);
+extern int parse_request_line(const char *buf, const char *line_end, char **method_out,
+                              char **path_out);
+extern int parse_content_length(const char *headers, size_t *out);
+extern int recv_body_bytes(vigil_socket_t sock, char *body, const char *bstart, size_t already,
+                           size_t content_length);
+extern char *recv_request_body(vigil_socket_t sock, const char *headers, const char *bstart,
+                               size_t already, size_t *body_len_out);
+extern char *recv_request_headers(vigil_socket_t sock, size_t *out_len);
+extern int parse_incoming_request(http_conn_t *conn);
 
 #ifdef VIGIL_ENABLE_BEARSSL_TLS
 extern int bearssl_https_insecure_request(const char *method, const parsed_url_t *url,
@@ -1118,6 +1145,507 @@ TEST(VigilHttpTest, BearSslHttpsPost)
 
 #endif /* VIGIL_ENABLE_BEARSSL_TLS && VIGIL_TLS_TEST_CERT_AVAILABLE */
 
+/* ── parse_request_line tests ─────────────────────────────────────── */
+
+TEST(VigilHttpTest, ParseRequestLineBasic)
+{
+    char buf[] = "GET /index.html HTTP/1.1\r\n";
+    const char *line_end = buf + strlen("GET /index.html HTTP/1.1");
+    char *method = NULL, *path = NULL;
+    int rc = parse_request_line(buf, line_end, &method, &path);
+    EXPECT_EQ(rc, 0);
+    EXPECT_TRUE(method && path && strcmp(method, "GET") == 0 && strcmp(path, "/index.html") == 0);
+    free(method);
+    free(path);
+}
+
+TEST(VigilHttpTest, ParseRequestLineMissingPath)
+{
+    /* No second space — must fail. */
+    char buf[] = "GET\r\n";
+    const char *line_end = buf + strlen("GET");
+    char *method = NULL, *path = NULL;
+    int rc = parse_request_line(buf, line_end, &method, &path);
+    EXPECT_EQ(rc, -1);
+}
+
+TEST(VigilHttpTest, ParseRequestLineMissingHttpVersion)
+{
+    /* Space after method but no second space before HTTP version. */
+    char buf[] = "POST /submit\r\n";
+    const char *line_end = buf + strlen("POST /submit");
+    char *method = NULL, *path = NULL;
+    int rc = parse_request_line(buf, line_end, &method, &path);
+    EXPECT_EQ(rc, -1);
+}
+
+/* ── parse_content_length tests ───────────────────────────────────── */
+
+TEST(VigilHttpTest, ParseContentLengthPresent)
+{
+    size_t out = 0;
+    int rc = parse_content_length("Content-Length: 42\r\nAccept: */*\r\n", &out);
+    EXPECT_EQ(rc, 1);
+    EXPECT_EQ(out, 42u);
+}
+
+TEST(VigilHttpTest, ParseContentLengthAbsent)
+{
+    size_t out = 99;
+    int rc = parse_content_length("Accept: */*\r\n", &out);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(out, 0u);
+}
+
+TEST(VigilHttpTest, ParseContentLengthLowercase)
+{
+    size_t out = 0;
+    int rc = parse_content_length("content-length: 7\r\n", &out);
+    EXPECT_EQ(rc, 1);
+    EXPECT_EQ(out, 7u);
+}
+
+/* ── ensure_hdr_capacity tests ────────────────────────────────────── */
+
+TEST(VigilHttpTest, EnsureHdrCapacityNoGrowthNeeded)
+{
+    /* buf has plenty of room — returns same pointer, cap unchanged. */
+    size_t cap = 128;
+    char *buf = (char *)malloc(cap);
+    ASSERT_NE(buf, NULL);
+    char *result = ensure_hdr_capacity(buf, &cap, 10);
+    EXPECT_EQ(result, buf);
+    EXPECT_EQ(cap, 128u);
+    free(result);
+}
+
+TEST(VigilHttpTest, EnsureHdrCapacityGrows)
+{
+    /* len+1 == cap triggers a doubling. */
+    size_t cap = 16;
+    char *buf = (char *)malloc(cap);
+    ASSERT_NE(buf, NULL);
+    char *result = ensure_hdr_capacity(buf, &cap, 15); /* len+1 == 16 == cap */
+    EXPECT_NE(result, NULL);
+    EXPECT_EQ(cap, 32u);
+    free(result);
+}
+
+/* ── parse_incoming_request loopback tests ────────────────────────── */
+
+#define PARSE_INCOMING_PORT 18800
+
+typedef struct
+{
+    int port;
+    const char *request;
+    volatile int ready;
+} incoming_sender_ctx_t;
+
+static void incoming_sender_func(void *arg)
+{
+    incoming_sender_ctx_t *ctx = (incoming_sender_ctx_t *)arg;
+    vigil_socket_t listener = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_listen("127.0.0.1", ctx->port, &listener, NULL) != VIGIL_STATUS_OK)
+        return;
+    ctx->ready = 1;
+
+    vigil_socket_t client = VIGIL_INVALID_SOCKET;
+    if (vigil_platform_tcp_accept(listener, &client, NULL) != VIGIL_STATUS_OK)
+    {
+        vigil_platform_tcp_close(listener, NULL);
+        return;
+    }
+    vigil_platform_tcp_send(client, ctx->request, strlen(ctx->request), NULL, NULL);
+    vigil_platform_tcp_close(client, NULL);
+    vigil_platform_tcp_close(listener, NULL);
+}
+
+/* ctx must be caller-owned (stack or otherwise) and outlive the joined thread. */
+static vigil_socket_t connect_to_incoming_sender(incoming_sender_ctx_t *ctx, int port,
+                                                  const char *request,
+                                                  vigil_platform_thread_t **thr_out)
+{
+    ctx->port = port;
+    ctx->request = request;
+    ctx->ready = 0;
+
+    vigil_platform_net_init(NULL);
+    if (vigil_platform_thread_create(thr_out, incoming_sender_func, ctx, NULL) != VIGIL_STATUS_OK)
+        return VIGIL_INVALID_SOCKET;
+    for (int i = 0; i < 200 && !ctx->ready; i++)
+        vigil_platform_thread_sleep(10);
+    if (!ctx->ready)
+        return VIGIL_INVALID_SOCKET;
+
+    vigil_socket_t sock = VIGIL_INVALID_SOCKET;
+    vigil_platform_tcp_connect("127.0.0.1", port, &sock, NULL);
+    return sock;
+}
+
+TEST(VigilHttpTest, ParseIncomingRequestGet)
+{
+    const char *req = "GET /hello HTTP/1.1\r\n"
+                      "Host: localhost\r\n"
+                      "\r\n";
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock = connect_to_incoming_sender(&ctx, PARSE_INCOMING_PORT, req, &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    http_conn_t conn;
+    memset(&conn, 0, sizeof(conn));
+    conn.sock = sock;
+    int rc = parse_incoming_request(&conn);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_TRUE(conn.method && conn.path &&
+                strcmp(conn.method, "GET") == 0 && strcmp(conn.path, "/hello") == 0);
+    EXPECT_EQ(conn.body_len, 0u);
+    free(conn.method);
+    free(conn.path);
+    free(conn.headers);
+    free(conn.body);
+}
+
+TEST(VigilHttpTest, ParseIncomingRequestPost)
+{
+    const char *req = "POST /submit HTTP/1.1\r\n"
+                      "Content-Length: 9\r\n"
+                      "\r\n"
+                      "test_body";
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock =
+        connect_to_incoming_sender(&ctx, PARSE_INCOMING_PORT + 1, req, &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    http_conn_t conn;
+    memset(&conn, 0, sizeof(conn));
+    conn.sock = sock;
+    int rc = parse_incoming_request(&conn);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_TRUE(conn.method && conn.path && conn.body &&
+                strcmp(conn.method, "POST") == 0 && strcmp(conn.path, "/submit") == 0 &&
+                strcmp(conn.body, "test_body") == 0);
+    EXPECT_EQ(conn.body_len, 9u);
+    free(conn.method);
+    free(conn.path);
+    free(conn.headers);
+    free(conn.body);
+}
+
+TEST(VigilHttpTest, ParseIncomingRequestMalformed)
+{
+    /* No request-line spaces — must return -1. */
+    const char *req = "BADREQUEST\r\n\r\n";
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock =
+        connect_to_incoming_sender(&ctx, PARSE_INCOMING_PORT + 2, req, &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    http_conn_t conn;
+    memset(&conn, 0, sizeof(conn));
+    conn.sock = sock;
+    int rc = parse_incoming_request(&conn);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_EQ(rc, -1);
+}
+
+/* ── find_location_header tests ───────────────────────────────────── */
+
+TEST(VigilHttpTest, FindLocationHeaderBasic)
+{
+    char buf[1024];
+    const char *hdrs = "HTTP/1.1 302 Found\r\n"
+                       "Location: http://example.com/new\r\n"
+                       "Content-Length: 0\r\n";
+    const char *loc = find_location_header(hdrs, buf, sizeof(buf));
+    EXPECT_STREQ(loc, "http://example.com/new");
+}
+
+TEST(VigilHttpTest, FindLocationHeaderLowercase)
+{
+    /* Header name in all-lowercase must still match. */
+    char buf[1024];
+    const char *hdrs = "HTTP/1.1 302 Found\r\n"
+                       "location: http://example.com/lower\r\n";
+    const char *loc = find_location_header(hdrs, buf, sizeof(buf));
+    EXPECT_STREQ(loc, "http://example.com/lower");
+}
+
+TEST(VigilHttpTest, FindLocationHeaderLeadingSpaces)
+{
+    /* Leading spaces after the colon must be stripped. */
+    char buf[1024];
+    const char *hdrs = "HTTP/1.1 302 Found\r\n"
+                       "Location:   http://example.com/spaced\r\n";
+    const char *loc = find_location_header(hdrs, buf, sizeof(buf));
+    EXPECT_STREQ(loc, "http://example.com/spaced");
+}
+
+TEST(VigilHttpTest, FindLocationHeaderNull)
+{
+    char buf[64];
+    EXPECT_EQ(find_location_header(NULL, buf, sizeof(buf)), NULL);
+}
+
+TEST(VigilHttpTest, FindLocationHeaderValueTooLong)
+{
+    /* buf is smaller than the value — must return NULL. */
+    char buf[10];
+    const char *hdrs = "Location: http://example.com/path/that/is/quite/long\r\n";
+    EXPECT_EQ(find_location_header(hdrs, buf, sizeof(buf)), NULL);
+}
+
+TEST(VigilHttpTest, FindLocationHeaderNotPresent)
+{
+    char buf[1024];
+    const char *hdrs = "Content-Type: text/html\r\nContent-Length: 5\r\n";
+    EXPECT_EQ(find_location_header(hdrs, buf, sizeof(buf)), NULL);
+}
+
+/* ── route_matches tests ──────────────────────────────────────────── */
+
+TEST(VigilHttpTest, RouteMatchesExact)
+{
+    EXPECT_EQ(route_matches("/foo", "/foo"), 1);
+    EXPECT_EQ(route_matches("/foo", "/bar"), 0);
+    EXPECT_EQ(route_matches("/", "/"), 1);
+}
+
+TEST(VigilHttpTest, RouteMatchesPrefix)
+{
+    /* Pattern ending with '/' matches any path that starts with it. */
+    EXPECT_EQ(route_matches("/api/", "/api/v1"), 1);
+    EXPECT_EQ(route_matches("/api/", "/api/"), 1);
+    EXPECT_EQ(route_matches("/api/", "/other/v1"), 0);
+}
+
+TEST(VigilHttpTest, RouteMatchesQueryStripped)
+{
+    /* Query string in the path must not prevent a match. */
+    EXPECT_EQ(route_matches("/search", "/search?q=hello"), 1);
+    EXPECT_EQ(route_matches("/search", "/other?q=hello"), 0);
+}
+
+TEST(VigilHttpTest, RouteMatchesNull)
+{
+    EXPECT_EQ(route_matches(NULL, "/foo"), 0);
+    EXPECT_EQ(route_matches("/foo", NULL), 0);
+}
+
+/* ── collect_cookies with attributes ────────────────────────────────  */
+
+TEST(VigilHttpTest, CollectCookiesWithAttributes)
+{
+    /* Only name=value is kept; Path, HttpOnly, Secure etc. are stripped. */
+    const char *hdrs = "Set-Cookie: session=abc123; Path=/; HttpOnly\r\n"
+                       "Set-Cookie: user=bob; Secure\r\n";
+    char *jar = NULL;
+    collect_cookies(hdrs, &jar);
+    EXPECT_STREQ(jar, "session=abc123; user=bob");
+    free(jar);
+}
+
+/* ── do_request: 304 must not be followed as a redirect ──────────── */
+
+#define DO_REQ_304_PORT 18796
+
+TEST(VigilHttpTest, DoRequest304NotRedirected)
+{
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    const char *canned = "HTTP/1.1 304 Not Modified\r\n"
+                         "Content-Length: 0\r\n"
+                         "\r\n";
+    if (!start_test_server_port(&srv, canned, DO_REQ_304_PORT, &thr))
+        return;
+
+    http_response_t resp;
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/check", DO_REQ_304_PORT);
+    int rc = do_request("GET", url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    if (rc == 0)
+    {
+        EXPECT_EQ(resp.status_code, 304);
+        response_free(&resp);
+    }
+    stop_test_server(&srv, thr);
+}
+
+/* ── parse_content_length: value too large ───────────────────────── */
+
+TEST(VigilHttpTest, ParseContentLengthTooLarge)
+{
+    /* Value exceeding HTTP_MAX_BODY_BYTES must return -1. */
+    size_t out = 0;
+    int rc = parse_content_length("Content-Length: 99999999999\r\n", &out);
+    EXPECT_EQ(rc, -1);
+}
+
+/* ── recv_body_bytes: pre-buffered body (no socket needed) ─────────  */
+
+TEST(VigilHttpTest, RecvBodyBytesPreBuffered)
+{
+    /* already == content_length: data is already in buffer, no recv needed. */
+    const char bstart[] = "hello";
+    char body[16];
+    memset(body, 0, sizeof(body));
+    int rc = recv_body_bytes(VIGIL_INVALID_SOCKET, body, bstart, 5, 5);
+    EXPECT_EQ(rc, 0);
+    EXPECT_TRUE(memcmp(body, "hello", 5) == 0);
+}
+
+/* ── recv_body_bytes: reads from socket ───────────────────────────── */
+
+#define RECV_BODY_BYTES_PORT 18803
+
+TEST(VigilHttpTest, RecvBodyBytesFromSocket)
+{
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock = connect_to_incoming_sender(&ctx, RECV_BODY_BYTES_PORT, "world", &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    char body[16];
+    memset(body, 0, sizeof(body));
+    int rc = recv_body_bytes(sock, body, NULL, 0, 5);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_EQ(rc, 0);
+    EXPECT_TRUE(memcmp(body, "world", 5) == 0);
+}
+
+/* ── recv_request_body: calls recv_body_bytes via socket ──────────── */
+
+#define RECV_REQUEST_BODY_PORT 18804
+
+TEST(VigilHttpTest, RecvRequestBodyWithRecv)
+{
+    /* content_length > already: recv_request_body must read from socket. */
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock =
+        connect_to_incoming_sender(&ctx, RECV_REQUEST_BODY_PORT, "abcde", &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    size_t body_len = 0;
+    char *body = recv_request_body(sock, "Content-Length: 5\r\n", NULL, 0, &body_len);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_NE(body, NULL);
+    EXPECT_EQ(body_len, 5u);
+    EXPECT_TRUE(body && memcmp(body, "abcde", 5) == 0);
+    free(body);
+}
+
+/* ── parse_incoming_request: sender closes without double-CRLF ──────  */
+
+#define PARSE_INC_CLOSED_PORT 18805
+
+TEST(VigilHttpTest, ParseIncomingRequestConnectionClosed)
+{
+    /* Sender closes without \r\n\r\n: recv_request_headers returns NULL. */
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock =
+        connect_to_incoming_sender(&ctx, PARSE_INC_CLOSED_PORT, "GET /path HTTP/1.1\r\n", &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    http_conn_t conn;
+    memset(&conn, 0, sizeof(conn));
+    conn.sock = sock;
+    int rc = parse_incoming_request(&conn);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_EQ(rc, -1);
+}
+
+/* ── parse_incoming_request: Content-Length exceeds max ─────────────  */
+
+#define PARSE_INC_TOOLARGE_PORT 18806
+
+TEST(VigilHttpTest, ParseIncomingRequestBodyTooLarge)
+{
+    /* Content-Length value > HTTP_MAX_BODY_BYTES: recv_request_body returns NULL. */
+    const char *req = "POST /submit HTTP/1.1\r\n"
+                      "Content-Length: 99999999999\r\n"
+                      "\r\n";
+    incoming_sender_ctx_t ctx;
+    vigil_platform_thread_t *thr = NULL;
+    vigil_socket_t sock =
+        connect_to_incoming_sender(&ctx, PARSE_INC_TOOLARGE_PORT, req, &thr);
+    if (sock == VIGIL_INVALID_SOCKET)
+        return;
+
+    http_conn_t conn;
+    memset(&conn, 0, sizeof(conn));
+    conn.sock = sock;
+    int rc = parse_incoming_request(&conn);
+    vigil_platform_tcp_close(sock, NULL);
+    vigil_platform_thread_join(thr, NULL);
+
+    EXPECT_EQ(rc, -1);
+}
+
+/* ── socket_request: response larger than initial buffer ─────────── */
+
+#define LARGE_RESP_PORT 18807
+
+TEST(VigilHttpTest, SocketRequestLargeResponse)
+{
+    /* Response body > 8192 bytes forces ensure_resp_capacity to grow. */
+    const size_t body_len = 9000;
+    char *canned = (char *)malloc(100 + body_len + 1);
+    if (!canned)
+        return;
+    int hlen = snprintf(canned, 100, "HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n", body_len);
+    memset(canned + hlen, 'Z', body_len);
+    canned[hlen + body_len] = '\0';
+
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    if (!start_test_server_port(&srv, canned, LARGE_RESP_PORT, &thr))
+    {
+        free(canned);
+        return;
+    }
+
+    parsed_url_t url;
+    char url_str[64];
+    snprintf(url_str, sizeof(url_str), "http://127.0.0.1:%d/big", LARGE_RESP_PORT);
+    parse_url(url_str, &url);
+
+    http_response_t resp;
+    int rc = socket_request("GET", &url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(resp.body_len, body_len);
+    if (rc == 0)
+        response_free(&resp);
+
+    stop_test_server(&srv, thr);
+    free(canned);
+}
+
 /* ── Test Registration ───────────────────────────────────────────── */
 
 void register_http_tests(void)
@@ -1171,6 +1699,42 @@ void register_http_tests(void)
     /* Server */
     REGISTER_TEST(VigilHttpTest, ServerRoundTrip);
     REGISTER_TEST(VigilHttpTest, ServerPostRoundTrip);
+    /* Server-side request parsing helpers */
+    REGISTER_TEST(VigilHttpTest, ParseRequestLineBasic);
+    REGISTER_TEST(VigilHttpTest, ParseRequestLineMissingPath);
+    REGISTER_TEST(VigilHttpTest, ParseRequestLineMissingHttpVersion);
+    REGISTER_TEST(VigilHttpTest, ParseContentLengthPresent);
+    REGISTER_TEST(VigilHttpTest, ParseContentLengthAbsent);
+    REGISTER_TEST(VigilHttpTest, ParseContentLengthLowercase);
+    REGISTER_TEST(VigilHttpTest, EnsureHdrCapacityNoGrowthNeeded);
+    REGISTER_TEST(VigilHttpTest, EnsureHdrCapacityGrows);
+    REGISTER_TEST(VigilHttpTest, ParseIncomingRequestGet);
+    REGISTER_TEST(VigilHttpTest, ParseIncomingRequestPost);
+    REGISTER_TEST(VigilHttpTest, ParseIncomingRequestMalformed);
+    /* find_location_header */
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderBasic);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderLowercase);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderLeadingSpaces);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderNull);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderValueTooLong);
+    REGISTER_TEST(VigilHttpTest, FindLocationHeaderNotPresent);
+    /* route_matches */
+    REGISTER_TEST(VigilHttpTest, RouteMatchesExact);
+    REGISTER_TEST(VigilHttpTest, RouteMatchesPrefix);
+    REGISTER_TEST(VigilHttpTest, RouteMatchesQueryStripped);
+    REGISTER_TEST(VigilHttpTest, RouteMatchesNull);
+    /* collect_cookies extras */
+    REGISTER_TEST(VigilHttpTest, CollectCookiesWithAttributes);
+    /* do_request extras */
+    REGISTER_TEST(VigilHttpTest, DoRequest304NotRedirected);
+    /* parse_content_length / recv_body_bytes / recv_request_body coverage */
+    REGISTER_TEST(VigilHttpTest, ParseContentLengthTooLarge);
+    REGISTER_TEST(VigilHttpTest, RecvBodyBytesPreBuffered);
+    REGISTER_TEST(VigilHttpTest, RecvBodyBytesFromSocket);
+    REGISTER_TEST(VigilHttpTest, RecvRequestBodyWithRecv);
+    REGISTER_TEST(VigilHttpTest, ParseIncomingRequestConnectionClosed);
+    REGISTER_TEST(VigilHttpTest, ParseIncomingRequestBodyTooLarge);
+    REGISTER_TEST(VigilHttpTest, SocketRequestLargeResponse);
 #if defined(VIGIL_ENABLE_BEARSSL_TLS) && defined(VIGIL_TLS_TEST_CERT_AVAILABLE)
     /* BearSSL TLS */
     REGISTER_TEST(VigilHttpTest, BearSslHttpsGet);
