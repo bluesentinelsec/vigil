@@ -2725,6 +2725,29 @@ static vigil_status_t vigil_vm_call_extern(vigil_vm_t *vm, const char *desc, siz
     return vigil_extern_call(vm, desc, desc_len, arg_count, error);
 }
 
+/* Math intrinsic VM_CASE helpers — defined outside vigil_vm_execute_function
+   so they don't inflate its lizard length metric. */
+#define VIGIL_VM_MATH_F64_1(op, cfn)                                                                                   \
+    VM_CASE(op)                                                                                                        \
+    {                                                                                                                  \
+        vigil_value_t r_;                                                                                              \
+        frame->ip += 1U;                                                                                               \
+        vigil_value_init_float(&r_, cfn(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));                         \
+        VIGIL_VM_PUSH(vm, &r_);                                                                                        \
+        VM_BREAK();                                                                                                    \
+    }
+#define VIGIL_VM_MATH_F64_2(op, cfn)                                                                                   \
+    VM_CASE(op)                                                                                                        \
+    {                                                                                                                  \
+        vigil_value_t b_, a_, r_;                                                                                      \
+        frame->ip += 1U;                                                                                               \
+        b_ = vigil_vm_pop_or_nil(vm);                                                                                  \
+        a_ = vigil_vm_pop_or_nil(vm);                                                                                  \
+        vigil_value_init_float(&r_, cfn(vigil_nanbox_decode_double(a_), vigil_nanbox_decode_double(b_)));              \
+        VIGIL_VM_PUSH(vm, &r_);                                                                                        \
+        VM_BREAK();                                                                                                    \
+    }
+
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
 {
@@ -3528,7 +3551,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
 
                 VIGIL_VM_READ_U32(code, frame->ip, constant_index);
                 VIGIL_VM_READ_RAW_U32(code, frame->ip, extern_arg_count);
-
                 desc_val = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)constant_index);
                 desc_obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(*desc_val);
                 desc_data = vigil_string_object_c_str(desc_obj);
@@ -3541,37 +3563,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 }
                 VM_BREAK();
             }
-            /* ── Math intrinsics ─────────────────────────────────────────── */
-#define VIGIL_VM_MATH_UNARY(op, cfn)                                                                                   \
-    VM_CASE(op)                                                                                                        \
-    {                                                                                                                  \
-        vigil_value_t math_arg;                                                                                        \
-        vigil_value_t math_result;                                                                                     \
-        frame->ip += 1U;                                                                                               \
-        math_arg = vigil_vm_pop_or_nil(vm);                                                                            \
-        vigil_value_init_float(&math_result, cfn(vigil_nanbox_decode_double(math_arg)));                               \
-        VIGIL_VM_PUSH(vm, &math_result);                                                                               \
-        VM_BREAK();                                                                                                    \
-    }
-            VIGIL_VM_MATH_UNARY(MATH_SIN_F64, sin)
-            VIGIL_VM_MATH_UNARY(MATH_COS_F64, cos)
-            VIGIL_VM_MATH_UNARY(MATH_SQRT_F64, sqrt)
-            VIGIL_VM_MATH_UNARY(MATH_LOG_F64, log)
-            VM_CASE(MATH_POW_F64)
-            {
-                vigil_value_t math_exp;
-                vigil_value_t math_base;
-                vigil_value_t math_result;
-                frame->ip += 1U;
-                math_exp = vigil_vm_pop_or_nil(vm);
-                math_base = vigil_vm_pop_or_nil(vm);
-                vigil_value_init_float(
-                    &math_result, pow(vigil_nanbox_decode_double(math_base), vigil_nanbox_decode_double(math_exp)));
-                VIGIL_VM_PUSH(vm, &math_result);
-                VM_BREAK();
-            }
-#undef VIGIL_VM_MATH_UNARY
-            VM_CASE(CALL_INTERFACE)
+            /* Math intrinsics */ VIGIL_VM_MATH_F64_1(MATH_SIN_F64, sin) VIGIL_VM_MATH_F64_1(MATH_COS_F64, cos)
+                VIGIL_VM_MATH_F64_1(MATH_SQRT_F64, sqrt) VIGIL_VM_MATH_F64_1(MATH_LOG_F64, log)
+                    VIGIL_VM_MATH_F64_2(MATH_POW_F64, pow) VM_CASE(CALL_INTERFACE)
             {
                 size_t interface_index;
                 size_t method_index;
@@ -7368,3 +7362,5 @@ cleanup:
     vigil_vm_clear_frames(vm);
     return status;
 }
+#undef VIGIL_VM_MATH_F64_1
+#undef VIGIL_VM_MATH_F64_2

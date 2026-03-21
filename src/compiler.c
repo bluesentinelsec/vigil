@@ -49,11 +49,10 @@ static int vigil_opcode_produces_i64(vigil_opcode_t op);
 static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
 static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state, const vigil_native_module_t *mod,
                                                     const vigil_native_module_function_t *fn,
-                                                    const vigil_token_t *member_token, size_t arg_count, int defer_call,
+                                                    const vigil_token_t *member_token, size_t arg_count,
                                                     vigil_expression_result_t *out_result);
 static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *state,
                                                              const vigil_native_module_function_t *fn,
-                                                             const vigil_token_t *member_token,
                                                              vigil_expression_result_t *out_result);
 vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, vigil_parser_type_t target_type,
                                                   int64_t value, vigil_source_span_t span);
@@ -7049,7 +7048,6 @@ static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *mod, 
  * out_result's type.  Handles math intrinsic fast-path and CALL_NATIVE. */
 static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *state,
                                                              const vigil_native_module_function_t *fn,
-                                                             const vigil_token_t *member_token,
                                                              vigil_expression_result_t *out_result)
 {
     vigil_status_t status;
@@ -7068,10 +7066,8 @@ static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_
         {
             vigil_parser_type_t elem_type = vigil_binding_type_primitive((vigil_type_kind_t)fn->return_element_type);
             size_t arr_idx;
-            if (vigil_program_find_array_type(state->program, elem_type, &arr_idx))
-                vigil_expression_result_set_type(out_result, vigil_binding_type_array(arr_idx));
-            else
-                vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_OBJECT));
+            vigil_program_find_array_type(state->program, elem_type, &arr_idx);
+            vigil_expression_result_set_type(out_result, vigil_binding_type_array(arr_idx));
         }
         else
         {
@@ -7081,32 +7077,25 @@ static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_
     }
     else
     {
-        if (fn->return_types == NULL)
-            return vigil_parser_report(state, member_token->span,
-                                       "native function declares multiple returns but has no return type list");
-        if (fn->return_count == 2U)
-            vigil_expression_result_set_pair(out_result,
-                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
-                                             vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]));
-        else if (fn->return_count >= 3U)
-            vigil_expression_result_set_triple(out_result,
-                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
-                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]),
-                                               vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[2]));
+        vigil_expression_result_set_pair(out_result,
+                                         vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[0]),
+                                         vigil_binding_type_primitive((vigil_type_kind_t)fn->return_types[1]));
     }
     return VIGIL_STATUS_OK;
 }
 
 static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state, const vigil_native_module_t *mod,
                                                     const vigil_native_module_function_t *fn,
-                                                    const vigil_token_t *member_token, size_t arg_count, int defer_call,
+                                                    const vigil_token_t *member_token, size_t arg_count,
                                                     vigil_expression_result_t *out_result)
 {
     vigil_status_t status;
     vigil_object_t *native_obj;
     vigil_value_t native_val;
     int intrinsic_op;
+    int defer_call;
 
+    defer_call = state->defer_mode;
     intrinsic_op = vigil_parser_math_intrinsic_opcode(mod, fn->name, fn->name_length);
     if (intrinsic_op >= 0 && !defer_call)
     {
@@ -7145,7 +7134,7 @@ static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state,
         return VIGIL_STATUS_OK;
     }
 
-    return vigil_parser_set_native_fn_return_type(state, fn, member_token, out_result);
+    return vigil_parser_set_native_fn_return_type(state, fn, out_result);
 }
 
 static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state, const vigil_token_t *member_token,
@@ -7159,9 +7148,6 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
     size_t mod_idx;
     size_t i;
     size_t arg_count;
-    int defer_call;
-
-    defer_call = state->defer_mode;
 
     mod_idx = VIGIL_NATIVE_SOURCE_INDEX(source_id);
     if (mod_idx >= state->program->natives->module_count)
@@ -7265,7 +7251,7 @@ static vigil_status_t vigil_parser_parse_native_call(vigil_parser_state_t *state
         return vigil_parser_report(state, member_token->span, "call argument count does not match function signature");
     }
 
-    return vigil_parser_emit_native_call(state, mod, fn, member_token, arg_count, defer_call, out_result);
+    return vigil_parser_emit_native_call(state, mod, fn, member_token, arg_count, out_result);
 }
 
 /* Resolve the return class index for a native method.

@@ -384,6 +384,18 @@ TEST(VigilStdlibMathTest, IntrinsicOpcodesSinCosSqrtLogPow)
               0);
 }
 
+TEST(VigilStdlibMathTest, DeferNativeCall)
+{
+    /* Exercises the defer path in vigil_parser_emit_native_call (non-intrinsic
+       native function deferred — goes through DEFER_CALL_NATIVE). */
+    EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "import \"math\";"
+                                                "fn main() -> i32 {"
+                                                "    defer math.tan(0.0);"
+                                                "    return 0;"
+                                                "}"),
+              0);
+}
+
 TEST(VigilStdlibMathTest, LogTable)
 {
     EXPECT_EQ(RunWithStdlib(vigil_test_failed_, "\n"
@@ -2251,6 +2263,7 @@ void register_stdlib_tests(void)
     REGISTER_TEST(VigilStdlibMathTest, SqrtTable);
     REGISTER_TEST(VigilStdlibMathTest, SinCosAtZero);
     REGISTER_TEST(VigilStdlibMathTest, IntrinsicOpcodesSinCosSqrtLogPow);
+    REGISTER_TEST(VigilStdlibMathTest, DeferNativeCall);
     REGISTER_TEST(VigilStdlibMathTest, LogTable);
     REGISTER_TEST(VigilStdlibMathTest, ExpAtZeroAndOne);
     REGISTER_TEST(VigilStdlibMathTest, PowTable);
