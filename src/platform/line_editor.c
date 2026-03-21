@@ -700,6 +700,7 @@ static vigil_status_t edit_line(const char *prompt, char *out_buf, size_t buf_si
 {
     line_buf_t lb;
     line_history_nav_t nav;
+    vigil_status_t status = VIGIL_STATUS_OK;
 
     lb_init(&lb, out_buf, buf_size);
     nav.history = history;
@@ -715,11 +716,12 @@ static vigil_status_t edit_line(const char *prompt, char *out_buf, size_t buf_si
 
         if (result == LINE_EDIT_SUBMIT)
         {
-            return VIGIL_STATUS_OK;
+            goto done;
         }
         if (result == LINE_EDIT_EOF)
         {
-            return VIGIL_STATUS_INTERNAL;
+            status = VIGIL_STATUS_INTERNAL;
+            goto done;
         }
 
         if (result == LINE_EDIT_REFRESH)
@@ -727,6 +729,10 @@ static vigil_status_t edit_line(const char *prompt, char *out_buf, size_t buf_si
             refresh_line(prompt, &lb);
         }
     }
+
+done:
+    free(nav.saved_line);
+    return status;
 }
 
 /* ── Public API ──────────────────────────────────────────────────── */
