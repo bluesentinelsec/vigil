@@ -12012,6 +12012,12 @@ vigil_status_t vigil_parser_emit_integer_constant(vigil_parser_state_t *state, v
         return status;
     }
 
+    /* i32 constant → i32 target: no cast needed, constant is already i32. */
+    if (vigil_parser_type_is_i32(target_type))
+    {
+        return VIGIL_STATUS_OK;
+    }
+
     return vigil_parser_emit_integer_cast(state, target_type, span);
 }
 
