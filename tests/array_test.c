@@ -173,10 +173,11 @@ TEST(VigilArrayTest, UsesRuntimeAllocatorHooks)
     ASSERT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
     vigil_byte_buffer_init(&buffer, runtime);
 
+    int allocs_before = stats.allocate_calls;
     ASSERT_EQ(vigil_byte_buffer_append(&buffer, data, sizeof(data), &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_byte_buffer_append(&buffer, data, sizeof(data), &error), VIGIL_STATUS_OK);
 
-    EXPECT_EQ(stats.allocate_calls, 2);
+    EXPECT_EQ(stats.allocate_calls - allocs_before, 1); /* one alloc for the buffer */
     EXPECT_GE(stats.reallocate_calls, 1);
 
     vigil_byte_buffer_free(&buffer);

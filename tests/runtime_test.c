@@ -119,7 +119,7 @@ TEST(VigilRuntimeTest, RuntimeUsesCustomAllocatorHooks)
 
     EXPECT_EQ(vigil_runtime_open(&runtime, &options, &error), VIGIL_STATUS_OK);
     ASSERT_NE(runtime, NULL);
-    EXPECT_EQ(stats.allocate_calls, 1);
+    EXPECT_EQ(stats.allocate_calls, 3); /* runtime struct + ok_error object + ok_error string */
     EXPECT_EQ(stats.reallocate_calls, 0);
     EXPECT_EQ(stats.deallocate_calls, 0);
     ASSERT_NE(vigil_runtime_allocator(runtime), NULL);
@@ -127,7 +127,7 @@ TEST(VigilRuntimeTest, RuntimeUsesCustomAllocatorHooks)
 
     vigil_runtime_close(&runtime);
     EXPECT_EQ(runtime, NULL);
-    EXPECT_EQ(stats.deallocate_calls, 1);
+    EXPECT_EQ(stats.deallocate_calls, 3); /* ok_error string + ok_error object + runtime struct */
 }
 
 TEST(VigilRuntimeTest, RuntimeOptionsInitClearsFields)
@@ -192,7 +192,7 @@ TEST(VigilRuntimeTest, RuntimeAllocReportsOutOfMemory)
     vigil_runtime_options_t options = {0};
     void *memory = NULL;
 
-    state.fail_after = 1;
+    state.fail_after = 3; /* allow runtime struct + ok_error object + ok_error string */
     allocator.user_data = &state;
     allocator.allocate = FailAllocate;
     allocator.deallocate = FailDeallocate;
@@ -207,7 +207,7 @@ TEST(VigilRuntimeTest, RuntimeAllocReportsOutOfMemory)
     EXPECT_EQ(strcmp(error.value, "allocation failed"), 0);
 
     vigil_runtime_close(&runtime);
-    EXPECT_EQ(state.deallocate_calls, 1);
+    EXPECT_EQ(state.deallocate_calls, 3); /* ok_error string + ok_error object + runtime struct */
 }
 
 TEST(VigilRuntimeTest, RuntimeReallocUsesAllocatorWhenAvailable)

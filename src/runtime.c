@@ -2,6 +2,8 @@
 
 #include "internal/vigil_internal.h"
 #include "stdlib/regex.h"
+#include "vigil/value.h"
+#include "vigil/vm.h"
 
 static void vigil_runtime_flush_regex_cache(vigil_runtime_t *runtime)
 {
@@ -112,6 +114,13 @@ vigil_status_t vigil_runtime_open(vigil_runtime_t **out_runtime, const vigil_run
         allocator.deallocate(allocator.user_data, runtime);
         return status;
     }
+    /* Pre-allocate the singleton "ok" error object used by stdlib success paths. */
+    status = vigil_error_object_new_cstr(runtime, "", 0, &runtime->ok_error, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        allocator.deallocate(allocator.user_data, runtime);
+        return status;
+    }
     *out_runtime = runtime;
     return VIGIL_STATUS_OK;
 }
@@ -129,6 +138,10 @@ void vigil_runtime_close(vigil_runtime_t **runtime)
     resolved_runtime = *runtime;
     allocator = resolved_runtime->allocator;
     vigil_runtime_flush_regex_cache(resolved_runtime);
+    if (resolved_runtime->ok_error != NULL)
+    {
+        vigil_object_release(&resolved_runtime->ok_error);
+    }
     allocator.deallocate(allocator.user_data, resolved_runtime);
     *runtime = NULL;
 }
@@ -174,4 +187,30 @@ vigil_status_t vigil_runtime_set_logger(vigil_runtime_t *runtime, const vigil_lo
 
     runtime->logger = resolved_logger;
     return VIGIL_STATUS_OK;
+}
+
+vigil_status_t vigil_runtime_push_ok_error(vigil_runtime_t *runtime, vigil_vm_t *vm, vigil_error_t *error)
+{
+    vigil_object_t *obj;
+    vigil_value_t v;
+    vigil_status_t s;
+
+    if (runtime == NULL || runtime->ok_error == NULL)
+    {
+        /* Fallback: allocate a fresh one (shouldn't happen in normal use). */
+        obj = NULL;
+        s = vigil_error_object_new_cstr(runtime, "", 0, &obj, error);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        vigil_value_init_object(&v, &obj);
+        s = vigil_vm_stack_push(vm, &v, error);
+        vigil_value_release(&v);
+        return s;
+    }
+    vigil_object_retain(runtime->ok_error);
+    obj = runtime->ok_error;
+    vigil_value_init_object(&v, &obj);
+    s = vigil_vm_stack_push(vm, &v, error);
+    vigil_value_release(&v);
+    return s;
 }

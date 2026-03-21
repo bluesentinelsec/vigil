@@ -18,6 +18,8 @@
 #include "vigil/value.h"
 #include "vigil/vm.h"
 
+#include "internal/vigil_internal.h"
+
 /* ── Helpers ─────────────────────────────────────────────────── */
 
 static const char *get_string_arg(vigil_vm_t *vm, size_t base)
@@ -27,19 +29,6 @@ static const char *get_string_arg(vigil_vm_t *vm, size_t base)
     if (obj == NULL || vigil_object_type(obj) != VIGIL_OBJECT_STRING)
         return NULL;
     return vigil_string_object_c_str(obj);
-}
-
-static vigil_status_t push_ok_err(vigil_vm_t *vm, vigil_error_t *error)
-{
-    vigil_object_t *obj = NULL;
-    vigil_status_t s = vigil_error_object_new_cstr(vigil_vm_runtime(vm), "", 0, &obj, error);
-    if (s != VIGIL_STATUS_OK)
-        return s;
-    vigil_value_t v;
-    vigil_value_init_object(&v, &obj);
-    s = vigil_vm_stack_push(vm, &v, error);
-    vigil_value_release(&v);
-    return s;
 }
 
 static vigil_status_t push_parse_err(vigil_vm_t *vm, const char *msg, vigil_error_t *error)
@@ -90,7 +79,7 @@ static vigil_status_t parse_i32_fn(vigil_vm_t *vm, size_t arg_count, vigil_error
     vigil_status_t st = vigil_vm_stack_push(vm, &v, error);
     if (st != VIGIL_STATUS_OK)
         return st;
-    return push_ok_err(vm, error);
+    return vigil_runtime_push_ok_error(vigil_vm_runtime(vm), vm, error);
 }
 
 static vigil_status_t parse_i64_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
@@ -125,7 +114,7 @@ static vigil_status_t parse_i64_fn(vigil_vm_t *vm, size_t arg_count, vigil_error
     vigil_status_t st = vigil_vm_stack_push(vm, &v, error);
     if (st != VIGIL_STATUS_OK)
         return st;
-    return push_ok_err(vm, error);
+    return vigil_runtime_push_ok_error(vigil_vm_runtime(vm), vm, error);
 }
 
 static vigil_status_t parse_f64_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
@@ -160,7 +149,7 @@ static vigil_status_t parse_f64_fn(vigil_vm_t *vm, size_t arg_count, vigil_error
     vigil_status_t st = vigil_vm_stack_push(vm, &v, error);
     if (st != VIGIL_STATUS_OK)
         return st;
-    return push_ok_err(vm, error);
+    return vigil_runtime_push_ok_error(vigil_vm_runtime(vm), vm, error);
 }
 
 static vigil_status_t parse_bool_fn(vigil_vm_t *vm, size_t arg_count, vigil_error_t *error)
@@ -185,7 +174,7 @@ static vigil_status_t parse_bool_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
         vigil_status_t st = vigil_vm_stack_push(vm, &v, error);
         if (st != VIGIL_STATUS_OK)
             return st;
-        return push_ok_err(vm, error);
+        return vigil_runtime_push_ok_error(vigil_vm_runtime(vm), vm, error);
     }
     if (strcmp(s, "false") == 0 || strcmp(s, "0") == 0)
     {
@@ -194,7 +183,7 @@ static vigil_status_t parse_bool_fn(vigil_vm_t *vm, size_t arg_count, vigil_erro
         vigil_status_t st = vigil_vm_stack_push(vm, &v, error);
         if (st != VIGIL_STATUS_OK)
             return st;
-        return push_ok_err(vm, error);
+        return vigil_runtime_push_ok_error(vigil_vm_runtime(vm), vm, error);
     }
     vigil_value_t v;
     vigil_value_init_bool(&v, 0);
