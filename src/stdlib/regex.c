@@ -2,17 +2,118 @@
  *
  * RE2-style regular expressions with linear time guarantees.
  */
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "vigil/native_module.h"
+#include "vigil/runtime.h"
 #include "vigil/type.h"
 #include "vigil/value.h"
 #include "vigil/vm.h"
 
+#include "internal/vigil_internal.h"
 #include "internal/vigil_nanbox.h"
 
 #include "regex.h"
+
+/* ── Pattern cache ──────────────────────────────────────────────────
+ * Looks up a compiled regex for `pattern` in the runtime cache.
+ * On hit: returns the cached vigil_regex_t* (do NOT free it).
+ * On miss: compiles, inserts evicting the LRU slot, returns pointer.
+ * Returns NULL on compile error (error written to err_buf). */
+static vigil_regex_t *regex_cache_get(vigil_runtime_t *runtime, const char *pattern, size_t pattern_len,
+                                      char *err_buf, size_t err_buf_size)
+{
+    vigil_regex_cache_t *cache = &runtime->regex_cache;
+    size_t i;
+    size_t mask = VIGIL_REGEX_CACHE_SIZE - 1U;
+
+    /* FNV-1a hash of the pattern */
+    size_t h = 2166136261UL;
+    for (i = 0U; i < pattern_len; i++)
+    {
+        h ^= (unsigned char)pattern[i];
+        h *= 16777619UL;
+    }
+
+    /* Linear probe from hash slot */
+    size_t start = h & mask;
+    size_t lru_slot = start;
+    unsigned int lru_min = UINT_MAX;
+
+    for (i = 0U; i < VIGIL_REGEX_CACHE_SIZE; i++)
+    {
+        size_t slot = (start + i) & mask;
+        vigil_regex_cache_entry_t *e = &cache->entries[slot];
+
+        if (e->pattern == NULL)
+        {
+            /* Empty slot — use it */
+            lru_slot = slot;
+            lru_min = 0U;
+            break;
+        }
+        if (e->pattern_len == pattern_len && memcmp(e->pattern, pattern, pattern_len) == 0)
+        {
+            /* Cache hit */
+            cache->clock++;
+            e->lru_clock = cache->clock;
+            return e->re;
+        }
+        if (e->lru_clock < lru_min)
+        {
+            lru_min = e->lru_clock;
+            lru_slot = slot;
+        }
+    }
+
+    /* Cache miss — compile */
+    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, err_buf_size);
+    if (re == NULL)
+        return NULL;
+
+    /* Evict lru_slot */
+    vigil_regex_cache_entry_t *e = &cache->entries[lru_slot];
+    if (e->re != NULL)
+        vigil_regex_free(e->re);
+    if (e->pattern != NULL)
+        runtime->allocator.deallocate(runtime->allocator.user_data, e->pattern);
+
+    char *pat_copy = (char *)runtime->allocator.allocate(runtime->allocator.user_data, pattern_len + 1U);
+    if (pat_copy == NULL)
+    {
+        /* Can't cache — just return the compiled regex; caller must free */
+        e->re = NULL;
+        e->pattern = NULL;
+        e->pattern_len = 0U;
+        return re; /* caller will free via regex_cache_release */
+    }
+    memcpy(pat_copy, pattern, pattern_len);
+    pat_copy[pattern_len] = '\0';
+
+    e->pattern = pat_copy;
+    e->pattern_len = pattern_len;
+    e->re = re;
+    cache->clock++;
+    e->lru_clock = cache->clock;
+    return re;
+}
+
+/* Release a regex obtained from regex_cache_get.
+ * Only frees if it is NOT stored in the cache (allocation failure path). */
+static void regex_cache_release(vigil_runtime_t *runtime, vigil_regex_t *re)
+{
+    size_t i;
+    vigil_regex_cache_t *cache = &runtime->regex_cache;
+
+    for (i = 0U; i < VIGIL_REGEX_CACHE_SIZE; i++)
+    {
+        if (cache->entries[i].re == re)
+            return; /* owned by cache */
+    }
+    vigil_regex_free(re);
+}
 
 /* ── Helpers ────────────────────────────────────────────────── */
 
@@ -64,7 +165,7 @@ static vigil_status_t vigil_regex_match_fn(vigil_vm_t *vm, size_t arg_count, vig
     }
 
     char err_buf[128];
-    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = regex_cache_get(vigil_vm_runtime(vm), pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re)
     {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -72,7 +173,7 @@ static vigil_status_t vigil_regex_match_fn(vigil_vm_t *vm, size_t arg_count, vig
     }
 
     bool matched = vigil_regex_match(re, input, input_len, NULL);
-    vigil_regex_free(re);
+    regex_cache_release(vigil_vm_runtime(vm), re);
 
     vigil_vm_stack_pop_n(vm, arg_count);
     return push_bool(vm, matched, error);
@@ -97,7 +198,7 @@ static vigil_status_t vigil_regex_find_fn(vigil_vm_t *vm, size_t arg_count, vigi
     }
 
     char err_buf[128];
-    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = regex_cache_get(vigil_vm_runtime(vm), pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re)
     {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -109,7 +210,7 @@ static vigil_status_t vigil_regex_find_fn(vigil_vm_t *vm, size_t arg_count, vigi
 
     vigil_regex_result_t result;
     bool found = vigil_regex_find(re, input, input_len, &result);
-    vigil_regex_free(re);
+    regex_cache_release(vigil_vm_runtime(vm), re);
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
@@ -155,7 +256,7 @@ static vigil_status_t vigil_regex_find_all_fn(vigil_vm_t *vm, size_t arg_count, 
     }
 
     char err_buf[128];
-    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = regex_cache_get(vigil_vm_runtime(vm), pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re)
     {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -172,7 +273,7 @@ static vigil_status_t vigil_regex_find_all_fn(vigil_vm_t *vm, size_t arg_count, 
 
     vigil_regex_result_t results[256];
     size_t count = vigil_regex_find_all(re, input, input_len, results, 256);
-    vigil_regex_free(re);
+    regex_cache_release(vigil_vm_runtime(vm), re);
 
     /* Build array of match strings */
     vigil_value_t *items = NULL;
@@ -236,7 +337,7 @@ static vigil_status_t vigil_regex_replace_fn(vigil_vm_t *vm, size_t arg_count, v
     }
 
     char err_buf[128];
-    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = regex_cache_get(vigil_vm_runtime(vm), pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re)
     {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -246,7 +347,7 @@ static vigil_status_t vigil_regex_replace_fn(vigil_vm_t *vm, size_t arg_count, v
     char *output = NULL;
     size_t output_len = 0;
     s = vigil_regex_replace(re, input, input_len, replacement, replacement_len, &output, &output_len);
-    vigil_regex_free(re);
+    regex_cache_release(vigil_vm_runtime(vm), re);
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
@@ -277,7 +378,7 @@ static vigil_status_t vigil_regex_replace_all_fn(vigil_vm_t *vm, size_t arg_coun
     }
 
     char err_buf[128];
-    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = regex_cache_get(vigil_vm_runtime(vm), pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re)
     {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -287,7 +388,7 @@ static vigil_status_t vigil_regex_replace_all_fn(vigil_vm_t *vm, size_t arg_coun
     char *output = NULL;
     size_t output_len = 0;
     s = vigil_regex_replace_all(re, input, input_len, replacement, replacement_len, &output, &output_len);
-    vigil_regex_free(re);
+    regex_cache_release(vigil_vm_runtime(vm), re);
 
     vigil_vm_stack_pop_n(vm, arg_count);
 
@@ -325,7 +426,7 @@ static vigil_status_t vigil_regex_split_fn(vigil_vm_t *vm, size_t arg_count, vig
     }
 
     char err_buf[128];
-    vigil_regex_t *re = vigil_regex_compile(pattern, pattern_len, err_buf, sizeof(err_buf));
+    vigil_regex_t *re = regex_cache_get(vigil_vm_runtime(vm), pattern, pattern_len, err_buf, sizeof(err_buf));
     if (!re)
     {
         vigil_vm_stack_pop_n(vm, arg_count);
@@ -352,7 +453,7 @@ static vigil_status_t vigil_regex_split_fn(vigil_vm_t *vm, size_t arg_count, vig
     size_t *part_lens = NULL;
     size_t part_count = 0;
     s = vigil_regex_split(re, input, input_len, &parts, &part_lens, &part_count);
-    vigil_regex_free(re);
+    regex_cache_release(vigil_vm_runtime(vm), re);
 
     vigil_vm_stack_pop_n(vm, arg_count);
 

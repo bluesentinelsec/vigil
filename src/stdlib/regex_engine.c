@@ -1024,13 +1024,14 @@ static void add_state(state_list_t *l, nfa_state_t *s, const size_t *saves, size
         add_state(l, s->out1, saves, pos, input, input_len, visited, gen);
         return;
     case NFA_SAVE: {
-        size_t *new_saves = malloc(l->save_count * sizeof(size_t));
-        if (!new_saves)
-            return;
-        memcpy(new_saves, saves, l->save_count * sizeof(size_t));
-        new_saves[s->data.save_slot] = pos;
-        add_state(l, s->out1, new_saves, pos, input, input_len, visited, gen);
-        free(new_saves);
+        size_t scratch[VIGIL_REGEX_MAX_GROUPS * 2];
+        size_t n = l->save_count;
+        if (n > VIGIL_REGEX_MAX_GROUPS * 2)
+            n = VIGIL_REGEX_MAX_GROUPS * 2;
+        memcpy(scratch, saves, n * sizeof(size_t));
+        if (s->data.save_slot < n)
+            scratch[s->data.save_slot] = pos;
+        add_state(l, s->out1, scratch, pos, input, input_len, visited, gen);
         return;
     }
     case NFA_ANCHOR_START:
@@ -1291,37 +1292,40 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
     if (!re || !re->start)
         return false;
 
+    size_t save_slots = re->group_count * 2;
+    size_t state_cap = re->state_count + 1;
+
+    /* Allocate simulation buffers once, reuse across start positions */
+    state_list_t curr, next;
+    if (!state_list_init(&curr, state_cap, save_slots))
+        return false;
+    if (!state_list_init(&next, state_cap, save_slots))
+    {
+        state_list_free(&curr);
+        return false;
+    }
+    uint8_t *visited = calloc(state_cap, 1);
+    size_t *init_saves = malloc(save_slots * sizeof(size_t));
+    if (!visited || !init_saves)
+    {
+        free(visited);
+        free(init_saves);
+        state_list_free(&curr);
+        state_list_free(&next);
+        return false;
+    }
+
+    bool found = false;
+
     /* Try matching at each position */
     for (size_t start = 0; start <= input_len; start++)
     {
-        size_t save_slots = re->group_count * 2;
-        state_list_t curr, next;
-        if (!state_list_init(&curr, re->state_count + 1, save_slots))
-            return false;
-        if (!state_list_init(&next, re->state_count + 1, save_slots))
-        {
-            state_list_free(&curr);
-            return false;
-        }
-
-        uint8_t *visited = calloc(re->state_count + 1, 1);
-        if (!visited)
-        {
-            state_list_free(&curr);
-            state_list_free(&next);
-            return false;
-        }
-
-        size_t *init_saves = calloc(save_slots, sizeof(size_t));
-        if (!init_saves)
-        {
-            free(visited);
-            state_list_free(&curr);
-            state_list_free(&next);
-            return false;
-        }
         for (size_t i = 0; i < save_slots; i++)
             init_saves[i] = SIZE_MAX;
+
+        state_list_clear(&curr);
+        state_list_clear(&next);
+        memset(visited, 0, state_cap);
 
         size_t gen = 1;
         add_state(&curr, re->start, init_saves, start, input, input_len, visited, gen);
@@ -1339,7 +1343,7 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
         for (size_t i = start; i < input_len; i++)
         {
             gen++;
-            memset(visited, 0, re->state_count + 1);
+            memset(visited, 0, state_cap);
             step(&curr, &next, input[i], i, input, input_len, visited, gen);
             state_list_t tmp = curr;
             curr = next;
@@ -1353,20 +1357,20 @@ bool vigil_regex_find(const vigil_regex_t *re, const char *input, size_t input_l
             }
         }
 
-        free(init_saves);
-        free(visited);
-        state_list_free(&curr);
-        state_list_free(&next);
-
         if (best.matched)
         {
             if (result)
                 *result = best;
-            return true;
+            found = true;
+            break;
         }
     }
 
-    return false;
+    free(init_saves);
+    free(visited);
+    state_list_free(&curr);
+    state_list_free(&next);
+    return found;
 }
 
 size_t vigil_regex_find_all(const vigil_regex_t *re, const char *input, size_t input_len, vigil_regex_result_t *results,

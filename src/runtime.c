@@ -1,6 +1,31 @@
 #include <string.h>
 
 #include "internal/vigil_internal.h"
+#include "stdlib/regex.h"
+
+static void vigil_runtime_flush_regex_cache(vigil_runtime_t *runtime)
+{
+    size_t i;
+    vigil_regex_cache_entry_t *e;
+
+    for (i = 0U; i < VIGIL_REGEX_CACHE_SIZE; i++)
+    {
+        e = &runtime->regex_cache.entries[i];
+        if (e->re != NULL)
+        {
+            vigil_regex_free(e->re);
+            e->re = NULL;
+        }
+        if (e->pattern != NULL)
+        {
+            runtime->allocator.deallocate(runtime->allocator.user_data, e->pattern);
+            e->pattern = NULL;
+        }
+        e->pattern_len = 0U;
+        e->lru_clock = 0U;
+    }
+    runtime->regex_cache.clock = 0U;
+}
 
 static vigil_allocator_t vigil_resolve_allocator(const vigil_runtime_options_t *options)
 {
@@ -103,6 +128,7 @@ void vigil_runtime_close(vigil_runtime_t **runtime)
 
     resolved_runtime = *runtime;
     allocator = resolved_runtime->allocator;
+    vigil_runtime_flush_regex_cache(resolved_runtime);
     allocator.deallocate(allocator.user_data, resolved_runtime);
     *runtime = NULL;
 }
