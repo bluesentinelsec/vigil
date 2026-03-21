@@ -31,6 +31,11 @@ extern int socket_request(const char *method, parsed_url_t *url, const char *hea
                           http_response_t *resp);
 extern int do_request(const char *method, const char *url_str, const char *headers, const char *body, size_t body_len,
                       http_response_t *resp);
+extern void cookie_jar_append(char **jar, const char *val, size_t vlen);
+extern int hdr_name_matches(const char *line, const char *name, size_t namelen);
+extern void collect_cookies(const char *hdrs, char **jar);
+extern char *build_request_headers(const char *cookie_jar, const char *existing);
+extern int redirect_changes_method(int code);
 
 /* ── URL parsing tests (table-style) ─────────────────────────────── */
 
@@ -96,13 +101,15 @@ typedef struct
     vigil_socket_t listener;
     volatile int ready;
     const char *response; /* full HTTP response to send */
+    int port;             /* 0 = use TEST_PORT */
 } test_server_t;
 
 static void test_server_func(void *arg)
 {
     test_server_t *srv = (test_server_t *)arg;
+    int listen_port = srv->port > 0 ? srv->port : TEST_PORT;
 
-    if (vigil_platform_tcp_listen("127.0.0.1", TEST_PORT, &srv->listener, NULL) != VIGIL_STATUS_OK)
+    if (vigil_platform_tcp_listen("127.0.0.1", listen_port, &srv->listener, NULL) != VIGIL_STATUS_OK)
     {
         srv->listener = VIGIL_INVALID_SOCKET;
         return;
@@ -125,11 +132,13 @@ static void test_server_func(void *arg)
     vigil_platform_tcp_close(client, NULL);
 }
 
-static int start_test_server(test_server_t *srv, const char *response, vigil_platform_thread_t **thread)
+static int start_test_server_port(test_server_t *srv, const char *response, int port,
+                                   vigil_platform_thread_t **thread)
 {
     memset(srv, 0, sizeof(*srv));
     srv->listener = VIGIL_INVALID_SOCKET;
     srv->response = response;
+    srv->port = port;
 
     vigil_platform_net_init(NULL);
     vigil_status_t st = vigil_platform_thread_create(thread, test_server_func, srv, NULL);
@@ -139,6 +148,11 @@ static int start_test_server(test_server_t *srv, const char *response, vigil_pla
     for (int i = 0; i < 200 && !srv->ready; i++)
         vigil_platform_thread_sleep(10);
     return srv->ready;
+}
+
+static int start_test_server(test_server_t *srv, const char *response, vigil_platform_thread_t **thread)
+{
+    return start_test_server_port(srv, response, TEST_PORT, thread);
 }
 
 static void stop_test_server(test_server_t *srv, vigil_platform_thread_t *thread)
@@ -321,6 +335,167 @@ TEST(VigilHttpTest, ParseUrlPathTooLong)
 
     parsed_url_t u;
     EXPECT_EQ(parse_url(url, &u), 0);
+}
+
+/* ── Cookie jar / helper unit tests ──────────────────────────────── */
+
+TEST(VigilHttpTest, CookieJarAppend)
+{
+    char *jar = NULL;
+    /* Append first value */
+    cookie_jar_append(&jar, "session=abc", 11);
+    ASSERT_TRUE(jar != NULL);
+    EXPECT_STREQ(jar, "session=abc");
+
+    /* Append second value — separator added */
+    cookie_jar_append(&jar, "user=bob", 8);
+    EXPECT_STREQ(jar, "session=abc; user=bob");
+
+    /* Trailing whitespace trimmed */
+    cookie_jar_append(&jar, "x=1  ", 5);
+    EXPECT_TRUE(strstr(jar, "x=1") != NULL);
+
+    /* Zero-length value is a no-op */
+    char *prev = jar;
+    cookie_jar_append(&jar, "", 0);
+    EXPECT_EQ(jar, prev);
+
+    free(jar);
+}
+
+TEST(VigilHttpTest, HdrNameMatches)
+{
+    EXPECT_EQ(hdr_name_matches("Set-Cookie: a=1", "set-cookie", 10), 1);
+    EXPECT_EQ(hdr_name_matches("set-cookie: b=2", "set-cookie", 10), 1);
+    EXPECT_EQ(hdr_name_matches("Content-Type: text/plain", "set-cookie", 10), 0);
+    EXPECT_EQ(hdr_name_matches("Short", "set-cookie", 10), 0);
+}
+
+TEST(VigilHttpTest, CollectCookiesFromHeaders)
+{
+    const char *hdrs = "HTTP/1.1 200 OK\r\n"
+                       "Set-Cookie: session=abc\r\n"
+                       "Content-Type: text/plain\r\n"
+                       "Set-Cookie: user=bob; Path=/; HttpOnly\r\n"
+                       "\r\n";
+    char *jar = NULL;
+    collect_cookies(hdrs, &jar);
+    ASSERT_TRUE(jar != NULL);
+    EXPECT_TRUE(strstr(jar, "session=abc") != NULL);
+    EXPECT_TRUE(strstr(jar, "user=bob") != NULL);
+    /* Directive stripped — no "Path" in jar */
+    EXPECT_EQ(strstr(jar, "Path"), NULL);
+    free(jar);
+}
+
+TEST(VigilHttpTest, CollectCookiesEmpty)
+{
+    char *jar = NULL;
+    collect_cookies(NULL, &jar);
+    EXPECT_EQ(jar, NULL);
+    collect_cookies("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", &jar);
+    EXPECT_EQ(jar, NULL); /* no Set-Cookie headers */
+}
+
+TEST(VigilHttpTest, BuildRequestHeadersWithCookies)
+{
+    char *hdrs = build_request_headers("session=abc", "X-Custom: val\r\n");
+    ASSERT_TRUE(hdrs != NULL);
+    EXPECT_TRUE(strstr(hdrs, "Cookie: session=abc") != NULL);
+    EXPECT_TRUE(strstr(hdrs, "X-Custom: val") != NULL);
+    free(hdrs);
+}
+
+TEST(VigilHttpTest, BuildRequestHeadersNoCookies)
+{
+    /* NULL or empty cookie jar returns NULL */
+    EXPECT_EQ(build_request_headers(NULL, "X-Header: foo\r\n"), NULL);
+    EXPECT_EQ(build_request_headers("", "X-Header: foo\r\n"), NULL);
+}
+
+TEST(VigilHttpTest, RedirectChangesMethod)
+{
+    EXPECT_EQ(redirect_changes_method(301), 1);
+    EXPECT_EQ(redirect_changes_method(302), 1);
+    EXPECT_EQ(redirect_changes_method(303), 1);
+    EXPECT_EQ(redirect_changes_method(307), 0);
+    EXPECT_EQ(redirect_changes_method(308), 0);
+    EXPECT_EQ(redirect_changes_method(200), 0);
+}
+
+/* ── do_request loopback tests ───────────────────────────────────── */
+
+#define DO_REQ_PORT 18792
+#define DO_REQ_REDIR_PORT 18793
+#define DO_REQ_DEST_PORT 18794
+
+TEST(VigilHttpTest, DoRequestLoopback)
+{
+    test_server_t srv;
+    vigil_platform_thread_t *thr = NULL;
+    const char *canned = "HTTP/1.1 200 OK\r\n"
+                         "Set-Cookie: tok=xyz\r\n"
+                         "Content-Length: 5\r\n"
+                         "\r\n"
+                         "hello";
+
+    if (!start_test_server_port(&srv, canned, DO_REQ_PORT, &thr))
+        return;
+
+    http_response_t resp;
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/test", DO_REQ_PORT);
+    int rc = do_request("GET", url, NULL, NULL, 0, &resp);
+    EXPECT_EQ(rc, 0);
+    if (rc == 0)
+    {
+        EXPECT_EQ(resp.status_code, 200);
+        response_free(&resp);
+    }
+    stop_test_server(&srv, thr);
+}
+
+TEST(VigilHttpTest, DoRequestFollowsRedirect)
+{
+    test_server_t srv_redir, srv_dest;
+    vigil_platform_thread_t *thr_redir = NULL, *thr_dest = NULL;
+
+    char redir_body[256];
+    snprintf(redir_body, sizeof(redir_body),
+             "HTTP/1.1 302 Found\r\n"
+             "Location: http://127.0.0.1:%d/dest\r\n"
+             "Set-Cookie: redir=1\r\n"
+             "Content-Length: 0\r\n"
+             "\r\n",
+             DO_REQ_DEST_PORT);
+
+    const char *dest_resp = "HTTP/1.1 200 OK\r\n"
+                            "Content-Length: 2\r\n"
+                            "\r\n"
+                            "ok";
+
+    if (!start_test_server_port(&srv_redir, redir_body, DO_REQ_REDIR_PORT, &thr_redir))
+        return;
+    if (!start_test_server_port(&srv_dest, dest_resp, DO_REQ_DEST_PORT, &thr_dest))
+    {
+        stop_test_server(&srv_redir, thr_redir);
+        return;
+    }
+
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%d/start", DO_REQ_REDIR_PORT);
+
+    http_response_t resp;
+    int rc = do_request("POST", url, NULL, "data", 4, &resp);
+    EXPECT_EQ(rc, 0);
+    if (rc == 0)
+    {
+        EXPECT_EQ(resp.status_code, 200);
+        response_free(&resp);
+    }
+
+    stop_test_server(&srv_redir, thr_redir);
+    stop_test_server(&srv_dest, thr_dest);
 }
 
 TEST(VigilHttpTest, DoRequestHttpsFallbackFails)
@@ -531,6 +706,17 @@ void register_http_tests(void)
     REGISTER_TEST(VigilHttpTest, SocketEmptyBody);
     REGISTER_TEST(VigilHttpTest, SocketConnectionRefused);
     REGISTER_TEST(VigilHttpTest, SocketRequestLargeHeadersSucceed);
+    /* Cookie jar helpers */
+    REGISTER_TEST(VigilHttpTest, CookieJarAppend);
+    REGISTER_TEST(VigilHttpTest, HdrNameMatches);
+    REGISTER_TEST(VigilHttpTest, CollectCookiesFromHeaders);
+    REGISTER_TEST(VigilHttpTest, CollectCookiesEmpty);
+    REGISTER_TEST(VigilHttpTest, BuildRequestHeadersWithCookies);
+    REGISTER_TEST(VigilHttpTest, BuildRequestHeadersNoCookies);
+    REGISTER_TEST(VigilHttpTest, RedirectChangesMethod);
+    /* do_request integration */
+    REGISTER_TEST(VigilHttpTest, DoRequestLoopback);
+    REGISTER_TEST(VigilHttpTest, DoRequestFollowsRedirect);
     REGISTER_TEST(VigilHttpTest, DoRequestHttpsFallbackFails);
     /* URL parsing extras */
     REGISTER_TEST(VigilHttpTest, ParseUrlUppercaseScheme);

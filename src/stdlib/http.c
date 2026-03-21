@@ -332,7 +332,7 @@ HTTP_STATIC int socket_request(const char *method, parsed_url_t *url, const char
 
 /* ── Cookie jar helpers ──────────────────────────────────────────── */
 
-static void cookie_jar_append(char **jar, const char *val, size_t vlen)
+HTTP_STATIC void cookie_jar_append(char **jar, const char *val, size_t vlen)
 {
     while (vlen > 0 && (unsigned char)val[vlen - 1] <= ' ')
         vlen--;
@@ -353,7 +353,7 @@ static void cookie_jar_append(char **jar, const char *val, size_t vlen)
     *jar = n;
 }
 
-static int hdr_name_matches(const char *line, const char *name, size_t namelen)
+HTTP_STATIC int hdr_name_matches(const char *line, const char *name, size_t namelen)
 {
     size_t i;
     for (i = 0; i < namelen; i++)
@@ -367,7 +367,7 @@ static int hdr_name_matches(const char *line, const char *name, size_t namelen)
     return line[namelen] == ':';
 }
 
-static void collect_cookies(const char *hdrs, char **jar)
+HTTP_STATIC void collect_cookies(const char *hdrs, char **jar)
 {
     const char *p = hdrs;
     if (!hdrs)
@@ -392,7 +392,7 @@ static void collect_cookies(const char *hdrs, char **jar)
     }
 }
 
-static char *build_request_headers(const char *cookie_jar, const char *existing)
+HTTP_STATIC char *build_request_headers(const char *cookie_jar, const char *existing)
 {
     size_t clen, elen, off;
     char *out;
@@ -421,24 +421,16 @@ static char *build_request_headers(const char *cookie_jar, const char *existing)
 }
 
 HTTP_STATIC int do_request_once(const char *method, const char *url_str, const char *headers, const char *body,
-                                size_t body_len, const char *cookie_jar, http_response_t *resp)
+                                size_t body_len, http_response_t *resp)
 {
-    char *cookie_hdrs;
-    const char *eff_headers;
-    int rc;
-
     memset(resp, 0, sizeof(*resp));
-
-    cookie_hdrs = build_request_headers(cookie_jar, headers);
-    eff_headers = cookie_hdrs ? cookie_hdrs : headers;
 
     /* Try native HTTP library first (supports HTTPS). */
     vigil_http_response_t native_resp;
-    vigil_status_t st = vigil_platform_http_request(method, url_str, eff_headers, body, body_len, &native_resp, NULL);
+    vigil_status_t st = vigil_platform_http_request(method, url_str, headers, body, body_len, &native_resp, NULL);
 
     if (st == VIGIL_STATUS_OK)
     {
-        free(cookie_hdrs);
         resp->status_code = native_resp.status_code;
         resp->headers = native_resp.headers;
         resp->body = native_resp.body;
@@ -449,21 +441,15 @@ HTTP_STATIC int do_request_once(const char *method, const char *url_str, const c
     /* Native lib unavailable — fall back to sockets (HTTP only). */
     parsed_url_t url;
     if (!parse_url(url_str, &url))
-    {
-        free(cookie_hdrs);
         return -1;
-    }
 
     if (strcmp(url.scheme, "https") == 0)
     {
         /* No TLS without native library — surface diagnostic. */
         fprintf(stderr, "vigil: HTTPS requires libcurl (not available); request aborted\n");
-        free(cookie_hdrs);
         return -1;
     }
-    rc = socket_request(method, &url, eff_headers, body, body_len, resp);
-    free(cookie_hdrs);
-    return rc;
+    return socket_request(method, &url, headers, body, body_len, resp);
 }
 
 /* Extract Location header from response headers string. */
@@ -502,7 +488,7 @@ static const char *find_location_header(const char *hdrs, char *buf, size_t buf_
     return NULL;
 }
 
-static int redirect_changes_method(int code)
+HTTP_STATIC int redirect_changes_method(int code)
 {
     return code == 301 || code == 302 || code == 303;
 }
@@ -521,7 +507,9 @@ HTTP_STATIC int do_request(const char *method, const char *url_str, const char *
 
     for (int redirects = 0; redirects <= HTTP_MAX_REDIRECTS; redirects++)
     {
-        result = do_request_once(method, url_buf, headers, body, body_len, cookie_jar, resp);
+        char *combined = build_request_headers(cookie_jar, headers);
+        result = do_request_once(method, url_buf, combined ? combined : headers, body, body_len, resp);
+        free(combined);
         if (result != 0)
             break;
 

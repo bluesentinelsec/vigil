@@ -1966,10 +1966,7 @@ static size_t curl_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     if (b->len + total >= b->cap)
     {
         b->cap = (b->len + total) * 2;
-        char *nb = (char *)realloc(b->data, b->cap);
-        if (!nb)
-            return 0;
-        b->data = nb;
+        b->data = (char *)realloc(b->data, b->cap);
     }
     memcpy(b->data + b->len, ptr, total);
     b->len += total;
