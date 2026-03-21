@@ -1320,8 +1320,7 @@ TEST(VigilVmTest, RejectsUnsupportedMapKeyType)
     vigil_value_release(&constant);
     vigil_value_init_int(&constant, 11);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(18U, 8U, 9U), NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_SET_INDEX, Span(18U, 10U, 11U), &error),
-              VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_SET_INDEX, Span(18U, 10U, 11U), &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(18U, 12U, 13U), &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
@@ -1353,8 +1352,7 @@ TEST(VigilVmTest, ReportsStringConversionAllocatorFailures)
     context_options.runtime_options = &runtime_options;
     stats.fail_after = (size_t)-1;
 
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
-              VIGIL_STATUS_OK);
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
 
     vigil_value_init_bool(&constant, true);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(19U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
@@ -1367,8 +1365,7 @@ TEST(VigilVmTest, ReportsStringConversionAllocatorFailures)
     vigil_value_release(&constant);
 
     stats.fail_after = (size_t)-1;
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
-              VIGIL_STATUS_OK);
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
     vigil_value_init_int(&constant, 17);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(20U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(20U, 2U, 3U), &error), VIGIL_STATUS_OK);
@@ -1402,8 +1399,7 @@ TEST(VigilVmTest, ReportsFloatFormatAllocatorFailures)
     context_options.runtime_options = &runtime_options;
     stats.fail_after = (size_t)-1;
 
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
-              VIGIL_STATUS_OK);
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
 
     vigil_value_init_float(&constant, 3.5);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(21U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
@@ -1440,8 +1436,7 @@ TEST(VigilVmTest, RejectsMultiValueReturnWhenPendingStorageAllocationFails)
     context_options.runtime_options = &runtime_options;
     stats.fail_after = (size_t)-1;
 
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
-              VIGIL_STATUS_OK);
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
 
     vigil_value_init_int(&constant, 11);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(22U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
@@ -1485,8 +1480,7 @@ TEST(VigilVmTest, ExecutesUnsignedIntegerArithmeticOpcodes)
     uint64_t result_value = 0U;
     vigil_error_t error = {0};
 
-    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_ADD, UINT64_C(5), UINT64_C(6), &result_value, &error),
-              VIGIL_STATUS_OK);
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_ADD, UINT64_C(5), UINT64_C(6), &result_value, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(result_value, UINT64_C(11));
     ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_SUBTRACT, UINT64_C(7), UINT64_C(3), &result_value, &error),
               VIGIL_STATUS_OK);
