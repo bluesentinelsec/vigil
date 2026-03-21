@@ -527,6 +527,196 @@ static void vigil_program_commit_global_constant(vigil_program_state_t *program,
     program->constant_count += 1U;
 }
 
+static vigil_status_t vigil_program_parse_enum_header(vigil_program_state_t *program, size_t *cursor, int is_public,
+                                                      vigil_enum_decl_t **out_decl,
+                                                      const vigil_token_t **out_name_token)
+{
+    static const vigil_global_name_conflict_messages_t messages = {
+        "enum name conflicts with function",
+        "enum name conflicts with interface",
+        "enum is already declared",
+        "enum name conflicts with class",
+        "enum name conflicts with global constant",
+        "enum name conflicts with global variable",
+    };
+    const vigil_token_t *enum_token;
+    const vigil_token_t *name_token;
+    const char *name_text;
+    size_t name_length;
+    vigil_enum_decl_t *decl;
+    vigil_status_t status;
+
+    enum_token = vigil_program_cursor_peek(program, *cursor);
+    if (enum_token == NULL || enum_token->kind != VIGIL_TOKEN_ENUM)
+    {
+        return vigil_compile_report(program, enum_token == NULL ? vigil_program_eof_span(program) : enum_token->span,
+                                    "expected 'enum'");
+    }
+    vigil_program_cursor_advance(program, cursor);
+
+    name_token = vigil_program_cursor_peek(program, *cursor);
+    if (name_token == NULL || name_token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
+        return vigil_compile_report(program, enum_token->span, "expected enum name");
+    }
+
+    name_text = vigil_program_token_text(program, name_token, &name_length);
+    status = vigil_program_check_global_name_conflicts(program, name_token, name_text, name_length, &messages);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_program_grow_enums(program, program->enum_count + 1U);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    decl = &program->enums[program->enum_count];
+    memset(decl, 0, sizeof(*decl));
+    decl->source_id = program->source->id;
+    decl->name = name_text;
+    decl->name_length = name_length;
+    decl->name_span = name_token->span;
+    decl->is_public = is_public;
+    program->enum_count += 1U;
+    vigil_program_cursor_advance(program, cursor);
+
+    *out_decl = decl;
+    *out_name_token = name_token;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_expect_enum_body_start(vigil_program_state_t *program, size_t *cursor,
+                                                           const vigil_token_t *name_token)
+{
+    const vigil_token_t *token = vigil_program_cursor_peek(program, *cursor);
+
+    if (token == NULL || token->kind != VIGIL_TOKEN_LBRACE)
+    {
+        return vigil_compile_report(program, name_token->span, "expected '{' after enum name");
+    }
+    vigil_program_cursor_advance(program, cursor);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_enum_member_value(vigil_program_state_t *program, size_t *cursor,
+                                                            const vigil_token_t *member_token,
+                                                            vigil_constant_result_t *value_result, int64_t *next_value)
+{
+    vigil_status_t status;
+
+    vigil_program_cursor_advance(program, cursor);
+    vigil_constant_result_release(value_result);
+    vigil_constant_result_clear(value_result);
+    status = vigil_program_parse_constant_expression(program, cursor, value_result);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    if (!vigil_parser_type_equal(value_result->type, vigil_binding_type_primitive(VIGIL_TYPE_I32)))
+    {
+        vigil_constant_result_release(value_result);
+        vigil_constant_result_clear(value_result);
+        return vigil_compile_report(program, member_token->span, "enum member value must be i32");
+    }
+
+    *next_value = vigil_value_as_int(&value_result->value);
+    vigil_constant_result_release(value_result);
+    vigil_constant_result_clear(value_result);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_append_enum_member(vigil_program_state_t *program, vigil_enum_decl_t *decl,
+                                                       const vigil_token_t *member_token, const char *name_text,
+                                                       size_t name_length, int64_t value)
+{
+    vigil_enum_member_t *member;
+    vigil_status_t status;
+
+    status = vigil_enum_decl_grow_members(program, decl, decl->member_count + 1U);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    member = &decl->members[decl->member_count];
+    memset(member, 0, sizeof(*member));
+    member->name = name_text;
+    member->name_length = name_length;
+    member->name_span = member_token->span;
+    member->value = value;
+    decl->member_count += 1U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_program_parse_enum_member_separator(vigil_program_state_t *program, size_t *cursor)
+{
+    const vigil_token_t *token = vigil_program_cursor_peek(program, *cursor);
+
+    if (token == NULL)
+    {
+        return vigil_compile_report(program, vigil_program_eof_span(program), "expected '}' after enum body");
+    }
+    if (token->kind == VIGIL_TOKEN_COMMA)
+    {
+        vigil_program_cursor_advance(program, cursor);
+        return VIGIL_STATUS_OK;
+    }
+    if (token->kind == VIGIL_TOKEN_RBRACE)
+    {
+        return VIGIL_STATUS_OK;
+    }
+    return vigil_compile_report(program, token->span, "expected ',' or '}' after enum member");
+}
+
+static vigil_status_t vigil_program_parse_enum_member(vigil_program_state_t *program, size_t *cursor,
+                                                      vigil_enum_decl_t *decl, vigil_constant_result_t *value_result,
+                                                      int64_t *next_value)
+{
+    const vigil_token_t *member_token;
+    const vigil_token_t *token;
+    const char *name_text;
+    size_t name_length;
+    vigil_status_t status;
+
+    token = vigil_program_cursor_peek(program, *cursor);
+    if (token == NULL)
+    {
+        return vigil_compile_report(program, vigil_program_eof_span(program), "expected '}' after enum body");
+    }
+    if (token->kind != VIGIL_TOKEN_IDENTIFIER)
+    {
+        return vigil_compile_report(program, token->span, "expected enum member name");
+    }
+
+    member_token = token;
+    name_text = vigil_program_token_text(program, member_token, &name_length);
+    if (vigil_enum_decl_find_member(decl, name_text, name_length, NULL, NULL))
+    {
+        return vigil_compile_report(program, member_token->span, "enum member is already declared");
+    }
+    vigil_program_cursor_advance(program, cursor);
+
+    token = vigil_program_cursor_peek(program, *cursor);
+    if (token != NULL && token->kind == VIGIL_TOKEN_ASSIGN)
+    {
+        status = vigil_program_parse_enum_member_value(program, cursor, member_token, value_result, next_value);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+    }
+
+    status = vigil_program_append_enum_member(program, decl, member_token, name_text, name_length, *next_value);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    *next_value += 1;
+    return vigil_program_parse_enum_member_separator(program, cursor);
+}
+
 vigil_status_t vigil_program_parse_global_variable_declaration(vigil_program_state_t *program, size_t *cursor,
                                                                int is_public)
 {
@@ -605,85 +795,24 @@ vigil_status_t vigil_program_parse_constant_declaration(vigil_program_state_t *p
 vigil_status_t vigil_program_parse_enum_declaration(vigil_program_state_t *program, size_t *cursor, int is_public)
 {
     vigil_status_t status;
-    const vigil_token_t *enum_token;
-    const vigil_token_t *name_token;
-    const vigil_token_t *member_token;
+    const vigil_token_t *name_token = NULL;
     const vigil_token_t *token;
-    const char *name_text;
-    size_t name_length;
-    vigil_enum_decl_t *decl;
-    vigil_enum_member_t *member;
+    vigil_enum_decl_t *decl = NULL;
     vigil_constant_result_t value_result;
     int64_t next_value;
 
     vigil_constant_result_clear(&value_result);
     next_value = 0;
-
-    enum_token = vigil_program_cursor_peek(program, *cursor);
-    if (enum_token == NULL || enum_token->kind != VIGIL_TOKEN_ENUM)
-    {
-        return vigil_compile_report(program, enum_token == NULL ? vigil_program_eof_span(program) : enum_token->span,
-                                    "expected 'enum'");
-    }
-    vigil_program_cursor_advance(program, cursor);
-
-    name_token = vigil_program_cursor_peek(program, *cursor);
-    if (name_token == NULL || name_token->kind != VIGIL_TOKEN_IDENTIFIER)
-    {
-        return vigil_compile_report(program, enum_token->span, "expected enum name");
-    }
-    name_text = vigil_program_token_text(program, name_token, &name_length);
-    if (program->compile_mode != VIGIL_COMPILE_MODE_REPL)
-    {
-        if (vigil_program_find_enum_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "enum is already declared");
-        }
-        if (vigil_program_find_class_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "enum name conflicts with class");
-        }
-        if (vigil_program_find_interface_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "enum name conflicts with interface");
-        }
-        if (vigil_program_find_constant_in_source(program, program->source->id, name_text, name_length, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "enum name conflicts with global constant");
-        }
-        if (vigil_program_find_global_in_source(program, program->source->id, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "enum name conflicts with global variable");
-        }
-        if (vigil_program_find_top_level_function_name_in_source(program, program->source->id, name_text, name_length,
-                                                                 NULL, NULL))
-        {
-            return vigil_compile_report(program, name_token->span, "enum name conflicts with function");
-        }
-    } /* end REPL redefinition guard */
-
-    status = vigil_program_grow_enums(program, program->enum_count + 1U);
+    status = vigil_program_parse_enum_header(program, cursor, is_public, &decl, &name_token);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
-
-    decl = &program->enums[program->enum_count];
-    memset(decl, 0, sizeof(*decl));
-    decl->source_id = program->source->id;
-    decl->name = name_text;
-    decl->name_length = name_length;
-    decl->name_span = name_token->span;
-    decl->is_public = is_public;
-    program->enum_count += 1U;
-    vigil_program_cursor_advance(program, cursor);
-
-    token = vigil_program_cursor_peek(program, *cursor);
-    if (token == NULL || token->kind != VIGIL_TOKEN_LBRACE)
+    status = vigil_program_expect_enum_body_start(program, cursor, name_token);
+    if (status != VIGIL_STATUS_OK)
     {
-        return vigil_compile_report(program, name_token->span, "expected '{' after enum name");
+        return status;
     }
-    vigil_program_cursor_advance(program, cursor);
 
     while (1)
     {
@@ -697,71 +826,15 @@ vigil_status_t vigil_program_parse_enum_declaration(vigil_program_state_t *progr
             vigil_program_cursor_advance(program, cursor);
             break;
         }
-        if (token->kind != VIGIL_TOKEN_IDENTIFIER)
-        {
-            return vigil_compile_report(program, token->span, "expected enum member name");
-        }
-        member_token = token;
-        name_text = vigil_program_token_text(program, member_token, &name_length);
-        if (vigil_enum_decl_find_member(decl, name_text, name_length, NULL, NULL))
-        {
-            return vigil_compile_report(program, member_token->span, "enum member is already declared");
-        }
-        vigil_program_cursor_advance(program, cursor);
-
-        if (vigil_program_cursor_peek(program, *cursor) != NULL &&
-            vigil_program_cursor_peek(program, *cursor)->kind == VIGIL_TOKEN_ASSIGN)
-        {
-            vigil_program_cursor_advance(program, cursor);
-            vigil_constant_result_release(&value_result);
-            vigil_constant_result_clear(&value_result);
-            status = vigil_program_parse_constant_expression(program, cursor, &value_result);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            if (!vigil_parser_type_equal(value_result.type, vigil_binding_type_primitive(VIGIL_TYPE_I32)))
-            {
-                vigil_constant_result_release(&value_result);
-                return vigil_compile_report(program, member_token->span, "enum member value must be i32");
-            }
-            next_value = vigil_value_as_int(&value_result.value);
-            vigil_constant_result_release(&value_result);
-            vigil_constant_result_clear(&value_result);
-        }
-
-        status = vigil_enum_decl_grow_members(program, decl, decl->member_count + 1U);
+        status = vigil_program_parse_enum_member(program, cursor, decl, &value_result, &next_value);
         if (status != VIGIL_STATUS_OK)
         {
+            vigil_constant_result_release(&value_result);
             return status;
         }
-
-        member = &decl->members[decl->member_count];
-        memset(member, 0, sizeof(*member));
-        member->name = name_text;
-        member->name_length = name_length;
-        member->name_span = member_token->span;
-        member->value = next_value;
-        decl->member_count += 1U;
-        next_value += 1;
-
-        token = vigil_program_cursor_peek(program, *cursor);
-        if (token == NULL)
-        {
-            return vigil_compile_report(program, vigil_program_eof_span(program), "expected '}' after enum body");
-        }
-        if (token->kind == VIGIL_TOKEN_COMMA)
-        {
-            vigil_program_cursor_advance(program, cursor);
-            continue;
-        }
-        if (token->kind == VIGIL_TOKEN_RBRACE)
-        {
-            continue;
-        }
-        return vigil_compile_report(program, token->span, "expected ',' or '}' after enum member");
     }
 
+    vigil_constant_result_release(&value_result);
     return VIGIL_STATUS_OK;
 }
 

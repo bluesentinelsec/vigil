@@ -1614,6 +1614,81 @@ TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilCompilerTest, RejectsDuplicateEnumNames)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "enum Color { Red }"
+                                   "enum Color { Blue }"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "enum is already declared");
+}
+
+TEST(VigilCompilerTest, RejectsEnumNameConflictsWithGlobalConstant)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "const i32 Color = 1;"
+                                   "enum Color { Red }"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "enum name conflicts with global constant");
+}
+
+TEST(VigilCompilerTest, RejectsEnumNameConflictsWithFunction)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "fn Color() -> i32 {"
+                                   "    return 1;"
+                                   "}"
+                                   "enum Color { Red }"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "enum name conflicts with function");
+}
+
+TEST(VigilCompilerTest, RejectsMissingEnumBodyStart)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "enum Color Red"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected '{' after enum name");
+}
+
+TEST(VigilCompilerTest, RejectsDuplicateEnumMembers)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "enum Color { Red, Red }"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "enum member is already declared");
+}
+
+TEST(VigilCompilerTest, RejectsEnumMembersWithNonI32Values)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "enum Color { Red = true }"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "enum member value must be i32");
+}
+
+TEST(VigilCompilerTest, RejectsMissingEnumMemberSeparator)
+{
+    ExpectSingleCompilerDiagnostic(vigil_test_failed_,
+                                   "enum Color { Red Blue }"
+                                   "fn main() -> i32 {"
+                                   "    return 0;"
+                                   "}",
+                                   "expected ',' or '}' after enum member");
+}
+
 TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers)
 {
     vigil_runtime_t *runtime = NULL;
@@ -2694,6 +2769,13 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantInitializerTypeMismatch);
     REGISTER_TEST(VigilCompilerTest, RejectsGlobalConstantNameConflictsWithFunction);
     REGISTER_TEST(VigilCompilerTest, RejectsAssigningRawI32ToEnumVariable);
+    REGISTER_TEST(VigilCompilerTest, RejectsDuplicateEnumNames);
+    REGISTER_TEST(VigilCompilerTest, RejectsEnumNameConflictsWithGlobalConstant);
+    REGISTER_TEST(VigilCompilerTest, RejectsEnumNameConflictsWithFunction);
+    REGISTER_TEST(VigilCompilerTest, RejectsMissingEnumBodyStart);
+    REGISTER_TEST(VigilCompilerTest, RejectsDuplicateEnumMembers);
+    REGISTER_TEST(VigilCompilerTest, RejectsEnumMembersWithNonI32Values);
+    REGISTER_TEST(VigilCompilerTest, RejectsMissingEnumMemberSeparator);
     REGISTER_TEST(VigilCompilerTest, RejectsQualifiedAccessToNonPublicModuleMembers);
     REGISTER_TEST(VigilCompilerTest, RejectsAssignmentToImportedConstants);
     REGISTER_TEST(VigilCompilerTest, RejectsClassesMissingInterfaceMethods);
