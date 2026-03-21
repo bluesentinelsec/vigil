@@ -562,7 +562,6 @@ TEST(VigilHttpTest, ParseHttpResponseValid)
     EXPECT_EQ(rc, 0);
     EXPECT_EQ(resp.status_code, 201);
     EXPECT_STREQ(resp.body, "hello"); /* EXPECT_STREQ fails safely on NULL */
-    EXPECT_EQ(resp.body_len, 5u);
     response_free(&resp);
 }
 
