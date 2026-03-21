@@ -317,7 +317,7 @@ TEST(VigilHttpTest, SocketRequestLargeHeadersSucceed)
 TEST(VigilHttpTest, ParseUrlUppercaseScheme)
 {
     parsed_url_t u;
-    ASSERT_TRUE(parse_url("HTTPS://example.com/path", &u));
+    EXPECT_TRUE(parse_url("HTTPS://example.com/path", &u));
     EXPECT_STREQ(u.scheme, "https");
     EXPECT_STREQ(u.host, "example.com");
     EXPECT_EQ(u.port, 443);
@@ -342,24 +342,30 @@ TEST(VigilHttpTest, ParseUrlPathTooLong)
 TEST(VigilHttpTest, CookieJarAppend)
 {
     char *jar = NULL;
-    /* Append first value */
     cookie_jar_append(&jar, "session=abc", 11);
-    ASSERT_TRUE(jar != NULL);
+    EXPECT_TRUE(jar != NULL);
     EXPECT_STREQ(jar, "session=abc");
 
-    /* Append second value — separator added */
+    /* Append second value — "; " separator added */
     cookie_jar_append(&jar, "user=bob", 8);
     EXPECT_STREQ(jar, "session=abc; user=bob");
 
     /* Trailing whitespace trimmed */
     cookie_jar_append(&jar, "x=1  ", 5);
     EXPECT_TRUE(strstr(jar, "x=1") != NULL);
+    free(jar);
+}
 
-    /* Zero-length value is a no-op */
+TEST(VigilHttpTest, CookieJarAppendNoOp)
+{
+    /* Zero-length value leaves jar unchanged */
+    char *jar = NULL;
+    cookie_jar_append(&jar, "", 0);
+    EXPECT_EQ(jar, NULL);
+    cookie_jar_append(&jar, "a=1", 3);
     char *prev = jar;
     cookie_jar_append(&jar, "", 0);
     EXPECT_EQ(jar, prev);
-
     free(jar);
 }
 
@@ -380,7 +386,7 @@ TEST(VigilHttpTest, CollectCookiesFromHeaders)
                        "\r\n";
     char *jar = NULL;
     collect_cookies(hdrs, &jar);
-    ASSERT_TRUE(jar != NULL);
+    EXPECT_TRUE(jar != NULL);
     EXPECT_TRUE(strstr(jar, "session=abc") != NULL);
     EXPECT_TRUE(strstr(jar, "user=bob") != NULL);
     /* Directive stripped — no "Path" in jar */
@@ -413,11 +419,15 @@ TEST(VigilHttpTest, BuildRequestHeadersNoCookies)
     EXPECT_EQ(build_request_headers("", "X-Header: foo\r\n"), NULL);
 }
 
-TEST(VigilHttpTest, RedirectChangesMethod)
+TEST(VigilHttpTest, RedirectChangesMethodTrue)
 {
     EXPECT_EQ(redirect_changes_method(301), 1);
     EXPECT_EQ(redirect_changes_method(302), 1);
     EXPECT_EQ(redirect_changes_method(303), 1);
+}
+
+TEST(VigilHttpTest, RedirectChangesMethodFalse)
+{
     EXPECT_EQ(redirect_changes_method(307), 0);
     EXPECT_EQ(redirect_changes_method(308), 0);
     EXPECT_EQ(redirect_changes_method(200), 0);
@@ -708,12 +718,14 @@ void register_http_tests(void)
     REGISTER_TEST(VigilHttpTest, SocketRequestLargeHeadersSucceed);
     /* Cookie jar helpers */
     REGISTER_TEST(VigilHttpTest, CookieJarAppend);
+    REGISTER_TEST(VigilHttpTest, CookieJarAppendNoOp);
     REGISTER_TEST(VigilHttpTest, HdrNameMatches);
     REGISTER_TEST(VigilHttpTest, CollectCookiesFromHeaders);
     REGISTER_TEST(VigilHttpTest, CollectCookiesEmpty);
     REGISTER_TEST(VigilHttpTest, BuildRequestHeadersWithCookies);
     REGISTER_TEST(VigilHttpTest, BuildRequestHeadersNoCookies);
-    REGISTER_TEST(VigilHttpTest, RedirectChangesMethod);
+    REGISTER_TEST(VigilHttpTest, RedirectChangesMethodTrue);
+    REGISTER_TEST(VigilHttpTest, RedirectChangesMethodFalse);
     /* do_request integration */
     REGISTER_TEST(VigilHttpTest, DoRequestLoopback);
     REGISTER_TEST(VigilHttpTest, DoRequestFollowsRedirect);
