@@ -18,6 +18,16 @@ struct FailingAllocatorStats
     size_t fail_after;
 };
 
+typedef struct VmTestContextOptions
+{
+    const vigil_runtime_options_t *runtime_options;
+    const vigil_vm_options_t *vm_options;
+} VmTestContextOptions;
+
+static vigil_status_t OpenVmTestContextWithOptions(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk,
+                                                   vigil_value_t *result, const VmTestContextOptions *options,
+                                                   vigil_error_t *error);
+
 static void *CountedAllocate(void *user_data, size_t size)
 {
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
@@ -85,24 +95,9 @@ static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_
 static vigil_status_t OpenVmTestContext(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk,
                                         vigil_value_t *result, vigil_error_t *error)
 {
-    vigil_status_t status;
+    VmTestContextOptions options = {0};
 
-    status = vigil_runtime_open(runtime, NULL, error);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-
-    status = vigil_vm_open(vm, *runtime, NULL, error);
-    if (status != VIGIL_STATUS_OK)
-    {
-        vigil_runtime_close(runtime);
-        return status;
-    }
-
-    vigil_chunk_init(chunk, *runtime);
-    vigil_value_init_nil(result);
-    return VIGIL_STATUS_OK;
+    return OpenVmTestContextWithOptions(runtime, vm, chunk, result, &options, error);
 }
 
 static void CloseVmTestContext(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk, vigil_value_t *result)
@@ -114,10 +109,18 @@ static void CloseVmTestContext(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil
 }
 
 static vigil_status_t OpenVmTestContextWithOptions(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk,
-                                                   vigil_value_t *result, const vigil_runtime_options_t *runtime_options,
-                                                   const vigil_vm_options_t *vm_options, vigil_error_t *error)
+                                                   vigil_value_t *result, const VmTestContextOptions *options,
+                                                   vigil_error_t *error)
 {
     vigil_status_t status;
+    const vigil_runtime_options_t *runtime_options = NULL;
+    const vigil_vm_options_t *vm_options = NULL;
+
+    if (options != NULL)
+    {
+        runtime_options = options->runtime_options;
+        vm_options = options->vm_options;
+    }
 
     status = vigil_runtime_open(runtime, runtime_options, error);
     if (status != VIGIL_STATUS_OK)
@@ -1335,6 +1338,7 @@ TEST(VigilVmTest, ReportsStringConversionAllocatorFailures)
     struct FailingAllocatorStats stats = {0};
     vigil_allocator_t allocator = {0};
     vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = FailingAllocate;
@@ -1342,9 +1346,10 @@ TEST(VigilVmTest, ReportsStringConversionAllocatorFailures)
     allocator.deallocate = FailingDeallocate;
     vigil_runtime_options_init(&runtime_options);
     runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
     stats.fail_after = (size_t)-1;
 
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &runtime_options, NULL, &error),
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
               VIGIL_STATUS_OK);
 
     vigil_value_init_bool(&constant, true);
@@ -1358,7 +1363,7 @@ TEST(VigilVmTest, ReportsStringConversionAllocatorFailures)
     vigil_value_release(&constant);
 
     stats.fail_after = (size_t)-1;
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &runtime_options, NULL, &error),
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
               VIGIL_STATUS_OK);
     vigil_value_init_int(&constant, 17);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(20U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
@@ -1382,6 +1387,7 @@ TEST(VigilVmTest, ReportsFloatFormatAllocatorFailures)
     struct FailingAllocatorStats stats = {0};
     vigil_allocator_t allocator = {0};
     vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = FailingAllocate;
@@ -1389,9 +1395,10 @@ TEST(VigilVmTest, ReportsFloatFormatAllocatorFailures)
     allocator.deallocate = FailingDeallocate;
     vigil_runtime_options_init(&runtime_options);
     runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
     stats.fail_after = (size_t)-1;
 
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &runtime_options, NULL, &error),
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
               VIGIL_STATUS_OK);
 
     vigil_value_init_float(&constant, 3.5);
@@ -1418,6 +1425,7 @@ TEST(VigilVmTest, RejectsMultiValueReturnWhenPendingStorageAllocationFails)
     struct FailingAllocatorStats stats = {0};
     vigil_allocator_t allocator = {0};
     vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
 
     allocator.user_data = &stats;
     allocator.allocate = FailingAllocate;
@@ -1425,9 +1433,10 @@ TEST(VigilVmTest, RejectsMultiValueReturnWhenPendingStorageAllocationFails)
     allocator.deallocate = FailingDeallocate;
     vigil_runtime_options_init(&runtime_options);
     runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
     stats.fail_after = (size_t)-1;
 
-    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &runtime_options, NULL, &error),
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error),
               VIGIL_STATUS_OK);
 
     vigil_value_init_int(&constant, 11);
