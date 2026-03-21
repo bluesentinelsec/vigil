@@ -3593,7 +3593,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 VM_BREAK();
             }
             // clang-format off
-            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VM_BREAK();
+            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; goto *dispatch_table[code[frame->ip]];
             // clang-format on
             VM_CASE(CALL_INTERFACE)
             {
