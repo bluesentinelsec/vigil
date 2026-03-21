@@ -222,7 +222,12 @@ extern "C"
         VIGIL_OPCODE_MATH_COS_F64 = 154,
         VIGIL_OPCODE_MATH_SQRT_F64 = 155,
         VIGIL_OPCODE_MATH_LOG_F64 = 156,
-        VIGIL_OPCODE_MATH_POW_F64 = 157
+        VIGIL_OPCODE_MATH_POW_F64 = 157,
+
+        /* CONSTANT_I32: push an i32 value encoded directly in the bytecode.
+           Format: [opcode][i32 value (4 bytes, little-endian)]
+           Avoids constant-pool indirection for integer literals. */
+        VIGIL_OPCODE_CONSTANT_I32 = 158
     } vigil_opcode_t;
 
     typedef struct vigil_chunk

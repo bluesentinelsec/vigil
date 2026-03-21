@@ -2846,6 +2846,27 @@ TEST(VigilCompilerTest, RejectsInvalidGuardBindings)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilCompilerTest, CompilesAndExecutesInlineI32Constants)
+{
+    /* Exercises CONSTANT_I32 opcode, INCREMENT_LOCAL_I32 peephole,
+       and FORLOOP_I32 peephole (via while-loop pattern). */
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_,
+                            "fn main() -> i32 {"
+                            "    i32 sum = 0;"
+                            "    for (i32 i = 0; i < 10; i++) {"
+                            "        sum = sum + i * 7 + 13;"
+                            "    }"
+                            "    i32 j = 0;"
+                            "    while (j < 5) {"
+                            "        sum = sum + j * 3;"
+                            "        j = j + 1;"
+                            "    }"
+                            "    if (sum == 475) { return 0; }"
+                            "    return 1;"
+                            "}"),
+              0);
+}
+
 TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape)
 {
     vigil_runtime_t *runtime = NULL;
@@ -2985,5 +3006,6 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, RejectsCallingBareFunctionTypeAndMismatchedFunctionSignatures);
     REGISTER_TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods);
     REGISTER_TEST(VigilCompilerTest, RejectsInvalidGuardBindings);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesInlineI32Constants);
     REGISTER_TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape);
 }

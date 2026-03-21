@@ -10769,6 +10769,121 @@ static vigil_status_t vigil_parser_parse_if_statement(vigil_parser_state_t *stat
     return VIGIL_STATUS_OK;
 }
 
+static int vigil_opcode_is_constant(uint8_t op)
+{
+    return op == VIGIL_OPCODE_CONSTANT_I32;
+}
+
+static int vigil_parser_read_const_i32(const vigil_parser_state_t *state, const uint8_t *code, size_t offset,
+                                       int64_t *out_val)
+{
+    uint32_t raw;
+    (void)state;
+    if (code[offset] != VIGIL_OPCODE_CONSTANT_I32)
+        return 0;
+    raw = (uint32_t)code[offset + 1U] | ((uint32_t)code[offset + 2U] << 8U) | ((uint32_t)code[offset + 3U] << 16U) |
+          ((uint32_t)code[offset + 4U] << 24U);
+    *out_val = (int32_t)raw;
+    return 1;
+}
+
+/* Resolve a constant-pool index from a CONSTANT or CONSTANT_I32 instruction.
+   For CONSTANT the 4 bytes are already a pool index; for CONSTANT_I32 the
+   value is inline and must be added to the pool first.  Returns VIGIL_STATUS_OK
+   on success, or an error if the pool insertion fails. */
+static vigil_status_t vigil_parser_resolve_const_idx(vigil_parser_state_t *state, const uint8_t *code, size_t offset,
+                                                     uint8_t out_idx[4])
+{
+    uint32_t raw = (uint32_t)code[offset + 1U] | ((uint32_t)code[offset + 2U] << 8U) |
+                   ((uint32_t)code[offset + 3U] << 16U) | ((uint32_t)code[offset + 4U] << 24U);
+    vigil_value_t cv;
+    size_t ci;
+    vigil_status_t s;
+    vigil_value_init_int(&cv, (int32_t)raw);
+    s = vigil_chunk_add_constant(&state->chunk, &cv, &ci, state->program->error);
+    vigil_value_release(&cv);
+    if (s != VIGIL_STATUS_OK || ci > UINT32_MAX)
+        return (s != VIGIL_STATUS_OK) ? s : VIGIL_STATUS_OUT_OF_MEMORY;
+    raw = (uint32_t)ci;
+    out_idx[0] = (uint8_t)(raw & 0xFFU);
+    out_idx[1] = (uint8_t)((raw >> 8U) & 0xFFU);
+    out_idx[2] = (uint8_t)((raw >> 16U) & 0xFFU);
+    out_idx[3] = (uint8_t)((raw >> 24U) & 0xFFU);
+    return VIGIL_STATUS_OK;
+}
+
+/* Try to rewrite INCREMENT_LOCAL_I32 + LOOP → FORLOOP_I32. */
+static uint8_t vigil_parser_i32_cmp_type(vigil_opcode_t op)
+{
+    switch (op)
+    {
+    case VIGIL_OPCODE_LESS_I32:
+        return 0;
+    case VIGIL_OPCODE_LESS_EQUAL_I32:
+        return 1;
+    case VIGIL_OPCODE_GREATER_I32:
+        return 2;
+    case VIGIL_OPCODE_GREATER_EQUAL_I32:
+        return 3;
+    case VIGIL_OPCODE_NOT_EQUAL_I32:
+        return 4;
+    default:
+        return 255;
+    }
+}
+
+static int vigil_parser_forloop_indices_match(const uint8_t *c, size_t cs, size_t len)
+{
+    uint32_t cond_idx = (uint32_t)c[cs + 1U] | ((uint32_t)c[cs + 2U] << 8U) | ((uint32_t)c[cs + 3U] << 16U) |
+                        ((uint32_t)c[cs + 4U] << 24U);
+    uint32_t inc_idx = (uint32_t)c[len - 10U] | ((uint32_t)c[len - 9U] << 8U) | ((uint32_t)c[len - 8U] << 16U) |
+                       ((uint32_t)c[len - 7U] << 24U);
+    return cond_idx == inc_idx;
+}
+
+static int vigil_parser_forloop_i32_precondition(const uint8_t *c, size_t len, size_t cs, uint8_t *out_cmp_type)
+{
+    if (len < 11U || c[len - 11U] != VIGIL_OPCODE_INCREMENT_LOCAL_I32 || c[len - 5U] != VIGIL_OPCODE_LOOP)
+        return 0;
+    if (cs + 17U > len || c[cs] != VIGIL_OPCODE_GET_LOCAL || !vigil_opcode_is_constant(c[cs + 5U]))
+        return 0;
+    *out_cmp_type = vigil_parser_i32_cmp_type((vigil_opcode_t)c[cs + 10U]);
+    if (*out_cmp_type == 255 || c[cs + 11U] != VIGIL_OPCODE_JUMP_IF_FALSE || c[cs + 16U] != VIGIL_OPCODE_POP)
+        return 0;
+    return vigil_parser_forloop_indices_match(c, cs, len);
+}
+
+static void vigil_parser_try_forloop_i32(vigil_parser_state_t *state, size_t loop_start)
+{
+    uint8_t *c = state->chunk.code.data;
+    size_t len = state->chunk.code.length;
+    size_t cs = loop_start;
+    uint8_t cmp_type;
+    uint8_t const_idx[4];
+    size_t forloop_pos;
+    uint32_t back_off;
+
+    if (!vigil_parser_forloop_i32_precondition(c, len, cs, &cmp_type))
+        return;
+    if (vigil_parser_resolve_const_idx(state, c, cs + 5U, const_idx) != VIGIL_STATUS_OK)
+        return;
+    c = state->chunk.code.data;
+
+    forloop_pos = len - 11U;
+    back_off = (uint32_t)((forloop_pos + 15U) - (cs + 17U));
+
+    c[forloop_pos] = VIGIL_OPCODE_FORLOOP_I32;
+    memcpy(&c[forloop_pos + 1U], &c[len - 10U], 4);
+    c[forloop_pos + 5U] = (uint8_t)(int8_t)c[len - 6U];
+    memcpy(&c[forloop_pos + 6U], const_idx, 4);
+    c[forloop_pos + 10U] = cmp_type;
+    c[forloop_pos + 11U] = (uint8_t)(back_off & 0xFF);
+    c[forloop_pos + 12U] = (uint8_t)((back_off >> 8U) & 0xFF);
+    c[forloop_pos + 13U] = (uint8_t)((back_off >> 16U) & 0xFF);
+    c[forloop_pos + 14U] = (uint8_t)((back_off >> 24U) & 0xFF);
+    state->chunk.code.length = forloop_pos + 15U;
+}
+
 static vigil_status_t vigil_parser_parse_while_statement(vigil_parser_state_t *state,
                                                          vigil_statement_result_t *out_result)
 {
@@ -10849,82 +10964,8 @@ static vigil_status_t vigil_parser_parse_while_statement(vigil_parser_state_t *s
         goto cleanup_loop;
     }
 
-    /* Peephole: rewrite INCREMENT_LOCAL_I32 + LOOP → FORLOOP_I32
-       when the condition at loop_start is GET_LOCAL + CONSTANT + <cmp_I32>
-       + JUMP_IF_FALSE + POP.  The FORLOOP does increment + compare + branch
-       in a single dispatch, jumping back to the body start. */
-    {
-        uint8_t *c = state->chunk.code.data;
-        size_t len = state->chunk.code.length;
-        /* Last 11 bytes: INCREMENT_LOCAL_I32(6) + LOOP(5) */
-        if (len >= 11U && c[len - 11U] == VIGIL_OPCODE_INCREMENT_LOCAL_I32 && c[len - 5U] == VIGIL_OPCODE_LOOP)
-        {
-            /* Condition at loop_start: GET_LOCAL(5) + CONSTANT(5) + cmp(1)
-               + JUMP_IF_FALSE(5) + POP(1) = 17 bytes */
-            size_t cs = loop_start;
-            if (cs + 17U <= len && c[cs] == VIGIL_OPCODE_GET_LOCAL && c[cs + 5U] == VIGIL_OPCODE_CONSTANT)
-            {
-                uint8_t cmp_op = c[cs + 10U];
-                uint8_t cmp_type = 255;
-                switch ((vigil_opcode_t)cmp_op)
-                {
-                case VIGIL_OPCODE_LESS_I32:
-                    cmp_type = 0;
-                    break;
-                case VIGIL_OPCODE_LESS_EQUAL_I32:
-                    cmp_type = 1;
-                    break;
-                case VIGIL_OPCODE_GREATER_I32:
-                    cmp_type = 2;
-                    break;
-                case VIGIL_OPCODE_GREATER_EQUAL_I32:
-                    cmp_type = 3;
-                    break;
-                case VIGIL_OPCODE_NOT_EQUAL_I32:
-                    cmp_type = 4;
-                    break;
-                default:
-                    break;
-                }
-                if (cmp_type != 255 && c[cs + 11U] == VIGIL_OPCODE_JUMP_IF_FALSE && c[cs + 16U] == VIGIL_OPCODE_POP)
-                {
-                    /* Verify the GET_LOCAL index matches INCREMENT local. */
-                    uint32_t cond_idx = (uint32_t)c[cs + 1U] | ((uint32_t)c[cs + 2U] << 8U) |
-                                        ((uint32_t)c[cs + 3U] << 16U) | ((uint32_t)c[cs + 4U] << 24U);
-                    uint32_t inc_idx = (uint32_t)c[len - 10U] | ((uint32_t)c[len - 9U] << 8U) |
-                                       ((uint32_t)c[len - 8U] << 16U) | ((uint32_t)c[len - 7U] << 24U);
-                    if (cond_idx == inc_idx)
-                    {
-                        /* Extract constant index and delta. */
-                        uint8_t const_idx[4];
-                        int8_t delta = (int8_t)c[len - 6U];
-                        size_t body_start = cs + 17U;
-                        size_t forloop_pos = len - 11U;
-                        /* back_offset: from end of FORLOOP to body_start */
-                        size_t forloop_end = forloop_pos + 15U;
-                        uint32_t back_off = (uint32_t)(forloop_end - body_start);
-
-                        memcpy(const_idx, &c[cs + 6U], 4);
-
-                        /* Write FORLOOP_I32 over INCREMENT+LOOP. */
-                        c[forloop_pos] = VIGIL_OPCODE_FORLOOP_I32;
-                        /* local idx (reuse from increment) */
-                        /* c[forloop_pos+1..4] already has inc_idx */
-                        memcpy(&c[forloop_pos + 1U], &c[len - 10U], 4);
-                        c[forloop_pos + 5U] = (uint8_t)delta;
-                        memcpy(&c[forloop_pos + 6U], const_idx, 4);
-                        c[forloop_pos + 10U] = cmp_type;
-                        c[forloop_pos + 11U] = (uint8_t)(back_off & 0xFF);
-                        c[forloop_pos + 12U] = (uint8_t)((back_off >> 8U) & 0xFF);
-                        c[forloop_pos + 13U] = (uint8_t)((back_off >> 16U) & 0xFF);
-                        c[forloop_pos + 14U] = (uint8_t)((back_off >> 24U) & 0xFF);
-                        /* New length: forloop_pos + 15 (grew by 4 bytes). */
-                        state->chunk.code.length = forloop_pos + 15U;
-                    }
-                }
-            }
-        }
-    }
+    /* Peephole: rewrite INCREMENT_LOCAL_I32 + LOOP -> FORLOOP_I32. */
+    vigil_parser_try_forloop_i32(state, loop_start);
     status = vigil_parser_patch_jump(state, exit_jump_offset);
     if (status != VIGIL_STATUS_OK)
     {
@@ -11986,12 +12027,12 @@ static vigil_status_t vigil_parser_emit_i32_constant(vigil_parser_state_t *state
                                                      vigil_source_span_t span)
 {
     vigil_status_t status;
-    vigil_value_t constant;
-
-    vigil_value_init_int(&constant, value);
-    status = vigil_chunk_write_constant(&state->chunk, &constant, span, NULL, state->program->error);
-    vigil_value_release(&constant);
-    return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_CONSTANT_I32, span);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    return vigil_parser_emit_u32(state, (uint32_t)(int32_t)value, span);
 }
 
 vigil_status_t vigil_parser_emit_f64_constant(vigil_parser_state_t *state, double value, vigil_source_span_t span)
@@ -13010,11 +13051,11 @@ static vigil_status_t vigil_parser_parse_assignment_statement_internal(vigil_par
         {
             uint8_t *code = state->chunk.code.data;
             size_t len = state->chunk.code.length;
-            /* Pattern: [GET_LOCAL(5)][CONSTANT(5)][ADD_I32|SUB_I32(1)][SET_LOCAL(5)][POP(1)] = 17 */
+            /* Pattern: [GET_LOCAL(5)][CONSTANT|CONSTANT_I32(5)][ADD_I32|SUB_I32(1)][SET_LOCAL(5)][POP(1)] = 17 */
             if (len >= 17U)
             {
                 size_t base = len - 17U;
-                if (code[base] == VIGIL_OPCODE_GET_LOCAL && code[base + 5U] == VIGIL_OPCODE_CONSTANT &&
+                if (code[base] == VIGIL_OPCODE_GET_LOCAL && vigil_opcode_is_constant(code[base + 5U]) &&
                     (code[base + 10U] == VIGIL_OPCODE_ADD_I32 || code[base + 10U] == VIGIL_OPCODE_SUBTRACT_I32) &&
                     code[base + 11U] == VIGIL_OPCODE_SET_LOCAL && code[base + 16U] == VIGIL_OPCODE_POP)
                 {
@@ -13025,14 +13066,9 @@ static vigil_status_t vigil_parser_parse_assignment_statement_internal(vigil_par
                                        ((uint32_t)code[base + 14U] << 16U) | ((uint32_t)code[base + 15U] << 24U);
                     if (get_idx == set_idx)
                     {
-                        /* Read constant index. */
-                        uint32_t ci = (uint32_t)code[base + 6U] | ((uint32_t)code[base + 7U] << 8U) |
-                                      ((uint32_t)code[base + 8U] << 16U) | ((uint32_t)code[base + 9U] << 24U);
-                        const vigil_value_t *cv =
-                            (ci < state->chunk.constant_count) ? &state->chunk.constants[ci] : NULL;
-                        if (cv != NULL && vigil_value_kind(cv) == VIGIL_VALUE_INT)
+                        int64_t val;
+                        if (vigil_parser_read_const_i32(state, code, base + 5U, &val))
                         {
-                            int64_t val = vigil_value_as_int(cv);
                             int is_sub = (code[base + 10U] == VIGIL_OPCODE_SUBTRACT_I32);
                             if (is_sub)
                                 val = -val;

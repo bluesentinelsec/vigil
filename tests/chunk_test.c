@@ -356,6 +356,24 @@ TEST(VigilChunkTest, DisassembleFormatsOperandInstructions)
     free((void *)text);
 }
 
+
+TEST(VigilChunkTest, DisassembleFormatsConstantI32)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_error_t error = {0};
+    vigil_chunk_t chunk;
+    vigil_string_t output;
+
+    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
+    vigil_chunk_init(&chunk, runtime);
+    vigil_string_init(&output, runtime);
+    ASSERT_EQ(AppendOpcodeU32(&chunk, VIGIL_OPCODE_CONSTANT_I32, 42U, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_disassemble(&chunk, &output, &error), VIGIL_STATUS_OK);
+    EXPECT_NE(strstr(vigil_string_c_str(&output), "CONSTANT_I32 42"), NULL);
+    vigil_string_free(&output);
+    vigil_chunk_free(&chunk);
+    vigil_runtime_close(&runtime);
+}
 TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand)
 {
     char *text = BuildBareReturnDisassemblyOutput();
@@ -424,7 +442,7 @@ TEST(VigilChunkTest, DisassembleRejectsTruncatedU32OperandInstructions)
 TEST(VigilChunkTest, OpcodeNameReturnsUnknownForOutOfRangeOpcode)
 {
     EXPECT_STREQ(vigil_opcode_name(VIGIL_OPCODE_RETURN), "RETURN");
-    EXPECT_STREQ(vigil_opcode_name((vigil_opcode_t)(VIGIL_OPCODE_MATH_POW_F64 + 1)), "UNKNOWN");
+    EXPECT_STREQ(vigil_opcode_name((vigil_opcode_t)(VIGIL_OPCODE_CONSTANT_I32 + 1)), "UNKNOWN");
 }
 
 TEST(VigilChunkTest, UsesRuntimeAllocatorHooks)
@@ -507,6 +525,7 @@ void register_chunk_tests(void)
     REGISTER_TEST(VigilChunkTest, WriteConstantEncodesInstructionAndConstantIndex);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOpcodesAndConstants);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsOperandInstructions);
+    REGISTER_TEST(VigilChunkTest, DisassembleFormatsConstantI32);
     REGISTER_TEST(VigilChunkTest, DisassembleFormatsBareReturnWithoutOperand);
     REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedCallInstructions);
     REGISTER_TEST(VigilChunkTest, DisassembleRejectsTruncatedCallValueInstructions);

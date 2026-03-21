@@ -2978,7 +2978,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
                 [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
                 // clang-format off
-                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64,
+                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64, [VIGIL_OPCODE_CONSTANT_I32]=&&op_CONSTANT_I32,
                 // clang-format on
                 [VIGIL_OPCODE_MODULO] = &&op_MODULO,
                 [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
@@ -3091,7 +3091,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
         switch ((vigil_opcode_t)code[frame->ip])
         {
 #endif
-
             VM_CASE(CONSTANT)
             VIGIL_VM_READ_U32(code, frame->ip, constant_index);
             constant = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)constant_index);
@@ -3118,6 +3117,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 VIGIL_VM_PUSH(vm, constant);
             }
             VM_BREAK();
+            // clang-format off
+            VM_CASE(CONSTANT_I32) { uint32_t raw; VIGIL_VM_READ_U32(code, frame->ip, raw); value = vigil_nanbox_encode_i32((int32_t)raw); VIGIL_VM_PUSH(vm, &value); } VM_BREAK();
+            // clang-format on
             VM_CASE(POP)
             VIGIL_VM_POP(vm, value);
             VIGIL_VM_VALUE_RELEASE(&value);
@@ -3130,7 +3132,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INTERNAL, "dup requires a value on the stack", error);
                 goto cleanup;
             }
-
             VIGIL_VM_VALUE_COPY(&value, peeked);
             status = vigil_vm_push(vm, &value, error);
             VIGIL_VM_VALUE_RELEASE(&value);
@@ -3596,7 +3597,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             }
             // clang-format off
             /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VIGIL_VM_MATH_NEXT(dispatch_table, code, frame->ip);
-            // clang-format on
             // clang-format on
             VM_CASE(CALL_INTERFACE)
             {
