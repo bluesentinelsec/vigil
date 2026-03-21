@@ -2803,21 +2803,17 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
     const uint8_t *code;
     size_t code_size;
     size_t local_index;
-
     object = NULL;
-
     status = vigil_vm_validate(vm, error);
     if (status != VIGIL_STATUS_OK)
     {
         return status;
     }
-
     if (out_value == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "out_value must not be null");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-
     if (function != NULL)
     {
         if (vigil_object_type(function) != VIGIL_OBJECT_FUNCTION && vigil_object_type(function) != VIGIL_OBJECT_CLOSURE)
@@ -2826,7 +2822,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                                     "function must be a function or closure object");
             return VIGIL_STATUS_INVALID_ARGUMENT;
         }
-
         const vigil_object_t *inner_fn = vigil_callable_object_function(function);
         size_t arity = vigil_function_object_arity(inner_fn);
 
@@ -2978,12 +2973,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_FORLOOP_I32] = &&op_FORLOOP_I32,
                 [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
                 [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
-                [VIGIL_OPCODE_CALL_EXTERN] = &&op_CALL_EXTERN,
-                [VIGIL_OPCODE_MATH_SIN_F64] = &&op_MATH_SIN_F64,
-                [VIGIL_OPCODE_MATH_COS_F64] = &&op_MATH_COS_F64,
-                [VIGIL_OPCODE_MATH_SQRT_F64] = &&op_MATH_SQRT_F64,
-                [VIGIL_OPCODE_MATH_LOG_F64] = &&op_MATH_LOG_F64,
-                [VIGIL_OPCODE_MATH_POW_F64] = &&op_MATH_POW_F64,
+                // clang-format off
+                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64,
+                // clang-format on
                 [VIGIL_OPCODE_MODULO] = &&op_MODULO,
                 [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
                 [VIGIL_OPCODE_NEGATE] = &&op_NEGATE,
@@ -3600,15 +3592,9 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 }
                 VM_BREAK();
             }
-            /* Math intrinsics */
-            VM_CASE(MATH_SIN_F64)
-            VM_CASE(MATH_COS_F64)
-            VM_CASE(MATH_SQRT_F64)
-            VM_CASE(MATH_LOG_F64)
-            VM_CASE(MATH_POW_F64)
-            vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]);
-            frame->ip += 1U;
-            VM_BREAK();
+            // clang-format off
+            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VM_BREAK();
+            // clang-format on
             VM_CASE(CALL_INTERFACE)
             {
                 size_t interface_index;

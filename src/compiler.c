@@ -7232,9 +7232,8 @@ static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state,
         if (status != VIGIL_STATUS_OK)
             return status;
         status = vigil_parser_emit_u32(state, (uint32_t)const_idx, member_token->span);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_parser_emit_u32(state, (uint32_t)arg_count, member_token->span);
+        if (status == VIGIL_STATUS_OK)
+            status = vigil_parser_emit_u32(state, (uint32_t)arg_count, member_token->span);
         if (status != VIGIL_STATUS_OK)
             return status;
     }
