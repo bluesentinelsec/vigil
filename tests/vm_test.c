@@ -12,6 +12,22 @@ struct AllocatorStats
     int deallocate_calls;
 };
 
+struct FailingAllocatorStats
+{
+    size_t calls;
+    size_t fail_after;
+};
+
+typedef struct VmTestContextOptions
+{
+    const vigil_runtime_options_t *runtime_options;
+    const vigil_vm_options_t *vm_options;
+} VmTestContextOptions;
+
+static vigil_status_t OpenVmTestContextWithOptions(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk,
+                                                   vigil_value_t *result, const VmTestContextOptions *options,
+                                                   vigil_error_t *error);
+
 static void *CountedAllocate(void *user_data, size_t size)
 {
     struct AllocatorStats *stats = (struct AllocatorStats *)(user_data);
@@ -36,6 +52,36 @@ static void CountedDeallocate(void *user_data, void *memory)
     free(memory);
 }
 
+static void *FailingAllocate(void *user_data, size_t size)
+{
+    struct FailingAllocatorStats *state = (struct FailingAllocatorStats *)(user_data);
+
+    state->calls += 1U;
+    if (state->calls >= state->fail_after)
+    {
+        return NULL;
+    }
+    return calloc(1U, size);
+}
+
+static void *FailingReallocate(void *user_data, void *memory, size_t size)
+{
+    struct FailingAllocatorStats *state = (struct FailingAllocatorStats *)(user_data);
+
+    state->calls += 1U;
+    if (state->calls >= state->fail_after)
+    {
+        return NULL;
+    }
+    return realloc(memory, size);
+}
+
+static void FailingDeallocate(void *user_data, void *memory)
+{
+    (void)user_data;
+    free(memory);
+}
+
 static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_t end)
 {
     vigil_source_span_t span = {0};
@@ -45,6 +91,225 @@ static vigil_source_span_t Span(vigil_source_id_t source_id, size_t start, size_
     span.end_offset = end;
     return span;
 }
+
+static vigil_status_t OpenVmTestContext(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk,
+                                        vigil_value_t *result, vigil_error_t *error)
+{
+    VmTestContextOptions options = {0};
+
+    return OpenVmTestContextWithOptions(runtime, vm, chunk, result, &options, error);
+}
+
+static void CloseVmTestContext(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk, vigil_value_t *result)
+{
+    vigil_value_release(result);
+    vigil_chunk_free(chunk);
+    vigil_vm_close(vm);
+    vigil_runtime_close(runtime);
+}
+
+static vigil_status_t OpenVmTestContextWithOptions(vigil_runtime_t **runtime, vigil_vm_t **vm, vigil_chunk_t *chunk,
+                                                   vigil_value_t *result, const VmTestContextOptions *options,
+                                                   vigil_error_t *error)
+{
+    vigil_status_t status;
+    const vigil_runtime_options_t *runtime_options = NULL;
+    const vigil_vm_options_t *vm_options = NULL;
+
+    if (options != NULL)
+    {
+        runtime_options = options->runtime_options;
+        vm_options = options->vm_options;
+    }
+
+    status = vigil_runtime_open(runtime, runtime_options, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    status = vigil_vm_open(vm, *runtime, vm_options, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_runtime_close(runtime);
+        return status;
+    }
+
+    vigil_chunk_init(chunk, *runtime);
+    vigil_value_init_nil(result);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t RunCompiledSource(const char *source_text, int64_t *out_result, vigil_error_t *error)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_source_registry_t registry;
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_value_t result;
+    vigil_source_id_t source_id = 0U;
+    vigil_status_t status;
+
+    status = vigil_runtime_open(&runtime, NULL, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_vm_open(&vm, runtime, NULL, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_runtime_close(&runtime);
+        return status;
+    }
+
+    vigil_source_registry_init(&registry, runtime);
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+    status = vigil_source_registry_register_cstr(&registry, "main.vigil", source_text, &source_id, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_compile_source(&registry, source_id, &function, &diagnostics, error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_value_init_nil(&result);
+        status = vigil_vm_execute_function(vm, function, &result, error);
+        if (status == VIGIL_STATUS_OK && out_result != NULL)
+        {
+            *out_result = vigil_value_as_int(&result);
+        }
+        vigil_value_release(&result);
+    }
+
+    vigil_object_release(&function);
+    vigil_diagnostic_list_free(&diagnostics);
+    vigil_source_registry_free(&registry);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
+    return status;
+}
+
+static vigil_status_t RunBinaryIntOpcode(vigil_opcode_t opcode, int64_t left_value, int64_t right_value,
+                                         int64_t *out_result, vigil_error_t *error)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t left;
+    vigil_value_t right;
+    vigil_value_t result;
+    vigil_status_t status;
+
+    status = vigil_runtime_open(&runtime, NULL, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_vm_open(&vm, runtime, NULL, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_runtime_close(&runtime);
+        return status;
+    }
+
+    vigil_chunk_init(&chunk, runtime);
+    vigil_value_init_nil(&result);
+    vigil_value_init_int(&left, left_value);
+    vigil_value_init_int(&right, right_value);
+    status = vigil_chunk_write_constant(&chunk, &left, Span(40U, 0U, 1U), NULL, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_chunk_write_constant(&chunk, &right, Span(40U, 2U, 3U), NULL, error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_chunk_write_opcode(&chunk, opcode, Span(40U, 4U, 5U), error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(40U, 6U, 7U), error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_vm_execute(vm, &chunk, &result, error);
+    }
+    if (status == VIGIL_STATUS_OK && out_result != NULL)
+    {
+        *out_result = vigil_value_as_int(&result);
+    }
+
+    vigil_error_clear(error);
+    vigil_value_release(&left);
+    vigil_value_release(&right);
+    vigil_value_release(&result);
+    vigil_chunk_free(&chunk);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
+    return status;
+}
+
+static vigil_status_t RunBinaryUintOpcode(vigil_opcode_t opcode, uint64_t left_value, uint64_t right_value,
+                                          uint64_t *out_result, vigil_error_t *error)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t left;
+    vigil_value_t right;
+    vigil_value_t result;
+    vigil_status_t status;
+
+    status = vigil_runtime_open(&runtime, NULL, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    status = vigil_vm_open(&vm, runtime, NULL, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_runtime_close(&runtime);
+        return status;
+    }
+
+    vigil_chunk_init(&chunk, runtime);
+    vigil_value_init_nil(&result);
+    vigil_value_init_uint(&left, left_value);
+    vigil_value_init_uint(&right, right_value);
+    status = vigil_chunk_write_constant(&chunk, &left, Span(41U, 0U, 1U), NULL, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_chunk_write_constant(&chunk, &right, Span(41U, 2U, 3U), NULL, error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_chunk_write_opcode(&chunk, opcode, Span(41U, 4U, 5U), error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(41U, 6U, 7U), error);
+    }
+    if (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_vm_execute(vm, &chunk, &result, error);
+    }
+    if (status == VIGIL_STATUS_OK && out_result != NULL)
+    {
+        *out_result = vigil_value_as_uint(&result);
+    }
+
+    vigil_error_clear(error);
+    vigil_value_release(&left);
+    vigil_value_release(&right);
+    vigil_value_release(&result);
+    vigil_chunk_free(&chunk);
+    vigil_vm_close(&vm);
+    vigil_runtime_close(&runtime);
+    return status;
+}
+
+/* TEST() expands into generated functions with many assertion branches.
+   Suppress cognitive-complexity diagnostics for this assertion-heavy test region. */
+// NOLINTBEGIN(readability-function-cognitive-complexity)
 
 TEST(VigilVmTest, OptionsInitClearsFields)
 {
@@ -132,6 +397,318 @@ TEST(VigilVmTest, ExecutesLiteralOpcodes)
     vigil_chunk_free(&chunk);
     vigil_vm_close(&vm);
     vigil_runtime_close(&runtime);
+}
+
+TEST(VigilVmTest, ReturnsNilFromEmptyRootChunk)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(2U, 0U, 1U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_NIL);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, ReturnsFirstValueFromMultiValueRootChunk)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 11);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(2U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 12);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(2U, 2U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(2U, 4U, 5U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
+    EXPECT_EQ(vigil_value_as_int(&result), 12);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, CompilesAndExecutesMultipleReturnValues)
+{
+    int64_t output = 0;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(RunCompiledSource("\n"
+                                "fn pair(i32 value) -> (i32, i32) {\n"
+                                "    return (value, value + 1);\n"
+                                "}\n"
+                                "\n"
+                                "fn main() -> i32 {\n"
+                                "    i32 left, i32 right = pair(4);\n"
+                                "    return left * 10 + right;\n"
+                                "}\n"
+                                "",
+                                &output, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(output, 45);
+}
+
+TEST(VigilVmTest, CompilesAndExecutesDeferredMultipleReturnValues)
+{
+    int64_t output = 0;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(RunCompiledSource("\n"
+                                "i32 state = 0;\n"
+                                "\n"
+                                "fn bump() -> void {\n"
+                                "    state += 1;\n"
+                                "}\n"
+                                "\n"
+                                "fn pair(i32 value) -> (i32, i32) {\n"
+                                "    defer bump();\n"
+                                "    return (value, value + 1);\n"
+                                "}\n"
+                                "\n"
+                                "fn main() -> i32 {\n"
+                                "    i32 left, i32 right = pair(4);\n"
+                                "    return state * 100 + left * 10 + right;\n"
+                                "}\n"
+                                "",
+                                &output, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(output, 145);
+}
+
+TEST(VigilVmTest, RejectsHugeFloatFormatPrecision)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(3U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(3U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 6U << 10U, Span(3U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 65535U << 16U, Span(3U, 8U, 9U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(3U, 10U, 11U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "format specifier error"), 0);
+
+    vigil_value_release(&constant);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, FormatsStringWithWidth)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+    vigil_object_t *object = NULL;
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "abc", &object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&constant, &object);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(4U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(4U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U << 8U, Span(4U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 5U, Span(4U, 8U, 9U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(4U, 10U, 11U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "  abc");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, FormatsIntWithEmptySpec)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 17);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(5U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(5U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(5U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(5U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(5U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsFloatFormatSpecForFloatOperand)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(6U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(6U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 1U << 10U, Span(6U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(6U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(6U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, NULL);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsFloatFormatSpecForIntegerOperand)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 3);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(7U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(7U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 6U << 10U, Span(7U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 1U << 16U, Span(7U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(7U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, NULL);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsFloatOperandForHexBinaryAndOctalFormatSpecs)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(8U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U << 10U, Span(8U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(8U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(8U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(9U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(9U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 4U << 10U, Span(9U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(9U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(9U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(10U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 5U << 10U, Span(10U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(10U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(10U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, FormatsFloatToString)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(8U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(8U, 6U, 7U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "3.5");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, FormatsFloatWithPrecision)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_F64, Span(8U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(8U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(8U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "3.50");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
 }
 
 TEST(VigilVmTest, RejectsArithmeticOverflow)
@@ -491,7 +1068,7 @@ TEST(VigilVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint)
     vigil_runtime_close(&runtime);
 }
 
-TEST(VigilVmTest, SupportsConversionsAndBitwiseNotOpcodes)
+TEST(VigilVmTest, ConvertsFloatToIntAndAppliesBitwiseNot)
 {
     vigil_runtime_t *runtime = NULL;
     vigil_vm_t *vm = NULL;
@@ -500,10 +1077,7 @@ TEST(VigilVmTest, SupportsConversionsAndBitwiseNotOpcodes)
     vigil_value_t result;
     vigil_error_t error = {0};
 
-    ASSERT_EQ(vigil_runtime_open(&runtime, NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_vm_open(&vm, runtime, NULL, &error), VIGIL_STATUS_OK);
-    vigil_chunk_init(&chunk, runtime);
-    vigil_value_init_nil(&result);
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
 
     vigil_value_init_float(&constant, 5.9);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(8U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
@@ -514,9 +1088,20 @@ TEST(VigilVmTest, SupportsConversionsAndBitwiseNotOpcodes)
     ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
     EXPECT_EQ(vigil_value_as_int(&result), -6);
-    vigil_value_release(&result);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
 
-    vigil_chunk_clear(&chunk);
+TEST(VigilVmTest, ConvertsBoolAndUintToStrings)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
     vigil_value_init_bool(&constant, true);
     ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(9U, 0U, 3U), NULL, &error), VIGIL_STATUS_OK);
     ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(9U, 4U, 5U), &error), VIGIL_STATUS_OK);
@@ -527,44 +1112,439 @@ TEST(VigilVmTest, SupportsConversionsAndBitwiseNotOpcodes)
     ASSERT_NE(vigil_value_as_object(&result), NULL);
     EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
     EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "true");
-    vigil_value_release(&result);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
 
-    vigil_chunk_clear(&chunk);
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    vigil_value_init_uint(&constant, UINT64_C(42));
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(10U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(10U, 4U, 5U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "42");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, ConvertsFloatAndIntValues)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
     vigil_value_init_float(&constant, 255.9);
-    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(10U, 0U, 5U), NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_U8, Span(10U, 6U, 7U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(10U, 8U, 9U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 5U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_U8, Span(11U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(11U, 8U, 9U), &error), VIGIL_STATUS_OK);
 
     ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_UINT);
     EXPECT_EQ(vigil_value_as_uint(&result), UINT64_C(255));
-    vigil_value_release(&result);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
 
-    vigil_chunk_clear(&chunk);
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
     vigil_value_init_int(&constant, 42);
-    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(11U, 0U, 2U), NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_I64, Span(11U, 3U, 4U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(11U, 5U, 6U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 2U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_I64, Span(12U, 3U, 4U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(12U, 5U, 6U), &error), VIGIL_STATUS_OK);
 
     ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
     EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
     EXPECT_EQ(vigil_value_as_int(&result), 42);
-    vigil_value_release(&result);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
 
-    vigil_chunk_clear(&chunk);
+TEST(VigilVmTest, RejectsNegativeFloatToU32Conversion)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
     vigil_value_init_float(&constant, -1.0);
-    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(12U, 0U, 4U), NULL, &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_U32, Span(12U, 5U, 6U), &error), VIGIL_STATUS_OK);
-    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(12U, 7U, 8U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(13U, 0U, 4U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_U32, Span(13U, 5U, 6U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(13U, 7U, 8U), &error), VIGIL_STATUS_OK);
 
     EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
     EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
     ASSERT_NE(error.value, NULL);
     EXPECT_EQ(strcmp(error.value, "u32 conversion overflow or invalid value"), 0);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
 
-    vigil_chunk_free(&chunk);
-    vigil_vm_close(&vm);
-    vigil_runtime_close(&runtime);
+TEST(VigilVmTest, ConvertsObjectAndUintToStrings)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+    vigil_object_t *string_object = NULL;
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "hello", &string_object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&constant, &string_object);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(14U, 0U, 5U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(14U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(14U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "hello");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, ComparesDifferentObjectTypesByValue)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t left_constant;
+    vigil_value_t right_constant;
+    vigil_value_t result;
+    vigil_object_t *string_object = NULL;
+    vigil_object_t *array_object = NULL;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "hello", &string_object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&left_constant, &string_object);
+    ASSERT_EQ(vigil_array_object_new(runtime, NULL, 0U, &array_object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&right_constant, &array_object);
+
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &left_constant, Span(15U, 0U, 5U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&left_constant);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &right_constant, Span(15U, 6U, 7U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&right_constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_EQUAL, Span(15U, 8U, 9U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(15U, 10U, 11U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_BOOL);
+    EXPECT_FALSE(vigil_value_as_bool(&result));
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsToStringOnNonStringObject)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_object_t *array_object = NULL;
+    vigil_value_t array_items[1];
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&array_items[0], 7);
+    ASSERT_EQ(vigil_array_object_new(runtime, array_items, 1U, &array_object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&constant, &array_object);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(16U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(16U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(16U, 4U, 5U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "string conversion requires a primitive or string operand"), 0);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+
+    vigil_value_release(&array_items[0]);
+}
+
+TEST(VigilVmTest, RejectsDeferredNativeCallTargetThatIsNotNative)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_object_t *object = NULL;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_string_object_new_cstr(runtime, "not-native", &object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&constant, &object);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(17U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_DEFER_CALL_NATIVE, Span(17U, 2U, 3U), &error),
+              VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(17U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(17U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(17U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INTERNAL);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INTERNAL);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "deferred call target is not a native function"), 0);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsUnsupportedMapKeyType)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_NEW_MAP, Span(18U, 0U, 1U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(18U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(18U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    vigil_value_init_float(&constant, 2.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(18U, 6U, 7U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 11);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(18U, 8U, 9U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_SET_INDEX, Span(18U, 10U, 11U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(18U, 12U, 13U), &error), VIGIL_STATUS_OK);
+
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    ASSERT_NE(error.value, NULL);
+    EXPECT_EQ(strcmp(error.value, "map index must be i32, bool, or string"), 0);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, ReportsStringConversionAllocatorFailures)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+    struct FailingAllocatorStats stats = {0};
+    vigil_allocator_t allocator = {0};
+    vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
+
+    allocator.user_data = &stats;
+    allocator.allocate = FailingAllocate;
+    allocator.reallocate = FailingReallocate;
+    allocator.deallocate = FailingDeallocate;
+    vigil_runtime_options_init(&runtime_options);
+    runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
+    stats.fail_after = (size_t)-1;
+
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_bool(&constant, true);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(19U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(19U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(19U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    stats.fail_after = stats.calls + 1U;
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+    vigil_value_release(&constant);
+
+    stats.fail_after = (size_t)-1;
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
+    vigil_value_init_int(&constant, 17);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(20U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_TO_STRING, Span(20U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(20U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    stats.fail_after = stats.calls + 1U;
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+    vigil_value_release(&constant);
+}
+
+TEST(VigilVmTest, ReportsFloatFormatAllocatorFailures)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+    struct FailingAllocatorStats stats = {0};
+    vigil_allocator_t allocator = {0};
+    vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
+
+    allocator.user_data = &stats;
+    allocator.allocate = FailingAllocate;
+    allocator.reallocate = FailingReallocate;
+    allocator.deallocate = FailingDeallocate;
+    vigil_runtime_options_init(&runtime_options);
+    runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
+    stats.fail_after = (size_t)-1;
+
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_float(&constant, 3.5);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(21U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_F64, Span(21U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(21U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(21U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    stats.fail_after = stats.calls + 1U;
+    EXPECT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(error.type, VIGIL_STATUS_INVALID_ARGUMENT);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+    vigil_value_release(&constant);
+}
+
+TEST(VigilVmTest, RejectsMultiValueReturnWhenPendingStorageAllocationFails)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_object_t *function = NULL;
+    vigil_error_t error = {0};
+    struct FailingAllocatorStats stats = {0};
+    vigil_allocator_t allocator = {0};
+    vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
+
+    allocator.user_data = &stats;
+    allocator.allocate = FailingAllocate;
+    allocator.reallocate = FailingReallocate;
+    allocator.deallocate = FailingDeallocate;
+    vigil_runtime_options_init(&runtime_options);
+    runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
+    stats.fail_after = (size_t)-1;
+
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 11);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(22U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 12);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(22U, 2U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(22U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(22U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_function_object_new_cstr(runtime, "main", 0U, 2U, &chunk, &function, &error), VIGIL_STATUS_OK);
+    stats.fail_after = stats.calls + 1U;
+
+    EXPECT_NE(vigil_vm_execute_function(vm, function, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_NE(error.type, VIGIL_STATUS_OK);
+
+    vigil_object_release(&function);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+    vigil_value_release(&constant);
+}
+
+TEST(VigilVmTest, ExecutesSignedIntegerArithmeticOpcodes)
+{
+    int64_t result_value = 0;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SUBTRACT, 7, 3, &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, 4);
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_MULTIPLY, 6, 4, &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, 24);
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_DIVIDE, 9, 2, &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, 4);
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_MODULO, 10, 3, &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, 1);
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SHIFT_LEFT, 3, 2, &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, 12);
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SHIFT_RIGHT, -8, 1, &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, -4);
+}
+
+TEST(VigilVmTest, ExecutesUnsignedIntegerArithmeticOpcodes)
+{
+    uint64_t result_value = 0U;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_ADD, UINT64_C(5), UINT64_C(6), &result_value, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(11));
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_SUBTRACT, UINT64_C(7), UINT64_C(3), &result_value, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(4));
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_MULTIPLY, UINT64_C(6), UINT64_C(4), &result_value, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(24));
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_DIVIDE, UINT64_C(9), UINT64_C(2), &result_value, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(4));
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_MODULO, UINT64_C(10), UINT64_C(3), &result_value, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(1));
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_SHIFT_LEFT, UINT64_C(3), UINT64_C(2), &result_value, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(12));
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_SHIFT_RIGHT, UINT64_C(8), UINT64_C(1), &result_value, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(result_value, UINT64_C(4));
+}
+
+TEST(VigilVmTest, RejectsArithmeticOpcodeErrors)
+{
+    int64_t signed_result = 0;
+    uint64_t unsigned_result = 0U;
+    vigil_error_t error = {0};
+
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_DIVIDE, 7, 0, &signed_result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_MODULO, 7, 0, &signed_result, &error), VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_MULTIPLY, INT64_MAX, 2, &signed_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SHIFT_LEFT, 1, 64, &signed_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SHIFT_RIGHT, 1, 64, &signed_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_MULTIPLY, UINT64_MAX, 2, &unsigned_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_SHIFT_LEFT, UINT64_C(1), UINT64_C(64), &unsigned_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_SHIFT_RIGHT, UINT64_C(1), UINT64_C(64), &unsigned_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+}
+
+TEST(VigilVmTest, ExecutesArithmeticEdgeCases)
+{
+    int64_t signed_result = 0;
+    uint64_t unsigned_result = 0U;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_MULTIPLY, 0, 5, &signed_result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(signed_result, 0);
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SUBTRACT, INT64_MIN, 1, &signed_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_DIVIDE, INT64_MIN, -1, &signed_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    ASSERT_EQ(RunBinaryIntOpcode(VIGIL_OPCODE_SHIFT_RIGHT, 5, 0, &signed_result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(signed_result, 5);
+    ASSERT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_MULTIPLY, UINT64_C(0), UINT64_C(5), &unsigned_result, &error),
+              VIGIL_STATUS_OK);
+    EXPECT_EQ(unsigned_result, UINT64_C(0));
+    EXPECT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_DIVIDE, UINT64_C(5), UINT64_C(0), &unsigned_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
+    EXPECT_EQ(RunBinaryUintOpcode(VIGIL_OPCODE_MODULO, UINT64_C(5), UINT64_C(0), &unsigned_result, &error),
+              VIGIL_STATUS_INVALID_ARGUMENT);
 }
 
 TEST(VigilVmTest, ExecutesUnsignedIntegerArithmetic)
@@ -725,15 +1705,132 @@ TEST(VigilVmTest, ExecutesArrayAndMapIndexOpcodes)
     vigil_runtime_close(&runtime);
 }
 
+TEST(VigilVmTest, ReleasesExtraValuesInMultiValueRootReturn)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 10);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(30U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 20);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(30U, 2U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(30U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(30U, 6U, 7U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
+    EXPECT_EQ(vigil_value_as_int(&result), 10);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, FormatsNonStringObjectAsEmptyString)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_object_t *array_object = NULL;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_array_object_new(runtime, NULL, 0U, &array_object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&constant, &array_object);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(31U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(31U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(31U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(31U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(31U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsPendingReturnStorageAllocationFailure)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+    struct FailingAllocatorStats stats = {0};
+    vigil_allocator_t allocator = {0};
+    vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
+
+    allocator.user_data = &stats;
+    allocator.allocate = FailingAllocate;
+    allocator.reallocate = FailingReallocate;
+    allocator.deallocate = FailingDeallocate;
+    vigil_runtime_options_init(&runtime_options);
+    runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
+    stats.fail_after = (size_t)-1;
+
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 10);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(32U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 20);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(32U, 2U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(32U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(32U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    stats.fail_after = stats.calls + 2U;
+
+    EXPECT_NE(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_NE(error.type, VIGIL_STATUS_OK);
+
+    vigil_value_release(&constant);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+// NOLINTEND(readability-function-cognitive-complexity)
+
 void register_vm_tests(void)
 {
     REGISTER_TEST(VigilVmTest, OptionsInitClearsFields);
     REGISTER_TEST(VigilVmTest, OpenAndCloseVm);
     REGISTER_TEST(VigilVmTest, ExecutesConstantAndReturn);
     REGISTER_TEST(VigilVmTest, ExecutesLiteralOpcodes);
+    REGISTER_TEST(VigilVmTest, ReturnsNilFromEmptyRootChunk);
+    REGISTER_TEST(VigilVmTest, ReturnsFirstValueFromMultiValueRootChunk);
+    REGISTER_TEST(VigilVmTest, RejectsHugeFloatFormatPrecision);
+    REGISTER_TEST(VigilVmTest, FormatsStringWithWidth);
+    REGISTER_TEST(VigilVmTest, FormatsIntWithEmptySpec);
+    REGISTER_TEST(VigilVmTest, RejectsFloatFormatSpecForFloatOperand);
+    REGISTER_TEST(VigilVmTest, RejectsFloatFormatSpecForIntegerOperand);
+    REGISTER_TEST(VigilVmTest, RejectsFloatOperandForHexBinaryAndOctalFormatSpecs);
+    REGISTER_TEST(VigilVmTest, FormatsFloatToString);
+    REGISTER_TEST(VigilVmTest, FormatsFloatWithPrecision);
     REGISTER_TEST(VigilVmTest, RejectsArithmeticOverflow);
     REGISTER_TEST(VigilVmTest, RejectsNegateOverflow);
     REGISTER_TEST(VigilVmTest, ReturnedObjectSurvivesChunkLifetime);
+    REGISTER_TEST(VigilVmTest, CompilesAndExecutesMultipleReturnValues);
+    REGISTER_TEST(VigilVmTest, CompilesAndExecutesDeferredMultipleReturnValues);
+    REGISTER_TEST(VigilVmTest, ComparesDifferentObjectTypesByValue);
+    REGISTER_TEST(VigilVmTest, RejectsToStringOnNonStringObject);
+    REGISTER_TEST(VigilVmTest, RejectsDeferredNativeCallTargetThatIsNotNative);
+    REGISTER_TEST(VigilVmTest, RejectsUnsupportedMapKeyType);
+    REGISTER_TEST(VigilVmTest, ReportsStringConversionAllocatorFailures);
+    REGISTER_TEST(VigilVmTest, ReportsFloatFormatAllocatorFailures);
+    REGISTER_TEST(VigilVmTest, RejectsMultiValueReturnWhenPendingStorageAllocationFails);
     REGISTER_TEST(VigilVmTest, ConcatenatesAndComparesStringsByValue);
     REGISTER_TEST(VigilVmTest, SupportsFloatArithmeticAndNegation);
     REGISTER_TEST(VigilVmTest, RejectsMissingArguments);
@@ -742,8 +1839,19 @@ void register_vm_tests(void)
     REGISTER_TEST(VigilVmTest, ExecutesFunctionObjectEntry);
     REGISTER_TEST(VigilVmTest, ExecuteFunctionRejectsNonFunctionObject);
     REGISTER_TEST(VigilVmTest, ExecuteFunctionRejectsNonZeroArityEntrypoint);
-    REGISTER_TEST(VigilVmTest, SupportsConversionsAndBitwiseNotOpcodes);
+    REGISTER_TEST(VigilVmTest, ConvertsFloatToIntAndAppliesBitwiseNot);
+    REGISTER_TEST(VigilVmTest, ConvertsBoolAndUintToStrings);
+    REGISTER_TEST(VigilVmTest, ConvertsFloatAndIntValues);
+    REGISTER_TEST(VigilVmTest, RejectsNegativeFloatToU32Conversion);
+    REGISTER_TEST(VigilVmTest, ConvertsObjectAndUintToStrings);
+    REGISTER_TEST(VigilVmTest, ExecutesSignedIntegerArithmeticOpcodes);
+    REGISTER_TEST(VigilVmTest, ExecutesUnsignedIntegerArithmeticOpcodes);
+    REGISTER_TEST(VigilVmTest, RejectsArithmeticOpcodeErrors);
+    REGISTER_TEST(VigilVmTest, ExecutesArithmeticEdgeCases);
     REGISTER_TEST(VigilVmTest, ExecutesUnsignedIntegerArithmetic);
     REGISTER_TEST(VigilVmTest, SupportsErrorOpcodes);
     REGISTER_TEST(VigilVmTest, ExecutesArrayAndMapIndexOpcodes);
+    REGISTER_TEST(VigilVmTest, ReleasesExtraValuesInMultiValueRootReturn);
+    REGISTER_TEST(VigilVmTest, FormatsNonStringObjectAsEmptyString);
+    REGISTER_TEST(VigilVmTest, RejectsPendingReturnStorageAllocationFailure);
 }

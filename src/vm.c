@@ -1048,12 +1048,125 @@ static vigil_status_t vigil_vm_schedule_defer(vigil_vm_t *vm, vigil_vm_frame_t *
     return VIGIL_STATUS_OK;
 }
 
+static vigil_status_t vigil_vm_execute_defer_values(vigil_vm_t *vm, const vigil_vm_defer_action_t *action,
+                                                    vigil_error_t *error)
+{
+    vigil_status_t status;
+    size_t i;
+
+    for (i = 0U; i < action->value_count; i += 1U)
+    {
+        status = vigil_vm_push(vm, &action->values[i], error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static void vigil_vm_execute_defer_mark_pushed_frame(int *out_pushed_frame)
+{
+    if (out_pushed_frame != NULL)
+    {
+        *out_pushed_frame = 1;
+    }
+}
+
+static vigil_status_t vigil_vm_execute_defer_call_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                         const vigil_vm_defer_action_t *action, int *out_pushed_frame,
+                                                         vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = vigil_vm_invoke_call(vm, frame, (size_t)action->operand_a, (size_t)action->arg_count, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_vm_execute_defer_mark_pushed_frame(out_pushed_frame);
+    }
+    return status;
+}
+
+static vigil_status_t vigil_vm_execute_defer_value_action(vigil_vm_t *vm, const vigil_vm_defer_action_t *action,
+                                                          int *out_pushed_frame, vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = vigil_vm_invoke_value_call(vm, (size_t)action->arg_count, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_vm_execute_defer_mark_pushed_frame(out_pushed_frame);
+    }
+    return status;
+}
+
+static vigil_status_t vigil_vm_execute_defer_interface_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                              const vigil_vm_defer_action_t *action,
+                                                              int *out_pushed_frame, vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    status = vigil_vm_invoke_interface_call(vm, frame, (size_t)action->operand_a, (size_t)action->operand_b,
+                                            (size_t)action->arg_count, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        vigil_vm_execute_defer_mark_pushed_frame(out_pushed_frame);
+    }
+    return status;
+}
+
+static vigil_status_t vigil_vm_execute_defer_new_instance_action(vigil_vm_t *vm, const vigil_vm_defer_action_t *action,
+                                                                 vigil_error_t *error)
+{
+    return vigil_vm_invoke_new_instance(vm, (size_t)action->operand_a, (size_t)action->arg_count, 1, error);
+}
+
+static vigil_status_t vigil_vm_execute_defer_native_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                           const vigil_vm_defer_action_t *action, vigil_error_t *error)
+{
+    const vigil_value_t *nval;
+    vigil_object_t *nobj;
+    vigil_native_fn_t nfn;
+
+    nval = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)action->operand_a);
+    nobj = (vigil_object_t *)vigil_nanbox_decode_ptr(*nval);
+    nfn = vigil_native_function_get(nobj);
+    if (nfn == NULL)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "deferred call target is not a native function");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    return nfn(vm, (size_t)action->arg_count, error);
+}
+
+static vigil_status_t vigil_vm_execute_defer_action(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                    const vigil_vm_defer_action_t *action, int *out_pushed_frame,
+                                                    vigil_error_t *error)
+{
+    switch (action->kind)
+    {
+    case VIGIL_VM_DEFER_CALL:
+        return vigil_vm_execute_defer_call_action(vm, frame, action, out_pushed_frame, error);
+    case VIGIL_VM_DEFER_CALL_VALUE:
+        return vigil_vm_execute_defer_value_action(vm, action, out_pushed_frame, error);
+    case VIGIL_VM_DEFER_CALL_INTERFACE:
+        return vigil_vm_execute_defer_interface_action(vm, frame, action, out_pushed_frame, error);
+    case VIGIL_VM_DEFER_NEW_INSTANCE:
+        return vigil_vm_execute_defer_new_instance_action(vm, action, error);
+    case VIGIL_VM_DEFER_CALL_NATIVE:
+        return vigil_vm_execute_defer_native_action(vm, frame, action, error);
+    default:
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "defer target is invalid");
+        return VIGIL_STATUS_INTERNAL;
+    }
+}
+
 static vigil_status_t vigil_vm_execute_next_defer(vigil_vm_t *vm, vigil_vm_frame_t *frame, int *out_pushed_frame,
                                                   vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_vm_defer_action_t action;
-    size_t i;
 
     if (out_pushed_frame != NULL)
     {
@@ -1069,69 +1182,158 @@ static vigil_status_t vigil_vm_execute_next_defer(vigil_vm_t *vm, vigil_vm_frame
     memset(&frame->defers[frame->defer_count - 1U], 0, sizeof(frame->defers[frame->defer_count - 1U]));
     frame->defer_count -= 1U;
 
-    for (i = 0U; i < action.value_count; i += 1U)
+    status = vigil_vm_execute_defer_values(vm, &action, error);
+    if (status != VIGIL_STATUS_OK)
     {
-        status = vigil_vm_push(vm, &action.values[i], error);
+        vigil_vm_defer_action_clear(vm->runtime, &action);
+        return status;
+    }
+
+    status = vigil_vm_execute_defer_action(vm, frame, &action, out_pushed_frame, error);
+    vigil_vm_defer_action_clear(vm->runtime, &action);
+    return status;
+}
+
+static void vigil_vm_release_value_array(vigil_value_t *values, size_t count)
+{
+    size_t i;
+
+    for (i = 0U; i < count; i += 1U)
+    {
+        vigil_value_release(&values[i]);
+    }
+}
+
+static void vigil_vm_free_value_array(vigil_vm_t *vm, vigil_value_t *values)
+{
+    if (values != NULL)
+    {
+        void *memory = values;
+        vigil_runtime_free(vm->runtime, &memory);
+    }
+}
+
+static vigil_status_t vigil_vm_store_pending_return_values(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                           vigil_value_t *current_values, size_t current_count,
+                                                           vigil_error_t *error)
+{
+    vigil_status_t status;
+    size_t i;
+
+    status = vigil_vm_grow_value_array(vm->runtime, &frame->pending_returns, &frame->pending_return_capacity,
+                                       current_count, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_vm_release_value_array(current_values, current_count);
+        vigil_vm_free_value_array(vm, current_values);
+        return status;
+    }
+
+    for (i = 0U; i < current_count; i += 1U)
+    {
+        frame->pending_returns[i] = current_values[i];
+        VIGIL_VM_VALUE_INIT_NIL(&current_values[i]);
+    }
+    frame->pending_return_count = current_count;
+    frame->draining_defers = 1;
+    vigil_vm_free_value_array(vm, current_values);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_push_return_values(vigil_vm_t *vm, vigil_value_t *current_values, size_t current_count,
+                                                  vigil_error_t *error)
+{
+    vigil_status_t status;
+    size_t i;
+
+    for (i = 0U; i < current_count; i += 1U)
+    {
+        status = vigil_vm_push(vm, &current_values[i], error);
         if (status != VIGIL_STATUS_OK)
         {
-            vigil_vm_defer_action_clear(vm->runtime, &action);
+            for (; i < current_count; i += 1U)
+            {
+                vigil_value_release(&current_values[i]);
+            }
+            vigil_vm_free_value_array(vm, current_values);
+            return status;
+        }
+        vigil_value_release(&current_values[i]);
+    }
+    vigil_vm_free_value_array(vm, current_values);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_drain_return_defers(vigil_vm_t *vm, vigil_vm_frame_t *frame, int *out_pushed_frame,
+                                                   vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    if (out_pushed_frame != NULL)
+    {
+        *out_pushed_frame = 0;
+    }
+    while (frame->defer_count > 0U)
+    {
+        status = vigil_vm_execute_next_defer(vm, frame, out_pushed_frame, error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+        if (out_pushed_frame != NULL && *out_pushed_frame)
+        {
+            return VIGIL_STATUS_OK;
+        }
+    }
+
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_finish_root_return(vigil_vm_t *vm, vigil_value_t *current_values, size_t current_count,
+                                                  vigil_value_t *out_value)
+{
+    size_t i;
+
+    if (current_count == 0U)
+    {
+        VIGIL_VM_VALUE_INIT_NIL(out_value);
+    }
+    else
+    {
+        *out_value = current_values[0];
+        VIGIL_VM_VALUE_INIT_NIL(&current_values[0]);
+        for (i = 1U; i < current_count; i += 1U)
+        {
+            vigil_value_release(&current_values[i]);
+        }
+    }
+    vigil_vm_free_value_array(vm, current_values);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_prepare_return_values(vigil_vm_t *vm, vigil_vm_frame_t *frame,
+                                                     vigil_value_t **current_values, size_t *current_count,
+                                                     vigil_error_t *error)
+{
+    vigil_status_t status;
+
+    if (frame->pending_return_count == 0U)
+    {
+        status = vigil_vm_store_pending_return_values(vm, frame, *current_values, *current_count, error);
+        if (status != VIGIL_STATUS_OK)
+        {
             return status;
         }
     }
-
-    switch (action.kind)
+    else
     {
-    case VIGIL_VM_DEFER_CALL:
-        status = vigil_vm_invoke_call(vm, frame, (size_t)action.operand_a, (size_t)action.arg_count, error);
-        if (status == VIGIL_STATUS_OK && out_pushed_frame != NULL)
-        {
-            *out_pushed_frame = 1;
-        }
-        break;
-    case VIGIL_VM_DEFER_CALL_VALUE:
-        status = vigil_vm_invoke_value_call(vm, (size_t)action.arg_count, error);
-        if (status == VIGIL_STATUS_OK && out_pushed_frame != NULL)
-        {
-            *out_pushed_frame = 1;
-        }
-        break;
-    case VIGIL_VM_DEFER_CALL_INTERFACE:
-        status = vigil_vm_invoke_interface_call(vm, frame, (size_t)action.operand_a, (size_t)action.operand_b,
-                                                (size_t)action.arg_count, error);
-        if (status == VIGIL_STATUS_OK && out_pushed_frame != NULL)
-        {
-            *out_pushed_frame = 1;
-        }
-        break;
-    case VIGIL_VM_DEFER_NEW_INSTANCE:
-        status = vigil_vm_invoke_new_instance(vm, (size_t)action.operand_a, (size_t)action.arg_count, 1, error);
-        break;
-    case VIGIL_VM_DEFER_CALL_NATIVE: {
-        const vigil_value_t *nval;
-        vigil_object_t *nobj;
-        vigil_native_fn_t nfn;
-        nval = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)action.operand_a);
-        nobj = (vigil_object_t *)vigil_nanbox_decode_ptr(*nval);
-        nfn = vigil_native_function_get(nobj);
-        if (nfn == NULL)
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "deferred call target is not a native function");
-            status = VIGIL_STATUS_INTERNAL;
-        }
-        else
-        {
-            status = nfn(vm, (size_t)action.arg_count, error);
-        }
-        break;
-    }
-    default:
-        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "defer target is invalid");
-        status = VIGIL_STATUS_INTERNAL;
-        break;
+        vigil_vm_release_value_array(*current_values, *current_count);
+        vigil_vm_free_value_array(vm, *current_values);
     }
 
-    vigil_vm_defer_action_clear(vm->runtime, &action);
-    return status;
+    *current_values = NULL;
+    *current_count = 0U;
+    return VIGIL_STATUS_OK;
 }
 
 static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *returned_values, size_t return_count,
@@ -1140,7 +1342,6 @@ static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *re
     vigil_status_t status;
     vigil_value_t *current_values;
     size_t current_count;
-    size_t i;
 
     current_values = returned_values;
     current_count = return_count;
@@ -1153,70 +1354,26 @@ static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *re
         frame = vigil_vm_current_frame(vm);
         if (frame == NULL)
         {
-            for (i = 0U; i < current_count; i += 1U)
-            {
-                vigil_value_release(&current_values[i]);
-            }
-            if (current_values != NULL)
-            {
-                void *memory = current_values;
-                vigil_runtime_free(vm->runtime, &memory);
-            }
+            vigil_vm_release_value_array(current_values, current_count);
+            vigil_vm_free_value_array(vm, current_values);
             vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "vm frame is missing");
             return VIGIL_STATUS_INTERNAL;
         }
 
-        if (frame->pending_return_count == 0U)
+        status = vigil_vm_prepare_return_values(vm, frame, &current_values, &current_count, error);
+        if (status != VIGIL_STATUS_OK)
         {
-            status = vigil_vm_grow_value_array(vm->runtime, &frame->pending_returns, &frame->pending_return_capacity,
-                                               current_count, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                for (i = 0U; i < current_count; i += 1U)
-                {
-                    vigil_value_release(&current_values[i]);
-                }
-                if (current_values != NULL)
-                {
-                    void *memory = current_values;
-                    vigil_runtime_free(vm->runtime, &memory);
-                }
-                return status;
-            }
-            for (i = 0U; i < current_count; i += 1U)
-            {
-                frame->pending_returns[i] = current_values[i];
-                VIGIL_VM_VALUE_INIT_NIL(&current_values[i]);
-            }
-            frame->pending_return_count = current_count;
-            frame->draining_defers = 1;
+            return status;
         }
-        else
-        {
-            for (i = 0U; i < current_count; i += 1U)
-            {
-                vigil_value_release(&current_values[i]);
-            }
-        }
-        if (current_values != NULL)
-        {
-            void *memory = current_values;
-            vigil_runtime_free(vm->runtime, &memory);
-        }
-        current_values = NULL;
-        current_count = 0U;
 
-        while (frame->defer_count > 0U)
+        status = vigil_vm_drain_return_defers(vm, frame, &pushed_frame, error);
+        if (status != VIGIL_STATUS_OK)
         {
-            status = vigil_vm_execute_next_defer(vm, frame, &pushed_frame, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            if (pushed_frame)
-            {
-                return VIGIL_STATUS_OK;
-            }
+            return status;
+        }
+        if (pushed_frame)
+        {
+            return VIGIL_STATUS_OK;
         }
 
         current_values = frame->pending_returns;
@@ -1231,25 +1388,7 @@ static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *re
         vigil_vm_unwind_stack_to(vm, base_slot);
         if (vm->frame_count == 0U)
         {
-            if (current_count == 0U)
-            {
-                VIGIL_VM_VALUE_INIT_NIL(out_value);
-            }
-            else
-            {
-                *out_value = current_values[0];
-                VIGIL_VM_VALUE_INIT_NIL(&current_values[0]);
-                for (i = 1U; i < current_count; i += 1U)
-                {
-                    vigil_value_release(&current_values[i]);
-                }
-            }
-            if (current_values != NULL)
-            {
-                void *memory = current_values;
-                vigil_runtime_free(vm->runtime, &memory);
-            }
-            return VIGIL_STATUS_OK;
+            return vigil_vm_finish_root_return(vm, current_values, current_count, out_value);
         }
         frame = vigil_vm_current_frame(vm);
         if (frame != NULL && frame->draining_defers)
@@ -1257,30 +1396,7 @@ static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *re
             continue;
         }
 
-        for (i = 0U; i < current_count; i += 1U)
-        {
-            status = vigil_vm_push(vm, &current_values[i], error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                for (; i < current_count; i += 1U)
-                {
-                    vigil_value_release(&current_values[i]);
-                }
-                if (current_values != NULL)
-                {
-                    void *memory = current_values;
-                    vigil_runtime_free(vm->runtime, &memory);
-                }
-                return status;
-            }
-            vigil_value_release(&current_values[i]);
-        }
-        if (current_values != NULL)
-        {
-            void *memory = current_values;
-            vigil_runtime_free(vm->runtime, &memory);
-        }
-        return VIGIL_STATUS_OK;
+        return vigil_vm_push_return_values(vm, current_values, current_count, error);
     }
 }
 
@@ -1512,21 +1628,65 @@ static int vigil_vm_value_is_integer(const vigil_value_t *value)
     return value != NULL && (vigil_nanbox_is_int(*value) || vigil_nanbox_is_uint(*value));
 }
 
-static int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t *right)
+static int vigil_vm_string_objects_equal(const vigil_object_t *left_object, const vigil_object_t *right_object)
+{
+    size_t left_length;
+    size_t right_length;
+    const char *left_text;
+    const char *right_text;
+
+    left_length = vigil_string_object_length(left_object);
+    right_length = vigil_string_object_length(right_object);
+    left_text = vigil_string_object_c_str(left_object);
+    right_text = vigil_string_object_c_str(right_object);
+    return left_length == right_length && left_text != NULL && right_text != NULL &&
+           memcmp(left_text, right_text, left_length) == 0;
+}
+
+static int vigil_vm_error_objects_equal(const vigil_object_t *left_object, const vigil_object_t *right_object)
+{
+    size_t left_length;
+    size_t right_length;
+    const char *left_text;
+    const char *right_text;
+
+    left_length = vigil_error_object_message_length(left_object);
+    right_length = vigil_error_object_message_length(right_object);
+    left_text = vigil_error_object_message(left_object);
+    right_text = vigil_error_object_message(right_object);
+    return vigil_error_object_kind(left_object) == vigil_error_object_kind(right_object) &&
+           left_length == right_length && left_text != NULL && right_text != NULL &&
+           memcmp(left_text, right_text, left_length) == 0;
+}
+
+static int vigil_vm_object_values_equal(const vigil_value_t *left, const vigil_value_t *right)
 {
     const vigil_object_t *left_object;
     const vigil_object_t *right_object;
 
-    if (left == NULL || right == NULL)
+    left_object = ((vigil_object_t *)vigil_nanbox_decode_ptr(*left));
+    right_object = ((vigil_object_t *)vigil_nanbox_decode_ptr(*right));
+    if (left_object == right_object)
+    {
+        return 1;
+    }
+    if (left_object == NULL || right_object == NULL)
     {
         return 0;
     }
-
-    if (vigil_value_kind(left) != vigil_value_kind(right))
+    if (vigil_object_type(left_object) == VIGIL_OBJECT_STRING && vigil_object_type(right_object) == VIGIL_OBJECT_STRING)
     {
-        return 0;
+        return vigil_vm_string_objects_equal(left_object, right_object);
     }
+    if (vigil_object_type(left_object) == VIGIL_OBJECT_ERROR && vigil_object_type(right_object) == VIGIL_OBJECT_ERROR)
+    {
+        return vigil_vm_error_objects_equal(left_object, right_object);
+    }
+    return 0;
+}
 
+static int vigil_vm_scalar_values_equal(const vigil_value_t *left, const vigil_value_t *right)
+{
     switch (vigil_value_kind(left))
     {
     case VIGIL_VALUE_NIL:
@@ -1539,44 +1699,29 @@ static int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t 
         return vigil_value_as_uint(left) == vigil_value_as_uint(right);
     case VIGIL_VALUE_FLOAT:
         return vigil_nanbox_decode_double(*left) == vigil_nanbox_decode_double(*right);
-    case VIGIL_VALUE_OBJECT:
-        left_object = ((vigil_object_t *)vigil_nanbox_decode_ptr(*left));
-        right_object = ((vigil_object_t *)vigil_nanbox_decode_ptr(*right));
-        if (left_object == right_object)
-        {
-            return 1;
-        }
-        if (left_object == NULL || right_object == NULL)
-        {
-            return 0;
-        }
-        if (vigil_object_type(left_object) == VIGIL_OBJECT_STRING &&
-            vigil_object_type(right_object) == VIGIL_OBJECT_STRING)
-        {
-            size_t left_length = vigil_string_object_length(left_object);
-            size_t right_length = vigil_string_object_length(right_object);
-            const char *left_text = vigil_string_object_c_str(left_object);
-            const char *right_text = vigil_string_object_c_str(right_object);
-
-            return left_length == right_length && left_text != NULL && right_text != NULL &&
-                   memcmp(left_text, right_text, left_length) == 0;
-        }
-        if (vigil_object_type(left_object) == VIGIL_OBJECT_ERROR &&
-            vigil_object_type(right_object) == VIGIL_OBJECT_ERROR)
-        {
-            size_t left_length = vigil_error_object_message_length(left_object);
-            size_t right_length = vigil_error_object_message_length(right_object);
-            const char *left_text = vigil_error_object_message(left_object);
-            const char *right_text = vigil_error_object_message(right_object);
-
-            return vigil_error_object_kind(left_object) == vigil_error_object_kind(right_object) &&
-                   left_length == right_length && left_text != NULL && right_text != NULL &&
-                   memcmp(left_text, right_text, left_length) == 0;
-        }
-        return 0;
     default:
         return 0;
     }
+}
+
+static int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t *right)
+{
+    if (left == NULL || right == NULL)
+    {
+        return 0;
+    }
+
+    if (vigil_value_kind(left) != vigil_value_kind(right))
+    {
+        return 0;
+    }
+
+    if (vigil_value_kind(left) == VIGIL_VALUE_OBJECT)
+    {
+        return vigil_vm_object_values_equal(left, right);
+    }
+
+    return vigil_vm_scalar_values_equal(left, right);
 }
 
 static int vigil_vm_value_is_supported_map_key(const vigil_value_t *value)
@@ -1649,15 +1794,107 @@ static vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_
     return status;
 }
 
-static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
-                                               vigil_error_t *error)
+static vigil_status_t vigil_vm_stringify_object_value(const vigil_value_t *value, vigil_value_t *out_value,
+                                                      vigil_error_t *error)
 {
-    vigil_status_t status;
-    vigil_object_t *object;
+    if (((vigil_object_t *)vigil_nanbox_decode_ptr(*value)) == NULL ||
+        vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(*value))) != VIGIL_OBJECT_STRING)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "string conversion requires a primitive or string operand");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+    *out_value = vigil_value_copy(value);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_stringify_bool_value(vigil_vm_t *vm, const vigil_value_t *value,
+                                                    vigil_value_t *out_value, vigil_error_t *error)
+{
     const char *text;
+    vigil_object_t *object;
+    vigil_status_t status;
+
+    object = NULL;
+    text = vigil_nanbox_decode_bool(*value) ? "true" : "false";
+    status = vigil_string_object_new_cstr(vm->runtime, text, &object, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    vigil_value_init_object(out_value, &object);
+    vigil_object_release(&object);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_stringify_formatted_value(vigil_vm_t *vm, const char *buffer, size_t length,
+                                                         vigil_value_t *out_value, vigil_error_t *error)
+{
+    vigil_object_t *object;
+    vigil_status_t status;
+
+    object = NULL;
+    status = vigil_string_object_new(vm->runtime, buffer, length, &object, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    vigil_value_init_object(out_value, &object);
+    vigil_object_release(&object);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_stringify_int_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
+                                                   vigil_error_t *error)
+{
     char buffer[128];
     int written;
 
+    written = snprintf(buffer, sizeof(buffer), "%lld", (long long)vigil_value_as_int(value));
+    if (written < 0 || (size_t)written >= sizeof(buffer))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format integer string conversion");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    return vigil_vm_stringify_formatted_value(vm, buffer, (size_t)written, out_value, error);
+}
+
+static vigil_status_t vigil_vm_stringify_uint_value(vigil_vm_t *vm, const vigil_value_t *value,
+                                                    vigil_value_t *out_value, vigil_error_t *error)
+{
+    char buffer[128];
+    int written;
+
+    written = snprintf(buffer, sizeof(buffer), "%llu", (unsigned long long)vigil_value_as_uint(value));
+    if (written < 0 || (size_t)written >= sizeof(buffer))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format integer string conversion");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    return vigil_vm_stringify_formatted_value(vm, buffer, (size_t)written, out_value, error);
+}
+
+static vigil_status_t vigil_vm_stringify_float_value(vigil_vm_t *vm, const vigil_value_t *value,
+                                                     vigil_value_t *out_value, vigil_error_t *error)
+{
+    char buffer[128];
+    int written;
+
+    written = snprintf(buffer, sizeof(buffer), "%.17g", vigil_nanbox_decode_double(*value));
+    if (written < 0 || (size_t)written >= sizeof(buffer))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format float string conversion");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    return vigil_vm_stringify_formatted_value(vm, buffer, (size_t)written, out_value, error);
+}
+
+static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
+                                               vigil_error_t *error)
+{
     if (vm == NULL || value == NULL || out_value == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
@@ -1665,75 +1902,23 @@ static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
 
-    object = NULL;
     switch (vigil_value_kind(value))
     {
     case VIGIL_VALUE_BOOL:
-        text = vigil_nanbox_decode_bool(*value) ? "true" : "false";
-        status = vigil_string_object_new_cstr(vm->runtime, text, &object, error);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        break;
+        return vigil_vm_stringify_bool_value(vm, value, out_value, error);
     case VIGIL_VALUE_INT:
-        written = snprintf(buffer, sizeof(buffer), "%lld", (long long)vigil_value_as_int(value));
-        if (written < 0 || (size_t)written >= sizeof(buffer))
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format integer string conversion");
-            return VIGIL_STATUS_INTERNAL;
-        }
-        status = vigil_string_object_new(vm->runtime, buffer, (size_t)written, &object, error);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        break;
+        return vigil_vm_stringify_int_value(vm, value, out_value, error);
     case VIGIL_VALUE_UINT:
-        written = snprintf(buffer, sizeof(buffer), "%llu", (unsigned long long)vigil_value_as_uint(value));
-        if (written < 0 || (size_t)written >= sizeof(buffer))
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format integer string conversion");
-            return VIGIL_STATUS_INTERNAL;
-        }
-        status = vigil_string_object_new(vm->runtime, buffer, (size_t)written, &object, error);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        break;
+        return vigil_vm_stringify_uint_value(vm, value, out_value, error);
     case VIGIL_VALUE_FLOAT:
-        written = snprintf(buffer, sizeof(buffer), "%.17g", vigil_nanbox_decode_double(*value));
-        if (written < 0 || (size_t)written >= sizeof(buffer))
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format float string conversion");
-            return VIGIL_STATUS_INTERNAL;
-        }
-        status = vigil_string_object_new(vm->runtime, buffer, (size_t)written, &object, error);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        break;
+        return vigil_vm_stringify_float_value(vm, value, out_value, error);
     case VIGIL_VALUE_OBJECT:
-        if (((vigil_object_t *)vigil_nanbox_decode_ptr(*value)) == NULL ||
-            vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(*value))) != VIGIL_OBJECT_STRING)
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
-                                    "string conversion requires a primitive or string operand");
-            return VIGIL_STATUS_INVALID_ARGUMENT;
-        }
-        *out_value = vigil_value_copy(value);
-        return VIGIL_STATUS_OK;
+        return vigil_vm_stringify_object_value(value, out_value, error);
     default:
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
                                 "string conversion requires a primitive or string operand");
         return VIGIL_STATUS_INVALID_ARGUMENT;
     }
-
-    vigil_value_init_object(out_value, &object);
-    vigil_object_release(&object);
-    return VIGIL_STATUS_OK;
 }
 
 /* ── FORMAT_SPEC helpers ─────────────────────────────────────────── */
@@ -1751,6 +1936,408 @@ static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value
 #define FSPEC_WIDTH(w) ((w) & 0xFFFFU)
 #define FSPEC_PREC(w) (((w) >> 16U) & 0xFFFFU)
 
+typedef struct
+{
+    char fill;
+    unsigned int align;
+    unsigned int width;
+    vigil_value_t *out_value;
+} vigil_vm_format_spec_layout_t;
+
+typedef struct
+{
+    unsigned int fmt_type;
+    unsigned int grouping;
+    char *buf;
+    size_t buf_size;
+    int *out_len;
+    vigil_error_t *error;
+} vigil_vm_format_spec_int_args_t;
+
+static uint64_t vigil_vm_format_spec_abs_i64(int64_t value)
+{
+    if (value < 0)
+    {
+        return (uint64_t)(-(value + 1)) + 1U;
+    }
+    return (uint64_t)value;
+}
+
+static vigil_status_t vigil_vm_format_spec_write_decimal(const vigil_value_t *val, char *buf, size_t buf_size,
+                                                         int *out_len, vigil_error_t *error)
+{
+    int len;
+
+    if (!vigil_nanbox_is_int(*val))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "integer format specifier requires an integer value");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    len = snprintf(buf, buf_size, "%lld", (long long)vigil_nanbox_decode_int(*val));
+    if (len < 0 || (size_t)len >= buf_size)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format decimal value");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_len = len;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_format_spec_write_hex(const vigil_value_t *val, char *buf, size_t buf_size,
+                                                     int uppercase, int *out_len, vigil_error_t *error)
+{
+    int64_t ival;
+    uint64_t uval;
+    int len;
+
+    if (!vigil_nanbox_is_int(*val))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "integer format specifier requires an integer value");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    ival = vigil_nanbox_decode_int(*val);
+    uval = vigil_vm_format_spec_abs_i64(ival);
+    if (ival < 0)
+    {
+        len = snprintf(buf, buf_size, uppercase ? "-%llX" : "-%llx", (unsigned long long)uval);
+    }
+    else
+    {
+        len = snprintf(buf, buf_size, uppercase ? "%llX" : "%llx", (unsigned long long)uval);
+    }
+    if (len < 0 || (size_t)len >= buf_size)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format hexadecimal value");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_len = len;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_format_spec_write_binary_digits(uint64_t uval, char *buf, size_t buf_size, int pos,
+                                                               int *out_len, vigil_error_t *error)
+{
+    char tmp[65];
+    int ti;
+
+    if (uval == 0U)
+    {
+        if ((size_t)(pos + 1) >= buf_size)
+        {
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format binary value");
+            return VIGIL_STATUS_INTERNAL;
+        }
+        buf[pos++] = '0';
+    }
+    else
+    {
+        ti = 0;
+        while (uval > 0U && ti < (int)sizeof(tmp))
+        {
+            tmp[ti++] = (char)('0' + (char)(uval & 1U));
+            uval >>= 1U;
+        }
+        while (ti > 0)
+        {
+            if ((size_t)(pos + 1) >= buf_size)
+            {
+                vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format binary value");
+                return VIGIL_STATUS_INTERNAL;
+            }
+            buf[pos++] = tmp[--ti];
+        }
+    }
+
+    if ((size_t)pos >= buf_size)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format binary value");
+        return VIGIL_STATUS_INTERNAL;
+    }
+    buf[pos] = '\0';
+    *out_len = pos;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_format_spec_write_binary(const vigil_value_t *val, char *buf, size_t buf_size,
+                                                        int *out_len, vigil_error_t *error)
+{
+    int64_t ival;
+    uint64_t uval;
+    int pos;
+    vigil_status_t status;
+
+    if (!vigil_nanbox_is_int(*val))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "integer format specifier requires an integer value");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    ival = vigil_nanbox_decode_int(*val);
+    pos = 0;
+    if (ival < 0)
+    {
+        if (buf_size < 2U)
+        {
+            vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format binary value");
+            return VIGIL_STATUS_INTERNAL;
+        }
+        buf[pos++] = '-';
+    }
+    uval = vigil_vm_format_spec_abs_i64(ival);
+    status = vigil_vm_format_spec_write_binary_digits(uval, buf, buf_size, pos, out_len, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static int vigil_vm_format_spec_string_object(const vigil_value_t *val, const char **out_text, size_t *out_length)
+{
+    const vigil_object_t *obj;
+
+    if (!vigil_nanbox_is_object(*val))
+    {
+        return 0;
+    }
+
+    obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(*val);
+    if (obj == NULL || vigil_object_type(obj) != VIGIL_OBJECT_STRING)
+    {
+        return 0;
+    }
+
+    *out_text = vigil_string_object_c_str(obj);
+    *out_length = vigil_string_object_length(obj);
+    return 1;
+}
+
+static vigil_status_t vigil_vm_format_spec_write_octal(const vigil_value_t *val, char *buf, size_t buf_size,
+                                                       int *out_len, vigil_error_t *error)
+{
+    int64_t ival;
+    uint64_t uval;
+    int len;
+
+    if (!vigil_nanbox_is_int(*val))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                "integer format specifier requires an integer value");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    ival = vigil_nanbox_decode_int(*val);
+    uval = vigil_vm_format_spec_abs_i64(ival);
+    if (ival < 0)
+    {
+        len = snprintf(buf, buf_size, "-%llo", (unsigned long long)uval);
+    }
+    else
+    {
+        len = snprintf(buf, buf_size, "%llo", (unsigned long long)uval);
+    }
+    if (len < 0 || (size_t)len >= buf_size)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format octal value");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_len = len;
+    return VIGIL_STATUS_OK;
+}
+
+static int vigil_vm_format_spec_apply_grouping(char *buf, int len)
+{
+    char tmp[256];
+    int src;
+    int dst;
+    int start;
+
+    if (len <= 0 || (size_t)len >= sizeof(tmp))
+    {
+        return len;
+    }
+
+    src = 0;
+    dst = 0;
+    if (buf[0] == '-')
+    {
+        tmp[dst++] = '-';
+        src = 1;
+    }
+    start = src;
+    while (src < len)
+    {
+        int remaining;
+
+        remaining = len - src;
+        if (remaining > 0 && remaining % 3 == 0 && src > start)
+        {
+            tmp[dst++] = ',';
+        }
+        tmp[dst++] = buf[src++];
+    }
+
+    memcpy(buf, tmp, (size_t)dst);
+    buf[dst] = '\0';
+    return dst;
+}
+
+static vigil_status_t vigil_vm_format_spec_integer_value(const vigil_value_t *val,
+                                                         const vigil_vm_format_spec_int_args_t *args)
+{
+    vigil_status_t status;
+    int len;
+
+    if (args->fmt_type == 1U)
+    {
+        status = vigil_vm_format_spec_write_decimal(val, args->buf, args->buf_size, &len, args->error);
+    }
+    else if (args->fmt_type == 2U)
+    {
+        status = vigil_vm_format_spec_write_hex(val, args->buf, args->buf_size, 0, &len, args->error);
+    }
+    else if (args->fmt_type == 3U)
+    {
+        status = vigil_vm_format_spec_write_hex(val, args->buf, args->buf_size, 1, &len, args->error);
+    }
+    else if (args->fmt_type == 4U)
+    {
+        status = vigil_vm_format_spec_write_binary(val, args->buf, args->buf_size, &len, args->error);
+    }
+    else
+    {
+        status = vigil_vm_format_spec_write_octal(val, args->buf, args->buf_size, &len, args->error);
+    }
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+
+    if (args->grouping != 0U && args->fmt_type == 1U)
+    {
+        len = vigil_vm_format_spec_apply_grouping(args->buf, len);
+    }
+    *args->out_len = len;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_format_spec_float_value(const vigil_value_t *val, unsigned int precision, char *buf,
+                                                       size_t buf_size, int *out_len, vigil_error_t *error)
+{
+    char fmt[32];
+    int len;
+
+    if (!vigil_nanbox_is_double(*val))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "float format specifier requires f64 value");
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    len = snprintf(fmt, sizeof(fmt), "%%.%uf", precision);
+    if (len < 0 || (size_t)len >= sizeof(fmt))
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to build float format specifier");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    len = snprintf(buf, buf_size, fmt, vigil_nanbox_decode_double(*val));
+    if (len < 0 || (size_t)len >= buf_size)
+    {
+        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "failed to format float value");
+        return VIGIL_STATUS_INTERNAL;
+    }
+
+    *out_len = len;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_format_spec_string_value(const vigil_value_t *val, const char **out_text,
+                                                        size_t *out_length)
+{
+    if (vigil_vm_format_spec_string_object(val, out_text, out_length))
+    {
+        return VIGIL_STATUS_OK;
+    }
+
+    *out_text = "";
+    *out_length = 0U;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char *text, size_t text_len,
+                                                     const vigil_vm_format_spec_layout_t *layout, vigil_error_t *error)
+{
+    vigil_status_t status;
+    vigil_object_t *object;
+    void *memory;
+    size_t pad;
+    size_t total;
+    size_t lpad;
+    size_t rpad;
+    char *out;
+
+    if (layout->width > 0U && text_len < layout->width)
+    {
+        pad = layout->width - text_len;
+        total = layout->width;
+        status = vigil_runtime_alloc(vm->runtime, total + 1U, &memory, error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+        out = (char *)memory;
+        lpad = 0U;
+        rpad = 0U;
+        if (layout->align == 1U)
+        {
+            rpad = pad;
+        }
+        else if (layout->align == 3U)
+        {
+            lpad = pad / 2U;
+            rpad = pad - lpad;
+        }
+        else
+        {
+            lpad = pad;
+        }
+        memset(out, layout->fill, lpad);
+        if (text_len > 0U)
+        {
+            memcpy(out + lpad, text, text_len);
+        }
+        memset(out + lpad + text_len, layout->fill, rpad);
+        object = NULL;
+        status = vigil_string_object_new(vm->runtime, out, total, &object, error);
+        vigil_runtime_free(vm->runtime, &memory);
+        if (status != VIGIL_STATUS_OK)
+        {
+            return status;
+        }
+        vigil_value_init_object(layout->out_value, &object);
+        vigil_object_release(&object);
+        return VIGIL_STATUS_OK;
+    }
+
+    object = NULL;
+    status = vigil_string_object_new(vm->runtime, text == NULL ? "" : text, text_len, &object, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        return status;
+    }
+    vigil_value_init_object(layout->out_value, &object);
+    vigil_object_release(&object);
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1,
                                                  uint32_t word2, vigil_value_t *out_value, vigil_error_t *error)
 {
@@ -1763,8 +2350,8 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
     char buf[256];
     int len;
     vigil_status_t status;
-    vigil_object_t *object;
-    void *memory;
+    const char *text;
+    size_t text_len;
 
     fill = FSPEC_FILL(word1);
     if (fill == 0)
@@ -1778,264 +2365,47 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
     /* Step 1: format the value into buf[] based on fmt_type. */
     if (fmt_type == 6U)
     {
-        /* float_f */
-        if (!vigil_nanbox_is_double(*val))
+        status = vigil_vm_format_spec_float_value(val, precision, buf, sizeof(buf), &len, error);
+        if (status != VIGIL_STATUS_OK)
         {
-            vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "float format specifier requires f64 value");
-            return VIGIL_STATUS_INVALID_ARGUMENT;
+            return status;
         }
-        char fmt[32];
-        snprintf(fmt, sizeof(fmt), "%%.%uf", precision);
-        len = snprintf(buf, sizeof(buf), fmt, vigil_nanbox_decode_double(*val));
     }
     else if (fmt_type >= 1U && fmt_type <= 5U)
     {
-        /* integer formats */
-        int64_t ival;
-        if (vigil_nanbox_is_int(*val))
+        vigil_vm_format_spec_int_args_t int_args;
+
+        int_args.fmt_type = fmt_type;
+        int_args.grouping = grouping;
+        int_args.buf = buf;
+        int_args.buf_size = sizeof(buf);
+        int_args.out_len = &len;
+        int_args.error = error;
+        status = vigil_vm_format_spec_integer_value(val, &int_args);
+        if (status != VIGIL_STATUS_OK)
         {
-            ival = vigil_nanbox_decode_int(*val);
-        }
-        else
-        {
-            vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
-                                    "integer format specifier requires an integer value");
-            return VIGIL_STATUS_INVALID_ARGUMENT;
-        }
-        if (fmt_type == 1U)
-        {
-            /* decimal */
-            len = snprintf(buf, sizeof(buf), "%lld", (long long)ival);
-        }
-        else if (fmt_type == 2U)
-        {
-            /* hex lower */
-            if (ival < 0)
-            {
-                len = snprintf(buf, sizeof(buf), "-%llx", (unsigned long long)(-ival));
-            }
-            else
-            {
-                len = snprintf(buf, sizeof(buf), "%llx", (unsigned long long)ival);
-            }
-        }
-        else if (fmt_type == 3U)
-        {
-            /* hex upper */
-            if (ival < 0)
-            {
-                len = snprintf(buf, sizeof(buf), "-%llX", (unsigned long long)(-ival));
-            }
-            else
-            {
-                len = snprintf(buf, sizeof(buf), "%llX", (unsigned long long)ival);
-            }
-        }
-        else if (fmt_type == 4U)
-        {
-            /* binary */
-            uint64_t uval = (uint64_t)ival;
-            int pos = 0;
-            if (ival < 0)
-            {
-                buf[pos++] = '-';
-                uval = (uint64_t)(-ival);
-            }
-            if (uval == 0U)
-            {
-                buf[pos++] = '0';
-            }
-            else
-            {
-                char tmp[65];
-                int ti = 0;
-                while (uval > 0U)
-                {
-                    tmp[ti++] = '0' + (char)(uval & 1U);
-                    uval >>= 1U;
-                }
-                while (ti > 0)
-                {
-                    buf[pos++] = tmp[--ti];
-                }
-            }
-            len = pos;
-            buf[len] = '\0';
-        }
-        else
-        {
-            /* octal */
-            if (ival < 0)
-            {
-                len = snprintf(buf, sizeof(buf), "-%llo", (unsigned long long)(-ival));
-            }
-            else
-            {
-                len = snprintf(buf, sizeof(buf), "%llo", (unsigned long long)ival);
-            }
-        }
-        /* Apply thousands grouping to decimal format. */
-        if (grouping && fmt_type == 1U && len > 0 && len < 200)
-        {
-            char tmp[256];
-            int src = 0;
-            int dst = 0;
-            int start;
-            if (buf[0] == '-')
-            {
-                tmp[dst++] = '-';
-                src = 1;
-            }
-            start = src;
-            while (src < len)
-            {
-                int remaining = len - src;
-                if (remaining > 0 && remaining % 3 == 0 && src > start)
-                {
-                    tmp[dst++] = ',';
-                }
-                tmp[dst++] = buf[src++];
-            }
-            memcpy(buf, tmp, (size_t)dst);
-            len = dst;
-            buf[len] = '\0';
+            return status;
         }
     }
     else
     {
-        /* string (type 0) — stringify the value */
-        const char *text = NULL;
-        size_t text_len = 0U;
-        if (vigil_nanbox_is_object(*val))
-        {
-            const vigil_object_t *obj = (const vigil_object_t *)vigil_nanbox_decode_ptr(*val);
-            if (obj != NULL && vigil_object_type(obj) == VIGIL_OBJECT_STRING)
-            {
-                text = vigil_string_object_c_str(obj);
-                text_len = vigil_string_object_length(obj);
-            }
-        }
-        if (text == NULL)
-        {
-            if (vigil_nanbox_is_int(*val))
-            {
-                len = snprintf(buf, sizeof(buf), "%lld", (long long)vigil_nanbox_decode_int(*val));
-                text = buf;
-                text_len = (size_t)len;
-            }
-            else if (vigil_nanbox_is_double(*val))
-            {
-                len = snprintf(buf, sizeof(buf), "%g", vigil_nanbox_decode_double(*val));
-                text = buf;
-                text_len = (size_t)len;
-            }
-            else if (vigil_nanbox_is_bool(*val))
-            {
-                text = vigil_nanbox_decode_bool(*val) ? "true" : "false";
-                text_len = vigil_nanbox_decode_bool(*val) ? 4U : 5U;
-            }
-            else
-            {
-                text = "";
-                text_len = 0U;
-            }
-        }
-        /* Apply width/alignment directly to the string. */
-        if (width > 0U && text_len < width)
-        {
-            size_t pad = width - text_len;
-            size_t total = width;
-            status = vigil_runtime_alloc(vm->runtime, total + 1U, &memory, error);
-            if (status != VIGIL_STATUS_OK)
-                return status;
-            char *out = (char *)memory;
-            size_t lpad = 0U;
-            size_t rpad = 0U;
-            if (align == 1U)
-            {
-                rpad = pad;
-            }
-            else if (align == 3U)
-            {
-                lpad = pad / 2U;
-                rpad = pad - lpad;
-            }
-            else
-            {
-                lpad = pad;
-            } /* default/right */
-            memset(out, fill, lpad);
-            memcpy(out + lpad, text, text_len);
-            memset(out + lpad + text_len, fill, rpad);
-            object = NULL;
-            status = vigil_string_object_new(vm->runtime, out, total, &object, error);
-            vigil_runtime_free(vm->runtime, &memory);
-            if (status != VIGIL_STATUS_OK)
-                return status;
-            vigil_value_init_object(out_value, &object);
-            vigil_object_release(&object);
-            return VIGIL_STATUS_OK;
-        }
-        /* No padding needed — just create string object. */
-        object = NULL;
-        status = vigil_string_object_new(vm->runtime, text, text_len, &object, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        vigil_value_init_object(out_value, &object);
-        vigil_object_release(&object);
-        return VIGIL_STATUS_OK;
+        status = vigil_vm_format_spec_string_value(val, &text, &text_len);
+        vigil_vm_format_spec_layout_t layout;
+
+        layout.fill = fill;
+        layout.align = align;
+        layout.width = width;
+        layout.out_value = out_value;
+        return vigil_vm_format_spec_emit_text(vm, text, text_len, &layout, error);
     }
 
-    if (len < 0)
-    {
-        vigil_error_set_literal(error, VIGIL_STATUS_INTERNAL, "format specifier produced invalid output");
-        return VIGIL_STATUS_INTERNAL;
-    }
+    vigil_vm_format_spec_layout_t layout;
 
-    /* Step 2: apply width/alignment padding. */
-    if (width > 0U && (size_t)len < width)
-    {
-        size_t pad = width - (size_t)len;
-        size_t total = width;
-        status = vigil_runtime_alloc(vm->runtime, total + 1U, &memory, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        char *out = (char *)memory;
-        size_t lpad = 0U;
-        size_t rpad = 0U;
-        if (align == 1U)
-        {
-            rpad = pad;
-        }
-        else if (align == 3U)
-        {
-            lpad = pad / 2U;
-            rpad = pad - lpad;
-        }
-        else
-        {
-            lpad = pad;
-        } /* default/right */
-        memset(out, fill, lpad);
-        memcpy(out + lpad, buf, (size_t)len);
-        memset(out + lpad + (size_t)len, fill, rpad);
-        object = NULL;
-        status = vigil_string_object_new(vm->runtime, out, total, &object, error);
-        vigil_runtime_free(vm->runtime, &memory);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        vigil_value_init_object(out_value, &object);
-        vigil_object_release(&object);
-        return VIGIL_STATUS_OK;
-    }
-
-    object = NULL;
-    status = vigil_string_object_new(vm->runtime, buf, (size_t)len, &object, error);
-    if (status != VIGIL_STATUS_OK)
-        return status;
-    vigil_value_init_object(out_value, &object);
-    vigil_object_release(&object);
-    return VIGIL_STATUS_OK;
+    layout.fill = fill;
+    layout.align = align;
+    layout.width = width;
+    layout.out_value = out_value;
+    return vigil_vm_format_spec_emit_text(vm, buf, (size_t)len, &layout, error);
 }
 
 static vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,

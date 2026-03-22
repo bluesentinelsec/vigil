@@ -1274,6 +1274,96 @@ TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors)
     EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 32);
 }
 
+TEST(VigilCompilerTest, CompilesAndExecutesMultipleReturnValues)
+{
+    const char *source = "\n"
+                         "fn pair(i32 value) -> (i32, i32) {\n"
+                         "    return (value, value + 1);\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    i32 left, i32 right = pair(4);\n"
+                         "    return left * 10 + right;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 45);
+}
+
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues)
+{
+    const char *source = "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "fn bump() -> void {\n"
+                         "    state += 1;\n"
+                         "}\n"
+                         "\n"
+                         "fn pair(i32 value) -> (i32, i32) {\n"
+                         "    defer bump();\n"
+                         "    return (value, value + 1);\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    i32 left, i32 right = pair(4);\n"
+                         "    return state * 100 + left * 10 + right;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 145);
+}
+
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredFunctionValues)
+{
+    const char *source = "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "fn bump() -> void {\n"
+                         "    state = state * 10 + 1;\n"
+                         "}\n"
+                         "\n"
+                         "fn run() -> void {\n"
+                         "    fn() -> void action = bump;\n"
+                         "    defer action();\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run();\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 1);
+}
+
+TEST(VigilCompilerTest, CompilesAndExecutesDeferredConstructorsWithoutInit)
+{
+    const char *source = "\n"
+                         "i32 state = 0;\n"
+                         "\n"
+                         "class Point {\n"
+                         "    i32 x;\n"
+                         "    i32 y;\n"
+                         "}\n"
+                         "\n"
+                         "fn mark() -> void {\n"
+                         "    state = state * 10 + 2;\n"
+                         "}\n"
+                         "\n"
+                         "fn run() -> void {\n"
+                         "    defer Point(3, 4);\n"
+                         "    defer mark();\n"
+                         "}\n"
+                         "\n"
+                         "fn main() -> i32 {\n"
+                         "    run();\n"
+                         "    return state;\n"
+                         "}\n"
+                         "";
+
+    EXPECT_EQ(CompileAndRun(vigil_test_failed_, source), 2);
+}
+
 TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles)
 {
     const struct TestSource sources[] = {{"/project/lib.vigil", "pub i32 counter = 3;"
@@ -1347,6 +1437,49 @@ TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormattin
                       "    return 0;"
                       "}"),
         1);
+}
+
+TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithAlignmentAndRadixFormatting)
+{
+    EXPECT_EQ(
+        CompileAndRun(vigil_test_failed_,
+                      "fn main() -> i32 {"
+                      "    string name = \"Alice\";"
+                      "    i32 age = 30;"
+                      "    i32 negative = -30;"
+                      "    string empty = \"\";"
+                      "    f64 pi = 3.14159;"
+                      "    bool ready = true;"
+                      "    string left = f\"[{name:<10}]\";"
+                      "    string right = f\"[{name:>10}]\";"
+                      "    string center = f\"[{name:^10}]\";"
+                      "    string zero_pad = f\"[{age:0>8d}]\";"
+                      "    string decimal = f\"[{age:d}]\";"
+                      "    string hex_lower = f\"[{age:x}]\";"
+                      "    string hex_upper = f\"[{age:X}]\";"
+                      "    string binary = f\"[{age:b}]\";"
+                      "    string octal = f\"[{age:o}]\";"
+                      "    string grouped = f\"[{1234567:,}]\";"
+                      "    string negative_grouped = f\"[{-1234567:,}]\";"
+                      "    string float_text = f\"[{pi:.4f}]\";"
+                      "    string neg_hex = f\"[{negative:x}]\";"
+                      "    string neg_binary = f\"[{negative:b}]\";"
+                      "    string neg_octal = f\"[{negative:o}]\";"
+                      "    string zero_binary = f\"[{0:b}]\";"
+                      "    string bool_text = f\"[{ready}]\";"
+                      "    string empty_pad = f\"[{empty:>4}]\";"
+                      "    if (left == \"[Alice     ]\" && right == \"[     Alice]\" && center == \"[  Alice   ]\" &&"
+                      "        zero_pad == \"[00000030]\" && decimal == \"[30]\" && hex_lower == \"[1e]\" &&"
+                      "        hex_upper == \"[1E]\" && binary == \"[11110]\" && octal == \"[36]\" &&"
+                      "        grouped == \"[1,234,567]\" && negative_grouped == \"[-1,234,567]\" &&"
+                      "        float_text == \"[3.1416]\" && neg_hex == \"[-1e]\" && neg_binary == \"[-11110]\" &&"
+                      "        neg_octal == \"[-36]\" && zero_binary == \"[0]\" && bool_text == \"[true]\" &&"
+                      "        empty_pad == \"[    ]\") {"
+                      "        return 2;"
+                      "    }"
+                      "    return 0;"
+                      "}"),
+        2);
 }
 
 TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals)
@@ -2871,6 +3004,12 @@ TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape)
     vigil_runtime_close(&runtime);
 }
 
+static void register_compiler_defer_tests(void)
+{
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredFunctionValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredConstructorsWithoutInit);
+}
+
 void register_compiler_tests(void)
 {
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesArithmeticAndLocals);
@@ -2922,11 +3061,14 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMethodsAndReturnsAfterDrain);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInterfaceCalls);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredInitConstructors);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesMultipleReturnValues);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesDeferredMultipleReturnValues);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicGlobalsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesQualifiedGlobalAssignmentAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesEmptyCollectionGlobalsAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesCompoundAssignmentsForGlobalsAndFields);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithInterpolationAndFormatting);
+    REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesFStringsWithAlignmentAndRadixFormatting);
     REGISTER_TEST(VigilCompilerTest, CompilesAndExecutesPublicClassesInterfacesAndGlobals);
     REGISTER_TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMembersAcrossFiles);
     REGISTER_TEST(VigilCompilerTest, RejectsAccessToNonPublicClassMethodsAcrossFiles);
@@ -2986,4 +3128,5 @@ void register_compiler_tests(void)
     REGISTER_TEST(VigilCompilerTest, RejectsInvalidErrorConstructionAndMethods);
     REGISTER_TEST(VigilCompilerTest, RejectsInvalidGuardBindings);
     REGISTER_TEST(VigilCompilerTest, ReportsSyntaxErrorsForUnsupportedShape);
+    register_compiler_defer_tests();
 }
