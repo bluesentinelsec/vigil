@@ -190,6 +190,7 @@ static bool emit_comments_between(fmt_state_t *f, size_t start, size_t end)
 /* Token kind values are dense integers 0–72; a two-element uint64_t
    bitmap gives O(1) classification with no branching. */
 
+// clang-format off
 #define TOK_BIT(k) (UINT64_C(1) << ((k) & 63))
 #define TOK_IDX(k) ((unsigned)(k) >> 6)
 #define TOK_SET(tbl, k)                                                                                                \
@@ -198,8 +199,6 @@ static bool emit_comments_between(fmt_state_t *f, size_t start, size_t end)
         (tbl)[TOK_IDX(k)] |= TOK_BIT(k);                                                                             \
     } while (0)
 #define TOK_TEST(tbl, k) (((tbl)[TOK_IDX(k)] & TOK_BIT(k)) != 0)
-
-// clang-format off
 static const uint64_t kBinaryOpBits[2] = {
     TOK_BIT(VIGIL_TOKEN_PLUS) | TOK_BIT(VIGIL_TOKEN_MINUS) | TOK_BIT(VIGIL_TOKEN_STAR) |
     TOK_BIT(VIGIL_TOKEN_SLASH) | TOK_BIT(VIGIL_TOKEN_PERCENT) | TOK_BIT(VIGIL_TOKEN_EQUAL_EQUAL) |
@@ -227,11 +226,10 @@ static const uint64_t kKeywordBits[2] = {
     TOK_BIT(VIGIL_TOKEN_NIL) | TOK_BIT(VIGIL_TOKEN_TRUE) | TOK_BIT(VIGIL_TOKEN_FALSE) ,
     0
 };
-// clang-format on
-
 static bool is_binary_op(vigil_token_kind_t k) { return TOK_TEST(kBinaryOpBits, k); }
 static bool is_assign_op(vigil_token_kind_t k) { return TOK_TEST(kAssignOpBits, k); }
 static bool is_keyword(vigil_token_kind_t k) { return TOK_TEST(kKeywordBits, k); }
+// clang-format on
 
 /* ── import sorting ──────────────────────────────────────────────── */
 
