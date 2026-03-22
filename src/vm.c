@@ -100,6 +100,7 @@
 #include "internal/vigil_vm_internal.h"
 #include "value_internal.h"
 #include "vm_ops_collection.h"
+#include "vm_ops_convert.h"
 #include "vm_ops_string.h"
 #include "vigil/string.h"
 #include "vigil/vm.h"
@@ -1505,7 +1506,7 @@ static vigil_status_t vigil_vm_checked_umodulo(uint64_t left, uint64_t right, ui
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result)
+vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result)
 {
     if (value == INT64_MIN)
     {
@@ -1573,7 +1574,7 @@ static vigil_status_t vigil_vm_checked_ushift_right(uint64_t left, uint64_t righ
     return VIGIL_STATUS_OK;
 }
 
-static int vigil_vm_value_is_integer(const vigil_value_t *value)
+int vigil_vm_value_is_integer(const vigil_value_t *value)
 {
     return value != NULL && (vigil_nanbox_is_int(*value) || vigil_nanbox_is_uint(*value));
 }
@@ -1697,7 +1698,7 @@ int vigil_vm_value_is_supported_map_key(const vigil_value_t *value)
     }
 }
 
-static vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_t *left, const vigil_value_t *right,
+vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_t *left, const vigil_value_t *right,
                                               vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -1842,7 +1843,7 @@ static vigil_status_t vigil_vm_stringify_float_value(vigil_vm_t *vm, const vigil
     return vigil_vm_stringify_formatted_value(vm, buffer, (size_t)written, out_value, error);
 }
 
-static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
+vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
                                                vigil_error_t *error)
 {
     if (vm == NULL || value == NULL || out_value == NULL)
@@ -2288,7 +2289,7 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1,
+vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1,
                                                  uint32_t word2, vigil_value_t *out_value, vigil_error_t *error)
 {
     char fill;
@@ -2358,7 +2359,7 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
     return vigil_vm_format_spec_emit_text(vm, buf, (size_t)len, &layout, error);
 }
 
-static vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,
+vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,
                                                 vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -2590,7 +2591,7 @@ static vigil_status_t vigil_vm_push_checked_unsigned_integer(vigil_vm_t *vm, uin
     return status;
 }
 
-static vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
+vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
                                                               int64_t minimum_value, int64_t maximum_value,
                                                               const char *operand_error, const char *range_error,
                                                               vigil_error_t *error)
@@ -2636,7 +2637,7 @@ static vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, co
     return vigil_vm_push_checked_signed_integer(vm, integer_value, minimum_value, maximum_value, range_error, error);
 }
 
-static vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
+vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
                                                                 uint64_t maximum_value, const char *operand_error,
                                                                 const char *range_error, vigil_error_t *error)
 {
@@ -2699,7 +2700,7 @@ vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const 
     return status;
 }
 
-static vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
 {
     vigil_vm_frame_t *frame;
     const uint8_t *code;
@@ -2728,7 +2729,7 @@ static vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vig
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_read_raw_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_read_raw_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
 {
     vigil_vm_frame_t *frame;
     const uint8_t *code;
@@ -5457,378 +5458,64 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             }
 
             VM_CASE(NEGATE)
-            value = vigil_vm_pop_or_nil(vm);
-            if (vigil_nanbox_is_double(value))
-            {
-                vigil_value_t negated;
-
-                vigil_value_init_float(&negated, -vigil_nanbox_decode_double(value));
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_push(vm, &negated, error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    vigil_value_release(&negated);
-                    goto cleanup;
-                }
-                vigil_value_release(&negated);
-                frame->ip += 1U;
-                VM_BREAK();
-            }
-            if (!vigil_nanbox_is_int(value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "negation requires an integer or float operand", error);
-                goto cleanup;
-            }
-            status = vigil_vm_checked_negate(vigil_value_as_int(&(value)), &integer_result);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "integer arithmetic overflow or invalid operation", error);
-                goto cleanup;
-            }
-            do
-            {
-                (left) = vigil_nanbox_encode_int(integer_result);
-            } while (0);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_negate(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(NOT)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_bool(value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "logical not requires a bool operand",
-                                             error);
-                goto cleanup;
-            }
-            vigil_value_init_bool(&left, !vigil_nanbox_decode_bool(value));
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_not(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(BITWISE_NOT)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_int(value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "bitwise not requires an integer operand", error);
-                goto cleanup;
-            }
-            vigil_value_init_int(&left, ~vigil_value_as_int(&(value)));
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_bitwise_not(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_I32)
-            /* Fast path: if top of stack is already INT, just range-check */
-            if (vm->stack_count > 0U && vigil_nanbox_is_int_inline(vm->stack[vm->stack_count - 1U]))
-            {
-                int64_t v = vigil_nanbox_decode_int(vm->stack[vm->stack_count - 1U]);
-                if (v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX)
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "i32 conversion overflow or invalid value", error);
-                    goto cleanup;
-                }
-                frame->ip += 1U;
-                VM_BREAK();
-            }
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_signed_integer_type(vm, &value, (int64_t)INT32_MIN, (int64_t)INT32_MAX,
-                                                             "i32 conversion requires an int or float operand",
-                                                             "i32 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
-                goto cleanup;
-            }
-            frame->ip += 1U;
+            status = vigil_vm_op_to_i32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_I64)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_signed_integer_type(vm, &value, INT64_MIN, INT64_MAX,
-                                                             "i64 conversion requires an int or float operand",
-                                                             "i64 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
-                goto cleanup;
-            }
-            frame->ip += 1U;
+            status = vigil_vm_op_to_i64(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_U8)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_unsigned_integer_type(vm, &value, (uint64_t)UINT8_MAX,
-                                                               "u8 conversion requires an int or float operand",
-                                                               "u8 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
-                goto cleanup;
-            }
-            frame->ip += 1U;
+            status = vigil_vm_op_to_u8(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_U32)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_unsigned_integer_type(vm, &value, (uint64_t)UINT32_MAX,
-                                                               "u32 conversion requires an int or float operand",
-                                                               "u32 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
-                goto cleanup;
-            }
-            frame->ip += 1U;
+            status = vigil_vm_op_to_u32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_U64)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_unsigned_integer_type(vm, &value, UINT64_MAX,
-                                                               "u64 conversion requires an int or float operand",
-                                                               "u64 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
-                goto cleanup;
-            }
-            frame->ip += 1U;
+            status = vigil_vm_op_to_u64(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_F64)
-            value = vigil_vm_pop_or_nil(vm);
-            if (vigil_nanbox_is_double(value))
-            {
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                frame->ip += 1U;
-                VM_BREAK();
-            }
-            if (!vigil_vm_value_is_integer(&value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "f64 conversion requires an int or float operand", error);
-                goto cleanup;
-            }
-            if (vigil_nanbox_is_uint(value))
-            {
-                vigil_value_init_float(&left, (double)vigil_value_as_uint(&(value)));
-            }
-            else
-            {
-                vigil_value_init_float(&left, (double)vigil_value_as_int(&(value)));
-            }
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_to_f64(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(TO_STRING)
-            value = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&left);
-            status = vigil_vm_stringify_value(vm, &value, &left, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "string conversion requires a primitive or string operand", error);
-                goto cleanup;
-            }
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_to_string(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(FORMAT_F64)
-            if ((status = vigil_vm_read_u32(vm, &operand, error)) != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            value = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&left);
-            status = vigil_vm_format_f64_value(vm, &value, operand, &left, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "f64 formatting requires an f64 operand", error);
-                goto cleanup;
-            }
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
+            status = vigil_vm_op_format_f64(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(FORMAT_SPEC)
-            {
-                uint32_t w1;
-                uint32_t w2;
-                if ((status = vigil_vm_read_u32(vm, &w1, error)) != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                if ((status = vigil_vm_read_raw_u32(vm, &w2, error)) != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                value = vigil_vm_pop_or_nil(vm);
-                VIGIL_VM_VALUE_INIT_NIL(&left);
-                status = vigil_vm_format_spec_value(vm, &value, w1, w2, &left, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "format specifier error", error);
-                    goto cleanup;
-                }
-                status = vigil_vm_push(vm, &left, error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VM_BREAK();
-            }
+            status = vigil_vm_op_format_spec(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
+            VM_BREAK();
             VM_CASE(NEW_ERROR)
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_STRING)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error construction requires string message and i32 kind", error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right))
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error construction requires string message and i32 kind", error);
-                goto cleanup;
-            }
-            {
-                vigil_object_t *error_object = NULL;
-
-                status = vigil_error_object_new(
-                    vm->runtime, vigil_string_object_c_str(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
-                    vigil_string_object_length(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
-                    vigil_value_as_int(&(right)), &error_object, error);
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                vigil_value_init_object(&value, &error_object);
-            }
-            status = vigil_vm_push(vm, &value, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&value);
-            frame->ip += 1U;
+            status = vigil_vm_op_new_error(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(GET_ERROR_KIND)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(value) || ((vigil_object_t *)vigil_nanbox_decode_ptr(value)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(value))) != VIGIL_OBJECT_ERROR)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error kind access requires an err value", error);
-                goto cleanup;
-            }
-            vigil_value_init_int(&left, vigil_error_object_kind(((vigil_object_t *)vigil_nanbox_decode_ptr(value))));
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_get_error_kind(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(GET_ERROR_MESSAGE)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(value) || ((vigil_object_t *)vigil_nanbox_decode_ptr(value)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(value))) != VIGIL_OBJECT_ERROR)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error message access requires an err value", error);
-                goto cleanup;
-            }
-            {
-                vigil_object_t *string_object = NULL;
-
-                status = vigil_string_object_new(
-                    vm->runtime, vigil_error_object_message(((vigil_object_t *)vigil_nanbox_decode_ptr(value))),
-                    vigil_error_object_message_length(((vigil_object_t *)vigil_nanbox_decode_ptr(value))),
-                    &string_object, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                vigil_value_init_object(&left, &string_object);
-            }
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
+            status = vigil_vm_op_get_error_message(vm, frame, error);
+            if (status != VIGIL_STATUS_OK) goto cleanup;
             VM_BREAK();
             VM_CASE(RETURN)
             frame->ip += 1U;

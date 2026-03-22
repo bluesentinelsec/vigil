@@ -100,6 +100,7 @@ add_library(vigil_core OBJECT
     src/value.c
     src/vm.c
     src/vm_ops_collection.c
+    src/vm_ops_convert.c
     src/vm_ops_string.c
 )
 

@@ -127,4 +127,24 @@ vigil_status_t vigil_vm_make_bounds_error_value(vigil_vm_t *vm, const char *mess
 int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t *right);
 int vigil_vm_value_is_supported_map_key(const vigil_value_t *value);
 
+/* Helpers for conversion / unary / binary ops (defined in vm.c). */
+vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result);
+int vigil_vm_value_is_integer(const vigil_value_t *value);
+vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_t *left, const vigil_value_t *right,
+                                        vigil_value_t *out_value, vigil_error_t *error);
+vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
+                                         vigil_error_t *error);
+vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,
+                                          vigil_value_t *out_value, vigil_error_t *error);
+vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1, uint32_t word2,
+                                           vigil_value_t *out_value, vigil_error_t *error);
+vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vigil_value_t *value, int64_t min_value,
+                                                        int64_t max_value, const char *type_error_message,
+                                                        const char *range_error_message, vigil_error_t *error);
+vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
+                                                          uint64_t max_value, const char *type_error_message,
+                                                          const char *range_error_message, vigil_error_t *error);
+vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error);
+vigil_status_t vigil_vm_read_raw_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error);
+
 #endif /* VIGIL_VM_INTERNAL_H */
