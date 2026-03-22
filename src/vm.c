@@ -3152,7 +3152,8 @@ static void vigil_vm_push_parse_error(vigil_vm_t *vm, vigil_value_t default_val,
         err_obj = NULL;
     vm->stack[vm->stack_count] = default_val;
     vm->stack_count += 1U;
-    vm->stack[vm->stack_count] = err_obj != NULL ? vigil_nanbox_encode_object(err_obj) : vigil_runtime_ok_error_value(vm->runtime);
+    vm->stack[vm->stack_count] =
+        err_obj != NULL ? vigil_nanbox_encode_object(err_obj) : vigil_runtime_ok_error_value(vm->runtime);
     vm->stack_count += 1U;
 }
 
@@ -3256,14 +3257,30 @@ static void vigil_vm_intrinsic_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
 {
     switch (op)
     {
-    case VIGIL_OPCODE_MATH_SIN_F64:  vigil_vm_math_sin(vm);   break;
-    case VIGIL_OPCODE_MATH_COS_F64:  vigil_vm_math_cos(vm);   break;
-    case VIGIL_OPCODE_MATH_SQRT_F64: vigil_vm_math_sqrt(vm);  break;
-    case VIGIL_OPCODE_MATH_LOG_F64:  vigil_vm_math_log(vm);   break;
-    case VIGIL_OPCODE_MATH_POW_F64:  vigil_vm_math_pow(vm);   break;
-    case VIGIL_OPCODE_PARSE_I32:     vigil_vm_parse_i32(vm);   break;
-    case VIGIL_OPCODE_PARSE_F64:     vigil_vm_parse_f64(vm);   break;
-    default:                         vigil_vm_parse_bool(vm);  break;
+    case VIGIL_OPCODE_MATH_SIN_F64:
+        vigil_vm_math_sin(vm);
+        break;
+    case VIGIL_OPCODE_MATH_COS_F64:
+        vigil_vm_math_cos(vm);
+        break;
+    case VIGIL_OPCODE_MATH_SQRT_F64:
+        vigil_vm_math_sqrt(vm);
+        break;
+    case VIGIL_OPCODE_MATH_LOG_F64:
+        vigil_vm_math_log(vm);
+        break;
+    case VIGIL_OPCODE_MATH_POW_F64:
+        vigil_vm_math_pow(vm);
+        break;
+    case VIGIL_OPCODE_PARSE_I32:
+        vigil_vm_parse_i32(vm);
+        break;
+    case VIGIL_OPCODE_PARSE_F64:
+        vigil_vm_parse_f64(vm);
+        break;
+    default:
+        vigil_vm_parse_bool(vm);
+        break;
     }
 }
 
