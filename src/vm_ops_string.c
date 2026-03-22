@@ -13,6 +13,143 @@
 
 #include "vigil/string.h"
 
+/* ── Static helpers ────────────────────────────────────────────── */
+
+static size_t escape_string_to_c(const char *text, size_t text_length, char *out)
+{
+    size_t j = 0;
+    out[j++] = '"';
+    for (size_t i = 0; i < text_length; i++)
+    {
+        unsigned char c = (unsigned char)text[i];
+        switch (c)
+        {
+        case '"':
+            out[j++] = '\\';
+            out[j++] = '"';
+            break;
+        case '\\':
+            out[j++] = '\\';
+            out[j++] = '\\';
+            break;
+        case '\n':
+            out[j++] = '\\';
+            out[j++] = 'n';
+            break;
+        case '\r':
+            out[j++] = '\\';
+            out[j++] = 'r';
+            break;
+        case '\t':
+            out[j++] = '\\';
+            out[j++] = 't';
+            break;
+        default:
+            if (c >= 32 && c < 127)
+            {
+                out[j++] = (char)c;
+            }
+            else
+            {
+                out[j++] = '\\';
+                out[j++] = 'x';
+                out[j++] = "0123456789abcdef"[c >> 4];
+                out[j++] = "0123456789abcdef"[c & 0xf];
+            }
+            break;
+        }
+    }
+    out[j++] = '"';
+    return j;
+}
+
+static vigil_status_t split_by_char(vigil_vm_t *vm, const char *text, size_t text_length, vigil_value_t **items,
+                                    size_t *item_count, size_t *item_capacity, vigil_error_t *error)
+{
+    vigil_status_t status = VIGIL_STATUS_OK;
+    for (size_t i = 0; i < text_length && status == VIGIL_STATUS_OK; i++)
+    {
+        status = vigil_vm_grow_value_array(vm->runtime, items, item_capacity, *item_count + 1U, error);
+        if (status == VIGIL_STATUS_OK)
+        {
+            VIGIL_VM_VALUE_INIT_NIL(&(*items)[*item_count]);
+            status = vigil_vm_new_string_value(vm, text + i, 1U, &(*items)[*item_count], error);
+            if (status == VIGIL_STATUS_OK)
+                *item_count += 1U;
+        }
+    }
+    return status;
+}
+
+static vigil_status_t split_by_separator(vigil_vm_t *vm, const char *text, size_t text_length, const char *sep,
+                                         size_t sep_length, vigil_value_t **items, size_t *item_count,
+                                         size_t *item_capacity, vigil_error_t *error)
+{
+    vigil_status_t status = VIGIL_STATUS_OK;
+    size_t index = 0U;
+    size_t match_index;
+    while (status == VIGIL_STATUS_OK)
+    {
+        status = vigil_vm_grow_value_array(vm->runtime, items, item_capacity, *item_count + 1U, error);
+        if (status != VIGIL_STATUS_OK)
+            break;
+        VIGIL_VM_VALUE_INIT_NIL(&(*items)[*item_count]);
+        if (vigil_vm_find_substring(text + index, text_length - index, sep, sep_length, &match_index))
+        {
+            status = vigil_vm_new_string_value(vm, text + index, match_index, &(*items)[*item_count], error);
+            if (status == VIGIL_STATUS_OK)
+                *item_count += 1U;
+            index += match_index + sep_length;
+        }
+        else
+        {
+            status = vigil_vm_new_string_value(vm, text + index, text_length - index, &(*items)[*item_count], error);
+            if (status == VIGIL_STATUS_OK)
+                *item_count += 1U;
+            break;
+        }
+    }
+    return status;
+}
+
+static void free_value_array(vigil_vm_t *vm, vigil_value_t *items, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+        vigil_value_release(&items[i]);
+    vigil_runtime_free(vm->runtime, (void **)&items);
+}
+
+static vigil_status_t string_replace_loop(vigil_vm_t *vm, const char *text, size_t text_length, const char *old_text,
+                                          size_t old_length, const char *new_text, size_t new_length,
+                                          vigil_value_t *out, vigil_error_t *error)
+{
+    vigil_status_t status = VIGIL_STATUS_OK;
+    vigil_string_t built;
+    size_t index = 0U;
+    size_t match_index;
+
+    vigil_string_init(&built, vm->runtime);
+    while (index < text_length && status == VIGIL_STATUS_OK)
+    {
+        if (vigil_vm_find_substring(text + index, text_length - index, old_text, old_length, &match_index))
+        {
+            status = vigil_string_append(&built, text + index, match_index, error);
+            if (status == VIGIL_STATUS_OK)
+                status = vigil_string_append(&built, new_text, new_length, error);
+            index += match_index + old_length;
+        }
+        else
+        {
+            status = vigil_string_append(&built, text + index, text_length - index, error);
+            break;
+        }
+    }
+    if (status == VIGIL_STATUS_OK)
+        status = vigil_vm_new_string_value(vm, vigil_string_c_str(&built), vigil_string_length(&built), out, error);
+    vigil_string_free(&built);
+    return status;
+}
+
 /* ── GET_STRING_SIZE ───────────────────────────────────────────── */
 
 vigil_status_t vigil_vm_op_get_string_size(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
@@ -40,7 +177,7 @@ vigil_status_t vigil_vm_op_get_string_size(vigil_vm_t *vm, vigil_vm_frame_t *fra
 /* ── STRING_CONTAINS / STRING_STARTS_WITH / STRING_ENDS_WITH ─── */
 
 vigil_status_t vigil_vm_op_string_search(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                          vigil_error_t *error)
+                                         vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_value_t left, right, value;
@@ -74,8 +211,8 @@ vigil_status_t vigil_vm_op_string_search(vigil_vm_t *vm, vigil_vm_frame_t *frame
     }
     else
     {
-        found = needle_length <= text_length &&
-                memcmp(text + (text_length - needle_length), needle, needle_length) == 0;
+        found =
+            needle_length <= text_length && memcmp(text + (text_length - needle_length), needle, needle_length) == 0;
     }
     (value) = vigil_nanbox_from_bool(found);
     VIGIL_VM_VALUE_RELEASE(&left);
@@ -87,8 +224,26 @@ vigil_status_t vigil_vm_op_string_search(vigil_vm_t *vm, vigil_vm_frame_t *frame
 
 /* ── STRING_TRIM / STRING_TO_UPPER / STRING_TO_LOWER ───────────── */
 
+static vigil_status_t string_change_case(vigil_vm_t *vm, const char *text, size_t length, vigil_opcode_t opcode,
+                                         vigil_value_t *out, vigil_error_t *error)
+{
+    void *memory = NULL;
+    vigil_status_t status = vigil_runtime_alloc(vm->runtime, length + 1U, &memory, error);
+    if (status == VIGIL_STATUS_OK)
+    {
+        char *buffer = (char *)memory;
+        for (size_t i = 0U; i < length; i++)
+            buffer[i] = (char)(opcode == VIGIL_OPCODE_STRING_TO_UPPER ? toupper((unsigned char)text[i])
+                                                                      : tolower((unsigned char)text[i]));
+        buffer[length] = '\0';
+        status = vigil_vm_new_string_value(vm, buffer, length, out, error);
+        vigil_runtime_free(vm->runtime, &memory);
+    }
+    return status;
+}
+
 vigil_status_t vigil_vm_op_string_transform(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                             vigil_error_t *error)
+                                            vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_value_t left, value;
@@ -110,7 +265,6 @@ vigil_status_t vigil_vm_op_string_transform(vigil_vm_t *vm, vigil_vm_frame_t *fr
     {
         size_t start = 0U;
         size_t end = length;
-
         while (start < length && isspace((unsigned char)text[start]))
             start += 1U;
         while (end > start && isspace((unsigned char)text[end - 1U]))
@@ -119,24 +273,7 @@ vigil_status_t vigil_vm_op_string_transform(vigil_vm_t *vm, vigil_vm_frame_t *fr
     }
     else
     {
-        void *memory = NULL;
-        char *buffer;
-        size_t index;
-
-        status = vigil_runtime_alloc(vm->runtime, length + 1U, &memory, error);
-        if (status == VIGIL_STATUS_OK)
-        {
-            buffer = (char *)memory;
-            for (index = 0U; index < length; index += 1U)
-            {
-                buffer[index] = (char)(string_opcode == VIGIL_OPCODE_STRING_TO_UPPER
-                                           ? toupper((unsigned char)text[index])
-                                           : tolower((unsigned char)text[index]));
-            }
-            buffer[length] = '\0';
-            status = vigil_vm_new_string_value(vm, buffer, length, &value, error);
-            vigil_runtime_free(vm->runtime, &memory);
-        }
+        status = string_change_case(vm, text, length, string_opcode, &value, error);
     }
     if (status != VIGIL_STATUS_OK)
     {
@@ -153,7 +290,7 @@ vigil_status_t vigil_vm_op_string_transform(vigil_vm_t *vm, vigil_vm_frame_t *fr
 
 vigil_status_t vigil_vm_op_string_replace(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
-    vigil_status_t status = VIGIL_STATUS_OK;
+    vigil_status_t status;
     vigil_value_t left, right, value;
 
     frame->ip += 1U;
@@ -182,33 +319,8 @@ vigil_status_t vigil_vm_op_string_replace(vigil_vm_t *vm, vigil_vm_frame_t *fram
     }
     else
     {
-        vigil_string_t built;
-        size_t index, match_index;
-
-        vigil_string_init(&built, vm->runtime);
-        index = 0U;
-        while (index < text_length && status == VIGIL_STATUS_OK)
-        {
-            if (vigil_vm_find_substring(text + index, text_length - index, old_text, old_length, &match_index))
-            {
-                status = vigil_string_append(&built, text + index, match_index, error);
-                if (status == VIGIL_STATUS_OK)
-                    status = vigil_string_append(&built, new_text, new_length, error);
-                index += match_index + old_length;
-            }
-            else
-            {
-                status = vigil_string_append(&built, text + index, text_length - index, error);
-                break;
-            }
-        }
-        if (status == VIGIL_STATUS_OK)
-        {
-            VIGIL_VM_VALUE_RELEASE(&right);
-            status = vigil_vm_new_string_value(vm, vigil_string_c_str(&built), vigil_string_length(&built), &right,
-                                               error);
-        }
-        vigil_string_free(&built);
+        vigil_value_t result;
+        status = string_replace_loop(vm, text, text_length, old_text, old_length, new_text, new_length, &result, error);
         if (status != VIGIL_STATUS_OK)
         {
             VIGIL_VM_VALUE_RELEASE(&left);
@@ -216,6 +328,8 @@ vigil_status_t vigil_vm_op_string_replace(vigil_vm_t *vm, vigil_vm_frame_t *fram
             VIGIL_VM_VALUE_RELEASE(&value);
             return status;
         }
+        VIGIL_VM_VALUE_RELEASE(&right);
+        right = result;
     }
     VIGIL_VM_VALUE_RELEASE(&left);
     VIGIL_VM_VALUE_RELEASE(&value);
@@ -228,16 +342,14 @@ vigil_status_t vigil_vm_op_string_replace(vigil_vm_t *vm, vigil_vm_frame_t *fram
 
 vigil_status_t vigil_vm_op_string_split(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
-    vigil_status_t status = VIGIL_STATUS_OK;
+    vigil_status_t status;
     vigil_value_t left, right, value;
     const char *text, *separator;
     size_t text_length, separator_length;
     vigil_value_t *items = NULL;
     size_t item_count = 0U;
     size_t item_capacity = 0U;
-    size_t index = 0U;
     vigil_object_t *array_object = NULL;
-    size_t match_index;
 
     frame->ip += 1U;
     right = vigil_vm_pop_or_nil(vm);
@@ -253,63 +365,20 @@ vigil_status_t vigil_vm_op_string_split(vigil_vm_t *vm, vigil_vm_frame_t *frame,
     }
 
     if (separator_length == 0U)
-    {
-        while (index < text_length && status == VIGIL_STATUS_OK)
-        {
-            status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count + 1U, error);
-            if (status == VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_INIT_NIL(&items[item_count]);
-                status = vigil_vm_new_string_value(vm, text + index, 1U, &items[item_count], error);
-                if (status == VIGIL_STATUS_OK)
-                    item_count += 1U;
-            }
-            index += 1U;
-        }
-    }
+        status = split_by_char(vm, text, text_length, &items, &item_count, &item_capacity, error);
     else
-    {
-        while (status == VIGIL_STATUS_OK)
-        {
-            status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count + 1U, error);
-            if (status != VIGIL_STATUS_OK)
-                break;
-            VIGIL_VM_VALUE_INIT_NIL(&items[item_count]);
-            if (vigil_vm_find_substring(text + index, text_length - index, separator, separator_length, &match_index))
-            {
-                status = vigil_vm_new_string_value(vm, text + index, match_index, &items[item_count], error);
-                if (status == VIGIL_STATUS_OK)
-                    item_count += 1U;
-                index += match_index + separator_length;
-            }
-            else
-            {
-                status = vigil_vm_new_string_value(vm, text + index, text_length - index, &items[item_count], error);
-                if (status == VIGIL_STATUS_OK)
-                    item_count += 1U;
-                break;
-            }
-        }
-    }
+        status = split_by_separator(vm, text, text_length, separator, separator_length, &items, &item_count,
+                                    &item_capacity, error);
 
     if (status == VIGIL_STATUS_OK)
         status = vigil_array_object_new(vm->runtime, items, item_count, &array_object, error);
-    if (status != VIGIL_STATUS_OK)
-    {
-        for (match_index = 0U; match_index < item_count; match_index += 1U)
-            vigil_value_release(&items[match_index]);
-        vigil_runtime_free(vm->runtime, (void **)&items);
-        VIGIL_VM_VALUE_RELEASE(&left);
-        VIGIL_VM_VALUE_RELEASE(&right);
-        return status;
-    }
-    for (match_index = 0U; match_index < item_count; match_index += 1U)
-        vigil_value_release(&items[match_index]);
-    vigil_runtime_free(vm->runtime, (void **)&items);
-    vigil_value_init_object(&value, &array_object);
-    vigil_object_release(&array_object);
+    free_value_array(vm, items, item_count);
     VIGIL_VM_VALUE_RELEASE(&left);
     VIGIL_VM_VALUE_RELEASE(&right);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    vigil_value_init_object(&value, &array_object);
+    vigil_object_release(&array_object);
     status = vigil_vm_push(vm, &value, error);
     VIGIL_VM_VALUE_RELEASE(&value);
     return status;
@@ -352,13 +421,34 @@ vigil_status_t vigil_vm_op_string_index_of(vigil_vm_t *vm, vigil_vm_frame_t *fra
 
 /* ── STRING_SUBSTR ─────────────────────────────────────────────── */
 
+static vigil_status_t string_substr_slice(vigil_vm_t *vm, const char *text, size_t text_length, int64_t start,
+                                          int64_t slice_length, vigil_value_t *out_str, vigil_value_t *out_err,
+                                          vigil_error_t *error)
+{
+    vigil_status_t status;
+    if (start < 0 || slice_length < 0 || (uint64_t)start > text_length ||
+        (uint64_t)slice_length > text_length - (size_t)start)
+    {
+        status = vigil_vm_new_string_value(vm, "", 0U, out_str, error);
+        if (status == VIGIL_STATUS_OK)
+            status = vigil_vm_make_error_value(vm, 7, "string slice is out of range",
+                                               sizeof("string slice is out of range") - 1U, out_err, error);
+    }
+    else
+    {
+        status = vigil_vm_new_string_value(vm, text + (size_t)start, (size_t)slice_length, out_str, error);
+        if (status == VIGIL_STATUS_OK)
+            status = vigil_vm_make_ok_error_value(vm, out_err, error);
+    }
+    return status;
+}
+
 vigil_status_t vigil_vm_op_string_substr(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_value_t left, right, value;
     const char *text;
     size_t text_length;
-    int64_t start, slice_length;
 
     frame->ip += 1U;
     value = vigil_vm_pop_or_nil(vm);
@@ -374,22 +464,8 @@ vigil_status_t vigil_vm_op_string_substr(vigil_vm_t *vm, vigil_vm_frame_t *frame
         return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "string substr() requires i32 start and length",
                                    error);
     }
-    start = vigil_value_as_int(&right);
-    slice_length = vigil_value_as_int(&value);
-    if (start < 0 || slice_length < 0 || (uint64_t)start > text_length ||
-        (uint64_t)slice_length > text_length - (size_t)start)
-    {
-        status = vigil_vm_new_string_value(vm, "", 0U, &right, error);
-        if (status == VIGIL_STATUS_OK)
-            status = vigil_vm_make_error_value(vm, 7, "string slice is out of range",
-                                               sizeof("string slice is out of range") - 1U, &value, error);
-    }
-    else
-    {
-        status = vigil_vm_new_string_value(vm, text + (size_t)start, (size_t)slice_length, &right, error);
-        if (status == VIGIL_STATUS_OK)
-            status = vigil_vm_make_ok_error_value(vm, &value, error);
-    }
+    status = string_substr_slice(vm, text, text_length, vigil_value_as_int(&right), vigil_value_as_int(&value), &right,
+                                 &value, error);
     if (status != VIGIL_STATUS_OK)
     {
         VIGIL_VM_VALUE_RELEASE(&left);
@@ -504,7 +580,7 @@ vigil_status_t vigil_vm_op_string_char_at(vigil_vm_t *vm, vigil_vm_frame_t *fram
 /* ── STRING_TRIM_LEFT / STRING_TRIM_RIGHT ──────────────────────── */
 
 vigil_status_t vigil_vm_op_string_trim_dir(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                            vigil_error_t *error)
+                                           vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_value_t left, value;
@@ -819,7 +895,7 @@ vigil_status_t vigil_vm_op_string_last_index_of(vigil_vm_t *vm, vigil_vm_frame_t
 /* ── STRING_TRIM_PREFIX / STRING_TRIM_SUFFIX ───────────────────── */
 
 vigil_status_t vigil_vm_op_string_trim_affix(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                              vigil_error_t *error)
+                                             vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_value_t left, right, value;
@@ -849,8 +925,7 @@ vigil_status_t vigil_vm_op_string_trim_affix(vigil_vm_t *vm, vigil_vm_frame_t *f
     }
     else
     {
-        if (prefix_length <= text_length &&
-            memcmp(text + text_length - prefix_length, prefix, prefix_length) == 0)
+        if (prefix_length <= text_length && memcmp(text + text_length - prefix_length, prefix, prefix_length) == 0)
             status = vigil_vm_new_string_value(vm, text, text_length - prefix_length, &value, error);
         else
             status = vigil_vm_new_string_value(vm, text, text_length, &value, error);
@@ -926,49 +1001,7 @@ vigil_status_t vigil_vm_op_string_to_c(vigil_vm_t *vm, vigil_vm_frame_t *frame, 
         return status;
     }
 
-    size_t j = 0;
-    out_buf[j++] = '"';
-    for (size_t i = 0; i < text_length; i++)
-    {
-        unsigned char c = (unsigned char)text[i];
-        if (c == '"')
-        {
-            out_buf[j++] = '\\';
-            out_buf[j++] = '"';
-        }
-        else if (c == '\\')
-        {
-            out_buf[j++] = '\\';
-            out_buf[j++] = '\\';
-        }
-        else if (c == '\n')
-        {
-            out_buf[j++] = '\\';
-            out_buf[j++] = 'n';
-        }
-        else if (c == '\r')
-        {
-            out_buf[j++] = '\\';
-            out_buf[j++] = 'r';
-        }
-        else if (c == '\t')
-        {
-            out_buf[j++] = '\\';
-            out_buf[j++] = 't';
-        }
-        else if (c >= 32 && c < 127)
-        {
-            out_buf[j++] = (char)c;
-        }
-        else
-        {
-            out_buf[j++] = '\\';
-            out_buf[j++] = 'x';
-            out_buf[j++] = "0123456789abcdef"[c >> 4];
-            out_buf[j++] = "0123456789abcdef"[c & 0xf];
-        }
-    }
-    out_buf[j++] = '"';
+    size_t j = escape_string_to_c(text, text_length, out_buf);
 
     VIGIL_VM_VALUE_RELEASE(&left);
     status = vigil_vm_new_string_value(vm, out_buf, j, &value, error);
@@ -982,9 +1015,36 @@ vigil_status_t vigil_vm_op_string_to_c(vigil_vm_t *vm, vigil_vm_frame_t *frame, 
 
 /* ── STRING_FIELDS ─────────────────────────────────────────────── */
 
-vigil_status_t vigil_vm_op_string_fields(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
+static vigil_status_t split_whitespace_fields(vigil_vm_t *vm, const char *text, size_t text_length,
+                                              vigil_value_t **items, size_t *item_count, size_t *item_capacity,
+                                              vigil_error_t *error)
 {
     vigil_status_t status = VIGIL_STATUS_OK;
+    size_t i = 0;
+    while (i < text_length && status == VIGIL_STATUS_OK)
+    {
+        while (i < text_length && isspace((unsigned char)text[i]))
+            i++;
+        if (i >= text_length)
+            break;
+        size_t start = i;
+        while (i < text_length && !isspace((unsigned char)text[i]))
+            i++;
+        status = vigil_vm_grow_value_array(vm->runtime, items, item_capacity, *item_count + 1U, error);
+        if (status == VIGIL_STATUS_OK)
+        {
+            VIGIL_VM_VALUE_INIT_NIL(&(*items)[*item_count]);
+            status = vigil_vm_new_string_value(vm, text + start, i - start, &(*items)[*item_count], error);
+            if (status == VIGIL_STATUS_OK)
+                (*item_count)++;
+        }
+    }
+    return status;
+}
+
+vigil_status_t vigil_vm_op_string_fields(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
+{
+    vigil_status_t status;
     vigil_value_t left, value;
     const char *text;
     size_t text_length;
@@ -1002,40 +1062,13 @@ vigil_status_t vigil_vm_op_string_fields(vigil_vm_t *vm, vigil_vm_frame_t *frame
         return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "fields() requires a string", error);
     }
 
-    size_t i = 0;
-    while (i < text_length && status == VIGIL_STATUS_OK)
-    {
-        while (i < text_length && isspace((unsigned char)text[i]))
-            i++;
-        if (i >= text_length)
-            break;
-        size_t start = i;
-        while (i < text_length && !isspace((unsigned char)text[i]))
-            i++;
-        status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count + 1U, error);
-        if (status == VIGIL_STATUS_OK)
-        {
-            VIGIL_VM_VALUE_INIT_NIL(&items[item_count]);
-            status = vigil_vm_new_string_value(vm, text + start, i - start, &items[item_count], error);
-            if (status == VIGIL_STATUS_OK)
-                item_count++;
-        }
-    }
-
+    status = split_whitespace_fields(vm, text, text_length, &items, &item_count, &item_capacity, error);
     if (status == VIGIL_STATUS_OK)
         status = vigil_array_object_new(vm->runtime, items, item_count, &array_object, error);
-    if (status != VIGIL_STATUS_OK)
-    {
-        for (size_t idx = 0; idx < item_count; idx++)
-            vigil_value_release(&items[idx]);
-        vigil_runtime_free(vm->runtime, (void **)&items);
-        VIGIL_VM_VALUE_RELEASE(&left);
-        return status;
-    }
-    for (size_t idx = 0; idx < item_count; idx++)
-        vigil_value_release(&items[idx]);
-    vigil_runtime_free(vm->runtime, (void **)&items);
+    free_value_array(vm, items, item_count);
     VIGIL_VM_VALUE_RELEASE(&left);
+    if (status != VIGIL_STATUS_OK)
+        return status;
     vigil_value_init_object(&value, &array_object);
     vigil_object_release(&array_object);
     status = vigil_vm_push(vm, &value, error);
@@ -1144,9 +1177,33 @@ vigil_status_t vigil_vm_op_string_cut(vigil_vm_t *vm, vigil_vm_frame_t *frame, v
 
 /* ── STRING_JOIN ───────────────────────────────────────────────── */
 
-vigil_status_t vigil_vm_op_string_join(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
+static vigil_status_t string_join_elements(vigil_object_t *arr, const char *sep, size_t sep_len, vigil_string_t *built,
+                                           vigil_error_t *error)
 {
     vigil_status_t status = VIGIL_STATUS_OK;
+    size_t arr_len = vigil_array_object_length(arr);
+    for (size_t i = 0; i < arr_len && status == VIGIL_STATUS_OK; i++)
+    {
+        vigil_value_t elem;
+        const char *elem_text;
+        size_t elem_len;
+        if (!vigil_array_object_get(arr, i, &elem) || !vigil_vm_get_string_parts(&elem, &elem_text, &elem_len))
+        {
+            vigil_value_release(&elem);
+            return VIGIL_STATUS_INVALID_ARGUMENT;
+        }
+        if (i > 0)
+            status = vigil_string_append(built, sep, sep_len, error);
+        if (status == VIGIL_STATUS_OK)
+            status = vigil_string_append(built, elem_text, elem_len, error);
+        vigil_value_release(&elem);
+    }
+    return status;
+}
+
+vigil_status_t vigil_vm_op_string_join(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
+{
+    vigil_status_t status;
     vigil_value_t left, right, value;
     const char *sep;
     size_t sep_len;
@@ -1171,27 +1228,9 @@ vigil_status_t vigil_vm_op_string_join(vigil_vm_t *vm, vigil_vm_frame_t *frame, 
                                    error);
     }
 
-    size_t arr_len = vigil_array_object_length(arr);
     vigil_string_t built;
     vigil_string_init(&built, vm->runtime);
-
-    for (size_t i = 0; i < arr_len && status == VIGIL_STATUS_OK; i++)
-    {
-        vigil_value_t elem;
-        const char *elem_text;
-        size_t elem_len;
-        if (!vigil_array_object_get(arr, i, &elem) || !vigil_vm_get_string_parts(&elem, &elem_text, &elem_len))
-        {
-            vigil_value_release(&elem);
-            status = VIGIL_STATUS_INVALID_ARGUMENT;
-            break;
-        }
-        if (i > 0)
-            status = vigil_string_append(&built, sep, sep_len, error);
-        if (status == VIGIL_STATUS_OK)
-            status = vigil_string_append(&built, elem_text, elem_len, error);
-        vigil_value_release(&elem);
-    }
+    status = string_join_elements(arr, sep, sep_len, &built, error);
 
     VIGIL_VM_VALUE_RELEASE(&left);
     VIGIL_VM_VALUE_RELEASE(&right);

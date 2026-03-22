@@ -28,8 +28,8 @@ vigil_status_t vigil_vm_op_negate(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil
     if (!vigil_nanbox_is_int(value))
     {
         VIGIL_VM_VALUE_RELEASE(&value);
-        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                   "negation requires an integer or float operand", error);
+        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "negation requires an integer or float operand",
+                                   error);
     }
     status = vigil_vm_checked_negate(vigil_value_as_int(&value), &integer_result);
     if (status != VIGIL_STATUS_OK)
@@ -100,8 +100,8 @@ vigil_status_t vigil_vm_op_to_i32(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil
     {
         int64_t v = vigil_nanbox_decode_int(vm->stack[vm->stack_count - 1U]);
         if (v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX)
-            return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                       "i32 conversion overflow or invalid value", error);
+            return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 conversion overflow or invalid value",
+                                       error);
         frame->ip += 1U;
         return VIGIL_STATUS_OK;
     }
@@ -198,8 +198,8 @@ vigil_status_t vigil_vm_op_to_f64(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil
     if (!vigil_vm_value_is_integer(&value))
     {
         VIGIL_VM_VALUE_RELEASE(&value);
-        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                   "f64 conversion requires an int or float operand", error);
+        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "f64 conversion requires an int or float operand",
+                                   error);
     }
     if (vigil_nanbox_is_uint(value))
         vigil_value_init_float(&result, (double)vigil_value_as_uint(&value));
@@ -294,10 +294,10 @@ vigil_status_t vigil_vm_op_new_error(vigil_vm_t *vm, vigil_vm_frame_t *frame, vi
     }
     {
         vigil_object_t *error_object = NULL;
-        status = vigil_error_object_new(
-            vm->runtime, vigil_string_object_c_str(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
-            vigil_string_object_length(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
-            vigil_value_as_int(&right), &error_object, error);
+        status = vigil_error_object_new(vm->runtime,
+                                        vigil_string_object_c_str(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
+                                        vigil_string_object_length(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
+                                        vigil_value_as_int(&right), &error_object, error);
         VIGIL_VM_VALUE_RELEASE(&left);
         VIGIL_VM_VALUE_RELEASE(&right);
         if (status != VIGIL_STATUS_OK)

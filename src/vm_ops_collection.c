@@ -547,12 +547,14 @@ vigil_status_t vigil_vm_op_map_has(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigi
 /* ── MAP_KEYS / MAP_VALUES ─────────────────────────────────────── */
 
 vigil_status_t vigil_vm_op_map_keys_values(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                            vigil_error_t *error)
+                                           vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_value_t left, value;
+    bool want_keys;
 
     frame->ip += 1U;
+    want_keys = ((vigil_opcode_t)code[frame->ip - 1U] == VIGIL_OPCODE_MAP_KEYS);
     left = vigil_vm_pop_or_nil(vm);
 
     vigil_object_t *map = require_map(&left);
@@ -572,16 +574,10 @@ vigil_status_t vigil_vm_op_map_keys_values(vigil_vm_t *vm, vigil_vm_frame_t *fra
         for (item_index = 0U; status == VIGIL_STATUS_OK && item_index < item_count; item_index += 1U)
         {
             VIGIL_VM_VALUE_INIT_NIL(&items[item_index]);
-            if ((vigil_opcode_t)code[frame->ip - 1U] == VIGIL_OPCODE_MAP_KEYS)
-            {
-                if (!vigil_map_object_key_at(map, item_index, &items[item_index]))
-                    status = VIGIL_STATUS_INTERNAL;
-            }
-            else
-            {
-                if (!vigil_map_object_value_at(map, item_index, &items[item_index]))
-                    status = VIGIL_STATUS_INTERNAL;
-            }
+            bool ok = want_keys ? vigil_map_object_key_at(map, item_index, &items[item_index])
+                                : vigil_map_object_value_at(map, item_index, &items[item_index]);
+            if (!ok)
+                status = VIGIL_STATUS_INTERNAL;
         }
         if (status == VIGIL_STATUS_OK)
             status = vigil_array_object_new(vm->runtime, items, item_count, &object, error);
@@ -626,8 +622,8 @@ vigil_status_t vigil_vm_op_get_map_key_at(vigil_vm_t *vm, vigil_vm_frame_t *fram
     {
         VIGIL_VM_VALUE_RELEASE(&left);
         VIGIL_VM_VALUE_RELEASE(&right);
-        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                   "map iteration index must be a non-negative i32", error);
+        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map iteration index must be a non-negative i32",
+                                   error);
     }
     if (!vigil_map_object_key_at(map, (size_t)vigil_value_as_int(&right), &value))
     {
@@ -665,8 +661,8 @@ vigil_status_t vigil_vm_op_get_map_value_at(vigil_vm_t *vm, vigil_vm_frame_t *fr
     {
         VIGIL_VM_VALUE_RELEASE(&left);
         VIGIL_VM_VALUE_RELEASE(&right);
-        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                   "map iteration index must be a non-negative i32", error);
+        return vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map iteration index must be a non-negative i32",
+                                   error);
     }
     if (!vigil_map_object_value_at(map, (size_t)vigil_value_as_int(&right), &value))
     {

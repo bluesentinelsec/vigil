@@ -9,9 +9,9 @@
 
 vigil_status_t vigil_vm_op_get_string_size(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_search(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                          vigil_error_t *error);
+                                         vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_transform(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                             vigil_error_t *error);
+                                            vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_replace(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_split(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_index_of(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
@@ -19,7 +19,7 @@ vigil_status_t vigil_vm_op_string_substr(vigil_vm_t *vm, vigil_vm_frame_t *frame
 vigil_status_t vigil_vm_op_string_bytes(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_char_at(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_trim_dir(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                            vigil_error_t *error);
+                                           vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_reverse(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_is_empty(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_char_count(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
@@ -27,7 +27,7 @@ vigil_status_t vigil_vm_op_string_repeat(vigil_vm_t *vm, vigil_vm_frame_t *frame
 vigil_status_t vigil_vm_op_string_count(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_last_index_of(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_trim_affix(vigil_vm_t *vm, vigil_vm_frame_t *frame, const uint8_t *code,
-                                              vigil_error_t *error);
+                                             vigil_error_t *error);
 vigil_status_t vigil_vm_op_char_from_int(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_to_c(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
 vigil_status_t vigil_vm_op_string_fields(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error);
