@@ -467,33 +467,33 @@ static vigil_status_t json_read_hex4(json_parser_t *p, uint32_t *out)
     return VIGIL_STATUS_OK;
 }
 
-/* Encode a Unicode codepoint as UTF-8 into buf via the PUSH_CHAR macro. */
-#define JSON_ENCODE_UTF8(cp, PUSH_CHAR)                                                                                \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if ((cp) < 0x80U)                                                                                              \
-        {                                                                                                              \
-            PUSH_CHAR(cp);                                                                                             \
-        }                                                                                                              \
-        else if ((cp) < 0x800U)                                                                                        \
-        {                                                                                                              \
-            PUSH_CHAR(0xC0 | ((cp) >> 6));                                                                             \
-            PUSH_CHAR(0x80 | ((cp) & 0x3F));                                                                           \
-        }                                                                                                              \
-        else if ((cp) < 0x10000U)                                                                                      \
-        {                                                                                                              \
-            PUSH_CHAR(0xE0 | ((cp) >> 12));                                                                            \
-            PUSH_CHAR(0x80 | (((cp) >> 6) & 0x3F));                                                                    \
-            PUSH_CHAR(0x80 | ((cp) & 0x3F));                                                                           \
-        }                                                                                                              \
-        else                                                                                                           \
-        {                                                                                                              \
-            PUSH_CHAR(0xF0 | ((cp) >> 18));                                                                            \
-            PUSH_CHAR(0x80 | (((cp) >> 12) & 0x3F));                                                                   \
-            PUSH_CHAR(0x80 | (((cp) >> 6) & 0x3F));                                                                    \
-            PUSH_CHAR(0x80 | ((cp) & 0x3F));                                                                           \
-        }                                                                                                              \
-    } while (0)
+/* Encode a Unicode codepoint as UTF-8 into buf[*pos].  Returns bytes written (1-4). */
+static size_t json_encode_utf8(char *buf, size_t pos, uint32_t cp)
+{
+    if (cp < 0x80U)
+    {
+        buf[pos] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800U)
+    {
+        buf[pos]     = (char)(0xC0 | (cp >> 6));
+        buf[pos + 1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000U)
+    {
+        buf[pos]     = (char)(0xE0 | (cp >> 12));
+        buf[pos + 1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[pos + 2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    buf[pos]     = (char)(0xF0 | (cp >> 18));
+    buf[pos + 1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    buf[pos + 2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    buf[pos + 3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
 
 static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t *out_len)
 {
@@ -602,8 +602,24 @@ static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t 
                     }
                     cp = 0x10000U + ((cp - 0xD800U) << 10) + (lo - 0xDC00U);
                 }
-                JSON_ENCODE_UTF8(cp, PUSH_CHAR);
-                break;
+                {
+                    /* Ensure room for up to 4 UTF-8 bytes. */
+                    if (len + 4 >= cap)
+                    {
+                        size_t nc = cap * 2;
+                        char *nb = (char *)json_realloc(&a, buf, nc);
+                        if (nb == NULL)
+                        {
+                            json_dealloc(&a, buf);
+                            vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");
+                            return VIGIL_STATUS_OUT_OF_MEMORY;
+                        }
+                        buf = nb;
+                        cap = nc;
+                    }
+                    len += json_encode_utf8(buf, len, cp);
+                    break;
+                }
             }
             default:
                 json_dealloc(&a, buf);
