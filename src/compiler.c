@@ -8123,18 +8123,148 @@ static vigil_status_t vigil_parser_parse_interface_method_call(vigil_parser_stat
     return VIGIL_STATUS_OK;
 }
 
+static vigil_status_t vigil_parser_parse_postfix_dot(vigil_parser_state_t *state, const vigil_token_t *field_token,
+                                                      vigil_expression_result_t *out_result)
+{
+    vigil_status_t status;
+    const vigil_class_field_t *field;
+    const vigil_class_method_t *class_method;
+    const vigil_interface_method_t *interface_method;
+    size_t field_index;
+    size_t method_index;
+
+    status = vigil_parser_require_scalar_expression(state, vigil_parser_previous(state)->span, out_result,
+                                                    "multi-value expressions do not support member access");
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected field name after '.'", &field_token);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+
+    class_method = NULL;
+    interface_method = NULL;
+    field = NULL;
+    field_index = 0U;
+    method_index = 0U;
+
+    if (vigil_parser_find_field_by_name(state, out_result->type, field_token, &field_index, &field))
+    {
+        if (field_index > UINT32_MAX)
+        {
+            vigil_error_set_literal(state->program->error, VIGIL_STATUS_OUT_OF_MEMORY, "field operand overflow");
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        }
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_FIELD, field_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_u32(state, (uint32_t)field_index, field_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        vigil_expression_result_set_type(out_result, field->type);
+        return VIGIL_STATUS_OK;
+    }
+
+    if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN))
+    {
+        if (vigil_parser_type_is_string(out_result->type))
+            return vigil_parser_parse_string_method_call(state, field_token, out_result);
+        if (vigil_parser_type_is_array(out_result->type))
+            return vigil_parser_parse_array_method_call(state, out_result->type, field_token, out_result);
+        if (vigil_parser_type_is_map(out_result->type))
+            return vigil_parser_parse_map_method_call(state, out_result->type, field_token, out_result);
+
+        if (vigil_parser_type_is_class(out_result->type))
+        {
+            class_method = NULL;
+            if (vigil_parser_find_method_by_name(state, out_result->type, field_token, &method_index, &class_method))
+            {
+                const vigil_class_decl_t *class_decl = &state->program->classes[out_result->type.object_index];
+                if (class_method != NULL && !class_method->is_public &&
+                    class_decl->source_id != state->program->source->id)
+                    return vigil_parser_report(state, field_token->span, "class method is not public");
+                if (class_decl->native_class != NULL)
+                {
+                    if (class_decl->native_class->methods[method_index].is_static)
+                        return vigil_parser_report(state, field_token->span,
+                                                   "static method cannot be called on an instance");
+                    return vigil_parser_parse_native_method_call(state, field_token, class_decl->native_class,
+                                                                 &class_decl->native_class->methods[method_index],
+                                                                 out_result->type.object_index, out_result);
+                }
+                return vigil_parser_parse_method_call(state, field_token, class_method, out_result);
+            }
+            return vigil_parser_report(state, field_token->span, "unknown class method");
+        }
+
+        if (vigil_parser_find_interface_method_by_name(state, out_result->type, field_token, &method_index,
+                                                       &interface_method))
+            return vigil_parser_parse_interface_method_call(state, out_result->type, method_index, field_token,
+                                                            interface_method, out_result);
+        if (vigil_parser_type_is_interface(out_result->type))
+            return vigil_parser_report(state, field_token->span, "unknown interface method");
+
+        if (vigil_parser_type_is_err(out_result->type))
+        {
+            const char *error_method_name;
+            size_t error_method_length;
+
+            error_method_name = vigil_parser_token_text(state, field_token, &error_method_length);
+            status = vigil_parser_expect(state, VIGIL_TOKEN_LPAREN, "expected '(' after error method name", NULL);
+            if (status != VIGIL_STATUS_OK)
+                return status;
+            status = vigil_parser_expect(state, VIGIL_TOKEN_RPAREN, "error methods do not accept arguments", NULL);
+            if (status != VIGIL_STATUS_OK)
+                return status;
+            if (vigil_program_names_equal(error_method_name, error_method_length, "kind", 4U))
+            {
+                status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_ERROR_KIND, field_token->span);
+                if (status != VIGIL_STATUS_OK)
+                    return status;
+                vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_I32));
+                return VIGIL_STATUS_OK;
+            }
+            if (vigil_program_names_equal(error_method_name, error_method_length, "message", 7U))
+            {
+                status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_ERROR_MESSAGE, field_token->span);
+                if (status != VIGIL_STATUS_OK)
+                    return status;
+                vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_STRING));
+                return VIGIL_STATUS_OK;
+            }
+            return vigil_parser_report(state, field_token->span, "unknown error method");
+        }
+    }
+
+    /* Fall through to field access. */
+    field = NULL;
+    field_index = 0U;
+    status = vigil_parser_lookup_field(state, out_result->type, field_token, &field_index, &field);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    if (field_index > UINT32_MAX)
+    {
+        vigil_error_set_literal(state->program->error, VIGIL_STATUS_OUT_OF_MEMORY, "field operand overflow");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_FIELD, field_token->span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_u32(state, (uint32_t)field_index, field_token->span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    vigil_expression_result_set_type(out_result, field->type);
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_parser_parse_postfix_suffixes(vigil_parser_state_t *state,
                                                           vigil_expression_result_t *out_result)
 {
     vigil_status_t status;
     const vigil_token_t *field_token;
-    const vigil_class_field_t *field;
-    const vigil_class_method_t *class_method;
-    const vigil_interface_method_t *interface_method;
     vigil_expression_result_t index_result;
     vigil_parser_type_t indexed_type;
-    size_t field_index;
-    size_t method_index;
+
+    field_token = NULL;
 
     vigil_expression_result_clear(&index_result);
     while (1)
@@ -8168,193 +8298,11 @@ static vigil_status_t vigil_parser_parse_postfix_suffixes(vigil_parser_state_t *
 
         if (vigil_parser_match(state, VIGIL_TOKEN_DOT))
         {
-            status = vigil_parser_require_scalar_expression(state, vigil_parser_previous(state)->span, out_result,
-                                                            "multi-value expressions do not support member access");
+            status = vigil_parser_parse_postfix_dot(state, field_token, out_result);
             if (status != VIGIL_STATUS_OK)
             {
                 return status;
             }
-            status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected field name after '.'", &field_token);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-
-            class_method = NULL;
-            interface_method = NULL;
-            field = NULL;
-            field_index = 0U;
-            method_index = 0U;
-            if (vigil_parser_find_field_by_name(state, out_result->type, field_token, &field_index, &field))
-            {
-                if (field_index > UINT32_MAX)
-                {
-                    vigil_error_set_literal(state->program->error, VIGIL_STATUS_OUT_OF_MEMORY,
-                                            "field operand overflow");
-                    return VIGIL_STATUS_OUT_OF_MEMORY;
-                }
-
-                status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_FIELD, field_token->span);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                status = vigil_parser_emit_u32(state, (uint32_t)field_index, field_token->span);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                vigil_expression_result_set_type(out_result, field->type);
-                continue;
-            }
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_string(out_result->type))
-            {
-                status = vigil_parser_parse_string_method_call(state, field_token, out_result);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                continue;
-            }
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_array(out_result->type))
-            {
-                status = vigil_parser_parse_array_method_call(state, out_result->type, field_token, out_result);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                continue;
-            }
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_map(out_result->type))
-            {
-                status = vigil_parser_parse_map_method_call(state, out_result->type, field_token, out_result);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                continue;
-            }
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_class(out_result->type))
-            {
-                const vigil_class_decl_t *class_decl;
-
-                class_method = NULL;
-                if (vigil_parser_find_method_by_name(state, out_result->type, field_token, &method_index,
-                                                     &class_method))
-                {
-                    class_decl = &state->program->classes[out_result->type.object_index];
-                    if (class_method != NULL && !class_method->is_public &&
-                        class_decl->source_id != state->program->source->id)
-                    {
-                        return vigil_parser_report(state, field_token->span, "class method is not public");
-                    }
-                    if (class_decl->native_class != NULL)
-                    {
-                        if (class_decl->native_class->methods[method_index].is_static)
-                        {
-                            return vigil_parser_report(state, field_token->span,
-                                                       "static method cannot be called on an instance");
-                        }
-                        status = vigil_parser_parse_native_method_call(state, field_token, class_decl->native_class,
-                                                                       &class_decl->native_class->methods[method_index],
-                                                                       out_result->type.object_index, out_result);
-                    }
-                    else
-                    {
-                        status = vigil_parser_parse_method_call(state, field_token, class_method, out_result);
-                    }
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        return status;
-                    }
-                    continue;
-                }
-            }
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) &&
-                vigil_parser_find_interface_method_by_name(state, out_result->type, field_token, &method_index,
-                                                           &interface_method))
-            {
-                status = vigil_parser_parse_interface_method_call(state, out_result->type, method_index, field_token,
-                                                                  interface_method, out_result);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                continue;
-            }
-
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_class(out_result->type))
-            {
-                return vigil_parser_report(state, field_token->span, "unknown class method");
-            }
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_interface(out_result->type))
-            {
-                return vigil_parser_report(state, field_token->span, "unknown interface method");
-            }
-
-            if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN) && vigil_parser_type_is_err(out_result->type))
-            {
-                const char *error_method_name;
-                size_t error_method_length;
-
-                error_method_name = vigil_parser_token_text(state, field_token, &error_method_length);
-                status = vigil_parser_expect(state, VIGIL_TOKEN_LPAREN, "expected '(' after error method name", NULL);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                status = vigil_parser_expect(state, VIGIL_TOKEN_RPAREN, "error methods do not accept arguments", NULL);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    return status;
-                }
-                if (vigil_program_names_equal(error_method_name, error_method_length, "kind", 4U))
-                {
-                    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_ERROR_KIND, field_token->span);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        return status;
-                    }
-                    vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_I32));
-                    continue;
-                }
-                if (vigil_program_names_equal(error_method_name, error_method_length, "message", 7U))
-                {
-                    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_ERROR_MESSAGE, field_token->span);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        return status;
-                    }
-                    vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_STRING));
-                    continue;
-                }
-                return vigil_parser_report(state, field_token->span, "unknown error method");
-            }
-
-            field = NULL;
-            field_index = 0U;
-            status = vigil_parser_lookup_field(state, out_result->type, field_token, &field_index, &field);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            if (field_index > UINT32_MAX)
-            {
-                vigil_error_set_literal(state->program->error, VIGIL_STATUS_OUT_OF_MEMORY, "field operand overflow");
-                return VIGIL_STATUS_OUT_OF_MEMORY;
-            }
-
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_FIELD, field_token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            status = vigil_parser_emit_u32(state, (uint32_t)field_index, field_token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            vigil_expression_result_set_type(out_result, field->type);
             continue;
         }
 
