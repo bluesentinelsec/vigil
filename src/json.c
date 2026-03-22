@@ -956,6 +956,8 @@ static void emit_grow(json_emitter_t *e, size_t need)
 
 static void emit_raw(json_emitter_t *e, const char *s, size_t n)
 {
+    if (n == 0)
+        return;
     emit_grow(e, n);
     if (e->status != VIGIL_STATUS_OK)
         return;

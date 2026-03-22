@@ -361,7 +361,7 @@ static void line_history_move_up(line_buf_t *lb, line_history_nav_t *nav)
 
 static void line_history_move_down(line_buf_t *lb, line_history_nav_t *nav)
 {
-    if (!line_history_can_move_down(nav))
+    if (!line_history_can_move_down(nav) || !nav->history)
     {
         return;
     }
@@ -407,7 +407,8 @@ void vigil_line_history_add(vigil_line_history_t *h, const char *line)
     if (h->count >= h->max_entries)
     {
         free(h->entries[0]);
-        memmove(h->entries, h->entries + 1, (h->count - 1) * sizeof(char *));
+        if (h->count > 1)
+            memmove(h->entries, h->entries + 1, (h->count - 1) * sizeof(char *));
         h->count--;
     }
     if (h->count >= h->capacity)

@@ -266,7 +266,7 @@ static vigil_status_t log_at_level(vigil_vm_t *vm, size_t arg_count, vigil_error
     }
 
     /* Get preset attrs for this logger */
-    if (logger_handle >= 0 && logger_handle < g_logger_count)
+    if (logger_handle >= 0 && logger_handle < g_logger_count && logger_handle < MAX_LOGGERS)
     {
         preset_attrs = g_logger_attrs[logger_handle];
     }

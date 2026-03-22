@@ -214,8 +214,10 @@ static vigil_status_t handle_stack_trace(vigil_dap_server_t *s, int req_seq, vig
         jset_int(frame, "id", (int64_t)i, a, error);
 
         char fname[256];
-        size_t copy = name_len < sizeof(fname) - 1 ? name_len : sizeof(fname) - 1;
-        memcpy(fname, name ? name : "<unknown>", copy);
+        const char *display_name = name ? name : "<unknown>";
+        size_t display_len = name ? name_len : 9U;
+        size_t copy = display_len < sizeof(fname) - 1 ? display_len : sizeof(fname) - 1;
+        memcpy(fname, display_name, copy);
         fname[copy] = '\0';
         jset_str(frame, "name", fname, a, error);
         jset_int(frame, "line", line, a, error);
