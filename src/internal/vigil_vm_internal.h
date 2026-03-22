@@ -127,6 +127,63 @@ vigil_status_t vigil_vm_make_bounds_error_value(vigil_vm_t *vm, const char *mess
 int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t *right);
 int vigil_vm_value_is_supported_map_key(const vigil_value_t *value);
 
+/* ── Fast bytecode read macros ──────────────────────────────────── */
+
+#define VIGIL_VM_FAST_READ_U32(code, ip, out)                                                                          \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        (out) = (uint32_t)(code)[(ip) + 1U];                                                                           \
+        (out) |= (uint32_t)(code)[(ip) + 2U] << 8U;                                                                    \
+        (out) |= (uint32_t)(code)[(ip) + 3U] << 16U;                                                                   \
+        (out) |= (uint32_t)(code)[(ip) + 4U] << 24U;                                                                   \
+        (ip) += 5U;                                                                                                    \
+    } while (0)
+
+#define VIGIL_VM_FAST_READ_RAW_U32(code, ip, out)                                                                      \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        (out) = (uint32_t)(code)[(ip)];                                                                                \
+        (out) |= (uint32_t)(code)[(ip) + 1U] << 8U;                                                                    \
+        (out) |= (uint32_t)(code)[(ip) + 2U] << 16U;                                                                   \
+        (out) |= (uint32_t)(code)[(ip) + 3U] << 24U;                                                                   \
+        (ip) += 4U;                                                                                                    \
+    } while (0)
+
+/* ── i32 overflow check macros ─────────────────────────────────── */
+
+#if defined(__GNUC__) || defined(__clang__)
+#define VIGIL_I32_ADD_OVERFLOW(a, b, r) __builtin_add_overflow(a, b, r)
+#define VIGIL_I32_SUB_OVERFLOW(a, b, r) __builtin_sub_overflow(a, b, r)
+#define VIGIL_I32_MUL_OVERFLOW(a, b, r) __builtin_mul_overflow(a, b, r)
+#else
+#define VIGIL_I32_ADD_OVERFLOW(a, b, r)                                                                                \
+    (*(r) = (int32_t)((int64_t)(a) + (int64_t)(b)),                                                                    \
+     (int64_t)(a) + (int64_t)(b) < (int64_t)INT32_MIN || (int64_t)(a) + (int64_t)(b) > (int64_t)INT32_MAX)
+#define VIGIL_I32_SUB_OVERFLOW(a, b, r)                                                                                \
+    (*(r) = (int32_t)((int64_t)(a) - (int64_t)(b)),                                                                    \
+     (int64_t)(a) - (int64_t)(b) < (int64_t)INT32_MIN || (int64_t)(a) - (int64_t)(b) > (int64_t)INT32_MAX)
+#define VIGIL_I32_MUL_OVERFLOW(a, b, r)                                                                                \
+    (*(r) = (int32_t)((int64_t)(a) * (int64_t)(b)),                                                                    \
+     (int64_t)(a) * (int64_t)(b) < (int64_t)INT32_MIN || (int64_t)(a) * (int64_t)(b) > (int64_t)INT32_MAX)
+#endif
+
+/* ── Checked arithmetic helpers (defined in vm.c) ──────────────── */
+
+vigil_status_t vigil_vm_checked_add(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_uadd(uint64_t left, uint64_t right, uint64_t *out_result);
+vigil_status_t vigil_vm_checked_subtract(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_usubtract(uint64_t left, uint64_t right, uint64_t *out_result);
+vigil_status_t vigil_vm_checked_multiply(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_umultiply(uint64_t left, uint64_t right, uint64_t *out_result);
+vigil_status_t vigil_vm_checked_divide(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_udivide(uint64_t left, uint64_t right, uint64_t *out_result);
+vigil_status_t vigil_vm_checked_modulo(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_umodulo(uint64_t left, uint64_t right, uint64_t *out_result);
+vigil_status_t vigil_vm_checked_shift_left(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_shift_right(int64_t left, int64_t right, int64_t *out_result);
+vigil_status_t vigil_vm_checked_ushift_left(uint64_t left, uint64_t right, uint64_t *out_result);
+vigil_status_t vigil_vm_checked_ushift_right(uint64_t left, uint64_t right, uint64_t *out_result);
+
 /* Helpers for conversion / unary / binary ops (defined in vm.c). */
 vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result);
 int vigil_vm_value_is_integer(const vigil_value_t *value);
