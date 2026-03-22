@@ -565,6 +565,148 @@ class DocsConformanceTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stderr)
             self.assertEqual(result.stderr, "")
 
+    # -- additional string methods --
+
+    def test_string_methods_extended(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
+            root = Path(tmpdir)
+            write_sources(root, {"main.vigil": """
+                import "fmt";
+                fn main() -> i32 {
+                    string s = "  Hello World  ";
+                    if (s.trim_left() != "Hello World  ") { return 1; }
+                    if (s.trim_right() != "  Hello World") { return 2; }
+                    if ("abc".reverse() != "cba") { return 3; }
+                    if ("".is_empty() != true) { return 4; }
+                    if ("hi".is_empty() != false) { return 5; }
+                    if ("hello".char_count() != 5) { return 6; }
+                    if ("ab".repeat(3) != "ababab") { return 7; }
+                    if ("ababa".count("ab") != 2) { return 8; }
+                    i32 idx, bool found = "hello world".last_index_of("o");
+                    if (!found) { return 9; }
+                    if (idx != 7) { return 10; }
+                    if ("hello world".trim_prefix("hello ") != "world") { return 11; }
+                    if ("hello world".trim_suffix(" world") != "hello") { return 12; }
+                    if (!"Hello".equal_fold("hello")) { return 13; }
+                    if ("abc".len() != 3) { return 14; }
+                    return 0;
+                }
+            """})
+            result = run_vigil(root, "main.vigil")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(result.stderr, "")
+
+    # -- array methods extended --
+
+    def test_array_methods_extended(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
+            root = Path(tmpdir)
+            write_sources(root, {"main.vigil": """
+                fn main() -> i32 {
+                    array<i32> a = [10, 20, 30, 40, 50];
+                    if (!a.contains(30)) { return 1; }
+                    if (a.contains(99)) { return 2; }
+                    array<i32> sl = a.slice(1, 3);
+                    if (sl.len() != 2) { return 3; }
+                    if (sl[0] != 20) { return 4; }
+                    if (sl[1] != 30) { return 5; }
+                    return 0;
+                }
+            """})
+            result = run_vigil(root, "main.vigil")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(result.stderr, "")
+
+    # -- f-string format specifiers --
+
+    def test_fstring_format_specifiers(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
+            root = Path(tmpdir)
+            write_sources(root, {"main.vigil": """
+                import "fmt";
+                fn main() -> i32 {
+                    i32 n = 42;
+                    f64 pi = 3.14159;
+                    string name = "hi";
+
+                    string s1 = f"{n:d}";
+                    if (s1 != "42") { return 1; }
+
+                    string s2 = f"{n:x}";
+                    if (s2 != "2a") { return 2; }
+
+                    string s3 = f"{n:X}";
+                    if (s3 != "2A") { return 3; }
+
+                    string s4 = f"{n:b}";
+                    if (s4 != "101010") { return 4; }
+
+                    string s5 = f"{n:o}";
+                    if (s5 != "52") { return 5; }
+
+                    string s6 = f"{pi:.2f}";
+                    if (s6 != "3.14") { return 6; }
+
+                    string s7 = f"{name:>10}";
+                    if (s7 != "        hi") { return 7; }
+
+                    string s8 = f"{name:<10}";
+                    if (s8 != "hi        ") { return 8; }
+
+                    string s9 = f"{name:^10}";
+                    if (s9 != "    hi    ") { return 9; }
+
+                    string s10 = f"{name:*>10}";
+                    if (s10 != "********hi") { return 10; }
+
+                    string s11 = f"{n:>10d}";
+                    if (s11 != "        42") { return 11; }
+
+                    string s12 = f"{1000:,}";
+                    if (s12 != "1,000") { return 12; }
+
+                    string s13 = f"plain text";
+                    if (s13 != "plain text") { return 13; }
+
+                    string s14 = f"val={n}";
+                    if (s14 != "val=42") { return 14; }
+
+                    string s15 = f"{true}";
+                    if (s15 != "true") { return 15; }
+
+                    string s16 = f"{pi}";
+                    if (s16.len() < 3) { return 16; }
+
+                    return 0;
+                }
+            """})
+            result = run_vigil(root, "main.vigil")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(result.stderr, "")
+
+    # -- f-string escape sequences --
+
+    def test_fstring_escapes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="vigil_syntax_") as tmpdir:
+            root = Path(tmpdir)
+            write_sources(root, {"main.vigil": r"""
+                import "fmt";
+                fn main() -> i32 {
+                    string s1 = f"{{braces}}";
+                    if (s1 != "{braces}") { return 1; }
+
+                    string s2 = "\x48\x69";
+                    if (s2 != "Hi") { return 2; }
+
+                    string s3 = "tab\there";
+                    if (s3.len() != 8) { return 3; }
+
+                    return 0;
+                }
+            """})
+            result = run_vigil(root, "main.vigil")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+
     # -- type conversions --
 
     def test_type_conversions(self) -> None:
