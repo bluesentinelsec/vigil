@@ -222,7 +222,14 @@ extern "C"
         VIGIL_OPCODE_MATH_COS_F64 = 154,
         VIGIL_OPCODE_MATH_SQRT_F64 = 155,
         VIGIL_OPCODE_MATH_LOG_F64 = 156,
-        VIGIL_OPCODE_MATH_POW_F64 = 157
+        VIGIL_OPCODE_MATH_POW_F64 = 157,
+
+        /* Dedicated parse intrinsics — bypass CALL_NATIVE overhead.
+           Each pops a string, pushes (value, ok_error) on success or
+           (default, error_object) on failure. */
+        VIGIL_OPCODE_PARSE_I32 = 158,
+        VIGIL_OPCODE_PARSE_F64 = 159,
+        VIGIL_OPCODE_PARSE_BOOL = 160
     } vigil_opcode_t;
 
     typedef struct vigil_chunk

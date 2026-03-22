@@ -75,4 +75,9 @@ const vigil_chunk_t *vigil_callable_object_chunk(const vigil_object_t *callable)
    Avoids allocating a new error object on every stdlib success path. */
 vigil_status_t vigil_runtime_push_ok_error(vigil_runtime_t *runtime, vigil_vm_t *vm, vigil_error_t *error);
 
+/* Return the pre-encoded nanbox value for the singleton "ok" error.
+   Callers can push this directly with VIGIL_VM_PUSH to skip the
+   retain/release overhead of vigil_runtime_push_ok_error(). */
+vigil_value_t vigil_runtime_ok_error_value(vigil_runtime_t *runtime);
+
 #endif

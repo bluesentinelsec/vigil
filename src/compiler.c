@@ -49,7 +49,9 @@ static int vigil_opcode_produces_i64(vigil_opcode_t op);
 static int vigil_opcode_i32_to_i64(vigil_opcode_t op, vigil_opcode_t *out);
 // clang-format off
 static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *, const char *, size_t);
+static int vigil_parser_parse_intrinsic_opcode(const vigil_native_module_t *, const char *, size_t);
 static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *, const vigil_native_module_function_t *, vigil_expression_result_t *);
+static vigil_status_t vigil_parser_try_emit_intrinsic(vigil_parser_state_t *, const vigil_native_module_t *, const vigil_native_module_function_t *, const vigil_token_t *, vigil_expression_result_t *, int *);
 static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *, const vigil_native_module_t *, const vigil_native_module_function_t *, const vigil_token_t *, size_t, vigil_expression_result_t *);
 static vigil_status_t vigil_parser_parse_native_call_args(vigil_parser_state_t *, const vigil_token_t *, const vigil_native_module_function_t *, size_t *);
 static vigil_status_t vigil_parser_check_native_arg_type(vigil_parser_state_t *, const vigil_token_t *, const vigil_native_module_function_t *, size_t, vigil_binding_type_t);
@@ -7167,6 +7169,32 @@ static int vigil_parser_math_intrinsic_opcode(const vigil_native_module_t *mod, 
     return -1;
 }
 
+/* Returns a dedicated parse intrinsic opcode for (mod, fn), or -1 if none. */
+static int vigil_parser_parse_intrinsic_opcode(const vigil_native_module_t *mod, const char *fn_name,
+                                               size_t fn_name_length)
+{
+    static const struct
+    {
+        const char *name;
+        size_t len;
+        vigil_opcode_t opcode;
+    } kParseIntrinsics[] = {
+        {"i32", 3U, VIGIL_OPCODE_PARSE_I32},
+        {"f64", 3U, VIGIL_OPCODE_PARSE_F64},
+        {"bool", 4U, VIGIL_OPCODE_PARSE_BOOL},
+    };
+    size_t i;
+
+    if (mod->name_length != 5U || memcmp(mod->name, "parse", 5U) != 0)
+        return -1;
+    for (i = 0U; i < sizeof(kParseIntrinsics) / sizeof(kParseIntrinsics[0]); i++)
+    {
+        if (fn_name_length == kParseIntrinsics[i].len && memcmp(fn_name, kParseIntrinsics[i].name, fn_name_length) == 0)
+            return (int)kParseIntrinsics[i].opcode;
+    }
+    return -1;
+}
+
 static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_t *state,
                                                              const vigil_native_module_function_t *fn,
                                                              vigil_expression_result_t *out_result)
@@ -7205,6 +7233,36 @@ static vigil_status_t vigil_parser_set_native_fn_return_type(vigil_parser_state_
     return VIGIL_STATUS_OK;
 }
 
+static vigil_status_t vigil_parser_try_emit_intrinsic(vigil_parser_state_t *state, const vigil_native_module_t *mod,
+                                                      const vigil_native_module_function_t *fn,
+                                                      const vigil_token_t *member_token,
+                                                      vigil_expression_result_t *out_result, int *out_handled)
+{
+    vigil_status_t status;
+    int intrinsic_op;
+
+    *out_handled = 0;
+    if (state->defer_mode)
+        return VIGIL_STATUS_OK;
+    intrinsic_op = vigil_parser_math_intrinsic_opcode(mod, fn->name, fn->name_length);
+    if (intrinsic_op >= 0)
+    {
+        vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_F64));
+        *out_handled = 1;
+        return vigil_parser_emit_opcode(state, (vigil_opcode_t)intrinsic_op, member_token->span);
+    }
+    intrinsic_op = vigil_parser_parse_intrinsic_opcode(mod, fn->name, fn->name_length);
+    if (intrinsic_op >= 0)
+    {
+        status = vigil_parser_emit_opcode(state, (vigil_opcode_t)intrinsic_op, member_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        *out_handled = 1;
+        return vigil_parser_set_native_fn_return_type(state, fn, out_result);
+    }
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state, const vigil_native_module_t *mod,
                                                     const vigil_native_module_function_t *fn,
                                                     const vigil_token_t *member_token, size_t arg_count,
@@ -7213,17 +7271,15 @@ static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state,
     vigil_status_t status;
     vigil_object_t *native_obj;
     vigil_value_t native_val;
-    int intrinsic_op;
     int defer_call;
+    int handled;
+
+    handled = 0;
+    status = vigil_parser_try_emit_intrinsic(state, mod, fn, member_token, out_result, &handled);
+    if (handled || status != VIGIL_STATUS_OK)
+        return status;
 
     defer_call = state->defer_mode;
-    intrinsic_op = vigil_parser_math_intrinsic_opcode(mod, fn->name, fn->name_length);
-    if (intrinsic_op >= 0 && !defer_call)
-    {
-        vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_F64));
-        return vigil_parser_emit_opcode(state, (vigil_opcode_t)intrinsic_op, member_token->span);
-    }
-
     native_obj = NULL;
     status = vigil_native_function_object_create(state->program->registry->runtime, fn->name, fn->name_length,
                                                  fn->param_count, fn->native_fn, &native_obj, state->program->error);
@@ -7234,13 +7290,11 @@ static vigil_status_t vigil_parser_emit_native_call(vigil_parser_state_t *state,
         size_t const_idx = 0U;
         status = vigil_chunk_add_constant(&state->chunk, &native_val, &const_idx, state->program->error);
         vigil_value_release(&native_val);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_parser_emit_opcode(state, defer_call ? VIGIL_OPCODE_DEFER_CALL_NATIVE : VIGIL_OPCODE_CALL_NATIVE,
-                                          member_token->span);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_parser_emit_u32(state, (uint32_t)const_idx, member_token->span);
+        if (status == VIGIL_STATUS_OK)
+            status = vigil_parser_emit_opcode(
+                state, defer_call ? VIGIL_OPCODE_DEFER_CALL_NATIVE : VIGIL_OPCODE_CALL_NATIVE, member_token->span);
+        if (status == VIGIL_STATUS_OK)
+            status = vigil_parser_emit_u32(state, (uint32_t)const_idx, member_token->span);
         if (status == VIGIL_STATUS_OK)
             status = vigil_parser_emit_u32(state, (uint32_t)arg_count, member_token->span);
         if (status != VIGIL_STATUS_OK)

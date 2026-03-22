@@ -44,6 +44,16 @@ fn main() -> i32 {
         rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
+    def test_i32_empty(self):
+        code = '''import "parse";
+fn main() -> i32 {
+    i32 value, err e = parse.i32("");
+    if (e != ok && value == 0) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
 
 class ParseF64Test(unittest.TestCase):
     def test_f64_success(self):
@@ -56,6 +66,16 @@ fn main() -> i32 {
         rc, out, err = run_vigil(code)
         self.assertEqual(rc, 0, f"stderr: {err}")
 
+    def test_f64_failure(self):
+        code = '''import "parse";
+fn main() -> i32 {
+    f64 value, err e = parse.f64("abc");
+    if (e != ok && value == 0.0) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
 
 class ParseBoolTest(unittest.TestCase):
     def test_bool_success(self):
@@ -63,6 +83,16 @@ class ParseBoolTest(unittest.TestCase):
 fn main() -> i32 {
     bool value, err e = parse.bool("true");
     if (e == ok && value) { return 0; }
+    return 1;
+}'''
+        rc, out, err = run_vigil(code)
+        self.assertEqual(rc, 0, f"stderr: {err}")
+
+    def test_bool_false(self):
+        code = '''import "parse";
+fn main() -> i32 {
+    bool value, err e = parse.bool("false");
+    if (e == ok && !value) { return 0; }
     return 1;
 }'''
         rc, out, err = run_vigil(code)
