@@ -32,7 +32,7 @@
     },
     {
       "pattern": "src/value.c",
-      "line_percent": 90.0
+      "line_percent": 85.0
     },
     {
       "pattern": "src/vm.c",

@@ -183,15 +183,111 @@ static const vigil_map_object_t *vigil_map_object_cast(const vigil_object_t *obj
     return (const vigil_map_object_t *)object;
 }
 
+static void free_class_table(vigil_runtime_t *runtime, vigil_runtime_class_t *classes, size_t class_count)
+{
+    size_t class_index;
+    void *memory;
+
+    for (class_index = 0U; class_index < class_count; ++class_index)
+    {
+        size_t impl_index;
+
+        for (impl_index = 0U; impl_index < classes[class_index].interface_impl_count; ++impl_index)
+        {
+            memory = classes[class_index].interface_impls[impl_index].function_indices;
+            vigil_runtime_free(runtime, &memory);
+        }
+
+        memory = classes[class_index].interface_impls;
+        vigil_runtime_free(runtime, &memory);
+    }
+
+    memory = classes;
+    vigil_runtime_free(runtime, &memory);
+}
+
+static void destroy_function_object(vigil_function_object_t *obj)
+{
+    vigil_runtime_t *runtime = obj->base.runtime;
+    void *memory;
+
+    vigil_string_free(&obj->name);
+    vigil_chunk_free(&obj->chunk);
+
+    if (obj->owns_class_table && obj->classes != NULL)
+    {
+        free_class_table(runtime, obj->classes, obj->class_count);
+    }
+    if (obj->owns_function_table && obj->functions != NULL)
+    {
+        size_t i;
+
+        for (i = 0U; i < obj->function_count; ++i)
+        {
+            if (i != obj->function_index)
+            {
+                vigil_object_release(&obj->functions[i]);
+            }
+        }
+
+        memory = obj->functions;
+        vigil_runtime_free(runtime, &memory);
+    }
+    if (obj->owns_global_table && obj->globals != NULL)
+    {
+        size_t i;
+
+        for (i = 0U; i < obj->global_count; ++i)
+        {
+            vigil_value_release(&obj->globals[i]);
+        }
+
+        memory = obj->globals;
+        vigil_runtime_free(runtime, &memory);
+    }
+}
+
+static void destroy_closure_object(vigil_closure_object_t *obj)
+{
+    vigil_runtime_t *runtime = obj->base.runtime;
+    void *memory;
+
+    if (obj->function != NULL)
+    {
+        vigil_object_release(&obj->function);
+    }
+    if (obj->captures != NULL)
+    {
+        size_t i;
+
+        for (i = 0U; i < obj->capture_count; ++i)
+        {
+            vigil_value_release(&obj->captures[i]);
+        }
+
+        memory = obj->captures;
+        vigil_runtime_free(runtime, &memory);
+    }
+}
+
+static void free_value_array(vigil_runtime_t *runtime, vigil_value_t *values, size_t count)
+{
+    size_t i;
+    void *memory;
+
+    for (i = 0U; i < count; ++i)
+    {
+        vigil_value_release(&values[i]);
+    }
+
+    memory = values;
+    vigil_runtime_free(runtime, &memory);
+}
+
 static void vigil_object_destroy(vigil_object_t *object)
 {
     vigil_runtime_t *runtime;
     void *memory;
-    vigil_string_object_t *string_object;
-    vigil_function_object_t *function_object;
-    vigil_closure_object_t *closure_object;
-    vigil_instance_object_t *instance_object;
-    vigil_array_object_t *array_object;
 
     if (object == NULL)
     {
@@ -202,118 +298,33 @@ static void vigil_object_destroy(vigil_object_t *object)
     switch (object->type)
     {
     case VIGIL_OBJECT_STRING:
-        string_object = (vigil_string_object_t *)object;
-        vigil_string_free(&string_object->value);
+        vigil_string_free(&((vigil_string_object_t *)object)->value);
         break;
     case VIGIL_OBJECT_ERROR:
         vigil_string_free(&((vigil_error_object_t *)object)->message);
         break;
     case VIGIL_OBJECT_FUNCTION:
-        function_object = (vigil_function_object_t *)object;
-        vigil_string_free(&function_object->name);
-        vigil_chunk_free(&function_object->chunk);
-        if (function_object->owns_class_table && function_object->classes != NULL)
-        {
-            size_t class_index;
-
-            for (class_index = 0U; class_index < function_object->class_count; ++class_index)
-            {
-                size_t impl_index;
-
-                for (impl_index = 0U; impl_index < function_object->classes[class_index].interface_impl_count;
-                     ++impl_index)
-                {
-                    memory = function_object->classes[class_index].interface_impls[impl_index].function_indices;
-                    vigil_runtime_free(runtime, &memory);
-                }
-
-                memory = function_object->classes[class_index].interface_impls;
-                vigil_runtime_free(runtime, &memory);
-            }
-
-            memory = function_object->classes;
-            vigil_runtime_free(runtime, &memory);
-        }
-        if (function_object->owns_function_table && function_object->functions != NULL)
-        {
-            size_t i;
-            void *table_memory;
-
-            for (i = 0U; i < function_object->function_count; ++i)
-            {
-                if (i == function_object->function_index)
-                {
-                    continue;
-                }
-
-                vigil_object_release(&function_object->functions[i]);
-            }
-
-            table_memory = function_object->functions;
-            vigil_runtime_free(runtime, &table_memory);
-        }
-        if (function_object->owns_global_table && function_object->globals != NULL)
-        {
-            size_t global_index;
-
-            for (global_index = 0U; global_index < function_object->global_count; ++global_index)
-            {
-                vigil_value_release(&function_object->globals[global_index]);
-            }
-
-            memory = function_object->globals;
-            vigil_runtime_free(runtime, &memory);
-        }
+        destroy_function_object((vigil_function_object_t *)object);
         break;
     case VIGIL_OBJECT_CLOSURE:
-        closure_object = (vigil_closure_object_t *)object;
-        if (closure_object->function != NULL)
+        destroy_closure_object((vigil_closure_object_t *)object);
+        break;
+    case VIGIL_OBJECT_INSTANCE: {
+        vigil_instance_object_t *inst = (vigil_instance_object_t *)object;
+        if (inst->fields != NULL)
         {
-            vigil_object_release(&closure_object->function);
-        }
-        if (closure_object->captures != NULL)
-        {
-            size_t capture_index;
-
-            for (capture_index = 0U; capture_index < closure_object->capture_count; ++capture_index)
-            {
-                vigil_value_release(&closure_object->captures[capture_index]);
-            }
-
-            memory = closure_object->captures;
-            vigil_runtime_free(runtime, &memory);
+            free_value_array(runtime, inst->fields, inst->field_count);
         }
         break;
-    case VIGIL_OBJECT_INSTANCE:
-        instance_object = (vigil_instance_object_t *)object;
-        if (instance_object->fields != NULL)
+    }
+    case VIGIL_OBJECT_ARRAY: {
+        vigil_array_object_t *arr = (vigil_array_object_t *)object;
+        if (arr->items != NULL)
         {
-            size_t i;
-
-            for (i = 0U; i < instance_object->field_count; ++i)
-            {
-                vigil_value_release(&instance_object->fields[i]);
-            }
-
-            memory = instance_object->fields;
-            vigil_runtime_free(runtime, &memory);
+            free_value_array(runtime, arr->items, arr->item_count);
         }
         break;
-    case VIGIL_OBJECT_ARRAY:
-        array_object = (vigil_array_object_t *)object;
-        if (array_object->items != NULL)
-        {
-            size_t i;
-
-            for (i = 0U; i < array_object->item_count; ++i)
-            {
-                vigil_value_release(&array_object->items[i]);
-            }
-
-            memory = array_object->items;
-            vigil_runtime_free(runtime, &memory);
-        }
-        break;
+    }
     case VIGIL_OBJECT_MAP:
         vigil_map_free(&((vigil_map_object_t *)object)->entries);
         break;
@@ -1723,6 +1734,102 @@ int vigil_map_object_remove(vigil_object_t *object, const vigil_value_t *key, vi
     return 1;
 }
 
+static vigil_status_t alloc_class_table(vigil_runtime_t *runtime, const vigil_runtime_class_init_t *classes_init,
+                                        size_t class_count, vigil_runtime_class_t **out_classes, vigil_error_t *error)
+{
+    vigil_runtime_class_t *classes;
+    void *memory;
+    size_t class_index;
+
+    memory = NULL;
+    if (vigil_runtime_alloc(runtime, class_count * sizeof(*classes), &memory, error) != VIGIL_STATUS_OK)
+    {
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
+    classes = (vigil_runtime_class_t *)memory;
+    memset(classes, 0, class_count * sizeof(*classes));
+
+    for (class_index = 0U; class_index < class_count; ++class_index)
+    {
+        size_t interface_count = classes_init[class_index].interface_impl_count;
+        size_t i;
+
+        classes[class_index].interface_impl_count = interface_count;
+        if (interface_count == 0U)
+        {
+            continue;
+        }
+
+        memory = NULL;
+        if (vigil_runtime_alloc(runtime, interface_count * sizeof(*classes[class_index].interface_impls), &memory,
+                                error) != VIGIL_STATUS_OK)
+        {
+            free_class_table(runtime, classes, class_count);
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        }
+        classes[class_index].interface_impls = (vigil_runtime_interface_impl_t *)memory;
+        memset(classes[class_index].interface_impls, 0,
+               interface_count * sizeof(*classes[class_index].interface_impls));
+
+        for (i = 0U; i < interface_count; ++i)
+        {
+            size_t method_count = classes_init[class_index].interface_impls[i].function_count;
+
+            classes[class_index].interface_impls[i].interface_index =
+                classes_init[class_index].interface_impls[i].interface_index;
+            classes[class_index].interface_impls[i].function_count = method_count;
+            if (method_count == 0U)
+            {
+                continue;
+            }
+
+            memory = NULL;
+            if (vigil_runtime_alloc(runtime,
+                                    method_count * sizeof(*classes[class_index].interface_impls[i].function_indices),
+                                    &memory, error) != VIGIL_STATUS_OK)
+            {
+                free_class_table(runtime, classes, class_count);
+                return VIGIL_STATUS_OUT_OF_MEMORY;
+            }
+            classes[class_index].interface_impls[i].function_indices = (size_t *)memory;
+            memcpy(classes[class_index].interface_impls[i].function_indices,
+                   classes_init[class_index].interface_impls[i].function_indices,
+                   method_count * sizeof(*classes[class_index].interface_impls[i].function_indices));
+        }
+    }
+
+    *out_classes = classes;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t alloc_globals_table(vigil_runtime_t *runtime, const vigil_value_t *initial_globals,
+                                          size_t global_count, vigil_value_t **out_globals, vigil_error_t *error)
+{
+    vigil_value_t *globals;
+    void *memory;
+    size_t i;
+
+    memory = NULL;
+    if (vigil_runtime_alloc(runtime, global_count * sizeof(*globals), &memory, error) != VIGIL_STATUS_OK)
+    {
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
+    globals = (vigil_value_t *)memory;
+    for (i = 0U; i < global_count; ++i)
+    {
+        if (initial_globals != NULL)
+        {
+            globals[i] = vigil_value_copy(&initial_globals[i]);
+        }
+        else
+        {
+            vigil_value_init_nil(&globals[i]);
+        }
+    }
+    *out_globals = globals;
+    return VIGIL_STATUS_OK;
+}
+
 vigil_status_t vigil_function_object_attach_siblings(vigil_object_t *owner_function, vigil_object_t **functions,
                                                      size_t function_count, size_t owner_index,
                                                      const vigil_value_t *initial_globals, size_t global_count,
@@ -1735,8 +1842,7 @@ vigil_status_t vigil_function_object_attach_siblings(vigil_object_t *owner_funct
     vigil_runtime_t *runtime;
     vigil_runtime_class_t *classes;
     vigil_value_t *globals;
-    void *memory;
-    int invalid_function_table;
+    vigil_status_t status;
 
     vigil_error_clear(error);
     owner = (vigil_function_object_t *)owner_function;
@@ -1761,7 +1867,6 @@ vigil_status_t vigil_function_object_attach_siblings(vigil_object_t *owner_funct
     runtime = owner->base.runtime;
     classes = NULL;
     globals = NULL;
-    invalid_function_table = 0;
     if (class_count != 0U && classes_init == NULL)
     {
         vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT, "class metadata must not be null");
@@ -1770,83 +1875,19 @@ vigil_status_t vigil_function_object_attach_siblings(vigil_object_t *owner_funct
 
     if (global_count != 0U)
     {
-        size_t global_index;
-
-        memory = NULL;
-        if (vigil_runtime_alloc(runtime, global_count * sizeof(*globals), &memory, error) != VIGIL_STATUS_OK)
+        status = alloc_globals_table(runtime, initial_globals, global_count, &globals, error);
+        if (status != VIGIL_STATUS_OK)
         {
-            return VIGIL_STATUS_OUT_OF_MEMORY;
-        }
-        globals = (vigil_value_t *)memory;
-        for (global_index = 0U; global_index < global_count; ++global_index)
-        {
-            if (initial_globals != NULL)
-            {
-                globals[global_index] = vigil_value_copy(&initial_globals[global_index]);
-            }
-            else
-            {
-                vigil_value_init_nil(&globals[global_index]);
-            }
+            return status;
         }
     }
 
     if (class_count != 0U)
     {
-        size_t class_index;
-
-        memory = NULL;
-        if (vigil_runtime_alloc(runtime, class_count * sizeof(*classes), &memory, error) != VIGIL_STATUS_OK)
+        status = alloc_class_table(runtime, classes_init, class_count, &classes, error);
+        if (status != VIGIL_STATUS_OK)
         {
-            return VIGIL_STATUS_OUT_OF_MEMORY;
-        }
-        classes = (vigil_runtime_class_t *)memory;
-        memset(classes, 0, class_count * sizeof(*classes));
-
-        for (class_index = 0U; class_index < class_count; ++class_index)
-        {
-            size_t interface_count = classes_init[class_index].interface_impl_count;
-
-            classes[class_index].interface_impl_count = interface_count;
-            if (interface_count == 0U)
-            {
-                continue;
-            }
-
-            memory = NULL;
-            if (vigil_runtime_alloc(runtime, interface_count * sizeof(*classes[class_index].interface_impls), &memory,
-                                    error) != VIGIL_STATUS_OK)
-            {
-                goto cleanup_classes;
-            }
-            classes[class_index].interface_impls = (vigil_runtime_interface_impl_t *)memory;
-            memset(classes[class_index].interface_impls, 0,
-                   interface_count * sizeof(*classes[class_index].interface_impls));
-
-            for (i = 0U; i < interface_count; ++i)
-            {
-                size_t method_count = classes_init[class_index].interface_impls[i].function_count;
-
-                classes[class_index].interface_impls[i].interface_index =
-                    classes_init[class_index].interface_impls[i].interface_index;
-                classes[class_index].interface_impls[i].function_count = method_count;
-                if (method_count == 0U)
-                {
-                    continue;
-                }
-
-                memory = NULL;
-                if (vigil_runtime_alloc(
-                        runtime, method_count * sizeof(*classes[class_index].interface_impls[i].function_indices),
-                        &memory, error) != VIGIL_STATUS_OK)
-                {
-                    goto cleanup_classes;
-                }
-                classes[class_index].interface_impls[i].function_indices = (size_t *)memory;
-                memcpy(classes[class_index].interface_impls[i].function_indices,
-                       classes_init[class_index].interface_impls[i].function_indices,
-                       method_count * sizeof(*classes[class_index].interface_impls[i].function_indices));
-            }
+            goto cleanup;
         }
     }
 
@@ -1855,8 +1896,10 @@ vigil_status_t vigil_function_object_attach_siblings(vigil_object_t *owner_funct
         function_object = (vigil_function_object_t *)functions[i];
         if (function_object == NULL || function_object->base.type != VIGIL_OBJECT_FUNCTION)
         {
-            invalid_function_table = 1;
-            goto cleanup_classes;
+            vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
+                                    "function table entries must all be function objects");
+            status = VIGIL_STATUS_INVALID_ARGUMENT;
+            goto cleanup;
         }
 
         function_object->functions = functions;
@@ -1876,48 +1919,16 @@ vigil_status_t vigil_function_object_attach_siblings(vigil_object_t *owner_funct
     owner->owns_class_table = 1;
     return VIGIL_STATUS_OK;
 
-cleanup_classes:
+cleanup:
     if (globals != NULL)
     {
-        size_t global_index;
-
-        for (global_index = 0U; global_index < global_count; ++global_index)
-        {
-            vigil_value_release(&globals[global_index]);
-        }
-
-        memory = globals;
-        vigil_runtime_free(runtime, &memory);
+        free_value_array(runtime, globals, global_count);
     }
     if (classes != NULL)
     {
-        size_t class_index;
-
-        for (class_index = 0U; class_index < class_count; ++class_index)
-        {
-            size_t impl_index;
-
-            for (impl_index = 0U; impl_index < classes[class_index].interface_impl_count; ++impl_index)
-            {
-                memory = classes[class_index].interface_impls[impl_index].function_indices;
-                vigil_runtime_free(runtime, &memory);
-            }
-
-            memory = classes[class_index].interface_impls;
-            vigil_runtime_free(runtime, &memory);
-        }
-
-        memory = classes;
-        vigil_runtime_free(runtime, &memory);
+        free_class_table(runtime, classes, class_count);
     }
-
-    if (invalid_function_table)
-    {
-        vigil_error_set_literal(error, VIGIL_STATUS_INVALID_ARGUMENT,
-                                "function table entries must all be function objects");
-        return VIGIL_STATUS_INVALID_ARGUMENT;
-    }
-    return VIGIL_STATUS_OUT_OF_MEMORY;
+    return status;
 }
 
 const vigil_object_t *vigil_function_object_sibling(const vigil_object_t *function, size_t index)
