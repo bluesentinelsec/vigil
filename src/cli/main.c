@@ -1440,27 +1440,93 @@ cleanup:
 
 /* ── packaged binary runner ───────────────────────────────────────── */
 
+/* Register all bundled files as sources and identify the entry source. */
+static void packaged_register_sources(vigil_source_registry_t *registry, const vigil_package_bundle_t *bundle,
+                                      vigil_source_id_t *out_source_id, vigil_error_t *error)
+{
+    for (size_t i = 0; i < bundle->file_count; i++)
+    {
+        vigil_source_id_t sid = 0;
+        vigil_source_registry_register(registry, bundle->paths[i], strlen(bundle->paths[i]), bundle->contents[i],
+                                       bundle->content_lengths[i], &sid, error);
+        if (strcmp(bundle->paths[i], "entry.vigil") == 0)
+            *out_source_id = sid;
+    }
+}
+
+/* Compile and execute a packaged program. Returns exit code. */
+static int packaged_compile_and_run(vigil_runtime_t *runtime, vigil_vm_t *vm, vigil_source_registry_t *registry,
+                                    vigil_source_id_t source_id, int argc, char **argv)
+{
+    vigil_error_t error = {0};
+    vigil_diagnostic_list_t diagnostics;
+    vigil_object_t *function = NULL;
+    vigil_value_t result;
+    vigil_status_t status;
+    int exit_code = 0;
+
+    vigil_diagnostic_list_init(&diagnostics, runtime);
+    vigil_value_init_nil(&result);
+
+    {
+        vigil_native_registry_t natives;
+        vigil_native_registry_init(&natives);
+        vigil_stdlib_register_all(&natives, &error);
+        status = vigil_compile_source_with_natives(registry, source_id, &natives, &function, &diagnostics, &error);
+        vigil_native_registry_free(&natives);
+    }
+    if (status != VIGIL_STATUS_OK)
+    {
+        if (vigil_diagnostic_list_count(&diagnostics) != 0U)
+            print_diagnostics(registry, &diagnostics);
+        else
+            print_error(registry, "compile failed", &error);
+        exit_code = 1;
+    }
+    else
+    {
+        if (argc > 1)
+            vigil_vm_set_args(vm, (const char *const *)&argv[1], (size_t)(argc - 1));
+        else
+            vigil_vm_set_args(vm, NULL, 0);
+
+        status = vigil_vm_execute_function(vm, function, &result, &error);
+        if (status != VIGIL_STATUS_OK)
+        {
+            print_error(registry, "execution failed", &error);
+            exit_code = 1;
+        }
+        else if (vigil_value_kind(&result) == VIGIL_VALUE_INT)
+        {
+            exit_code = (int)vigil_value_as_int(&result);
+        }
+    }
+
+    vigil_object_release(&function);
+    vigil_value_release(&result);
+    vigil_diagnostic_list_free(&diagnostics);
+    return exit_code;
+}
+
 static int try_run_packaged(int argc, char **argv)
 {
     vigil_package_bundle_t bundle;
     vigil_error_t error = {0};
     vigil_status_t status;
-    size_t i;
     const char *entry_src = NULL;
 
     status = vigil_package_read_self(&bundle, &error);
     if (status != VIGIL_STATUS_OK)
     {
-        /* Check if it's just "not a packaged binary" vs a real error. */
         if (error.value != NULL && (strcmp(vigil_error_message(&error), "not a packaged binary") == 0 ||
                                     strcmp(vigil_error_message(&error), "no bundle trailer") == 0))
-            return -1; /* not packaged, continue as normal CLI */
+            return -1;
         fprintf(stderr, "error[package]: %s\n", vigil_error_message(&error));
         return 1;
     }
 
     /* Find entry.vigil. */
-    for (i = 0; i < bundle.file_count; i++)
+    for (size_t i = 0; i < bundle.file_count; i++)
     {
         if (strcmp(bundle.paths[i], "entry.vigil") == 0)
         {
@@ -1475,16 +1541,12 @@ static int try_run_packaged(int argc, char **argv)
         return 1;
     }
 
-    /* Compile and run. */
     {
         vigil_runtime_t *runtime = NULL;
         vigil_vm_t *vm = NULL;
         vigil_source_registry_t registry;
-        vigil_diagnostic_list_t diagnostics;
         vigil_source_id_t source_id = 0;
-        vigil_object_t *function = NULL;
-        vigil_value_t result;
-        int exit_code = 0;
+        int exit_code;
 
         if (vigil_runtime_open(&runtime, NULL, &error) != VIGIL_STATUS_OK)
         {
@@ -1501,57 +1563,9 @@ static int try_run_packaged(int argc, char **argv)
         }
 
         vigil_source_registry_init(&registry, runtime);
-        vigil_diagnostic_list_init(&diagnostics, runtime);
-        vigil_value_init_nil(&result);
+        packaged_register_sources(&registry, &bundle, &source_id, &error);
+        exit_code = packaged_compile_and_run(runtime, vm, &registry, source_id, argc, argv);
 
-        /* Register all bundled files as sources. */
-        for (i = 0; i < bundle.file_count; i++)
-        {
-            vigil_source_id_t sid = 0;
-            vigil_source_registry_register(&registry, bundle.paths[i], strlen(bundle.paths[i]), bundle.contents[i],
-                                           bundle.content_lengths[i], &sid, &error);
-            if (strcmp(bundle.paths[i], "entry.vigil") == 0)
-                source_id = sid;
-        }
-
-        {
-            vigil_native_registry_t natives;
-            vigil_native_registry_init(&natives);
-            vigil_stdlib_register_all(&natives, &error);
-            status = vigil_compile_source_with_natives(&registry, source_id, &natives, &function, &diagnostics, &error);
-            vigil_native_registry_free(&natives);
-        }
-        if (status != VIGIL_STATUS_OK)
-        {
-            if (vigil_diagnostic_list_count(&diagnostics) != 0U)
-                print_diagnostics(&registry, &diagnostics);
-            else
-                print_error(&registry, "compile failed", &error);
-            exit_code = 1;
-        }
-        else
-        {
-            /* Pass remaining argv as script args. */
-            if (argc > 1)
-                vigil_vm_set_args(vm, (const char *const *)&argv[1], (size_t)(argc - 1));
-            else
-                vigil_vm_set_args(vm, NULL, 0);
-
-            status = vigil_vm_execute_function(vm, function, &result, &error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                print_error(&registry, "execution failed", &error);
-                exit_code = 1;
-            }
-            else if (vigil_value_kind(&result) == VIGIL_VALUE_INT)
-            {
-                exit_code = (int)vigil_value_as_int(&result);
-            }
-        }
-
-        vigil_object_release(&function);
-        vigil_value_release(&result);
-        vigil_diagnostic_list_free(&diagnostics);
         vigil_source_registry_free(&registry);
         vigil_vm_close(&vm);
         vigil_runtime_close(&runtime);
@@ -1759,6 +1773,69 @@ static void collect_dir(file_list_t *fl, const char *dir, const char *rel_prefix
     free(dl.items);
 }
 
+/* Parse embed command arguments into targets and output path. */
+static void cmd_embed_parse_args(int argc, char **argv, const char **out_output, const char ***out_targets,
+                                 size_t *out_count)
+{
+    *out_output = NULL;
+    *out_targets = NULL;
+    *out_count = 0;
+    for (int i = 2; i < argc; i++)
+    {
+        if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc)
+            *out_output = argv[++i];
+        else
+        {
+            *out_targets = realloc(*out_targets, (*out_count + 1) * sizeof(char *));
+            (*out_targets)[*out_count] = argv[i];
+            (*out_count)++;
+        }
+    }
+}
+
+/* Collect files from targets, expanding directories. */
+static void cmd_embed_collect_files(file_list_t *fl, const char **targets, size_t target_count)
+{
+    for (size_t i = 0; i < target_count; i++)
+    {
+        int is_dir = 0;
+        vigil_platform_is_directory(targets[i], &is_dir);
+        if (is_dir)
+        {
+            collect_dir(fl, targets[i], "");
+        }
+        else
+        {
+            const char *base = targets[i];
+            for (const char *p = targets[i]; *p; p++)
+                if (*p == '/' || *p == '\\')
+                    base = p + 1;
+            fl_add(fl, targets[i], base);
+        }
+    }
+}
+
+/* Determine the output path for embed. */
+static void cmd_embed_resolve_output(const char *output, const file_list_t *fl, size_t target_count, char *out_path,
+                                     size_t out_path_size)
+{
+    if (output)
+    {
+        snprintf(out_path, out_path_size, "%s", output);
+    }
+    else if (fl->count == 1 && target_count == 1)
+    {
+        const char *base = fl->rels[0];
+        const char *dot = strrchr(base, '.');
+        size_t nlen = dot ? (size_t)(dot - base) : strlen(base);
+        snprintf(out_path, out_path_size, "%.*s.vigil", (int)nlen, base);
+    }
+    else
+    {
+        snprintf(out_path, out_path_size, "assets.vigil");
+    }
+}
+
 static int cmd_embed(int argc, char **argv)
 {
     const char *output = NULL;
@@ -1766,16 +1843,7 @@ static int cmd_embed(int argc, char **argv)
     size_t target_count = 0;
     vigil_error_t error = {0};
 
-    for (int i = 2; i < argc; i++)
-    {
-        if ((strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) && i + 1 < argc)
-            output = argv[++i];
-        else
-        {
-            targets = realloc(targets, (target_count + 1) * sizeof(char *));
-            targets[target_count++] = argv[i];
-        }
-    }
+    cmd_embed_parse_args(argc, argv, &output, &targets, &target_count);
     if (target_count == 0)
     {
         fprintf(stderr, "usage: vigil embed <file|dir...> [-o output.vigil]\n");
@@ -1783,26 +1851,8 @@ static int cmd_embed(int argc, char **argv)
         return 2;
     }
 
-    /* Collect files: expand directories recursively. */
     file_list_t fl = {NULL, NULL, 0, 0};
-    for (size_t i = 0; i < target_count; i++)
-    {
-        int is_dir = 0;
-        vigil_platform_is_directory(targets[i], &is_dir);
-        if (is_dir)
-        {
-            collect_dir(&fl, targets[i], "");
-        }
-        else
-        {
-            /* Use basename as relative path. */
-            const char *base = targets[i];
-            for (const char *p = targets[i]; *p; p++)
-                if (*p == '/' || *p == '\\')
-                    base = p + 1;
-            fl_add(&fl, targets[i], base);
-        }
-    }
+    cmd_embed_collect_files(&fl, targets, target_count);
 
     if (fl.count == 0)
     {
@@ -1821,14 +1871,10 @@ static int cmd_embed(int argc, char **argv)
         int is_dir = 0;
         vigil_platform_is_directory(targets[0], &is_dir);
         if (!is_dir)
-        {
             status = vigil_embed_single(fl.paths[0], &text, &text_len, &error);
-        }
         else
-        {
             status =
                 vigil_embed_multi((const char **)fl.paths, (const char **)fl.rels, fl.count, &text, &text_len, &error);
-        }
     }
     else
     {
@@ -1843,24 +1889,8 @@ static int cmd_embed(int argc, char **argv)
         return 1;
     }
 
-    /* Determine output path. */
     char out_path[4096];
-    if (output)
-    {
-        snprintf(out_path, sizeof(out_path), "%s", output);
-    }
-    else if (fl.count == 1 && target_count == 1)
-    {
-        /* Single file: strip ext, add .vigil */
-        const char *base = fl.rels[0];
-        const char *dot = strrchr(base, '.');
-        size_t nlen = dot ? (size_t)(dot - base) : strlen(base);
-        snprintf(out_path, sizeof(out_path), "%.*s.vigil", (int)nlen, base);
-    }
-    else
-    {
-        snprintf(out_path, sizeof(out_path), "assets.vigil");
-    }
+    cmd_embed_resolve_output(output, &fl, target_count, out_path, sizeof(out_path));
 
     if (vigil_platform_write_file(out_path, text, text_len, &error) != VIGIL_STATUS_OK)
     {
@@ -1971,12 +2001,29 @@ static void repl_decl_list_free(repl_decl_list_t *list)
 /* Extract the declaration name from input. Recognizes:
    fn <name>, class <name>, enum <name>, interface <name>,
    const <type> <name>, <type> <name> = ... (global var) */
-static char *repl_extract_decl_name(const char *input)
+/* Allocate a copy of [start, end). Returns NULL if empty or allocation fails. */
+static char *repl_dup_span(const char *start, const char *end)
 {
-    const char *p = input;
-    while (*p == ' ' || *p == '\t')
-        p++;
-    /* fn, class, enum, interface — name is the token after the keyword */
+    if (end <= start)
+        return NULL;
+    char *name = malloc((size_t)(end - start) + 1);
+    if (name)
+    {
+        memcpy(name, start, (size_t)(end - start));
+        name[end - start] = '\0';
+    }
+    return name;
+}
+
+/* Check if character terminates a keyword name token. */
+static int repl_is_name_terminator(char c)
+{
+    return c == '\0' || strchr("( {\t<", c) != NULL;
+}
+
+/* Try to extract the name token after a keyword like "fn ", "class ", etc. */
+static char *repl_extract_keyword_name(const char *p)
+{
     const char *keywords[] = {"fn ", "class ", "enum ", "interface ", NULL};
     for (int i = 0; keywords[i]; i++)
     {
@@ -1987,49 +2034,62 @@ static char *repl_extract_decl_name(const char *input)
             while (*start == ' ' || *start == '\t')
                 start++;
             const char *end = start;
-            while (*end && *end != '(' && *end != ' ' && *end != '{' && *end != '\t' && *end != '<')
+            while (!repl_is_name_terminator(*end))
                 end++;
-            if (end > start)
-            {
-                char *name = malloc((size_t)(end - start) + 1);
-                if (name)
-                {
-                    memcpy(name, start, (size_t)(end - start));
-                    name[end - start] = '\0';
-                }
-                return name;
-            }
-            return NULL;
+            return repl_dup_span(start, end);
         }
-    }
-    /* const <type> <name> OR <type> <name> = ... */
-    if (strncmp(p, "const ", 6) == 0)
-        p += 6;
-    /* skip type token(s) — simplified: skip first word */
-    while (*p == ' ' || *p == '\t')
-        p++;
-    const char *type_start = p;
-    while (*p && *p != ' ' && *p != '\t')
-        p++;
-    if (p == type_start)
-        return NULL;
-    while (*p == ' ' || *p == '\t')
-        p++;
-    /* p should now be at the name */
-    const char *nstart = p;
-    while (*p && *p != ' ' && *p != '\t' && *p != '=' && *p != ';' && *p != '\n')
-        p++;
-    if (p > nstart)
-    {
-        char *name = malloc((size_t)(p - nstart) + 1);
-        if (name)
-        {
-            memcpy(name, nstart, (size_t)(p - nstart));
-            name[p - nstart] = '\0';
-        }
-        return name;
     }
     return NULL;
+}
+
+/* Skip whitespace, returning pointer to first non-whitespace char. */
+static const char *repl_skip_ws(const char *p)
+{
+    while (*p == ' ' || *p == '\t')
+        p++;
+    return p;
+}
+
+/* Skip a non-whitespace token, returning pointer past it. */
+static const char *repl_skip_token(const char *p)
+{
+    while (*p && *p != ' ' && *p != '\t')
+        p++;
+    return p;
+}
+
+/* Check if character terminates a variable name. */
+static int repl_is_var_terminator(char c)
+{
+    return c == '\0' || strchr(" \t=;\n", c) != NULL;
+}
+
+/* Try to extract a variable name from "const <type> <name>" or "<type> <name> = ...". */
+static char *repl_extract_variable_name(const char *p)
+{
+    if (strncmp(p, "const ", 6) == 0)
+        p += 6;
+    p = repl_skip_ws(p);
+    const char *type_start = p;
+    p = repl_skip_token(p);
+    if (p == type_start)
+        return NULL;
+    p = repl_skip_ws(p);
+    const char *nstart = p;
+    while (!repl_is_var_terminator(*p))
+        p++;
+    return repl_dup_span(nstart, p);
+}
+
+static char *repl_extract_decl_name(const char *input)
+{
+    const char *p = input;
+    while (*p == ' ' || *p == '\t')
+        p++;
+    char *name = repl_extract_keyword_name(p);
+    if (name)
+        return name;
+    return repl_extract_variable_name(p);
 }
 
 /* Add or replace a declaration in the list. */
@@ -2086,14 +2146,11 @@ static void repl_print_error(const vigil_error_t *err)
     }
 }
 
-/* Check if input needs continuation (trailing operator, comma, arrow, or unterminated string). */
-static int repl_needs_continuation(const char *text)
+/* Check if text has an unterminated string literal (odd number of unescaped quotes). */
+static int repl_has_unterminated_string(const char *text)
 {
-    const char *p;
     int quotes = 0;
-
-    /* Count unescaped double quotes for unterminated string detection. */
-    for (p = text; *p; p++)
+    for (const char *p = text; *p; p++)
     {
         if (*p == '\\' && p[1])
         {
@@ -2103,49 +2160,59 @@ static int repl_needs_continuation(const char *text)
         if (*p == '"')
             quotes++;
     }
-    if (quotes % 2 != 0)
-        return 1;
+    return quotes % 2 != 0;
+}
 
-    /* Find last non-whitespace character. */
-    p = text + strlen(text);
+/* Find the last non-whitespace character in text. Returns pointer past it, or text if empty. */
+static const char *repl_find_last_nonws(const char *text)
+{
+    const char *p = text + strlen(text);
     while (p > text && (p[-1] == ' ' || p[-1] == '\t' || p[-1] == '\n' || p[-1] == '\r'))
         p--;
+    return p;
+}
+
+/* Check if a single trailing character is a continuation operator. */
+static int repl_is_trailing_operator(char c)
+{
+    return strchr(",+*/%^<>|&=", c) != NULL;
+}
+
+/* Check if the last two characters form a two-char continuation operator. */
+static const char *repl_two_char_ops[] = {"->", "&&", "||", "==", "!=", "<=", ">=", NULL};
+
+static int repl_is_trailing_two_char_op(char a, char b)
+{
+    char pair[3] = {a, b, '\0'};
+    for (const char **op = repl_two_char_ops; *op; op++)
+    {
+        if (pair[0] == (*op)[0] && pair[1] == (*op)[1])
+            return 1;
+    }
+    return 0;
+}
+
+/* Check if input needs continuation (trailing operator, comma, arrow, or unterminated string). */
+static int repl_needs_continuation(const char *text)
+{
+    if (repl_has_unterminated_string(text))
+        return 1;
+
+    const char *p = repl_find_last_nonws(text);
     if (p == text)
         return 0;
 
-    /* Single-char trailing tokens. */
     char last = p[-1];
-    if (last == ',' || last == '+' || last == '*' || last == '/' || last == '%' || last == '^')
+
+    /* Two-char trailing tokens. */
+    if (p - text >= 2 && repl_is_trailing_two_char_op(p[-2], p[-1]))
         return 1;
 
-    /* Trailing - but not -> (handled below) or -- */
+    /* Trailing - but not -- */
     if (last == '-' && (p - 1 == text || p[-2] != '-'))
         return 1;
 
-    /* Two-char trailing tokens. */
-    if (p - text >= 2)
-    {
-        if (p[-2] == '-' && p[-1] == '>')
-            return 1; /* -> */
-        if (p[-2] == '&' && p[-1] == '&')
-            return 1;
-        if (p[-2] == '|' && p[-1] == '|')
-            return 1;
-        if (p[-2] == '=' && p[-1] == '=')
-            return 1;
-        if (p[-2] == '!' && p[-1] == '=')
-            return 1;
-        if (p[-2] == '<' && p[-1] == '=')
-            return 1;
-        if (p[-2] == '>' && p[-1] == '=')
-            return 1;
-    }
-
-    /* Single < > | & = as trailing (but not <=, >=, ==, etc. already handled) */
-    if (last == '<' || last == '>' || last == '|' || last == '&' || last == '=')
-        return 1;
-
-    return 0;
+    return repl_is_trailing_operator(last);
 }
 
 /* Count net open brackets in text. */
@@ -2252,8 +2319,8 @@ static int repl_compile_and_run(vigil_runtime_t *runtime, const char *source_tex
                     {
                         vigil_string_t import_path;
                         vigil_string_init(&import_path, runtime);
-                        if (resolve_import_path(runtime, "<repl>", import_text + 1, import_length - 2,
-                                                    &import_path, &error) == VIGIL_STATUS_OK)
+                        if (resolve_import_path(runtime, "<repl>", import_text + 1, import_length - 2, &import_path,
+                                                &error) == VIGIL_STATUS_OK)
                         {
                             register_source_tree(&registry, vigil_string_c_str(&import_path), project_root, NULL,
                                                  &error);
@@ -2303,6 +2370,234 @@ done:
     return ok;
 }
 
+/* Read a complete (possibly multi-line) input from the REPL.
+   Returns 1 on success, 0 on EOF/error. */
+static int repl_read_input(repl_buf_t *input, vigil_line_history_t *history, vigil_error_t *error)
+{
+    char line[4096];
+    vigil_status_t rs;
+
+    repl_buf_clear(input);
+    rs = vigil_line_editor_readline(">>> ", line, sizeof(line), history, error);
+    if (rs != VIGIL_STATUS_OK)
+        return 0;
+
+    /* Skip empty lines. */
+    {
+        const char *p = line;
+        while (*p == ' ' || *p == '\t')
+            p++;
+        if (*p == '\0')
+            return -1; /* empty, caller should continue */
+    }
+
+    repl_buf_append_cstr(input, line);
+
+    if (line[0] != ':' && strcmp(line, "exit()") != 0)
+        vigil_line_history_add(history, line);
+
+    /* Multi-line: accumulate while brackets are unbalanced or line needs continuation. */
+    while (repl_bracket_depth(input->data) > 0 || repl_needs_continuation(input->data))
+    {
+        rs = vigil_line_editor_readline("... ", line, sizeof(line), history, error);
+        if (rs != VIGIL_STATUS_OK)
+            return 0;
+        repl_buf_append_cstr(input, "\n");
+        repl_buf_append_cstr(input, line);
+    }
+    return 1;
+}
+
+/* Update the declaration list and preamble after a successful declaration-only compile. */
+static void repl_update_declarations(repl_decl_list_t *decls, const char *input_data, int needs_semi)
+{
+    repl_buf_t decl_src;
+    char *dname;
+    repl_buf_init(&decl_src);
+    repl_buf_append_cstr(&decl_src, input_data);
+    if (needs_semi)
+        repl_buf_append_cstr(&decl_src, ";");
+    repl_buf_append_cstr(&decl_src, "\n");
+    dname = repl_extract_decl_name(input_data);
+    repl_decl_list_put(decls, dname, decl_src.data);
+    free(dname);
+    repl_buf_free(&decl_src);
+}
+
+/* Handle :doc command. */
+static void repl_handle_doc(const char *input_data, vigil_error_t *error)
+{
+    const char *arg = input_data + 4;
+    while (*arg == ' ')
+        arg++;
+    if (*arg == '\0')
+    {
+        size_t count, i;
+        const char **modules = vigil_doc_list_modules(&count);
+        printf("Available: ");
+        for (i = 0; i < count; i++)
+            printf("%s%s", modules[i], i < count - 1 ? ", " : "\n");
+        return;
+    }
+    const vigil_doc_entry_t *entry = vigil_doc_lookup(arg);
+    if (entry != NULL)
+    {
+        char *text = NULL;
+        size_t len = 0;
+        if (vigil_doc_entry_render(entry, &text, &len, error) == VIGIL_STATUS_OK)
+        {
+            printf("%s", text);
+            free(text);
+        }
+    }
+    else
+    {
+        printf("Not found: %s\n", arg);
+    }
+}
+
+/* Handle special REPL commands. Returns: 1=handled (continue loop), -1=quit, 0=not a command. */
+static int repl_handle_special_command(const char *input_data, repl_decl_list_t *decls, repl_buf_t *preamble,
+                                       vigil_error_t *error)
+{
+    if (strcmp(input_data, ":quit") == 0 || strcmp(input_data, ":q") == 0 || strcmp(input_data, "exit()") == 0)
+        return -1;
+    if (strcmp(input_data, ":help") == 0 || strcmp(input_data, ":h") == 0)
+    {
+        printf("  :help    Show this message\n");
+        printf("  :quit    Exit the REPL (also Ctrl-D or exit())\n");
+        printf("  :clear   Reset all state\n");
+        printf("  :doc     Show documentation (e.g. :doc len, :doc math)\n");
+        printf("  __ans    Last expression result (string)\n");
+        return 1;
+    }
+    if (strncmp(input_data, ":doc", 4) == 0)
+    {
+        repl_handle_doc(input_data, error);
+        return 1;
+    }
+    if (strcmp(input_data, ":clear") == 0)
+    {
+        repl_decl_list_free(decls);
+        repl_decl_list_init(decls);
+        repl_decl_list_put(decls, NULL, "import \"fmt\";\n");
+        repl_rebuild_preamble(preamble, decls);
+        printf("State cleared.\n");
+        return 1;
+    }
+    return 0;
+}
+
+/* Check if input needs a trailing semicolon. */
+static int repl_input_needs_semi(const repl_buf_t *input)
+{
+    const char *tail = input->data + input->length;
+    while (tail > input->data && (tail[-1] == ' ' || tail[-1] == '\t' || tail[-1] == '\n'))
+        tail--;
+    return tail > input->data && tail[-1] != ';' && tail[-1] != '}';
+}
+
+/* Bundled REPL session state to reduce parameter counts. */
+typedef struct
+{
+    vigil_runtime_t *runtime;
+    vigil_vm_t *vm;
+    repl_buf_t *input;
+    repl_buf_t *preamble;
+    repl_decl_list_t *decls;
+    const char *project_root;
+    vigil_error_t *error;
+} repl_state_t;
+
+/* Try to evaluate input as a printable expression. Returns 1 if successful. */
+static int repl_try_expression(repl_state_t *s)
+{
+    repl_buf_t src;
+    vigil_object_t *function = NULL;
+    int handled = 0;
+
+    repl_buf_init(&src);
+    repl_buf_append_cstr(&src, s->preamble->data ? s->preamble->data : "");
+    repl_buf_append_cstr(&src, "fmt.println(string(");
+    repl_buf_append_cstr(&src, s->input->data);
+    repl_buf_append_cstr(&src, "));\n");
+
+    if (repl_compile_and_run(s->runtime, src.data, s->project_root, &function, NULL, 0) && function)
+    {
+        vigil_value_t result;
+        vigil_value_init_nil(&result);
+        if (vigil_vm_execute_function(s->vm, function, &result, s->error) != VIGIL_STATUS_OK)
+        {
+            repl_print_error(s->error);
+        }
+        else
+        {
+            repl_buf_t ans;
+            repl_buf_init(&ans);
+            repl_buf_append_cstr(&ans, "string __ans = string(");
+            repl_buf_append_cstr(&ans, s->input->data);
+            repl_buf_append_cstr(&ans, ");\n");
+            repl_decl_list_put(s->decls, "__ans", ans.data);
+            repl_buf_free(&ans);
+        }
+        vigil_value_release(&result);
+        vigil_object_release(&function);
+        handled = 1;
+    }
+    else
+    {
+        vigil_object_release(&function);
+    }
+    repl_buf_free(&src);
+    return handled;
+}
+
+/* Try to evaluate input as bare code (declarations, statements, or mix). */
+static void repl_try_bare_code(repl_state_t *s, int needs_semi)
+{
+    repl_buf_t src;
+    vigil_object_t *function = NULL;
+    int has_stmts = 0;
+
+    repl_buf_init(&src);
+    repl_buf_append_cstr(&src, s->preamble->data ? s->preamble->data : "");
+    repl_buf_append_cstr(&src, s->input->data);
+    if (needs_semi)
+        repl_buf_append_cstr(&src, ";");
+    repl_buf_append_cstr(&src, "\n");
+
+    if (repl_compile_and_run(s->runtime, src.data, s->project_root, &function, &has_stmts, 1))
+    {
+        if (function)
+        {
+            vigil_value_t result;
+            vigil_value_init_nil(&result);
+            if (vigil_vm_execute_function(s->vm, function, &result, s->error) != VIGIL_STATUS_OK)
+                repl_print_error(s->error);
+            vigil_value_release(&result);
+            vigil_object_release(&function);
+        }
+        if (!has_stmts)
+            repl_update_declarations(s->decls, s->input->data, needs_semi);
+    }
+    else
+    {
+        vigil_object_release(&function);
+    }
+    repl_buf_free(&src);
+}
+
+/* Evaluate a single REPL input line (expression or bare code). */
+static void repl_eval_input(repl_state_t *s)
+{
+    int needs_semi = repl_input_needs_semi(s->input);
+
+    if (!repl_try_expression(s))
+        repl_try_bare_code(s, needs_semi);
+
+    repl_rebuild_preamble(s->preamble, s->decls);
+}
+
 static int cmd_repl(void)
 {
     vigil_runtime_t *runtime = NULL;
@@ -2312,7 +2607,6 @@ static int cmd_repl(void)
     repl_buf_t input;
     repl_decl_list_t decls;
     vigil_line_history_t history;
-    char line[4096];
     char proj_root[4096];
     const char *project_root = NULL;
     int exit_code = 0;
@@ -2334,11 +2628,9 @@ static int cmd_repl(void)
     repl_decl_list_init(&decls);
     vigil_line_history_init(&history, 1000);
 
-    /* Auto-inject fmt for expression printing. */
     repl_decl_list_put(&decls, NULL, "import \"fmt\";\n");
     repl_rebuild_preamble(&preamble, &decls);
 
-    /* Detect project root from cwd. */
     if (find_project_root("./dummy.vigil", proj_root, sizeof(proj_root)))
         project_root = proj_root;
 
@@ -2347,197 +2639,21 @@ static int cmd_repl(void)
 
     for (;;)
     {
-        const char *prompt = ">>> ";
-        vigil_status_t rs;
-
-        repl_buf_clear(&input);
-
-        rs = vigil_line_editor_readline(prompt, line, sizeof(line), &history, &error);
-        if (rs != VIGIL_STATUS_OK)
-            break; /* EOF / Ctrl-D */
-
-        /* Skip empty lines. */
-        {
-            const char *p = line;
-            while (*p == ' ' || *p == '\t')
-                p++;
-            if (*p == '\0')
-                continue;
-        }
-
-        repl_buf_append_cstr(&input, line);
-
-        /* Add to history (skip special commands and empty lines). */
-        if (line[0] != ':' && strcmp(line, "exit()") != 0)
-        {
-            vigil_line_history_add(&history, line);
-        }
-
-        /* Special commands. */
-        if (strcmp(line, ":quit") == 0 || strcmp(line, ":q") == 0 || strcmp(line, "exit()") == 0)
+        int rc = repl_read_input(&input, &history, &error);
+        if (rc == 0)
             break;
-        if (strcmp(line, ":help") == 0 || strcmp(line, ":h") == 0)
-        {
-            printf("  :help    Show this message\n");
-            printf("  :quit    Exit the REPL (also Ctrl-D or exit())\n");
-            printf("  :clear   Reset all state\n");
-            printf("  :doc     Show documentation (e.g. :doc len, :doc math)\n");
-            printf("  __ans    Last expression result (string)\n");
+        if (rc == -1)
             continue;
-        }
-        if (strncmp(line, ":doc", 4) == 0)
-        {
-            const char *arg = line + 4;
-            while (*arg == ' ')
-                arg++;
-            if (*arg == '\0')
-            {
-                /* List modules */
-                size_t count, i;
-                const char **modules = vigil_doc_list_modules(&count);
-                printf("Available: ");
-                for (i = 0; i < count; i++)
-                {
-                    printf("%s%s", modules[i], i < count - 1 ? ", " : "\n");
-                }
-            }
-            else
-            {
-                const vigil_doc_entry_t *entry = vigil_doc_lookup(arg);
-                if (entry != NULL)
-                {
-                    char *text = NULL;
-                    size_t len = 0;
-                    if (vigil_doc_entry_render(entry, &text, &len, &error) == VIGIL_STATUS_OK)
-                    {
-                        printf("%s", text);
-                        free(text);
-                    }
-                }
-                else
-                {
-                    printf("Not found: %s\n", arg);
-                }
-            }
+
+        rc = repl_handle_special_command(input.data, &decls, &preamble, &error);
+        if (rc == -1)
+            break;
+        if (rc == 1)
             continue;
-        }
-        if (strcmp(line, ":clear") == 0)
-        {
-            repl_decl_list_free(&decls);
-            repl_decl_list_init(&decls);
-            repl_decl_list_put(&decls, NULL, "import \"fmt\";\n");
-            repl_rebuild_preamble(&preamble, &decls);
-            printf("State cleared.\n");
-            continue;
-        }
 
-        /* Multi-line: accumulate while brackets are unbalanced or line needs continuation. */
-        while (repl_bracket_depth(input.data) > 0 || repl_needs_continuation(input.data))
-        {
-            rs = vigil_line_editor_readline("... ", line, sizeof(line), &history, &error);
-            if (rs != VIGIL_STATUS_OK)
-                goto done;
-            repl_buf_append_cstr(&input, "\n");
-            repl_buf_append_cstr(&input, line);
-        }
-
-        {
-            repl_buf_t src;
-            vigil_object_t *function = NULL;
-            const char *tail;
-            int needs_semi;
-
-            repl_buf_init(&src);
-
-            /* Auto-append semicolon if input doesn't end with ; or } */
-            tail = input.data + input.length;
-            while (tail > input.data && (tail[-1] == ' ' || tail[-1] == '\t' || tail[-1] == '\n'))
-                tail--;
-            needs_semi = (tail > input.data && tail[-1] != ';' && tail[-1] != '}');
-
-            /* 1) Try as expression with auto-print: fmt.println(string(<input>)) */
-            repl_buf_append_cstr(&src, preamble.data ? preamble.data : "");
-            repl_buf_append_cstr(&src, "fmt.println(string(");
-            repl_buf_append_cstr(&src, input.data);
-            repl_buf_append_cstr(&src, "));\n");
-
-            if (repl_compile_and_run(runtime, src.data, project_root, &function, NULL, 0) && function)
-            {
-                vigil_value_t result;
-                vigil_value_init_nil(&result);
-                if (vigil_vm_execute_function(vm, function, &result, &error) != VIGIL_STATUS_OK)
-                {
-                    repl_print_error(&error);
-                }
-                else
-                {
-                    /* Store expression result as __ans. */
-                    repl_buf_t ans;
-                    repl_buf_init(&ans);
-                    repl_buf_append_cstr(&ans, "string __ans = string(");
-                    repl_buf_append_cstr(&ans, input.data);
-                    repl_buf_append_cstr(&ans, ");\n");
-                    repl_decl_list_put(&decls, "__ans", ans.data);
-                    repl_rebuild_preamble(&preamble, &decls);
-                    repl_buf_free(&ans);
-                }
-                vigil_value_release(&result);
-                vigil_object_release(&function);
-            }
-            else
-            {
-                /* 2) Try as bare code (declarations, statements, or mix).
-                   Compile with REPL mode — the compiler synthesizes main
-                   from any top-level statements and validates globals. */
-                int has_stmts = 0;
-                vigil_object_release(&function);
-                function = NULL;
-                repl_buf_clear(&src);
-                repl_buf_append_cstr(&src, preamble.data ? preamble.data : "");
-                repl_buf_append_cstr(&src, input.data);
-                if (needs_semi)
-                    repl_buf_append_cstr(&src, ";");
-                repl_buf_append_cstr(&src, "\n");
-
-                if (repl_compile_and_run(runtime, src.data, project_root, &function, &has_stmts, 1))
-                {
-                    if (function)
-                    {
-                        vigil_value_t result;
-                        vigil_value_init_nil(&result);
-                        if (vigil_vm_execute_function(vm, function, &result, &error) != VIGIL_STATUS_OK)
-                            repl_print_error(&error);
-                        vigil_value_release(&result);
-                        vigil_object_release(&function);
-                    }
-                    if (!has_stmts)
-                    {
-                        /* Declarations only — add/replace in preamble. */
-                        repl_buf_t decl_src;
-                        char *dname;
-                        repl_buf_init(&decl_src);
-                        repl_buf_append_cstr(&decl_src, input.data);
-                        if (needs_semi)
-                            repl_buf_append_cstr(&decl_src, ";");
-                        repl_buf_append_cstr(&decl_src, "\n");
-                        dname = repl_extract_decl_name(input.data);
-                        repl_decl_list_put(&decls, dname, decl_src.data);
-                        repl_rebuild_preamble(&preamble, &decls);
-                        free(dname);
-                        repl_buf_free(&decl_src);
-                    }
-                }
-                else
-                {
-                    vigil_object_release(&function);
-                }
-            }
-
-            repl_buf_free(&src);
-        }
+        repl_eval_input(&(repl_state_t){runtime, vm, &input, &preamble, &decls, project_root, &error});
     }
 
-done:
     repl_buf_free(&preamble);
     repl_decl_list_free(&decls);
     vigil_line_history_free(&history);
@@ -2822,42 +2938,235 @@ static void normalize_format_arg(int argc, char **argv)
         argv[1] = (char *)"fmt";
 }
 
+/* ── Early command dispatch (before CLI parser) ──────────────────── */
+
+static int early_dispatch_run(int argc, char **argv)
+{
+    if (argc < 3 || strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0)
+        return -1;
+    const char *const *script_argv = argc > 3 ? (const char *const *)&argv[3] : NULL;
+    size_t script_argc = argc > 3 ? (size_t)(argc - 3) : 0;
+    return cmd_run(argv[2], script_argv, script_argc);
+}
+
+static int early_dispatch_embed(int argc, char **argv)
+{
+    if (argc == 2 || strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0)
+    {
+        printf("Usage: vigil embed <file|dir...> [-o output.vigil]\n\n");
+        printf("Embed files as VIGIL source code\n\nOptions:\n");
+        printf("  -o, --output         Output file (default: embed.vigil)\n");
+        return 0;
+    }
+    return cmd_embed(argc, argv);
+}
+
+static int early_dispatch_get(int argc, char **argv)
+{
+    if (argc >= 3 && (strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0))
+    {
+        printf("Usage: vigil get [package[@version]...]\n\n");
+        printf("Manage dependencies using git for distribution.\n\n");
+        printf("Examples:\n");
+        printf("  vigil get                              Sync all deps from vigil.toml\n");
+        printf("  vigil get github.com/user/repo         Install latest\n");
+        printf("  vigil get github.com/user/repo@v1.0.0  Install specific version\n");
+        printf("  vigil get github.com/user/repo@main    Install branch\n");
+        printf("\nOptions:\n  --remove   Remove a package\n");
+        return 0;
+    }
+    return cmd_get(argc, argv);
+}
+
+typedef int (*early_handler_t)(int argc, char **argv);
+
+typedef struct
+{
+    const char *name;
+    early_handler_t handler;
+} early_command_t;
+
+static const early_command_t early_commands[] = {
+    {"run", early_dispatch_run},
+    {"embed", early_dispatch_embed},
+    {"test", (early_handler_t)vigil_cli_run_test_command},
+    {"get", early_dispatch_get},
+    {NULL, NULL},
+};
+
+/* Try to dispatch a command before the CLI parser. Returns >= 0 if handled. */
+static int dispatch_early_command(int argc, char **argv)
+{
+    if (argc < 2)
+        return -1;
+    if (strcmp(argv[1], "repl") == 0)
+        return cmd_repl();
+    if (strcmp(argv[1], "lsp") == 0 && argc == 2)
+        return cmd_lsp();
+    if (strcmp(argv[1], "version") == 0)
+    {
+        printf("vigil %s\n", VIGIL_VERSION);
+        return 0;
+    }
+    for (const early_command_t *ec = early_commands; ec->name; ec++)
+    {
+        if (strcmp(argv[1], ec->name) == 0)
+            return ec->handler(argc, argv);
+    }
+    return -1;
+}
+
+/* ── Post-parse command dispatch ─────────────────────────────────── */
+
+typedef struct
+{
+    const char *check_file;
+    const char *new_name;
+    const char *new_output;
+    const char *debug_file;
+    int debug_interactive;
+    const char *doc_file;
+    const char *doc_symbol;
+    const char *fmt_file;
+    int fmt_check;
+    const char *pkg_entry;
+    const char *pkg_output;
+    const char *pkg_key;
+    int pkg_inspect;
+    int new_lib;
+    int new_scaffold;
+} parsed_args_t;
+
+static int dispatch_check(const parsed_args_t *args)
+{
+    if (args->check_file == NULL)
+    {
+        fprintf(stderr, "error: missing file argument\n");
+        return 2;
+    }
+    return cmd_check(args->check_file);
+}
+
+static int dispatch_new(const parsed_args_t *args)
+{
+    return cmd_new(args->new_name, args->new_lib, args->new_scaffold, args->new_output);
+}
+
+static int dispatch_debug(const parsed_args_t *args)
+{
+    if (args->debug_file == NULL)
+    {
+        fprintf(stderr, "error: missing file argument\n");
+        return 2;
+    }
+    if (args->debug_interactive)
+        return cmd_debug_interactive(args->debug_file);
+    return cmd_debug(args->debug_file);
+}
+
+static int dispatch_doc(const parsed_args_t *args)
+{
+    return cmd_doc(args->doc_file, args->doc_symbol);
+}
+
+static int dispatch_fmt(const parsed_args_t *args)
+{
+    if (args->fmt_file == NULL)
+    {
+        fprintf(stderr, "error: missing file argument\n");
+        return 2;
+    }
+    return cmd_fmt(args->fmt_file, args->fmt_check);
+}
+
+static int dispatch_package(const parsed_args_t *args)
+{
+    return cmd_package(args->pkg_entry, args->pkg_output, args->pkg_key, args->pkg_inspect);
+}
+
+typedef struct
+{
+    const char *name;
+    int (*handler)(const parsed_args_t *args);
+} post_parse_command_t;
+
+static const post_parse_command_t post_parse_commands[] = {
+    {"check", dispatch_check},
+    {"new", dispatch_new},
+    {"debug", dispatch_debug},
+    {"doc", dispatch_doc},
+    {"fmt", dispatch_fmt},
+    {"package", dispatch_package},
+    {NULL, NULL},
+};
+
+static int dispatch_post_parse(const char *name, const parsed_args_t *args)
+{
+    for (const post_parse_command_t *pc = post_parse_commands; pc->name; pc++)
+    {
+        if (strcmp(name, pc->name) == 0)
+            return pc->handler(args);
+    }
+    return 0;
+}
+
+/* ── CLI registration ────────────────────────────────────────────── */
+
+static void register_cli_commands(vigil_cli_t *cli, parsed_args_t *args)
+{
+    vigil_cli_command_t *cmd;
+
+    cmd = vigil_cli_add_command(cli, "run", "Run a VIGIL script");
+    vigil_cli_add_positional(cmd, "file", "Script file to run", NULL);
+
+    cmd = vigil_cli_add_command(cli, "check", "Type-check a VIGIL script");
+    vigil_cli_add_positional(cmd, "file", "Script file to check", &args->check_file);
+
+    cmd = vigil_cli_add_command(cli, "new", "Create a new VIGIL project");
+    vigil_cli_add_positional(cmd, "name", "Project name", &args->new_name);
+    vigil_cli_add_bool_flag(cmd, "lib", 'l', "Create a library project", &args->new_lib);
+    vigil_cli_add_bool_flag(cmd, "scaffold", 's', "Include example module and test", &args->new_scaffold);
+    vigil_cli_add_string_flag(cmd, "output", 'o', "Output directory", &args->new_output);
+
+    cmd = vigil_cli_add_command(cli, "debug", "Debug a VIGIL script");
+    vigil_cli_add_positional(cmd, "file", "Script file to debug", &args->debug_file);
+    vigil_cli_add_bool_flag(cmd, "interactive", 'i', "Use interactive CLI debugger (default: DAP server)",
+                            &args->debug_interactive);
+
+    cmd = vigil_cli_add_command(cli, "doc", "Show documentation for modules, builtins, or source files");
+    vigil_cli_add_positional(cmd, "target", "Module name (e.g. math) or source file path", &args->doc_file);
+    vigil_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. sqrt or Point.x)", &args->doc_symbol);
+
+    cmd = vigil_cli_add_command(cli, "fmt", "Format VIGIL source files");
+    vigil_cli_add_positional(cmd, "file", "Source file to format", &args->fmt_file);
+    vigil_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &args->fmt_check);
+
+    (void)vigil_cli_add_command(cli, "repl", "Start interactive REPL");
+    (void)vigil_cli_add_command(cli, "lsp", "Start Language Server Protocol server");
+    (void)vigil_cli_add_command(cli, "version", "Print version information");
+    (void)vigil_cli_add_command(cli, "embed", "Embed files as VIGIL source code");
+    (void)vigil_cli_add_command(cli, "test", "Run tests");
+    (void)vigil_cli_add_command(cli, "get", "Manage dependencies");
+
+    cmd = vigil_cli_add_command(cli, "package", "Package a VIGIL program as a standalone binary");
+    vigil_cli_add_positional(cmd, "entry", "Entry script or project directory", &args->pkg_entry);
+    vigil_cli_add_string_flag(cmd, "output", 'o', "Output path", &args->pkg_output);
+    vigil_cli_add_string_flag(cmd, "key", 'k', "XOR encryption key for obfuscation", &args->pkg_key);
+    vigil_cli_add_bool_flag(cmd, "inspect", 'i', "Inspect a packaged binary", &args->pkg_inspect);
+}
+
 int main(int argc, char **argv)
 {
     vigil_cli_t cli;
-    const char *check_file = NULL;
-    const char *new_name = NULL;
-    const char *new_output = NULL;
-    const char *debug_file = NULL;
-    int debug_interactive = 0;
-    const char *doc_file = NULL;
-    const char *doc_symbol = NULL;
-    const char *fmt_file = NULL;
-    int fmt_check = 0;
-    const char *pkg_entry = NULL;
-    const char *pkg_output = NULL;
-    const char *pkg_key = NULL;
-    int pkg_inspect = 0;
-    int new_lib = 0;
-    int new_scaffold = 0;
+    parsed_args_t args = {0};
     vigil_error_t error = {0};
     const vigil_cli_command_t *matched;
-    vigil_cli_command_t *cmd;
 
     /* Check if this is a packaged binary. */
     {
         int rc = try_run_packaged(argc, argv);
         if (rc >= 0)
             return rc;
-    }
-
-    /* Handle "vigil run <file> [args...]" before CLI parser since run
-     * needs to pass through arbitrary script arguments. */
-    if (argc >= 3 && strcmp(argv[1], "run") == 0 && strcmp(argv[2], "--help") != 0 && strcmp(argv[2], "-h") != 0)
-    {
-        const char *const *script_argv = argc > 3 ? (const char *const *)&argv[3] : NULL;
-        size_t script_argc = argc > 3 ? (size_t)(argc - 3) : 0;
-        return cmd_run(argv[2], script_argv, script_argc);
     }
 
     /* Handle "vigil <file.vigil> [args...]" as shorthand for "vigil run". */
@@ -2872,109 +3181,16 @@ int main(int argc, char **argv)
         }
     }
 
-    /* Handle "vigil embed <file|dir...> [-o output]" before CLI parser
-     * since embed needs rest-args (multiple file targets). */
-    if (argc >= 2 && strcmp(argv[1], "embed") == 0)
+    /* Dispatch commands that need special arg handling before CLI parser. */
     {
-        if (argc == 2 || strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0)
-        {
-            printf("Usage: vigil embed <file|dir...> [-o output.vigil]\n\n");
-            printf("Embed files as VIGIL source code\n\n");
-            printf("Options:\n");
-            printf("  -o, --output         Output file (default: embed.vigil)\n");
-            return 0;
-        }
-        return cmd_embed(argc, argv);
+        int rc = dispatch_early_command(argc, argv);
+        if (rc >= 0)
+            return rc;
     }
 
-    /* Handle "vigil test [flags...] [path...]" before CLI parser. */
-    if (argc >= 2 && strcmp(argv[1], "test") == 0)
-    {
-        return vigil_cli_run_test_command(argc, argv);
-    }
-
-    /* Handle "vigil repl" before CLI parser. */
-    if (argc >= 2 && strcmp(argv[1], "repl") == 0)
-    {
-        return cmd_repl();
-    }
-
-    /* Handle "vigil lsp" before CLI parser. */
-    if (argc == 2 && strcmp(argv[1], "lsp") == 0)
-    {
-        return cmd_lsp();
-    }
-
-    /* Handle "vigil version" before CLI parser. */
-    if (argc >= 2 && strcmp(argv[1], "version") == 0)
-    {
-        printf("vigil %s\n", VIGIL_VERSION);
-        return 0;
-    }
-
-    /* Handle "vigil get [package...]" before CLI parser. */
-    if (argc >= 2 && strcmp(argv[1], "get") == 0)
-    {
-        if ((argc >= 3) && (strcmp(argv[2], "--help") == 0 || strcmp(argv[2], "-h") == 0))
-        {
-            printf("Usage: vigil get [package[@version]...]\n\n");
-            printf("Manage dependencies using git for distribution.\n\n");
-            printf("Examples:\n");
-            printf("  vigil get                              Sync all deps from vigil.toml\n");
-            printf("  vigil get github.com/user/repo         Install latest\n");
-            printf("  vigil get github.com/user/repo@v1.0.0  Install specific version\n");
-            printf("  vigil get github.com/user/repo@main    Install branch\n");
-            printf("\nOptions:\n");
-            printf("  --remove   Remove a package\n");
-            return 0;
-        }
-        return cmd_get(argc, argv);
-    }
     normalize_format_arg(argc, argv);
     vigil_cli_init(&cli, "vigil", "The VIGIL Scripting Language");
-
-    cmd = vigil_cli_add_command(&cli, "run", "Run a VIGIL script");
-    vigil_cli_add_positional(cmd, "file", "Script file to run", NULL);
-
-    cmd = vigil_cli_add_command(&cli, "check", "Type-check a VIGIL script");
-    vigil_cli_add_positional(cmd, "file", "Script file to check", &check_file);
-
-    cmd = vigil_cli_add_command(&cli, "new", "Create a new VIGIL project");
-    vigil_cli_add_positional(cmd, "name", "Project name", &new_name);
-    vigil_cli_add_bool_flag(cmd, "lib", 'l', "Create a library project", &new_lib);
-    vigil_cli_add_bool_flag(cmd, "scaffold", 's', "Include example module and test", &new_scaffold);
-    vigil_cli_add_string_flag(cmd, "output", 'o', "Output directory", &new_output);
-
-    cmd = vigil_cli_add_command(&cli, "debug", "Debug a VIGIL script");
-    vigil_cli_add_positional(cmd, "file", "Script file to debug", &debug_file);
-    vigil_cli_add_bool_flag(cmd, "interactive", 'i', "Use interactive CLI debugger (default: DAP server)",
-                            &debug_interactive);
-
-    cmd = vigil_cli_add_command(&cli, "doc", "Show documentation for modules, builtins, or source files");
-    vigil_cli_add_positional(cmd, "target", "Module name (e.g. math) or source file path", &doc_file);
-    vigil_cli_add_positional(cmd, "symbol", "Symbol to look up (e.g. sqrt or Point.x)", &doc_symbol);
-
-    cmd = vigil_cli_add_command(&cli, "fmt", "Format VIGIL source files");
-    vigil_cli_add_positional(cmd, "file", "Source file to format", &fmt_file);
-    vigil_cli_add_bool_flag(cmd, "check", 'c', "Check formatting without rewriting", &fmt_check);
-
-    (void)vigil_cli_add_command(&cli, "repl", "Start interactive REPL");
-
-    (void)vigil_cli_add_command(&cli, "lsp", "Start Language Server Protocol server");
-
-    (void)vigil_cli_add_command(&cli, "version", "Print version information");
-
-    (void)vigil_cli_add_command(&cli, "embed", "Embed files as VIGIL source code");
-
-    (void)vigil_cli_add_command(&cli, "test", "Run tests");
-
-    (void)vigil_cli_add_command(&cli, "get", "Manage dependencies");
-
-    cmd = vigil_cli_add_command(&cli, "package", "Package a VIGIL program as a standalone binary");
-    vigil_cli_add_positional(cmd, "entry", "Entry script or project directory", &pkg_entry);
-    vigil_cli_add_string_flag(cmd, "output", 'o', "Output path", &pkg_output);
-    vigil_cli_add_string_flag(cmd, "key", 'k', "XOR encryption key for obfuscation", &pkg_key);
-    vigil_cli_add_bool_flag(cmd, "inspect", 'i', "Inspect a packaged binary", &pkg_inspect);
+    register_cli_commands(&cli, &args);
 
     if (vigil_cli_parse(&cli, argc, argv, &error) != VIGIL_STATUS_OK)
     {
@@ -2986,69 +3202,15 @@ int main(int argc, char **argv)
     matched = vigil_cli_matched_command(&cli);
     if (matched == NULL)
     {
-        /* Only print help if the parser didn't already. */
         if (!cli.help_shown)
-        {
             vigil_cli_print_help(&cli);
-        }
         vigil_cli_free(&cli);
         return 0;
     }
 
-    /* Save matched command name before freeing CLI (name is a string literal). */
     {
         const char *matched_name = matched->name;
         vigil_cli_free(&cli);
-
-        if (strcmp(matched_name, "run") == 0)
-        {
-            /* Handled above before CLI parse. */
-            return 0;
-        }
-        if (strcmp(matched_name, "check") == 0)
-        {
-            if (check_file == NULL)
-            {
-                fprintf(stderr, "error: missing file argument\n");
-                return 2;
-            }
-            return cmd_check(check_file);
-        }
-        if (strcmp(matched_name, "new") == 0)
-        {
-            return cmd_new(new_name, new_lib, new_scaffold, new_output);
-        }
-        if (strcmp(matched_name, "debug") == 0)
-        {
-            if (debug_file == NULL)
-            {
-                fprintf(stderr, "error: missing file argument\n");
-                return 2;
-            }
-            if (debug_interactive)
-            {
-                return cmd_debug_interactive(debug_file);
-            }
-            return cmd_debug(debug_file);
-        }
-        if (strcmp(matched_name, "doc") == 0)
-        {
-            return cmd_doc(doc_file, doc_symbol);
-        }
-        if (strcmp(matched_name, "fmt") == 0)
-        {
-            if (fmt_file == NULL)
-            {
-                fprintf(stderr, "error: missing file argument\n");
-                return 2;
-            }
-            return cmd_fmt(fmt_file, fmt_check);
-        }
-        if (strcmp(matched_name, "package") == 0)
-        {
-            return cmd_package(pkg_entry, pkg_output, pkg_key, pkg_inspect);
-        }
+        return dispatch_post_parse(matched_name, &args);
     }
-
-    return 0;
 }
