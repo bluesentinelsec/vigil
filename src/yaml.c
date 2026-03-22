@@ -215,47 +215,31 @@ static vigil_status_t parse_quoted_string(yaml_parser_t *p, char quote, vigil_js
     return s;
 }
 
-/* ── Buffer helper for block scalar / sequence / mapping ──────────── */
+/* ── Buffer helper for block scalar ───────────────────────────────── */
 
 typedef struct
 {
     char *data;
     size_t len;
     size_t cap;
-    yaml_parser_t *parser;
 } yaml_buf_t;
 
-static vigil_status_t yaml_buf_init(yaml_buf_t *b, yaml_parser_t *p, size_t cap)
-{
-    b->data = (char *)yaml_alloc(p, cap);
-    if (!b->data)
-    {
-        set_error(p, "out of memory");
-        return VIGIL_STATUS_OUT_OF_MEMORY;
-    }
-    b->len = 0;
-    b->cap = cap;
-    b->parser = p;
-    return VIGIL_STATUS_OK;
-}
-
-static vigil_status_t yaml_buf_push(yaml_buf_t *b, char c)
-{
-    if (b->len + 1 >= b->cap)
-    {
-        b->cap *= 2;
-        char *nb = (char *)b->parser->alloc.reallocate(b->parser->alloc.user_data, b->data, b->cap);
-        if (!nb)
-        {
-            yaml_dealloc(b->parser, b->data);
-            b->data = NULL;
-            return VIGIL_STATUS_OUT_OF_MEMORY;
-        }
-        b->data = nb;
-    }
-    b->data[b->len++] = c;
-    return VIGIL_STATUS_OK;
-}
+#define YAML_BUF_PUSH(p, b, ch)                                                                                       \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if ((b).len + 1 >= (b).cap)                                                                                    \
+        {                                                                                                              \
+            (b).cap *= 2;                                                                                              \
+            char *_nb = (char *)(p)->alloc.reallocate((p)->alloc.user_data, (b).data, (b).cap);                        \
+            if (!_nb)                                                                                                  \
+            {                                                                                                          \
+                yaml_dealloc((p), (b).data);                                                                           \
+                return VIGIL_STATUS_OUT_OF_MEMORY;                                                                     \
+            }                                                                                                          \
+            (b).data = _nb;                                                                                            \
+        }                                                                                                              \
+        (b).data[(b).len++] = (char)(ch);                                                                              \
+    } while (0)
 
 static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_json_value_t **out)
 {
@@ -272,9 +256,14 @@ static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_jso
         return vigil_json_string_new(&p->alloc, "", 0, out, p->error);
 
     yaml_buf_t buf;
-    vigil_status_t s = yaml_buf_init(&buf, p, 256);
-    if (s != VIGIL_STATUS_OK)
-        return s;
+    buf.data = (char *)yaml_alloc(p, 256);
+    if (!buf.data)
+    {
+        set_error(p, "out of memory");
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    }
+    buf.len = 0;
+    buf.cap = 256;
 
     while (p->pos < p->len)
     {
@@ -288,9 +277,7 @@ static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_jso
                 advance(p);
             if (peek(p) == '\n')
             {
-                s = yaml_buf_push(&buf, '\n');
-                if (s != VIGIL_STATUS_OK)
-                    return s;
+                YAML_BUF_PUSH(p, buf, '\n');
                 advance(p);
                 continue;
             }
@@ -304,17 +291,13 @@ static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_jso
 
         while (peek(p) && peek(p) != '\n')
         {
-            s = yaml_buf_push(&buf, peek(p));
-            if (s != VIGIL_STATUS_OK)
-                return s;
+            YAML_BUF_PUSH(p, buf, peek(p));
             advance(p);
         }
 
         if (peek(p) == '\n')
         {
-            s = yaml_buf_push(&buf, style == '|' ? '\n' : ' ');
-            if (s != VIGIL_STATUS_OK)
-                return s;
+            YAML_BUF_PUSH(p, buf, style == '|' ? '\n' : ' ');
             advance(p);
         }
     }
@@ -332,7 +315,7 @@ static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_jso
     }
 
     buf.data[buf.len] = '\0';
-    s = vigil_json_string_new(&p->alloc, buf.data, buf.len, out, p->error);
+    vigil_status_t s = vigil_json_string_new(&p->alloc, buf.data, buf.len, out, p->error);
     yaml_dealloc(p, buf.data);
     return s;
 }

@@ -74,67 +74,71 @@ extern "C"
         const vigil_native_module_t *module;
     } vigil_stdlib_entry_t;
 
-    /* Return the stdlib module table.  The table is built inside a function
-       body so that address-of-extern initializers work on MSVC. */
-    static inline const vigil_stdlib_entry_t *vigil_stdlib_modules(size_t *out_count)
-    {
-        // clang-format off
-        static const vigil_stdlib_entry_t kModules[] = {
-            {"args",     4U, &vigil_stdlib_args},
-            {"atomic",   6U, &vigil_stdlib_atomic},
-            {"compress", 8U, &vigil_stdlib_compress},
-            {"crypto",   6U, &vigil_stdlib_crypto},
-            {"csv",      3U, &vigil_stdlib_csv},
+    /* Return the stdlib module table.  Uses a plain local array (not static)
+       because MSVC does not allow address-of-extern in static initializers. */
+    // clang-format off
+    #define VIGIL_STDLIB_MODULE_TABLE(var)                                                                              \
+        const vigil_stdlib_entry_t var[] = {                                                                           \
+            {"args",     4U, &vigil_stdlib_args},                                                                      \
+            {"atomic",   6U, &vigil_stdlib_atomic},                                                                    \
+            {"compress", 8U, &vigil_stdlib_compress},                                                                  \
+            {"crypto",   6U, &vigil_stdlib_crypto},                                                                    \
+            {"csv",      3U, &vigil_stdlib_csv},                                                                       \
+            VIGIL_STDLIB_FFI_ENTRY                                                                                     \
+            {"fmt",      3U, &vigil_stdlib_fmt},                                                                       \
+            VIGIL_STDLIB_FS_ENTRY                                                                                      \
+            VIGIL_STDLIB_HTTP_ENTRY                                                                                    \
+            {"log",      3U, &vigil_stdlib_log},                                                                       \
+            {"math",     4U, &vigil_stdlib_math},                                                                      \
+            VIGIL_STDLIB_NET_ENTRY                                                                                     \
+            {"parse",    5U, &vigil_stdlib_parse},                                                                     \
+            {"random",   6U, &vigil_stdlib_random},                                                                    \
+            VIGIL_STDLIB_READLINE_ENTRY                                                                                \
+            {"regex",    5U, &vigil_stdlib_regex},                                                                     \
+            {"test",     4U, &vigil_stdlib_test},                                                                      \
+            VIGIL_STDLIB_THREAD_ENTRY                                                                                  \
+            VIGIL_STDLIB_TIME_ENTRY                                                                                    \
+            {"unsafe",   6U, &vigil_stdlib_unsafe},                                                                    \
+            {"url",      3U, &vigil_stdlib_url},                                                                       \
+            {"yaml",     4U, &vigil_stdlib_yaml},                                                                      \
+        }
+    // clang-format on
+
 #ifdef VIGIL_HAS_STDLIB_FFI
-            {"ffi",      3U, &vigil_stdlib_ffi},
+    #define VIGIL_STDLIB_FFI_ENTRY {"ffi", 3U, &vigil_stdlib_ffi},
 #else
-            {"ffi",      3U, NULL},
+    #define VIGIL_STDLIB_FFI_ENTRY {"ffi", 3U, NULL},
 #endif
-            {"fmt",      3U, &vigil_stdlib_fmt},
 #ifdef VIGIL_HAS_STDLIB_FS
-            {"fs",       2U, &vigil_stdlib_fs},
+    #define VIGIL_STDLIB_FS_ENTRY {"fs", 2U, &vigil_stdlib_fs},
 #else
-            {"fs",       2U, NULL},
+    #define VIGIL_STDLIB_FS_ENTRY {"fs", 2U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_HTTP
-            {"http",     4U, &vigil_stdlib_http},
+    #define VIGIL_STDLIB_HTTP_ENTRY {"http", 4U, &vigil_stdlib_http},
 #else
-            {"http",     4U, NULL},
+    #define VIGIL_STDLIB_HTTP_ENTRY {"http", 4U, NULL},
 #endif
-            {"log",      3U, &vigil_stdlib_log},
-            {"math",     4U, &vigil_stdlib_math},
 #ifdef VIGIL_HAS_STDLIB_NET
-            {"net",      3U, &vigil_stdlib_net},
+    #define VIGIL_STDLIB_NET_ENTRY {"net", 3U, &vigil_stdlib_net},
 #else
-            {"net",      3U, NULL},
+    #define VIGIL_STDLIB_NET_ENTRY {"net", 3U, NULL},
 #endif
-            {"parse",    5U, &vigil_stdlib_parse},
-            {"random",   6U, &vigil_stdlib_random},
 #ifdef VIGIL_HAS_STDLIB_READLINE
-            {"readline", 8U, &vigil_stdlib_readline},
+    #define VIGIL_STDLIB_READLINE_ENTRY {"readline", 8U, &vigil_stdlib_readline},
 #else
-            {"readline", 8U, NULL},
+    #define VIGIL_STDLIB_READLINE_ENTRY {"readline", 8U, NULL},
 #endif
-            {"regex",    5U, &vigil_stdlib_regex},
-            {"test",     4U, &vigil_stdlib_test},
 #ifdef VIGIL_HAS_STDLIB_THREAD
-            {"thread",   6U, &vigil_stdlib_thread},
+    #define VIGIL_STDLIB_THREAD_ENTRY {"thread", 6U, &vigil_stdlib_thread},
 #else
-            {"thread",   6U, NULL},
+    #define VIGIL_STDLIB_THREAD_ENTRY {"thread", 6U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_TIME
-            {"time",     4U, &vigil_stdlib_time},
+    #define VIGIL_STDLIB_TIME_ENTRY {"time", 4U, &vigil_stdlib_time},
 #else
-            {"time",     4U, NULL},
+    #define VIGIL_STDLIB_TIME_ENTRY {"time", 4U, NULL},
 #endif
-            {"unsafe",   6U, &vigil_stdlib_unsafe},
-            {"url",      3U, &vigil_stdlib_url},
-            {"yaml",     4U, &vigil_stdlib_yaml},
-        };
-        // clang-format on
-        *out_count = sizeof(kModules) / sizeof(kModules[0]);
-        return kModules;
-    }
 
     static inline int vigil_stdlib_name_equals(const char *name, size_t name_length, const char *literal,
                                                size_t literal_length)
@@ -145,8 +149,8 @@ extern "C"
     /* Register all built-in stdlib modules into a native registry. */
     static inline vigil_status_t vigil_stdlib_register_all(vigil_native_registry_t *registry, vigil_error_t *error)
     {
-        size_t count = 0;
-        const vigil_stdlib_entry_t *mods = vigil_stdlib_modules(&count);
+        VIGIL_STDLIB_MODULE_TABLE(mods);
+        size_t count = sizeof(mods) / sizeof(mods[0]);
         size_t i;
         for (i = 0U; i < count; i++)
         {
@@ -163,8 +167,8 @@ extern "C"
     /* Check if an import name refers to any known stdlib module. */
     static inline int vigil_stdlib_is_known_module(const char *name, size_t name_length)
     {
-        size_t count = 0;
-        const vigil_stdlib_entry_t *mods = vigil_stdlib_modules(&count);
+        VIGIL_STDLIB_MODULE_TABLE(mods);
+        size_t count = sizeof(mods) / sizeof(mods[0]);
         size_t i;
         for (i = 0U; i < count; i++)
         {
@@ -177,8 +181,8 @@ extern "C"
     /* Check if an import name is a stdlib module available in this build. */
     static inline int vigil_stdlib_is_available_module(const char *name, size_t name_length)
     {
-        size_t count = 0;
-        const vigil_stdlib_entry_t *mods = vigil_stdlib_modules(&count);
+        VIGIL_STDLIB_MODULE_TABLE(mods);
+        size_t count = sizeof(mods) / sizeof(mods[0]);
         size_t i;
         for (i = 0U; i < count; i++)
         {
