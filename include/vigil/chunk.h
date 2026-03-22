@@ -235,7 +235,18 @@ extern "C"
            function calls itself.  Takes one u32 operand (arg_count).
            The VM reuses the current frame's function and chunk pointers
            directly, skipping the sibling constant lookup. */
-        VIGIL_OPCODE_CALL_SELF = 161
+        VIGIL_OPCODE_CALL_SELF = 161,
+
+        /* Fused i32 compare + conditional jump superinstructions.
+           Format: [opcode(1)][u32 jump_offset]  (6 bytes)
+           Pops two i32 values, compares, jumps if false.
+           Eliminates the intermediate bool push/pop and one dispatch. */
+        VIGIL_OPCODE_LESS_I32_JUMP_IF_FALSE = 162,
+        VIGIL_OPCODE_LESS_EQUAL_I32_JUMP_IF_FALSE = 163,
+        VIGIL_OPCODE_GREATER_I32_JUMP_IF_FALSE = 164,
+        VIGIL_OPCODE_GREATER_EQUAL_I32_JUMP_IF_FALSE = 165,
+        VIGIL_OPCODE_EQUAL_I32_JUMP_IF_FALSE = 166,
+        VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE = 167
     } vigil_opcode_t;
 
     typedef struct vigil_chunk
