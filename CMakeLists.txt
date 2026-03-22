@@ -99,6 +99,7 @@ add_library(vigil_core OBJECT
     src/type.c
     src/value.c
     src/vm.c
+    src/vm_ops_string.c
 )
 
 target_include_directories(vigil_core
