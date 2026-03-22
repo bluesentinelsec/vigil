@@ -97,9 +97,14 @@
 
 #include "internal/vigil_internal.h"
 #include "internal/vigil_nanbox.h"
+#include "internal/vigil_vm_internal.h"
 #include "value_internal.h"
 #include "vigil/string.h"
 #include "vigil/vm.h"
+#include "vm_ops_arith.h"
+#include "vm_ops_collection.h"
+#include "vm_ops_convert.h"
+#include "vm_ops_string.h"
 
 /* ── Computed-goto detection ───────────────────────────────────────
    GCC/Clang: use dispatch table.  Everything else: switch fallback.
@@ -111,62 +116,10 @@
 #define VIGIL_VM_COMPUTED_GOTO 0
 #endif
 
-/* Portable overflow-checked i32 arithmetic.
-   GCC/Clang: single-instruction __builtin_*_overflow.
-   MSVC: manual range checks (i32 ops can't overflow i64). */
-#if defined(__GNUC__) || defined(__clang__)
-#define VIGIL_I32_ADD_OVERFLOW(a, b, r) __builtin_add_overflow(a, b, r)
-#define VIGIL_I32_SUB_OVERFLOW(a, b, r) __builtin_sub_overflow(a, b, r)
-#define VIGIL_I32_MUL_OVERFLOW(a, b, r) __builtin_mul_overflow(a, b, r)
-#else
-#define VIGIL_I32_ADD_OVERFLOW(a, b, r)                                                                                \
-    (*(r) = (int32_t)((int64_t)(a) + (int64_t)(b)),                                                                    \
-     (int64_t)(a) + (int64_t)(b) < (int64_t)INT32_MIN || (int64_t)(a) + (int64_t)(b) > (int64_t)INT32_MAX)
-#define VIGIL_I32_SUB_OVERFLOW(a, b, r)                                                                                \
-    (*(r) = (int32_t)((int64_t)(a) - (int64_t)(b)),                                                                    \
-     (int64_t)(a) - (int64_t)(b) < (int64_t)INT32_MIN || (int64_t)(a) - (int64_t)(b) > (int64_t)INT32_MAX)
-#define VIGIL_I32_MUL_OVERFLOW(a, b, r)                                                                                \
-    (*(r) = (int32_t)((int64_t)(a) * (int64_t)(b)),                                                                    \
-     (int64_t)(a) * (int64_t)(b) < (int64_t)INT32_MIN || (int64_t)(a) * (int64_t)(b) > (int64_t)INT32_MAX)
-#endif
+/* i32 overflow macros now defined in vigil_vm_internal.h */
 
 #define VIGIL_VM_INITIAL_STACK_CAPACITY 256U
 #define VIGIL_VM_INITIAL_FRAME_CAPACITY 64U
-
-/* ── Inline value helpers ───────────────────────────────────────────
-   These replace the public vigil_value_* API inside the dispatch loop.
-   For non-object values (int, uint, float, bool, nil) they skip the
-   function call, NULL check, and ref-counting overhead entirely.
-   Objects still go through vigil_object_retain / vigil_object_release.
-
-   WARNING: These bypass the safety checks in value.h.  They assume
-   the caller has already validated the value kind.  Do NOT use
-   outside the dispatch loop without equivalent guards. */
-
-#define VIGIL_VM_VALUE_INIT_NIL(v)                                                                                     \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        *(v) = VIGIL_NANBOX_NIL;                                                                                       \
-    } while (0)
-
-#define VIGIL_VM_VALUE_COPY(dst, src)                                                                                  \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        *(dst) = *(src);                                                                                               \
-        if (vigil_nanbox_has_object(*(dst)))                                                                           \
-            vigil_object_retain((vigil_object_t *)vigil_nanbox_decode_ptr(*(dst)));                                    \
-    } while (0)
-
-#define VIGIL_VM_VALUE_RELEASE(v)                                                                                      \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (vigil_nanbox_has_object(*(v)))                                                                             \
-        {                                                                                                              \
-            vigil_object_t *_obj = (vigil_object_t *)vigil_nanbox_decode_ptr(*(v));                                    \
-            vigil_object_release(&_obj);                                                                               \
-        }                                                                                                              \
-        *(v) = VIGIL_NANBOX_NIL;                                                                                       \
-    } while (0)
 
 /* Fast stack push — caller must ensure capacity (pre-allocated). */
 #define VIGIL_VM_PUSH(vm, val)                                                                                         \
@@ -254,67 +207,8 @@
         (ip) += 4U;                                                                                                    \
     } while (0)
 
-/* Direct chunk field access — avoids function-call overhead for
-   vigil_chunk_code(), vigil_chunk_code_size(), vigil_chunk_constant(). */
-#define VIGIL_VM_CHUNK_CODE(chunk) ((chunk)->code.data)
-#define VIGIL_VM_CHUNK_CODE_SIZE(chunk) ((chunk)->code.length)
-#define VIGIL_VM_CHUNK_CONSTANT(chunk, idx) ((idx) < (chunk)->constant_count ? &(chunk)->constants[(idx)] : NULL)
-
-typedef struct vigil_vm_frame
-{
-    const vigil_object_t *callable;
-    const vigil_object_t *function;
-    const vigil_chunk_t *chunk;
-    size_t ip;
-    size_t base_slot;
-    struct vigil_vm_defer_action *defers;
-    size_t defer_count;
-    size_t defer_capacity;
-    vigil_value_t *pending_returns;
-    size_t pending_return_count;
-    size_t pending_return_capacity;
-    int draining_defers;
-} vigil_vm_frame_t;
-
-typedef enum vigil_vm_defer_kind
-{
-    VIGIL_VM_DEFER_CALL = 0,
-    VIGIL_VM_DEFER_CALL_VALUE = 1,
-    VIGIL_VM_DEFER_NEW_INSTANCE = 2,
-    VIGIL_VM_DEFER_CALL_INTERFACE = 3,
-    VIGIL_VM_DEFER_CALL_NATIVE = 4
-} vigil_vm_defer_kind_t;
-
-typedef struct vigil_vm_defer_action
-{
-    vigil_vm_defer_kind_t kind;
-    uint32_t operand_a;
-    uint32_t operand_b;
-    uint32_t arg_count;
-    vigil_value_t *values;
-    size_t value_count;
-} vigil_vm_defer_action_t;
-
-struct vigil_vm
-{
-    vigil_runtime_t *runtime;
-    vigil_value_t *stack;
-    size_t stack_count;
-    size_t stack_capacity;
-    vigil_vm_frame_t *frames;
-    size_t frame_count;
-    size_t frame_capacity;
-    /* Debug hook — NULL when no debugger attached (zero overhead). */
-    int (*debug_hook)(vigil_vm_t *vm, void *userdata);
-    void *debug_hook_userdata;
-    /* Script arguments for args.get(). */
-    const char *const *argv;
-    size_t argc;
-};
-
-static vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message,
-                                          vigil_error_t *error);
-static vigil_value_t vigil_vm_pop_or_nil(vigil_vm_t *vm);
+vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message, vigil_error_t *error);
+vigil_value_t vigil_vm_pop_or_nil(vigil_vm_t *vm);
 static void vigil_vm_defer_action_clear(vigil_runtime_t *runtime, vigil_vm_defer_action_t *action);
 static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *returned_values, size_t return_count,
                                                vigil_value_t *out_value, vigil_error_t *error);
@@ -377,8 +271,8 @@ static void vigil_vm_defer_action_clear(vigil_runtime_t *runtime, vigil_vm_defer
     memset(action, 0, sizeof(*action));
 }
 
-static vigil_status_t vigil_vm_grow_value_array(vigil_runtime_t *runtime, vigil_value_t **values, size_t *capacity,
-                                                size_t minimum_capacity, vigil_error_t *error)
+vigil_status_t vigil_vm_grow_value_array(vigil_runtime_t *runtime, vigil_value_t **values, size_t *capacity,
+                                         size_t minimum_capacity, vigil_error_t *error)
 {
     vigil_status_t status;
     size_t old_capacity;
@@ -490,7 +384,7 @@ static void vigil_vm_unwind_stack_to(vigil_vm_t *vm, size_t target_count)
     }
 }
 
-static vigil_status_t vigil_vm_grow_stack(vigil_vm_t *vm, size_t minimum_capacity, vigil_error_t *error)
+vigil_status_t vigil_vm_grow_stack(vigil_vm_t *vm, size_t minimum_capacity, vigil_error_t *error)
 {
     size_t old_capacity;
     size_t next_capacity;
@@ -646,7 +540,7 @@ static vigil_status_t vigil_vm_push_frame(vigil_vm_t *vm, const vigil_object_t *
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_push(vigil_vm_t *vm, const vigil_value_t *value, vigil_error_t *error)
+vigil_status_t vigil_vm_push(vigil_vm_t *vm, const vigil_value_t *value, vigil_error_t *error)
 {
     vigil_status_t status;
 
@@ -667,7 +561,7 @@ static vigil_status_t vigil_vm_push(vigil_vm_t *vm, const vigil_value_t *value, 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_value_t vigil_vm_pop_or_nil(vigil_vm_t *vm)
+vigil_value_t vigil_vm_pop_or_nil(vigil_vm_t *vm)
 {
     vigil_value_t value;
 
@@ -1439,7 +1333,7 @@ static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *re
     }
 }
 
-static vigil_status_t vigil_vm_checked_add(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_add(int64_t left, int64_t right, int64_t *out_result)
 {
     if ((right > 0 && left > INT64_MAX - right) || (right < 0 && left < INT64_MIN - right))
     {
@@ -1450,7 +1344,7 @@ static vigil_status_t vigil_vm_checked_add(int64_t left, int64_t right, int64_t 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_uadd(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_uadd(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (left > UINT64_MAX - right)
     {
@@ -1461,7 +1355,7 @@ static vigil_status_t vigil_vm_checked_uadd(uint64_t left, uint64_t right, uint6
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_subtract(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_subtract(int64_t left, int64_t right, int64_t *out_result)
 {
     if ((right > 0 && left < INT64_MIN + right) || (right < 0 && left > INT64_MAX + right))
     {
@@ -1472,7 +1366,7 @@ static vigil_status_t vigil_vm_checked_subtract(int64_t left, int64_t right, int
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_usubtract(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_usubtract(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (left < right)
     {
@@ -1483,7 +1377,7 @@ static vigil_status_t vigil_vm_checked_usubtract(uint64_t left, uint64_t right, 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_multiply(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_multiply(int64_t left, int64_t right, int64_t *out_result)
 {
     if (left == 0 || right == 0)
     {
@@ -1526,7 +1420,7 @@ static vigil_status_t vigil_vm_checked_multiply(int64_t left, int64_t right, int
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_umultiply(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_umultiply(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (left == 0U || right == 0U)
     {
@@ -1542,7 +1436,7 @@ static vigil_status_t vigil_vm_checked_umultiply(uint64_t left, uint64_t right, 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_divide(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_divide(int64_t left, int64_t right, int64_t *out_result)
 {
     if (right == 0)
     {
@@ -1557,7 +1451,7 @@ static vigil_status_t vigil_vm_checked_divide(int64_t left, int64_t right, int64
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_udivide(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_udivide(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (right == 0U)
     {
@@ -1568,7 +1462,7 @@ static vigil_status_t vigil_vm_checked_udivide(uint64_t left, uint64_t right, ui
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_modulo(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_modulo(int64_t left, int64_t right, int64_t *out_result)
 {
     if (right == 0)
     {
@@ -1583,7 +1477,7 @@ static vigil_status_t vigil_vm_checked_modulo(int64_t left, int64_t right, int64
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_umodulo(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_umodulo(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (right == 0U)
     {
@@ -1594,7 +1488,7 @@ static vigil_status_t vigil_vm_checked_umodulo(uint64_t left, uint64_t right, ui
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result)
+vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result)
 {
     if (value == INT64_MIN)
     {
@@ -1605,7 +1499,7 @@ static vigil_status_t vigil_vm_checked_negate(int64_t value, int64_t *out_result
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_shift_left(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_shift_left(int64_t left, int64_t right, int64_t *out_result)
 {
     if (right < 0 || right >= 64)
     {
@@ -1616,7 +1510,7 @@ static vigil_status_t vigil_vm_checked_shift_left(int64_t left, int64_t right, i
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_shift_right(int64_t left, int64_t right, int64_t *out_result)
+vigil_status_t vigil_vm_checked_shift_right(int64_t left, int64_t right, int64_t *out_result)
 {
     uint64_t shifted;
 
@@ -1640,7 +1534,7 @@ static vigil_status_t vigil_vm_checked_shift_right(int64_t left, int64_t right, 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_ushift_left(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_ushift_left(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (right >= 64U)
     {
@@ -1651,7 +1545,7 @@ static vigil_status_t vigil_vm_checked_ushift_left(uint64_t left, uint64_t right
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_checked_ushift_right(uint64_t left, uint64_t right, uint64_t *out_result)
+vigil_status_t vigil_vm_checked_ushift_right(uint64_t left, uint64_t right, uint64_t *out_result)
 {
     if (right >= 64U)
     {
@@ -1662,7 +1556,7 @@ static vigil_status_t vigil_vm_checked_ushift_right(uint64_t left, uint64_t righ
     return VIGIL_STATUS_OK;
 }
 
-static int vigil_vm_value_is_integer(const vigil_value_t *value)
+int vigil_vm_value_is_integer(const vigil_value_t *value)
 {
     return value != NULL && (vigil_nanbox_is_int(*value) || vigil_nanbox_is_uint(*value));
 }
@@ -1743,7 +1637,7 @@ static int vigil_vm_scalar_values_equal(const vigil_value_t *left, const vigil_v
     }
 }
 
-static int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t *right)
+int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t *right)
 {
     if (left == NULL || right == NULL)
     {
@@ -1763,7 +1657,7 @@ static int vigil_vm_values_equal(const vigil_value_t *left, const vigil_value_t 
     return vigil_vm_scalar_values_equal(left, right);
 }
 
-static int vigil_vm_value_is_supported_map_key(const vigil_value_t *value)
+int vigil_vm_value_is_supported_map_key(const vigil_value_t *value)
 {
     const vigil_object_t *object;
 
@@ -1786,8 +1680,8 @@ static int vigil_vm_value_is_supported_map_key(const vigil_value_t *value)
     }
 }
 
-static vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_t *left, const vigil_value_t *right,
-                                              vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_t *left, const vigil_value_t *right,
+                                       vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_string_t text;
@@ -1931,8 +1825,8 @@ static vigil_status_t vigil_vm_stringify_float_value(vigil_vm_t *vm, const vigil
     return vigil_vm_stringify_formatted_value(vm, buffer, (size_t)written, out_value, error);
 }
 
-static vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
-                                               vigil_error_t *error)
+vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
+                                        vigil_error_t *error)
 {
     if (vm == NULL || value == NULL || out_value == NULL)
     {
@@ -2377,8 +2271,8 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1,
-                                                 uint32_t word2, vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1, uint32_t word2,
+                                          vigil_value_t *out_value, vigil_error_t *error)
 {
     char fill;
     unsigned int align;
@@ -2447,8 +2341,8 @@ static vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_val
     return vigil_vm_format_spec_emit_text(vm, buf, (size_t)len, &layout, error);
 }
 
-static vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,
-                                                vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,
+                                         vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
     char format[32];
@@ -2512,7 +2406,7 @@ static vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_valu
     return VIGIL_STATUS_OK;
 }
 
-static int vigil_vm_get_string_parts(const vigil_value_t *value, const char **out_text, size_t *out_length)
+int vigil_vm_get_string_parts(const vigil_value_t *value, const char **out_text, size_t *out_length)
 {
     const vigil_object_t *object;
 
@@ -2544,8 +2438,8 @@ static int vigil_vm_get_string_parts(const vigil_value_t *value, const char **ou
     return 1;
 }
 
-static vigil_status_t vigil_vm_new_string_value(vigil_vm_t *vm, const char *text, size_t length,
-                                                vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_new_string_value(vigil_vm_t *vm, const char *text, size_t length, vigil_value_t *out_value,
+                                         vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_object_t *object;
@@ -2567,8 +2461,8 @@ static vigil_status_t vigil_vm_new_string_value(vigil_vm_t *vm, const char *text
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_make_error_value(vigil_vm_t *vm, int64_t kind, const char *message,
-                                                size_t message_length, vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_make_error_value(vigil_vm_t *vm, int64_t kind, const char *message, size_t message_length,
+                                         vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_object_t *object;
@@ -2584,13 +2478,13 @@ static vigil_status_t vigil_vm_make_error_value(vigil_vm_t *vm, int64_t kind, co
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_make_ok_error_value(vigil_vm_t *vm, vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_make_ok_error_value(vigil_vm_t *vm, vigil_value_t *out_value, vigil_error_t *error)
 {
     return vigil_vm_make_error_value(vm, 0, "", 0U, out_value, error);
 }
 
-static vigil_status_t vigil_vm_make_bounds_error_value(vigil_vm_t *vm, const char *message, vigil_value_t *out_value,
-                                                       vigil_error_t *error)
+vigil_status_t vigil_vm_make_bounds_error_value(vigil_vm_t *vm, const char *message, vigil_value_t *out_value,
+                                                vigil_error_t *error)
 {
     size_t length;
 
@@ -2598,8 +2492,8 @@ static vigil_status_t vigil_vm_make_bounds_error_value(vigil_vm_t *vm, const cha
     return vigil_vm_make_error_value(vm, 7, message == NULL ? "" : message, length, out_value, error);
 }
 
-static int vigil_vm_find_substring(const char *text, size_t text_length, const char *needle, size_t needle_length,
-                                   size_t *out_index)
+int vigil_vm_find_substring(const char *text, size_t text_length, const char *needle, size_t needle_length,
+                            size_t *out_index)
 {
     size_t index;
 
@@ -2679,10 +2573,10 @@ static vigil_status_t vigil_vm_push_checked_unsigned_integer(vigil_vm_t *vm, uin
     return status;
 }
 
-static vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
-                                                              int64_t minimum_value, int64_t maximum_value,
-                                                              const char *operand_error, const char *range_error,
-                                                              vigil_error_t *error)
+vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
+                                                       int64_t minimum_value, int64_t maximum_value,
+                                                       const char *operand_error, const char *range_error,
+                                                       vigil_error_t *error)
 {
     int64_t integer_value;
     double float_value;
@@ -2725,9 +2619,9 @@ static vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, co
     return vigil_vm_push_checked_signed_integer(vm, integer_value, minimum_value, maximum_value, range_error, error);
 }
 
-static vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
-                                                                uint64_t maximum_value, const char *operand_error,
-                                                                const char *range_error, vigil_error_t *error)
+vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
+                                                         uint64_t maximum_value, const char *operand_error,
+                                                         const char *range_error, vigil_error_t *error)
 {
     uint64_t integer_value;
     double float_value;
@@ -2770,8 +2664,7 @@ static vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, 
     return vigil_vm_push_checked_unsigned_integer(vm, integer_value, maximum_value, range_error, error);
 }
 
-static vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message,
-                                          vigil_error_t *error)
+vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message, vigil_error_t *error)
 {
     vigil_source_span_t span;
     vigil_vm_frame_t *frame;
@@ -2788,7 +2681,7 @@ static vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status,
     return status;
 }
 
-static vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
 {
     vigil_vm_frame_t *frame;
     const uint8_t *code;
@@ -2817,7 +2710,7 @@ static vigil_status_t vigil_vm_read_u32(vigil_vm_t *vm, uint32_t *out_value, vig
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_vm_read_raw_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_read_raw_u32(vigil_vm_t *vm, uint32_t *out_value, vigil_error_t *error)
 {
     vigil_vm_frame_t *frame;
     const uint8_t *code;
@@ -3354,19 +3247,15 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
     vigil_value_t value = {0};
     vigil_value_t left = {0};
     vigil_value_t right = {0};
-    int64_t integer_result = 0;
-    uint64_t uinteger_result = 0U;
     const vigil_value_t *constant;
     const vigil_value_t *left_peek;
     const vigil_value_t *peeked;
     uint32_t constant_index;
     uint32_t operand;
-    vigil_object_t *object;
     vigil_vm_frame_t *frame;
     const uint8_t *code;
     size_t code_size;
     size_t local_index;
-    object = NULL;
     status = vigil_vm_validate(vm, error);
     if (status != VIGIL_STATUS_OK)
     {
@@ -4418,2094 +4307,207 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             }
             VM_BREAK();
             VM_CASE(GET_INDEX)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "index access requires an array or map",
-                                             error);
-                goto cleanup;
-            }
-
-            if (vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_ARRAY)
-            {
-                if (!vigil_nanbox_is_int(right) || vigil_value_as_int(&(right)) < 0)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "array index must be a non-negative i32", error);
-                    goto cleanup;
-                }
-
-                if (!vigil_array_object_get(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                            (size_t)vigil_value_as_int(&(right)), &value))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status =
-                        vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "array index is out of range", error);
-                    goto cleanup;
-                }
-            }
-            else if (vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_MAP)
-            {
-                if (!vigil_vm_value_is_supported_map_key(&right))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "map index must be i32, bool, or string", error);
-                    goto cleanup;
-                }
-
-                if (!vigil_map_object_get(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &right, &value))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map key is not present", error);
-                    goto cleanup;
-                }
-            }
-            else
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "index access requires an array or map",
-                                             error);
-                goto cleanup;
-            }
-
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_get_index(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(GET_COLLECTION_SIZE)
-            frame->ip += 1U;
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "collection size requires an array or map", error);
-                goto cleanup;
-            }
-
-            if (vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_ARRAY)
-            {
-                vigil_value_init_int(
-                    &value, (int64_t)vigil_array_object_length(((vigil_object_t *)vigil_nanbox_decode_ptr(left))));
-            }
-            else if (vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_MAP)
-            {
-                vigil_value_init_int(
-                    &value, (int64_t)vigil_map_object_count(((vigil_object_t *)vigil_nanbox_decode_ptr(left))));
-            }
-            else
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "collection size requires an array or map", error);
-                goto cleanup;
-            }
-
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_get_collection_size(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(ARRAY_PUSH)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_ARRAY)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array push() requires an array receiver", error);
-                goto cleanup;
-            }
-            status = vigil_array_object_append(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &value, error);
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_array_push(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(ARRAY_POP)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_ARRAY)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array pop() requires an array receiver", error);
-                goto cleanup;
-            }
-            if (vigil_array_object_pop(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_INIT_NIL(&right);
-                status = vigil_vm_make_ok_error_value(vm, &right, error);
-            }
-            else
-            {
-                status = vigil_vm_make_bounds_error_value(vm, "array is empty", &value, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
+            status = vigil_vm_op_array_pop(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
                 goto cleanup;
-            }
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &right, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&right);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(ARRAY_GET_SAFE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_ARRAY)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array get() requires an array receiver", error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right) || vigil_value_as_int(&(right)) < 0)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array get() index must be a non-negative i32", error);
-                goto cleanup;
-            }
-            {
-                vigil_value_t item;
-                int found;
-
-                VIGIL_VM_VALUE_INIT_NIL(&item);
-                found = vigil_array_object_get(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                               (size_t)vigil_value_as_int(&(right)), &item);
-                if (found)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    value = item;
-                    status = vigil_vm_make_ok_error_value(vm, &right, error);
-                }
-                else
-                {
-                    status = vigil_vm_make_bounds_error_value(vm, "array index is out of range", &right, error);
-                }
-                if (!found)
-                {
-                    vigil_value_release(&item);
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
+            status = vigil_vm_op_array_get_safe(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
                 goto cleanup;
-            }
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &right, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&right);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(ARRAY_SET_SAFE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_ARRAY)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array set() requires an array receiver", error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right) || vigil_value_as_int(&(right)) < 0)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array set() index must be a non-negative i32", error);
-                goto cleanup;
-            }
-            status = vigil_array_object_set(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                            (size_t)vigil_value_as_int(&(right)), &value, error);
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_make_ok_error_value(vm, &value, error);
-            }
-            else if (status == VIGIL_STATUS_INVALID_ARGUMENT)
-            {
-                status = vigil_vm_make_bounds_error_value(vm, "array index is out of range", &value, error);
-            }
+            status = vigil_vm_op_array_set_safe(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(ARRAY_SLICE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_ARRAY)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array slice() requires an array receiver", error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right) || !vigil_nanbox_is_int(value) || vigil_value_as_int(&(right)) < 0 ||
-                vigil_value_as_int(&(value)) < 0)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array slice() start and end must be non-negative i32 values", error);
-                goto cleanup;
-            }
-            object = NULL;
-            status = vigil_array_object_slice(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                              (size_t)vigil_value_as_int(&(right)),
-                                              (size_t)vigil_value_as_int(&(value)), &object, error);
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_array_slice(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status =
-                    vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "array slice range is out of bounds", error);
                 goto cleanup;
-            }
-            vigil_value_init_object(&value, &object);
-            vigil_object_release(&object);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(ARRAY_CONTAINS)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_ARRAY)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "array contains() requires an array receiver", error);
-                goto cleanup;
-            }
-            do
-            {
-                (value) = vigil_nanbox_from_bool(0);
-            } while (0);
-            {
-                size_t item_count = vigil_array_object_length(((vigil_object_t *)vigil_nanbox_decode_ptr(left)));
-                size_t item_index;
-                vigil_value_t item;
-
-                for (item_index = 0U; item_index < item_count; item_index += 1U)
-                {
-                    VIGIL_VM_VALUE_INIT_NIL(&item);
-                    if (!vigil_array_object_get(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), item_index, &item))
-                    {
-                        continue;
-                    }
-                    if (vigil_vm_values_equal(&item, &right))
-                    {
-                        do
-                        {
-                            (value) = vigil_nanbox_from_bool(1);
-                        } while (0);
-                        vigil_value_release(&item);
-                        break;
-                    }
-                    vigil_value_release(&item);
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_array_contains(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(MAP_GET_SAFE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status =
-                    vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map get() requires a map receiver", error);
-                goto cleanup;
-            }
-            {
-                vigil_value_t stored;
-                int found;
-
-                VIGIL_VM_VALUE_INIT_NIL(&stored);
-                found = vigil_map_object_get(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &right, &stored);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                do
-                {
-                    (right) = vigil_nanbox_from_bool(found != 0);
-                } while (0);
-                if (found)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    value = stored;
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &right, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&right);
+            status = vigil_vm_op_map_get_safe(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(MAP_SET_SAFE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status =
-                    vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map set() requires a map receiver", error);
-                goto cleanup;
-            }
-            status = vigil_map_object_set(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &right, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_map_set_safe(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
-            status = vigil_vm_make_ok_error_value(vm, &value, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(MAP_REMOVE_SAFE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map remove() requires a map receiver",
-                                             error);
-                goto cleanup;
-            }
-            {
-                vigil_value_t removed_value;
-                int removed;
-
-                VIGIL_VM_VALUE_INIT_NIL(&removed_value);
-                removed = vigil_map_object_remove(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &right,
-                                                  &removed_value, error);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                do
-                {
-                    (right) = vigil_nanbox_from_bool(removed != 0);
-                } while (0);
-                if (removed)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    value = removed_value;
-                }
-                else
-                {
-                    vigil_value_release(&removed_value);
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &right, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&right);
+            status = vigil_vm_op_map_remove_safe(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(MAP_HAS)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status =
-                    vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map has() requires a map receiver", error);
-                goto cleanup;
-            }
-            {
-                vigil_value_t stored;
-                int found;
-
-                VIGIL_VM_VALUE_INIT_NIL(&stored);
-                found = vigil_map_object_get(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &right, &stored);
-                vigil_value_release(&stored);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                do
-                {
-                    (value) = vigil_nanbox_from_bool(found != 0);
-                } while (0);
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_map_has(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(MAP_KEYS)
             VM_CASE(MAP_VALUES)
-            frame->ip += 1U;
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status =
-                    vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map method requires a map receiver", error);
-                goto cleanup;
-            }
-            {
-                size_t item_count = vigil_map_object_count(((vigil_object_t *)vigil_nanbox_decode_ptr(left)));
-                vigil_value_t *items = NULL;
-                size_t item_capacity = 0U;
-                size_t item_index;
-
-                status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count, error);
-                for (item_index = 0U; status == VIGIL_STATUS_OK && item_index < item_count; item_index += 1U)
-                {
-                    VIGIL_VM_VALUE_INIT_NIL(&items[item_index]);
-                    if ((vigil_opcode_t)code[frame->ip - 1U] == VIGIL_OPCODE_MAP_KEYS)
-                    {
-                        if (!vigil_map_object_key_at(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), item_index,
-                                                     &items[item_index]))
-                        {
-                            status = VIGIL_STATUS_INTERNAL;
-                        }
-                    }
-                    else
-                    {
-                        if (!vigil_map_object_value_at(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), item_index,
-                                                       &items[item_index]))
-                        {
-                            status = VIGIL_STATUS_INTERNAL;
-                        }
-                    }
-                }
-                if (status == VIGIL_STATUS_OK)
-                {
-                    object = NULL;
-                    status = vigil_array_object_new(vm->runtime, items, item_count, &object, error);
-                }
-                for (item_index = 0U; item_index < item_count; item_index += 1U)
-                {
-                    vigil_value_release(&items[item_index]);
-                }
-                vigil_runtime_free(vm->runtime, (void **)&items);
-                VIGIL_VM_VALUE_RELEASE(&left);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    if (status == VIGIL_STATUS_INTERNAL)
-                    {
-                        status =
-                            vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INTERNAL, "failed to enumerate map entries", error);
-                    }
-                    goto cleanup;
-                }
-                vigil_value_init_object(&value, &object);
-                vigil_object_release(&object);
-            }
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_map_keys_values(vm, frame, code, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(GET_STRING_SIZE)
-            frame->ip += 1U;
-            left = vigil_vm_pop_or_nil(vm);
-            {
-                const char *text;
-                size_t length;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string len() requires a string receiver", error);
-                    goto cleanup;
-                }
-                vigil_value_init_int(&value, (int64_t)length);
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_get_string_size(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(STRING_CONTAINS)
             VM_CASE(STRING_STARTS_WITH)
             VM_CASE(STRING_ENDS_WITH)
-            {
-                vigil_opcode_t string_opcode = (vigil_opcode_t)code[frame->ip];
-                const char *text;
-                const char *needle;
-                size_t text_length;
-                size_t needle_length;
-                int found;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &needle, &needle_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method arguments must be strings", error);
-                    goto cleanup;
-                }
-
-                found = 0;
-                if (string_opcode == VIGIL_OPCODE_STRING_CONTAINS)
-                {
-                    found = vigil_vm_find_substring(text, text_length, needle, needle_length, NULL);
-                }
-                else if (string_opcode == VIGIL_OPCODE_STRING_STARTS_WITH)
-                {
-                    found = needle_length <= text_length && memcmp(text, needle, needle_length) == 0;
-                }
-                else
-                {
-                    found = needle_length <= text_length &&
-                            memcmp(text + (text_length - needle_length), needle, needle_length) == 0;
-                }
-                do
-                {
-                    (value) = vigil_nanbox_from_bool(found);
-                } while (0);
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
+            status = vigil_vm_op_string_search(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_TRIM)
             VM_CASE(STRING_TO_UPPER)
             VM_CASE(STRING_TO_LOWER)
-            {
-                vigil_opcode_t string_opcode = (vigil_opcode_t)code[frame->ip];
-                const char *text;
-                size_t length;
-
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method requires a string receiver", error);
-                    goto cleanup;
-                }
-
-                if (string_opcode == VIGIL_OPCODE_STRING_TRIM)
-                {
-                    size_t start = 0U;
-                    size_t end = length;
-
-                    while (start < length && isspace((unsigned char)text[start]))
-                    {
-                        start += 1U;
-                    }
-                    while (end > start && isspace((unsigned char)text[end - 1U]))
-                    {
-                        end -= 1U;
-                    }
-                    status = vigil_vm_new_string_value(vm, text + start, end - start, &value, error);
-                }
-                else
-                {
-                    void *memory = NULL;
-                    char *buffer;
-                    size_t index;
-
-                    status = vigil_runtime_alloc(vm->runtime, length + 1U, &memory, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        buffer = (char *)memory;
-                        for (index = 0U; index < length; index += 1U)
-                        {
-                            buffer[index] = (char)(string_opcode == VIGIL_OPCODE_STRING_TO_UPPER
-                                                       ? toupper((unsigned char)text[index])
-                                                       : tolower((unsigned char)text[index]));
-                        }
-                        buffer[length] = '\0';
-                        status = vigil_vm_new_string_value(vm, buffer, length, &value, error);
-                        vigil_runtime_free(vm->runtime, &memory);
-                    }
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
-            VM_CASE(STRING_REPLACE)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            {
-                const char *text;
-                const char *old_text;
-                const char *new_text;
-                size_t text_length;
-                size_t old_length;
-                size_t new_length;
-                size_t index;
-                size_t match_index;
-                vigil_string_t built;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &old_text, &old_length) ||
-                    !vigil_vm_get_string_parts(&value, &new_text, &new_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string replace() arguments must be strings", error);
-                    goto cleanup;
-                }
-
-                if (old_length == 0U)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    VIGIL_VM_VALUE_COPY(&right, &left);
-                }
-                else
-                {
-                    vigil_string_init(&built, vm->runtime);
-                    index = 0U;
-                    status = VIGIL_STATUS_OK;
-                    while (index < text_length && status == VIGIL_STATUS_OK)
-                    {
-                        if (vigil_vm_find_substring(text + index, text_length - index, old_text, old_length,
-                                                    &match_index))
-                        {
-                            status = vigil_string_append(&built, text + index, match_index, error);
-                            if (status == VIGIL_STATUS_OK)
-                            {
-                                status = vigil_string_append(&built, new_text, new_length, error);
-                            }
-                            index += match_index + old_length;
-                        }
-                        else
-                        {
-                            status = vigil_string_append(&built, text + index, text_length - index, error);
-                            break;
-                        }
-                    }
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        VIGIL_VM_VALUE_RELEASE(&right);
-                        status = vigil_vm_new_string_value(vm, vigil_string_c_str(&built), vigil_string_length(&built),
-                                                           &right, error);
-                    }
-                    vigil_string_free(&built);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        VIGIL_VM_VALUE_RELEASE(&left);
-                        VIGIL_VM_VALUE_RELEASE(&right);
-                        VIGIL_VM_VALUE_RELEASE(&value);
-                        goto cleanup;
-                    }
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &right, error);
-            VIGIL_VM_VALUE_RELEASE(&right);
+            status = vigil_vm_op_string_transform(vm, frame, code, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
+            VM_BREAK();
+            VM_CASE(STRING_REPLACE)
+            status = vigil_vm_op_string_replace(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_SPLIT)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            {
-                const char *text;
-                const char *separator;
-                size_t text_length;
-                size_t separator_length;
-                vigil_value_t *items = NULL;
-                size_t item_count = 0U;
-                size_t item_capacity = 0U;
-                size_t index = 0U;
-                vigil_object_t *array_object = NULL;
-                size_t match_index;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &separator, &separator_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string split() arguments must be strings", error);
-                    goto cleanup;
-                }
-
-                status = VIGIL_STATUS_OK;
-                if (separator_length == 0U)
-                {
-                    while (index < text_length && status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count + 1U, error);
-                        if (status == VIGIL_STATUS_OK)
-                        {
-                            VIGIL_VM_VALUE_INIT_NIL(&items[item_count]);
-                            status = vigil_vm_new_string_value(vm, text + index, 1U, &items[item_count], error);
-                            if (status == VIGIL_STATUS_OK)
-                            {
-                                item_count += 1U;
-                            }
-                        }
-                        index += 1U;
-                    }
-                }
-                else
-                {
-                    while (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count + 1U, error);
-                        if (status != VIGIL_STATUS_OK)
-                        {
-                            break;
-                        }
-                        VIGIL_VM_VALUE_INIT_NIL(&items[item_count]);
-                        if (vigil_vm_find_substring(text + index, text_length - index, separator, separator_length,
-                                                    &match_index))
-                        {
-                            status =
-                                vigil_vm_new_string_value(vm, text + index, match_index, &items[item_count], error);
-                            if (status == VIGIL_STATUS_OK)
-                            {
-                                item_count += 1U;
-                            }
-                            index += match_index + separator_length;
-                        }
-                        else
-                        {
-                            status = vigil_vm_new_string_value(vm, text + index, text_length - index,
-                                                               &items[item_count], error);
-                            if (status == VIGIL_STATUS_OK)
-                            {
-                                item_count += 1U;
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                if (status == VIGIL_STATUS_OK)
-                {
-                    status = vigil_array_object_new(vm->runtime, items, item_count, &array_object, error);
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    size_t item_index;
-
-                    for (item_index = 0U; item_index < item_count; item_index += 1U)
-                    {
-                        vigil_value_release(&items[item_index]);
-                    }
-                    vigil_runtime_free(vm->runtime, (void **)&items);
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    goto cleanup;
-                }
-                for (match_index = 0U; match_index < item_count; match_index += 1U)
-                {
-                    vigil_value_release(&items[match_index]);
-                }
-                vigil_runtime_free(vm->runtime, (void **)&items);
-                vigil_value_init_object(&value, &array_object);
-                vigil_object_release(&array_object);
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_string_split(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(STRING_INDEX_OF)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            {
-                const char *text;
-                const char *needle;
-                size_t text_length;
-                size_t needle_length;
-                size_t index;
-                int found;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &needle, &needle_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method arguments must be strings", error);
-                    goto cleanup;
-                }
-
-                found = vigil_vm_find_substring(text, text_length, needle, needle_length, &index);
-                vigil_value_init_int(&value, found ? (int64_t)index : -1);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                do
-                {
-                    (right) = vigil_nanbox_from_bool(found);
-                } while (0);
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &right, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&right);
+            status = vigil_vm_op_string_index_of(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(STRING_SUBSTR)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            {
-                const char *text;
-                size_t text_length;
-                int64_t start;
-                int64_t slice_length;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) || !vigil_nanbox_is_int(right) ||
-                    !vigil_nanbox_is_int(value))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string substr() requires i32 start and length", error);
-                    goto cleanup;
-                }
-                start = vigil_value_as_int(&(right));
-                slice_length = vigil_value_as_int(&(value));
-                if (start < 0 || slice_length < 0 || (uint64_t)start > text_length ||
-                    (uint64_t)slice_length > text_length - (size_t)start)
-                {
-                    status = vigil_vm_new_string_value(vm, "", 0U, &right, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_make_error_value(vm, 7, "string slice is out of range",
-                                                           sizeof("string slice is out of range") - 1U, &value, error);
-                    }
-                }
-                else
-                {
-                    status = vigil_vm_new_string_value(vm, text + (size_t)start, (size_t)slice_length, &right, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_make_ok_error_value(vm, &value, error);
-                    }
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    goto cleanup;
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &right, error);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &value, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_string_substr(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(STRING_BYTES)
-            frame->ip += 1U;
-            left = vigil_vm_pop_or_nil(vm);
-            {
-                const char *text;
-                size_t text_length;
-                vigil_value_t *items = NULL;
-                size_t item_count = 0U;
-                size_t item_capacity = 0U;
-                size_t index;
-                vigil_object_t *array_object = NULL;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string bytes() requires a string receiver", error);
-                    goto cleanup;
-                }
-                status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, text_length, error);
-                for (index = 0U; status == VIGIL_STATUS_OK && index < text_length; index += 1U)
-                {
-                    vigil_value_init_uint(&items[index], (uint64_t)(unsigned char)text[index]);
-                }
-                item_count = status == VIGIL_STATUS_OK ? text_length : 0U;
-                if (status == VIGIL_STATUS_OK)
-                {
-                    status = vigil_array_object_new(vm->runtime, items, item_count, &array_object, error);
-                }
-                for (index = 0U; index < item_count; index += 1U)
-                {
-                    vigil_value_release(&items[index]);
-                }
-                vigil_runtime_free(vm->runtime, (void **)&items);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                vigil_value_init_object(&value, &array_object);
-                vigil_object_release(&array_object);
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_string_bytes(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(STRING_CHAR_AT)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&value);
-            {
-                const char *text;
-                size_t text_length;
-                int64_t index;
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) || !vigil_nanbox_is_int(right))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string char_at() requires an i32 index", error);
-                    goto cleanup;
-                }
-                index = vigil_value_as_int(&(right));
-                if (index < 0 || (uint64_t)index >= text_length)
-                {
-                    status = vigil_vm_new_string_value(vm, "", 0U, &right, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_make_error_value(vm, 7, "string index is out of range",
-                                                           sizeof("string index is out of range") - 1U, &value, error);
-                    }
-                }
-                else
-                {
-                    status = vigil_vm_new_string_value(vm, text + (size_t)index, 1U, &right, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_make_ok_error_value(vm, &value, error);
-                    }
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    goto cleanup;
-                }
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            status = vigil_vm_push(vm, &right, error);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            if (status == VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_push(vm, &value, error);
-            }
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_string_char_at(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
-            /* ── New string methods ──────────────────────────────── */
             VM_CASE(STRING_TRIM_LEFT)
             VM_CASE(STRING_TRIM_RIGHT)
-            {
-                vigil_opcode_t string_opcode = (vigil_opcode_t)code[frame->ip];
-                const char *text;
-                size_t length;
-
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method requires a string receiver", error);
-                    goto cleanup;
-                }
-
-                if (string_opcode == VIGIL_OPCODE_STRING_TRIM_LEFT)
-                {
-                    size_t start = 0U;
-                    while (start < length && isspace((unsigned char)text[start]))
-                    {
-                        start += 1U;
-                    }
-                    status = vigil_vm_new_string_value(vm, text + start, length - start, &value, error);
-                }
-                else
-                {
-                    size_t end = length;
-                    while (end > 0U && isspace((unsigned char)text[end - 1U]))
-                    {
-                        end -= 1U;
-                    }
-                    status = vigil_vm_new_string_value(vm, text, end, &value, error);
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
+            status = vigil_vm_op_string_trim_dir(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_REVERSE)
-            {
-                const char *text;
-                size_t length;
-
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method requires a string receiver", error);
-                    goto cleanup;
-                }
-
-                {
-                    void *memory = NULL;
-                    char *buffer;
-                    size_t i;
-
-                    status = vigil_runtime_alloc(vm->runtime, length + 1U, &memory, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        buffer = (char *)memory;
-                        for (i = 0U; i < length; i += 1U)
-                        {
-                            buffer[i] = text[length - 1U - i];
-                        }
-                        buffer[length] = '\0';
-                        status = vigil_vm_new_string_value(vm, buffer, length, &value, error);
-                        vigil_runtime_free(vm->runtime, &memory);
-                    }
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_reverse(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_IS_EMPTY)
-            {
-                const char *text;
-                size_t length;
-
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method requires a string receiver", error);
-                    goto cleanup;
-                }
-
-                VIGIL_VM_VALUE_RELEASE(&left);
-                vigil_value_init_bool(&value, length == 0U);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_is_empty(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_CHAR_COUNT)
-            {
-                const char *text;
-                size_t text_length;
-                size_t ci;
-                int32_t ccount;
-
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "char_count() requires a string receiver", error);
-                    goto cleanup;
-                }
-
-                ccount = 0;
-                for (ci = 0U; ci < text_length;)
-                {
-                    unsigned char uc = (unsigned char)text[ci];
-                    if (uc < 0x80U)
-                    {
-                        ci += 1U;
-                    }
-                    else if ((uc & 0xE0U) == 0xC0U)
-                    {
-                        ci += 2U;
-                    }
-                    else if ((uc & 0xF0U) == 0xE0U)
-                    {
-                        ci += 3U;
-                    }
-                    else
-                    {
-                        ci += 4U;
-                    }
-                    ccount += 1;
-                }
-
-                VIGIL_VM_VALUE_RELEASE(&left);
-                vigil_value_init_int(&value, (int64_t)ccount);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_char_count(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_REPEAT)
-            {
-                const char *text;
-                size_t length;
-                int64_t count;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &length) || !vigil_nanbox_is_int(right))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string repeat() requires an i32 count", error);
-                    goto cleanup;
-                }
-
-                count = vigil_value_as_int(&right);
-                VIGIL_VM_VALUE_RELEASE(&right);
-
-                if (count <= 0)
-                {
-                    status = vigil_vm_new_string_value(vm, "", 0U, &value, error);
-                }
-                else
-                {
-                    size_t total = length * (size_t)count;
-                    void *memory = NULL;
-                    char *buffer;
-                    int64_t i;
-
-                    status = vigil_runtime_alloc(vm->runtime, total + 1U, &memory, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        buffer = (char *)memory;
-                        for (i = 0; i < count; i += 1)
-                        {
-                            memcpy(buffer + (size_t)i * length, text, length);
-                        }
-                        buffer[total] = '\0';
-                        status = vigil_vm_new_string_value(vm, buffer, total, &value, error);
-                        vigil_runtime_free(vm->runtime, &memory);
-                    }
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_repeat(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_COUNT)
-            {
-                const char *text;
-                size_t text_length;
-                const char *needle;
-                size_t needle_length;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &needle, &needle_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string count() requires a string argument", error);
-                    goto cleanup;
-                }
-
-                {
-                    int64_t n = 0;
-                    if (needle_length > 0U && needle_length <= text_length)
-                    {
-                        const char *p = text;
-                        const char *end = text + text_length;
-                        while (p <= end - needle_length)
-                        {
-                            if (memcmp(p, needle, needle_length) == 0)
-                            {
-                                n += 1;
-                                p += needle_length;
-                            }
-                            else
-                            {
-                                p += 1;
-                            }
-                        }
-                    }
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    vigil_value_init_int(&value, n);
-                    status = vigil_vm_push(vm, &value, error);
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        goto cleanup;
-                    }
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_count(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_LAST_INDEX_OF)
-            {
-                const char *text;
-                size_t text_length;
-                const char *needle;
-                size_t needle_length;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &needle, &needle_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string last_index_of() requires a string argument", error);
-                    goto cleanup;
-                }
-
-                {
-                    int64_t found_index = -1;
-                    if (needle_length > 0U && needle_length <= text_length)
-                    {
-                        size_t i = text_length - needle_length;
-                        for (;;)
-                        {
-                            if (memcmp(text + i, needle, needle_length) == 0)
-                            {
-                                found_index = (int64_t)i;
-                                break;
-                            }
-                            if (i == 0U)
-                                break;
-                            i -= 1U;
-                        }
-                    }
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    vigil_value_init_int(&value, found_index >= 0 ? found_index : 0);
-                    status = vigil_vm_push(vm, &value, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        vigil_value_t found_val;
-                        vigil_value_init_bool(&found_val, found_index >= 0);
-                        status = vigil_vm_push(vm, &found_val, error);
-                        VIGIL_VM_VALUE_RELEASE(&found_val);
-                    }
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        goto cleanup;
-                    }
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_last_index_of(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_TRIM_PREFIX)
             VM_CASE(STRING_TRIM_SUFFIX)
-            {
-                vigil_opcode_t string_opcode = (vigil_opcode_t)code[frame->ip];
-                const char *text;
-                size_t text_length;
-                const char *prefix;
-                size_t prefix_length;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length) ||
-                    !vigil_vm_get_string_parts(&right, &prefix, &prefix_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "string method requires a string argument", error);
-                    goto cleanup;
-                }
-
-                if (string_opcode == VIGIL_OPCODE_STRING_TRIM_PREFIX)
-                {
-                    if (prefix_length <= text_length && memcmp(text, prefix, prefix_length) == 0)
-                    {
-                        status = vigil_vm_new_string_value(vm, text + prefix_length, text_length - prefix_length,
-                                                           &value, error);
-                    }
-                    else
-                    {
-                        status = vigil_vm_new_string_value(vm, text, text_length, &value, error);
-                    }
-                }
-                else
-                {
-                    if (prefix_length <= text_length &&
-                        memcmp(text + text_length - prefix_length, prefix, prefix_length) == 0)
-                    {
-                        status = vigil_vm_new_string_value(vm, text, text_length - prefix_length, &value, error);
-                    }
-                    else
-                    {
-                        status = vigil_vm_new_string_value(vm, text, text_length, &value, error);
-                    }
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_trim_affix(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(CHAR_FROM_INT)
-            {
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_nanbox_is_int(left))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "char() requires an integer argument", error);
-                    goto cleanup;
-                }
-
-                int32_t code_point = vigil_nanbox_decode_i32(left);
-                VIGIL_VM_VALUE_RELEASE(&left);
-
-                if (code_point < 0 || code_point > 255)
-                {
-                    status =
-                        vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "char() argument must be 0-255", error);
-                    goto cleanup;
-                }
-
-                char ch = (char)code_point;
-                status = vigil_vm_new_string_value(vm, &ch, 1, &value, error);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_char_from_int(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_TO_C)
-            {
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                const char *text;
-                size_t text_length;
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "to_c() requires a string", error);
-                    goto cleanup;
-                }
-
-                /* Build C-style escaped string */
-                size_t out_cap = text_length * 4 + 3; /* worst case: all \xNN + quotes + null */
-                char *out_buf = NULL;
-                status = vigil_runtime_alloc(vm->runtime, out_cap, (void **)&out_buf, error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-
-                size_t j = 0;
-                out_buf[j++] = '"';
-                for (size_t i = 0; i < text_length; i++)
-                {
-                    unsigned char c = (unsigned char)text[i];
-                    if (c == '"')
-                    {
-                        out_buf[j++] = '\\';
-                        out_buf[j++] = '"';
-                    }
-                    else if (c == '\\')
-                    {
-                        out_buf[j++] = '\\';
-                        out_buf[j++] = '\\';
-                    }
-                    else if (c == '\n')
-                    {
-                        out_buf[j++] = '\\';
-                        out_buf[j++] = 'n';
-                    }
-                    else if (c == '\r')
-                    {
-                        out_buf[j++] = '\\';
-                        out_buf[j++] = 'r';
-                    }
-                    else if (c == '\t')
-                    {
-                        out_buf[j++] = '\\';
-                        out_buf[j++] = 't';
-                    }
-                    else if (c >= 32 && c < 127)
-                    {
-                        out_buf[j++] = (char)c;
-                    }
-                    else
-                    {
-                        out_buf[j++] = '\\';
-                        out_buf[j++] = 'x';
-                        out_buf[j++] = "0123456789abcdef"[c >> 4];
-                        out_buf[j++] = "0123456789abcdef"[c & 0xf];
-                    }
-                }
-                out_buf[j++] = '"';
-
-                VIGIL_VM_VALUE_RELEASE(&left);
-                status = vigil_vm_new_string_value(vm, out_buf, j, &value, error);
-                vigil_runtime_free(vm->runtime, (void **)&out_buf);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_to_c(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_FIELDS)
-            {
-                const char *text;
-                size_t text_length;
-                vigil_value_t *items = NULL;
-                size_t item_count = 0U;
-                size_t item_capacity = 0U;
-                vigil_object_t *array_object = NULL;
-
-                frame->ip += 1U;
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_length))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    status =
-                        vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "fields() requires a string", error);
-                    goto cleanup;
-                }
-
-                status = VIGIL_STATUS_OK;
-                size_t i = 0;
-                while (i < text_length && status == VIGIL_STATUS_OK)
-                {
-                    while (i < text_length && isspace((unsigned char)text[i]))
-                        i++;
-                    if (i >= text_length)
-                        break;
-                    size_t start = i;
-                    while (i < text_length && !isspace((unsigned char)text[i]))
-                        i++;
-                    status = vigil_vm_grow_value_array(vm->runtime, &items, &item_capacity, item_count + 1U, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        VIGIL_VM_VALUE_INIT_NIL(&items[item_count]);
-                        status = vigil_vm_new_string_value(vm, text + start, i - start, &items[item_count], error);
-                        if (status == VIGIL_STATUS_OK)
-                            item_count++;
-                    }
-                }
-
-                if (status == VIGIL_STATUS_OK)
-                {
-                    status = vigil_array_object_new(vm->runtime, items, item_count, &array_object, error);
-                }
-                if (status != VIGIL_STATUS_OK)
-                {
-                    for (size_t idx = 0; idx < item_count; idx++)
-                        vigil_value_release(&items[idx]);
-                    vigil_runtime_free(vm->runtime, (void **)&items);
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                for (size_t idx = 0; idx < item_count; idx++)
-                    vigil_value_release(&items[idx]);
-                vigil_runtime_free(vm->runtime, (void **)&items);
-                VIGIL_VM_VALUE_RELEASE(&left);
-                vigil_value_init_object(&value, &array_object);
-                vigil_object_release(&array_object);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_fields(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_EQUAL_FOLD)
-            {
-                const char *text1, *text2;
-                size_t len1, len2;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text1, &len1) ||
-                    !vigil_vm_get_string_parts(&right, &text2, &len2))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "equal_fold() requires string arguments", error);
-                    goto cleanup;
-                }
-
-                int equal = 0;
-                if (len1 == len2)
-                {
-                    equal = 1;
-                    for (size_t i = 0; i < len1; i++)
-                    {
-                        if (tolower((unsigned char)text1[i]) != tolower((unsigned char)text2[i]))
-                        {
-                            equal = 0;
-                            break;
-                        }
-                    }
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                do
-                {
-                    (value) = vigil_nanbox_from_bool(equal);
-                } while (0);
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_equal_fold(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_CUT)
-            {
-                const char *text, *sep;
-                size_t text_len, sep_len;
-                size_t match_idx;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &text, &text_len) ||
-                    !vigil_vm_get_string_parts(&right, &sep, &sep_len))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "cut() requires string arguments",
-                                                 error);
-                    goto cleanup;
-                }
-
-                vigil_value_t before, after, found_val;
-                VIGIL_VM_VALUE_INIT_NIL(&before);
-                VIGIL_VM_VALUE_INIT_NIL(&after);
-
-                int found = vigil_vm_find_substring(text, text_len, sep, sep_len, &match_idx);
-                if (found)
-                {
-                    status = vigil_vm_new_string_value(vm, text, match_idx, &before, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_new_string_value(vm, text + match_idx + sep_len,
-                                                           text_len - match_idx - sep_len, &after, error);
-                    }
-                }
-                else
-                {
-                    status = vigil_vm_new_string_value(vm, text, text_len, &before, error);
-                    if (status == VIGIL_STATUS_OK)
-                    {
-                        status = vigil_vm_new_string_value(vm, "", 0, &after, error);
-                    }
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&before);
-                    VIGIL_VM_VALUE_RELEASE(&after);
-                    goto cleanup;
-                }
-                do
-                {
-                    (found_val) = vigil_nanbox_from_bool(found);
-                } while (0);
-                status = vigil_vm_push(vm, &before, error);
-                VIGIL_VM_VALUE_RELEASE(&before);
-                if (status == VIGIL_STATUS_OK)
-                    status = vigil_vm_push(vm, &after, error);
-                VIGIL_VM_VALUE_RELEASE(&after);
-                if (status == VIGIL_STATUS_OK)
-                    status = vigil_vm_push(vm, &found_val, error);
-                VIGIL_VM_VALUE_RELEASE(&found_val);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                VM_BREAK();
-            }
-
+            status = vigil_vm_op_string_cut(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(STRING_JOIN)
-            {
-                const char *sep;
-                size_t sep_len;
-                vigil_object_t *arr;
-
-                frame->ip += 1U;
-                right = vigil_vm_pop_or_nil(vm);
-                left = vigil_vm_pop_or_nil(vm);
-
-                if (!vigil_vm_get_string_parts(&left, &sep, &sep_len))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "join() requires a string separator", error);
-                    goto cleanup;
-                }
-                if (!vigil_nanbox_is_object(right) ||
-                    (arr = (vigil_object_t *)vigil_nanbox_decode_ptr(right)) == NULL ||
-                    vigil_object_type(arr) != VIGIL_OBJECT_ARRAY)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "join() requires an array<string> argument", error);
-                    goto cleanup;
-                }
-
-                size_t arr_len = vigil_array_object_length(arr);
-                vigil_string_t built;
-                vigil_string_init(&built, vm->runtime);
-
-                for (size_t i = 0; i < arr_len && status == VIGIL_STATUS_OK; i++)
-                {
-                    vigil_value_t elem;
-                    const char *elem_text;
-                    size_t elem_len;
-                    if (!vigil_array_object_get(arr, i, &elem) ||
-                        !vigil_vm_get_string_parts(&elem, &elem_text, &elem_len))
-                    {
-                        vigil_value_release(&elem);
-                        status = VIGIL_STATUS_INVALID_ARGUMENT;
-                        break;
-                    }
-                    if (i > 0)
-                        status = vigil_string_append(&built, sep, sep_len, error);
-                    if (status == VIGIL_STATUS_OK)
-                        status = vigil_string_append(&built, elem_text, elem_len, error);
-                    vigil_value_release(&elem);
-                }
-
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    vigil_string_free(&built);
-                    goto cleanup;
-                }
-                status = vigil_vm_new_string_value(vm, vigil_string_c_str(&built), vigil_string_length(&built), &value,
-                                                   error);
-                vigil_string_free(&built);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                    goto cleanup;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_string_join(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
 
             VM_CASE(GET_MAP_KEY_AT)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&value);
-
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map iteration requires a map object",
-                                             error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right) || vigil_value_as_int(&(right)) < 0)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "map iteration index must be a non-negative i32", error);
-                goto cleanup;
-            }
-            if (!vigil_map_object_key_at(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                         (size_t)vigil_value_as_int(&(right)), &value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map iteration index is out of range",
-                                             error);
-                goto cleanup;
-            }
-
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_get_map_key_at(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(GET_MAP_VALUE_AT)
-            frame->ip += 1U;
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&value);
-
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_MAP)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map iteration requires a map object",
-                                             error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right) || vigil_value_as_int(&(right)) < 0)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "map iteration index must be a non-negative i32", error);
-                goto cleanup;
-            }
-            if (!vigil_map_object_value_at(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                           (size_t)vigil_value_as_int(&(right)), &value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "map iteration index is out of range",
-                                             error);
-                goto cleanup;
-            }
-
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            status = vigil_vm_push(vm, &value, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_get_map_value_at(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(SET_INDEX)
-            frame->ip += 1U;
-            value = vigil_vm_pop_or_nil(vm);
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "indexed assignment requires an array or map", error);
-                goto cleanup;
-            }
-
-            if (vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_ARRAY)
-            {
-                if (!vigil_nanbox_is_int(right) || vigil_value_as_int(&(right)) < 0)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "array index must be a non-negative i32", error);
-                    goto cleanup;
-                }
-
-                status = vigil_array_object_set(((vigil_object_t *)vigil_nanbox_decode_ptr(left)),
-                                                (size_t)vigil_value_as_int(&(right)), &value, error);
-            }
-            else if (vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_MAP)
-            {
-                if (!vigil_vm_value_is_supported_map_key(&right))
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    VIGIL_VM_VALUE_RELEASE(&right);
-                    VIGIL_VM_VALUE_RELEASE(&value);
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "map index must be i32, bool, or string", error);
-                    goto cleanup;
-                }
-
-                status = vigil_map_object_set(((vigil_object_t *)vigil_nanbox_decode_ptr(left)), &right, &value, error);
-            }
-            else
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "indexed assignment requires an array or map", error);
-                goto cleanup;
-            }
-
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_set_index(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
             VM_BREAK();
             VM_CASE(JUMP)
             VIGIL_VM_READ_U32(code, frame->ip, operand);
@@ -6589,683 +4591,92 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(GREATER)
             VM_CASE(LESS)
             VM_CASE(EQUAL)
-            VIGIL_VM_POP(vm, right);
-            VIGIL_VM_POP(vm, left);
-
-            if ((vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_EQUAL)
-            {
-                vigil_value_init_bool(&value, vigil_vm_values_equal(&left, &right));
-            }
-            else
-            {
-                if ((vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_ADD && vigil_nanbox_is_object(left) &&
-                    vigil_nanbox_is_object(right) && ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) != NULL &&
-                    ((vigil_object_t *)vigil_nanbox_decode_ptr(right)) != NULL &&
-                    vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_STRING &&
-                    vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(right))) == VIGIL_OBJECT_STRING)
-                {
-                    status = vigil_vm_concat_strings(vm, &left, &right, &value, error);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        VIGIL_VM_VALUE_RELEASE(&left);
-                        VIGIL_VM_VALUE_RELEASE(&right);
-                        goto cleanup;
-                    }
-                }
-                else if (((vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_GREATER ||
-                          (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_LESS) &&
-                         vigil_nanbox_is_object(left) && vigil_nanbox_is_object(right) &&
-                         ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) != NULL &&
-                         ((vigil_object_t *)vigil_nanbox_decode_ptr(right)) != NULL &&
-                         vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) == VIGIL_OBJECT_STRING &&
-                         vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(right))) == VIGIL_OBJECT_STRING)
-                {
-                    vigil_object_t *ls = (vigil_object_t *)vigil_nanbox_decode_ptr(left);
-                    vigil_object_t *rs = (vigil_object_t *)vigil_nanbox_decode_ptr(right);
-                    const char *lp = vigil_string_object_c_str(ls);
-                    const char *rp = vigil_string_object_c_str(rs);
-                    int cmp = strcmp(lp, rp);
-                    if ((vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_GREATER)
-                    {
-                        vigil_value_init_bool(&value, cmp > 0);
-                    }
-                    else
-                    {
-                        vigil_value_init_bool(&value, cmp < 0);
-                    }
-                }
-                else if (vigil_nanbox_is_double(left) && vigil_nanbox_is_double(right))
-                {
-                    switch ((vigil_opcode_t)code[frame->ip])
-                    {
-                    case VIGIL_OPCODE_ADD:
-                        vigil_value_init_float(&value,
-                                               vigil_nanbox_decode_double(left) + vigil_nanbox_decode_double(right));
-                        break;
-                    case VIGIL_OPCODE_SUBTRACT:
-                        vigil_value_init_float(&value,
-                                               vigil_nanbox_decode_double(left) - vigil_nanbox_decode_double(right));
-                        break;
-                    case VIGIL_OPCODE_MULTIPLY:
-                        vigil_value_init_float(&value,
-                                               vigil_nanbox_decode_double(left) * vigil_nanbox_decode_double(right));
-                        break;
-                    case VIGIL_OPCODE_DIVIDE:
-                        vigil_value_init_float(&value,
-                                               vigil_nanbox_decode_double(left) / vigil_nanbox_decode_double(right));
-                        break;
-                    case VIGIL_OPCODE_GREATER:
-                        vigil_value_init_bool(&value,
-                                              vigil_nanbox_decode_double(left) > vigil_nanbox_decode_double(right));
-                        break;
-                    case VIGIL_OPCODE_LESS:
-                        vigil_value_init_bool(&value,
-                                              vigil_nanbox_decode_double(left) < vigil_nanbox_decode_double(right));
-                        break;
-                    default:
-                        VIGIL_VM_VALUE_RELEASE(&left);
-                        VIGIL_VM_VALUE_RELEASE(&right);
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                     "float operands are not supported for this opcode", error);
-                        goto cleanup;
-                    }
-                }
-                else
-                {
-                    if (!vigil_vm_value_is_integer(&left) || !vigil_vm_value_is_integer(&right) ||
-                        vigil_value_kind(&(left)) != vigil_value_kind(&(right)))
-                    {
-                        VIGIL_VM_VALUE_RELEASE(&left);
-                        VIGIL_VM_VALUE_RELEASE(&right);
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer operands are required",
-                                                     error);
-                        goto cleanup;
-                    }
-
-                    if (vigil_nanbox_is_uint(left))
-                    {
-                        switch ((vigil_opcode_t)code[frame->ip])
-                        {
-                        case VIGIL_OPCODE_ADD:
-                            status = vigil_vm_checked_uadd(vigil_value_as_uint(&(left)), vigil_value_as_uint(&(right)),
-                                                           &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_SUBTRACT:
-                            status = vigil_vm_checked_usubtract(vigil_value_as_uint(&(left)),
-                                                                vigil_value_as_uint(&(right)), &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_MULTIPLY:
-                            status = vigil_vm_checked_umultiply(vigil_value_as_uint(&(left)),
-                                                                vigil_value_as_uint(&(right)), &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_DIVIDE:
-                            status = vigil_vm_checked_udivide(vigil_value_as_uint(&(left)),
-                                                              vigil_value_as_uint(&(right)), &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_MODULO:
-                            status = vigil_vm_checked_umodulo(vigil_value_as_uint(&(left)),
-                                                              vigil_value_as_uint(&(right)), &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_BITWISE_AND:
-                            status = VIGIL_STATUS_OK;
-                            uinteger_result = vigil_value_as_uint(&(left)) & vigil_value_as_uint(&(right));
-                            break;
-                        case VIGIL_OPCODE_BITWISE_OR:
-                            status = VIGIL_STATUS_OK;
-                            uinteger_result = vigil_value_as_uint(&(left)) | vigil_value_as_uint(&(right));
-                            break;
-                        case VIGIL_OPCODE_BITWISE_XOR:
-                            status = VIGIL_STATUS_OK;
-                            uinteger_result = vigil_value_as_uint(&(left)) ^ vigil_value_as_uint(&(right));
-                            break;
-                        case VIGIL_OPCODE_SHIFT_LEFT:
-                            status = vigil_vm_checked_ushift_left(vigil_value_as_uint(&(left)),
-                                                                  vigil_value_as_uint(&(right)), &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_SHIFT_RIGHT:
-                            status = vigil_vm_checked_ushift_right(vigil_value_as_uint(&(left)),
-                                                                   vigil_value_as_uint(&(right)), &uinteger_result);
-                            break;
-                        case VIGIL_OPCODE_GREATER:
-                            status = VIGIL_STATUS_OK;
-                            vigil_value_init_bool(&value, vigil_value_as_uint(&(left)) > vigil_value_as_uint(&(right)));
-                            break;
-                        case VIGIL_OPCODE_LESS:
-                            status = VIGIL_STATUS_OK;
-                            vigil_value_init_bool(&value, vigil_value_as_uint(&(left)) < vigil_value_as_uint(&(right)));
-                            break;
-                        default:
-                            VIGIL_VM_VALUE_INIT_NIL(&value);
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        switch ((vigil_opcode_t)code[frame->ip])
-                        {
-                        case VIGIL_OPCODE_ADD:
-                            status = vigil_vm_checked_add(vigil_value_as_int(&(left)), vigil_value_as_int(&(right)),
-                                                          &integer_result);
-                            break;
-                        case VIGIL_OPCODE_SUBTRACT:
-                            status = vigil_vm_checked_subtract(vigil_value_as_int(&(left)),
-                                                               vigil_value_as_int(&(right)), &integer_result);
-                            break;
-                        case VIGIL_OPCODE_MULTIPLY:
-                            status = vigil_vm_checked_multiply(vigil_value_as_int(&(left)),
-                                                               vigil_value_as_int(&(right)), &integer_result);
-                            break;
-                        case VIGIL_OPCODE_DIVIDE:
-                            status = vigil_vm_checked_divide(vigil_value_as_int(&(left)), vigil_value_as_int(&(right)),
-                                                             &integer_result);
-                            break;
-                        case VIGIL_OPCODE_MODULO:
-                            status = vigil_vm_checked_modulo(vigil_value_as_int(&(left)), vigil_value_as_int(&(right)),
-                                                             &integer_result);
-                            break;
-                        case VIGIL_OPCODE_BITWISE_AND:
-                            status = VIGIL_STATUS_OK;
-                            integer_result = vigil_value_as_int(&(left)) & vigil_value_as_int(&(right));
-                            break;
-                        case VIGIL_OPCODE_BITWISE_OR:
-                            status = VIGIL_STATUS_OK;
-                            integer_result = vigil_value_as_int(&(left)) | vigil_value_as_int(&(right));
-                            break;
-                        case VIGIL_OPCODE_BITWISE_XOR:
-                            status = VIGIL_STATUS_OK;
-                            integer_result = vigil_value_as_int(&(left)) ^ vigil_value_as_int(&(right));
-                            break;
-                        case VIGIL_OPCODE_SHIFT_LEFT:
-                            status = vigil_vm_checked_shift_left(vigil_value_as_int(&(left)),
-                                                                 vigil_value_as_int(&(right)), &integer_result);
-                            break;
-                        case VIGIL_OPCODE_SHIFT_RIGHT:
-                            status = vigil_vm_checked_shift_right(vigil_value_as_int(&(left)),
-                                                                  vigil_value_as_int(&(right)), &integer_result);
-                            break;
-                        case VIGIL_OPCODE_GREATER:
-                            status = VIGIL_STATUS_OK;
-                            vigil_value_init_bool(&value, vigil_value_as_int(&(left)) > vigil_value_as_int(&(right)));
-                            break;
-                        case VIGIL_OPCODE_LESS:
-                            status = VIGIL_STATUS_OK;
-                            vigil_value_init_bool(&value, vigil_value_as_int(&(left)) < vigil_value_as_int(&(right)));
-                            break;
-                        default:
-                            VIGIL_VM_VALUE_INIT_NIL(&value);
-                            break;
-                        }
-                    }
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        VIGIL_VM_VALUE_RELEASE(&left);
-                        VIGIL_VM_VALUE_RELEASE(&right);
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                     "integer arithmetic overflow or invalid operation", error);
-                        goto cleanup;
-                    }
-                    if ((vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_ADD ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_SUBTRACT ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_MULTIPLY ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_DIVIDE ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_MODULO ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_BITWISE_AND ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_BITWISE_OR ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_BITWISE_XOR ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_SHIFT_LEFT ||
-                        (vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_SHIFT_RIGHT)
-                    {
-                        if (vigil_nanbox_is_uint(left))
-                        {
-                            vigil_value_init_uint(&value, uinteger_result);
-                        }
-                        else
-                        {
-                            vigil_value_init_int(&value, integer_result);
-                        }
-                    }
-                }
-            }
-
-            VIGIL_VM_VALUE_RELEASE(&left);
-            VIGIL_VM_VALUE_RELEASE(&right);
-            VIGIL_VM_PUSH(vm, &value);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            frame->ip += 1U;
+            status = vigil_vm_op_generic_binary(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
 
-            /* ── Specialized i64 arithmetic ────────────────────────
-               No type dispatch, no overflow check wrappers — just
-               inline integer ops.  The compiler only emits these
-               when both operands are statically i32/i64.
-
-               TO_I32 fusion: after computing the result, peek at the
-               next opcode.  If it is TO_I32 (very common — the
-               compiler emits it after every i32 arithmetic op), do
-               the range check inline and skip the TO_I32 dispatch.
-               This saves one full opcode dispatch per arithmetic op
-               in i32-heavy code. */
             VM_CASE(ADD_I64)
             VM_CASE(SUBTRACT_I64)
-            {
-                int64_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_int(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_int(vm->stack[vm->stack_count]);
-                if ((vigil_opcode_t)code[frame->ip] == VIGIL_OPCODE_ADD_I64)
-                {
-                    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a + b;
-                }
-                else
-                {
-                    if ((b < 0 && a > INT64_MAX + b) || (b > 0 && a < INT64_MIN + b))
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a - b;
-                }
-                /* kind set by nanbox_encode_int below */
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_int(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                /* TO_I32 fusion */
-                if (frame->ip < code_size && code[frame->ip] == VIGIL_OPCODE_TO_I32)
-                {
-                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                     "i32 conversion overflow or invalid value", error);
-                        goto cleanup;
-                    }
-                    frame->ip += 1U;
-                }
-                VM_BREAK();
-            }
+            status = vigil_vm_op_add_sub_i64(vm, frame, code, code_size, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(LESS_I64)
             VM_CASE(LESS_EQUAL_I64)
             VM_CASE(GREATER_I64)
             VM_CASE(GREATER_EQUAL_I64)
             VM_CASE(EQUAL_I64)
             VM_CASE(NOT_EQUAL_I64)
-            {
-                int64_t a, b;
-                bool result;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_int(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_int(vm->stack[vm->stack_count]);
-                switch ((vigil_opcode_t)code[frame->ip])
-                {
-                case VIGIL_OPCODE_LESS_I64:
-                    result = a < b;
-                    break;
-                case VIGIL_OPCODE_LESS_EQUAL_I64:
-                    result = a <= b;
-                    break;
-                case VIGIL_OPCODE_GREATER_I64:
-                    result = a > b;
-                    break;
-                case VIGIL_OPCODE_GREATER_EQUAL_I64:
-                    result = a >= b;
-                    break;
-                case VIGIL_OPCODE_EQUAL_I64:
-                    result = a == b;
-                    break;
-                case VIGIL_OPCODE_NOT_EQUAL_I64:
-                    result = a != b;
-                    break;
-                default:
-                    result = false;
-                    break;
-                }
-                /* kind set by nanbox_from_bool below */
-                vm->stack[vm->stack_count] = vigil_nanbox_from_bool(result);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_cmp_i64(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(MULTIPLY_I64)
             VM_CASE(DIVIDE_I64)
             VM_CASE(MODULO_I64)
-            {
-                int64_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_int(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_int(vm->stack[vm->stack_count]);
-                switch ((vigil_opcode_t)code[frame->ip])
-                {
-                case VIGIL_OPCODE_MULTIPLY_I64:
-                    /* Overflow check for multiplication. */
-                    if (a != 0 && b != 0 &&
-                        ((a > 0 && b > 0 && a > INT64_MAX / b) || (a > 0 && b < 0 && b < INT64_MIN / a) ||
-                         (a < 0 && b > 0 && a < INT64_MIN / b) || (a < 0 && b < 0 && a < INT64_MAX / b)))
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a * b;
-                    break;
-                case VIGIL_OPCODE_DIVIDE_I64:
-                    if (b == 0)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "division by zero", error);
-                        goto cleanup;
-                    }
-                    if (a == INT64_MIN && b == -1)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a / b;
-                    break;
-                default: /* MODULO_I64 */
-                    if (b == 0)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "division by zero", error);
-                        goto cleanup;
-                    }
-                    r = a % b;
-                    break;
-                }
-                /* kind set by nanbox_encode_int below */
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_int(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                /* TO_I32 fusion */
-                if (frame->ip < code_size && code[frame->ip] == VIGIL_OPCODE_TO_I32)
-                {
-                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                     "i32 conversion overflow or invalid value", error);
-                        goto cleanup;
-                    }
-                    frame->ip += 1U;
-                }
-                VM_BREAK();
-            }
-
-            /* ── Superinstructions: LOCALS_<op>_I64 ───────────────
-               Fused GET_LOCAL + GET_LOCAL + <i64 op>.  Two u32
-               operands encode the local slot indices.  Result is
-               pushed directly — no intermediate stack traffic.
-               Saves 2 dispatches per occurrence. */
+            status = vigil_vm_op_mul_div_mod_i64(vm, frame, code, code_size, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(LOCALS_ADD_I64)
             VM_CASE(LOCALS_SUBTRACT_I64)
-            {
-                uint32_t idx_a, idx_b;
-                int64_t a, b, r;
-                VIGIL_VM_READ_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_int(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_int(vm->stack[frame->base_slot + idx_b]);
-                if ((vigil_opcode_t)code[frame->ip - 9U] == VIGIL_OPCODE_LOCALS_ADD_I64)
-                {
-                    if ((b > 0 && a > INT64_MAX - b) || (b < 0 && a < INT64_MIN - b))
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a + b;
-                }
-                else
-                {
-                    if ((b < 0 && a > INT64_MAX + b) || (b > 0 && a < INT64_MIN + b))
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a - b;
-                }
-                /* kind set by nanbox_encode_int below */
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_int(r);
-                vm->stack_count += 1U;
-                /* TO_I32 fusion */
-                if (frame->ip < code_size && code[frame->ip] == VIGIL_OPCODE_TO_I32)
-                {
-                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                     "i32 conversion overflow or invalid value", error);
-                        goto cleanup;
-                    }
-                    frame->ip += 1U;
-                }
-                VM_BREAK();
-            }
+            status = vigil_vm_op_locals_add_sub_i64(vm, frame, code, code_size, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(LOCALS_MULTIPLY_I64)
             VM_CASE(LOCALS_MODULO_I64)
-            {
-                uint32_t idx_a, idx_b;
-                int64_t a, b, r;
-                VIGIL_VM_READ_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_int(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_int(vm->stack[frame->base_slot + idx_b]);
-                if ((vigil_opcode_t)code[frame->ip - 9U] == VIGIL_OPCODE_LOCALS_MULTIPLY_I64)
-                {
-                    if (a != 0 && b != 0 &&
-                        ((a > 0 && b > 0 && a > INT64_MAX / b) || (a > 0 && b < 0 && b < INT64_MIN / a) ||
-                         (a < 0 && b > 0 && a < INT64_MIN / b) || (a < 0 && b < 0 && a < INT64_MAX / b)))
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "integer overflow", error);
-                        goto cleanup;
-                    }
-                    r = a * b;
-                }
-                else
-                {
-                    if (b == 0)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "division by zero", error);
-                        goto cleanup;
-                    }
-                    r = a % b;
-                }
-                /* kind set by nanbox_encode_int below */
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_int(r);
-                vm->stack_count += 1U;
-                /* TO_I32 fusion */
-                if (frame->ip < code_size && code[frame->ip] == VIGIL_OPCODE_TO_I32)
-                {
-                    if (r < (int64_t)INT32_MIN || r > (int64_t)INT32_MAX)
-                    {
-                        status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                     "i32 conversion overflow or invalid value", error);
-                        goto cleanup;
-                    }
-                    frame->ip += 1U;
-                }
-                VM_BREAK();
-            }
+            status = vigil_vm_op_locals_mul_mod_i64(vm, frame, code, code_size, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(LOCALS_LESS_I64)
             VM_CASE(LOCALS_LESS_EQUAL_I64)
             VM_CASE(LOCALS_GREATER_I64)
             VM_CASE(LOCALS_GREATER_EQUAL_I64)
             VM_CASE(LOCALS_EQUAL_I64)
             VM_CASE(LOCALS_NOT_EQUAL_I64)
-            {
-                uint32_t idx_a, idx_b;
-                int64_t a, b;
-                bool result;
-                uint8_t op;
-                VIGIL_VM_READ_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_int(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_int(vm->stack[frame->base_slot + idx_b]);
-                op = code[frame->ip - 9U];
-                switch ((vigil_opcode_t)op)
-                {
-                case VIGIL_OPCODE_LOCALS_LESS_I64:
-                    result = a < b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_LESS_EQUAL_I64:
-                    result = a <= b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_GREATER_I64:
-                    result = a > b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_GREATER_EQUAL_I64:
-                    result = a >= b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_EQUAL_I64:
-                    result = a == b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_NOT_EQUAL_I64:
-                    result = a != b;
-                    break;
-                default:
-                    result = false;
-                    break;
-                }
-                /* kind set by nanbox_from_bool below */
-                vm->stack[vm->stack_count] = vigil_nanbox_from_bool(result);
-                vm->stack_count += 1U;
-                VM_BREAK();
-            }
-            /* ── i32-specific binary opcodes ──────────────────────────
-               These skip the i64 overflow check entirely.  For i32
-               arithmetic, overflow is checked with __builtin_*_overflow
-               on 32-bit operands (single instruction on ARM/x86). */
+            status = vigil_vm_op_locals_cmp_i64(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
+
             VM_CASE(ADD_I32)
-            {
-                int32_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                if (VIGIL_I32_ADD_OVERFLOW(a, b, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_i32(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_add_i32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(SUBTRACT_I32)
-            {
-                int32_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                if (VIGIL_I32_SUB_OVERFLOW(a, b, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_i32(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_sub_i32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(MULTIPLY_I32)
-            {
-                int32_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                if (VIGIL_I32_MUL_OVERFLOW(a, b, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_i32(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_mul_i32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(DIVIDE_I32)
-            {
-                int32_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                if (b == 0 || (a == INT32_MIN && b == -1))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                r = a / b;
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_i32(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_div_i32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(MODULO_I32)
-            {
-                int32_t a, b, r;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                if (b == 0 || (a == INT32_MIN && b == -1))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                r = a % b;
-                vm->stack[vm->stack_count] = vigil_nanbox_encode_i32(r);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_mod_i32(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(LESS_I32)
             VM_CASE(LESS_EQUAL_I32)
             VM_CASE(GREATER_I32)
             VM_CASE(GREATER_EQUAL_I32)
             VM_CASE(EQUAL_I32)
             VM_CASE(NOT_EQUAL_I32)
-            {
-                int32_t a, b;
-                bool result;
-                uint8_t op;
-                vm->stack_count -= 1U;
-                b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                vm->stack_count -= 1U;
-                a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);
-                op = code[frame->ip];
-                switch ((vigil_opcode_t)op)
-                {
-                case VIGIL_OPCODE_LESS_I32:
-                    result = a < b;
-                    break;
-                case VIGIL_OPCODE_LESS_EQUAL_I32:
-                    result = a <= b;
-                    break;
-                case VIGIL_OPCODE_GREATER_I32:
-                    result = a > b;
-                    break;
-                case VIGIL_OPCODE_GREATER_EQUAL_I32:
-                    result = a >= b;
-                    break;
-                case VIGIL_OPCODE_EQUAL_I32:
-                    result = a == b;
-                    break;
-                case VIGIL_OPCODE_NOT_EQUAL_I32:
-                    result = a != b;
-                    break;
-                default:
-                    result = false;
-                    break;
-                }
-                vm->stack[vm->stack_count] = vigil_nanbox_from_bool(result);
-                vm->stack_count += 1U;
-                frame->ip += 1U;
-                VM_BREAK();
-            }
+            status = vigil_vm_op_cmp_i32(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             // clang-format off
             VM_CASE(LESS_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(<); VM_BREAK();
             VM_CASE(LESS_EQUAL_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(<=); VM_BREAK();
@@ -7275,577 +4686,108 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(NOT_EQUAL_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(!=); VM_BREAK();
             // clang-format on
             VM_CASE(LOCALS_ADD_I32_STORE)
-            {
-                uint32_t dst, idx_a, idx_b;
-                int32_t a, b, r;
-                VIGIL_VM_READ_U32(code, frame->ip, dst);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
-                if (VIGIL_I32_ADD_OVERFLOW(a, b, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[frame->base_slot + dst] = vigil_nanbox_encode_i32(r);
-                VM_BREAK();
-            }
             VM_CASE(LOCALS_SUBTRACT_I32_STORE)
-            {
-                uint32_t dst, idx_a, idx_b;
-                int32_t a, b, r;
-                VIGIL_VM_READ_U32(code, frame->ip, dst);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
-                if (VIGIL_I32_SUB_OVERFLOW(a, b, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[frame->base_slot + dst] = vigil_nanbox_encode_i32(r);
-                VM_BREAK();
-            }
             VM_CASE(LOCALS_MULTIPLY_I32_STORE)
-            {
-                uint32_t dst, idx_a, idx_b;
-                int32_t a, b, r;
-                VIGIL_VM_READ_U32(code, frame->ip, dst);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
-                if (VIGIL_I32_MUL_OVERFLOW(a, b, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[frame->base_slot + dst] = vigil_nanbox_encode_i32(r);
-                VM_BREAK();
-            }
             VM_CASE(LOCALS_MODULO_I32_STORE)
-            {
-                uint32_t dst, idx_a, idx_b;
-                int32_t a, b, r;
-                VIGIL_VM_READ_U32(code, frame->ip, dst);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
-                if (b == 0 || (a == INT32_MIN && b == -1))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                r = a % b;
-                vm->stack[frame->base_slot + dst] = vigil_nanbox_encode_i32(r);
-                VM_BREAK();
-            }
+            status = vigil_vm_op_locals_arith_i32_store(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(LOCALS_LESS_I32_STORE)
             VM_CASE(LOCALS_LESS_EQUAL_I32_STORE)
             VM_CASE(LOCALS_GREATER_I32_STORE)
             VM_CASE(LOCALS_GREATER_EQUAL_I32_STORE)
             VM_CASE(LOCALS_EQUAL_I32_STORE)
             VM_CASE(LOCALS_NOT_EQUAL_I32_STORE)
-            {
-                uint32_t dst, idx_a, idx_b;
-                int32_t a, b;
-                bool result;
-                uint8_t op;
-                VIGIL_VM_READ_U32(code, frame->ip, dst);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_a);
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, idx_b);
-                a = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_a]);
-                b = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx_b]);
-                op = code[frame->ip - 13U];
-                switch ((vigil_opcode_t)op)
-                {
-                case VIGIL_OPCODE_LOCALS_LESS_I32_STORE:
-                    result = a < b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_LESS_EQUAL_I32_STORE:
-                    result = a <= b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_GREATER_I32_STORE:
-                    result = a > b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_GREATER_EQUAL_I32_STORE:
-                    result = a >= b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_EQUAL_I32_STORE:
-                    result = a == b;
-                    break;
-                case VIGIL_OPCODE_LOCALS_NOT_EQUAL_I32_STORE:
-                    result = a != b;
-                    break;
-                default:
-                    result = false;
-                    break;
-                }
-                vm->stack[frame->base_slot + dst] = vigil_nanbox_from_bool(result);
-                VM_BREAK();
-            }
-
-            /* ── INCREMENT_LOCAL_I32 ──────────────────────────────────
-               Format: [opcode][u32 local_idx][i8 delta]  (6 bytes)
-               Increments local[idx] by a signed 8-bit immediate.
-               Covers i = i + 1, i = i - 1, and small constant steps. */
+            status = vigil_vm_op_locals_cmp_i32_store(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(INCREMENT_LOCAL_I32)
-            {
-                uint32_t idx;
-                int32_t val, delta, r;
-                VIGIL_VM_READ_U32(code, frame->ip, idx);
-                delta = (int8_t)code[frame->ip];
-                frame->ip += 1U;
-                val = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx]);
-                if (VIGIL_I32_ADD_OVERFLOW(val, delta, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[frame->base_slot + idx] = vigil_nanbox_encode_i32(r);
-                VM_BREAK();
-            }
-
-            /* ── FORLOOP_I32 ──────────────────────────────────────────
-               Format: [op][u32 local][i8 delta][u32 const_idx][u8 cmp][u32 back_off]
-               Single-dispatch counting loop: increment, compare, branch. */
+            status = vigil_vm_op_increment_local_i32(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
             VM_CASE(FORLOOP_I32)
-            {
-                uint32_t idx, ci, back;
-                int32_t val, delta, r, limit;
-                uint8_t cmp;
-                int cont;
-                const vigil_value_t *cv;
-
-                VIGIL_VM_READ_U32(code, frame->ip, idx);
-                delta = (int8_t)code[frame->ip];
-                frame->ip += 1U;
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, ci);
-                cmp = code[frame->ip];
-                frame->ip += 1U;
-                VIGIL_VM_READ_RAW_U32(code, frame->ip, back);
-
-                val = vigil_nanbox_decode_i32(vm->stack[frame->base_slot + idx]);
-                if (VIGIL_I32_ADD_OVERFLOW(val, delta, &r))
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "i32 overflow", error);
-                    goto cleanup;
-                }
-                vm->stack[frame->base_slot + idx] = vigil_nanbox_encode_i32(r);
-
-                cv = VIGIL_VM_CHUNK_CONSTANT(frame->chunk, (size_t)ci);
-                limit = vigil_nanbox_decode_i32(*cv);
-
-                switch (cmp)
-                {
-                case 0:
-                    cont = r < limit;
-                    break;
-                case 1:
-                    cont = r <= limit;
-                    break;
-                case 2:
-                    cont = r > limit;
-                    break;
-                case 3:
-                    cont = r >= limit;
-                    break;
-                case 4:
-                    cont = r != limit;
-                    break;
-                default:
-                    cont = 0;
-                    break;
-                }
-                if (cont)
-                {
-                    frame->ip -= (size_t)back;
-                }
-                else
-                {
-                    /* Push false so the POP after the loop has a value. */
-                    vm->stack[vm->stack_count] = VIGIL_NANBOX_FALSE;
-                    vm->stack_count += 1U;
-                }
-                VM_BREAK();
-            }
+            status = vigil_vm_op_forloop_i32(vm, frame, code, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
+            VM_BREAK();
 
             VM_CASE(NEGATE)
-            value = vigil_vm_pop_or_nil(vm);
-            if (vigil_nanbox_is_double(value))
-            {
-                vigil_value_t negated;
-
-                vigil_value_init_float(&negated, -vigil_nanbox_decode_double(value));
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_push(vm, &negated, error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    vigil_value_release(&negated);
-                    goto cleanup;
-                }
-                vigil_value_release(&negated);
-                frame->ip += 1U;
-                VM_BREAK();
-            }
-            if (!vigil_nanbox_is_int(value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "negation requires an integer or float operand", error);
-                goto cleanup;
-            }
-            status = vigil_vm_checked_negate(vigil_value_as_int(&(value)), &integer_result);
+            status = vigil_vm_op_negate(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "integer arithmetic overflow or invalid operation", error);
                 goto cleanup;
-            }
-            do
-            {
-                (left) = vigil_nanbox_encode_int(integer_result);
-            } while (0);
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(NOT)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_bool(value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "logical not requires a bool operand",
-                                             error);
-                goto cleanup;
-            }
-            vigil_value_init_bool(&left, !vigil_nanbox_decode_bool(value));
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
+            status = vigil_vm_op_not(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
                 goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(BITWISE_NOT)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_int(value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "bitwise not requires an integer operand", error);
-                goto cleanup;
-            }
-            vigil_value_init_int(&left, ~vigil_value_as_int(&(value)));
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
+            status = vigil_vm_op_bitwise_not(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
                 goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_I32)
-            /* Fast path: if top of stack is already INT, just range-check */
-            if (vm->stack_count > 0U && vigil_nanbox_is_int_inline(vm->stack[vm->stack_count - 1U]))
-            {
-                int64_t v = vigil_nanbox_decode_int(vm->stack[vm->stack_count - 1U]);
-                if (v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX)
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                                 "i32 conversion overflow or invalid value", error);
-                    goto cleanup;
-                }
-                frame->ip += 1U;
-                VM_BREAK();
-            }
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_signed_integer_type(vm, &value, (int64_t)INT32_MIN, (int64_t)INT32_MAX,
-                                                             "i32 conversion requires an int or float operand",
-                                                             "i32 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_to_i32(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
                 goto cleanup;
-            }
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_I64)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_signed_integer_type(vm, &value, INT64_MIN, INT64_MAX,
-                                                             "i64 conversion requires an int or float operand",
-                                                             "i64 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_to_i64(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
                 goto cleanup;
-            }
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_U8)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_unsigned_integer_type(vm, &value, (uint64_t)UINT8_MAX,
-                                                               "u8 conversion requires an int or float operand",
-                                                               "u8 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_to_u8(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
                 goto cleanup;
-            }
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_U32)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_unsigned_integer_type(vm, &value, (uint64_t)UINT32_MAX,
-                                                               "u32 conversion requires an int or float operand",
-                                                               "u32 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_to_u32(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
                 goto cleanup;
-            }
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_U64)
-            value = vigil_vm_pop_or_nil(vm);
-            status = vigil_vm_convert_to_unsigned_integer_type(vm, &value, UINT64_MAX,
-                                                               "u64 conversion requires an int or float operand",
-                                                               "u64 conversion overflow or invalid value", error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_to_u64(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, error->value, error);
                 goto cleanup;
-            }
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_F64)
-            value = vigil_vm_pop_or_nil(vm);
-            if (vigil_nanbox_is_double(value))
-            {
-                status = vigil_vm_push(vm, &value, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                frame->ip += 1U;
-                VM_BREAK();
-            }
-            if (!vigil_vm_value_is_integer(&value))
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "f64 conversion requires an int or float operand", error);
-                goto cleanup;
-            }
-            if (vigil_nanbox_is_uint(value))
-            {
-                vigil_value_init_float(&left, (double)vigil_value_as_uint(&(value)));
-            }
-            else
-            {
-                vigil_value_init_float(&left, (double)vigil_value_as_int(&(value)));
-            }
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
+            status = vigil_vm_op_to_f64(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
                 goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(TO_STRING)
-            value = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&left);
-            status = vigil_vm_stringify_value(vm, &value, &left, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_to_string(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "string conversion requires a primitive or string operand", error);
                 goto cleanup;
-            }
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(FORMAT_F64)
-            if ((status = vigil_vm_read_u32(vm, &operand, error)) != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            value = vigil_vm_pop_or_nil(vm);
-            VIGIL_VM_VALUE_INIT_NIL(&left);
-            status = vigil_vm_format_f64_value(vm, &value, operand, &left, error);
-            VIGIL_VM_VALUE_RELEASE(&value);
+            status = vigil_vm_op_format_f64(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "f64 formatting requires an f64 operand", error);
                 goto cleanup;
-            }
-            status = vigil_vm_push(vm, &left, error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
             VM_BREAK();
             VM_CASE(FORMAT_SPEC)
-            {
-                uint32_t w1;
-                uint32_t w2;
-                if ((status = vigil_vm_read_u32(vm, &w1, error)) != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                if ((status = vigil_vm_read_raw_u32(vm, &w2, error)) != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                value = vigil_vm_pop_or_nil(vm);
-                VIGIL_VM_VALUE_INIT_NIL(&left);
-                status = vigil_vm_format_spec_value(vm, &value, w1, w2, &left, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT, "format specifier error", error);
-                    goto cleanup;
-                }
-                status = vigil_vm_push(vm, &left, error);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    VIGIL_VM_VALUE_RELEASE(&left);
-                    goto cleanup;
-                }
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VM_BREAK();
-            }
-            VM_CASE(NEW_ERROR)
-            right = vigil_vm_pop_or_nil(vm);
-            left = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(left) || ((vigil_object_t *)vigil_nanbox_decode_ptr(left)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(left))) != VIGIL_OBJECT_STRING)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error construction requires string message and i32 kind", error);
-                goto cleanup;
-            }
-            if (!vigil_nanbox_is_int(right))
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error construction requires string message and i32 kind", error);
-                goto cleanup;
-            }
-            {
-                vigil_object_t *error_object = NULL;
-
-                status = vigil_error_object_new(
-                    vm->runtime, vigil_string_object_c_str(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
-                    vigil_string_object_length(((vigil_object_t *)vigil_nanbox_decode_ptr(left))),
-                    vigil_value_as_int(&(right)), &error_object, error);
-                VIGIL_VM_VALUE_RELEASE(&left);
-                VIGIL_VM_VALUE_RELEASE(&right);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                vigil_value_init_object(&value, &error_object);
-            }
-            status = vigil_vm_push(vm, &value, error);
+            status = vigil_vm_op_format_spec(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
                 goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&value);
-            frame->ip += 1U;
+            VM_BREAK();
+            VM_CASE(NEW_ERROR)
+            status = vigil_vm_op_new_error(vm, frame, error);
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(GET_ERROR_KIND)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(value) || ((vigil_object_t *)vigil_nanbox_decode_ptr(value)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(value))) != VIGIL_OBJECT_ERROR)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error kind access requires an err value", error);
-                goto cleanup;
-            }
-            vigil_value_init_int(&left, vigil_error_object_kind(((vigil_object_t *)vigil_nanbox_decode_ptr(value))));
-            VIGIL_VM_VALUE_RELEASE(&value);
-            status = vigil_vm_push(vm, &left, error);
+            status = vigil_vm_op_get_error_kind(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
                 goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(GET_ERROR_MESSAGE)
-            value = vigil_vm_pop_or_nil(vm);
-            if (!vigil_nanbox_is_object(value) || ((vigil_object_t *)vigil_nanbox_decode_ptr(value)) == NULL ||
-                vigil_object_type(((vigil_object_t *)vigil_nanbox_decode_ptr(value))) != VIGIL_OBJECT_ERROR)
-            {
-                VIGIL_VM_VALUE_RELEASE(&value);
-                status = vigil_vm_fail_at_ip(vm, VIGIL_STATUS_INVALID_ARGUMENT,
-                                             "error message access requires an err value", error);
-                goto cleanup;
-            }
-            {
-                vigil_object_t *string_object = NULL;
-
-                status = vigil_string_object_new(
-                    vm->runtime, vigil_error_object_message(((vigil_object_t *)vigil_nanbox_decode_ptr(value))),
-                    vigil_error_object_message_length(((vigil_object_t *)vigil_nanbox_decode_ptr(value))),
-                    &string_object, error);
-                VIGIL_VM_VALUE_RELEASE(&value);
-                if (status != VIGIL_STATUS_OK)
-                {
-                    goto cleanup;
-                }
-                vigil_value_init_object(&left, &string_object);
-            }
-            status = vigil_vm_push(vm, &left, error);
+            status = vigil_vm_op_get_error_message(vm, frame, error);
             if (status != VIGIL_STATUS_OK)
-            {
-                VIGIL_VM_VALUE_RELEASE(&left);
                 goto cleanup;
-            }
-            VIGIL_VM_VALUE_RELEASE(&left);
-            frame->ip += 1U;
             VM_BREAK();
             VM_CASE(RETURN)
             frame->ip += 1U;

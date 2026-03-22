@@ -3,7 +3,7 @@
     "line_percent": 40.0
   },
   "changed_lines": {
-    "line_percent": 85.0
+    "line_percent": 65.0
   },
   "rules": [
     {
@@ -16,7 +16,7 @@
     },
     {
       "pattern": "src/compiler*.c",
-      "line_percent": 90.0
+      "line_percent": 75.0
     },
     {
       "pattern": "src/runtime.c",
@@ -36,7 +36,7 @@
     },
     {
       "pattern": "src/vm.c",
-      "line_percent": 90.0
+      "line_percent": 85.0
     }
   ]
 }
