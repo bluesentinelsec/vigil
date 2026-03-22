@@ -25,6 +25,7 @@ jobs:
         run: >
           cmake -S . -B build
           -DVIGIL_BUILD_TESTS=ON
+          -DVIGIL_ENABLE_COVERAGE=ON
           -DVIGIL_STDLIB_FFI=ON
           -DVIGIL_STDLIB_FS=ON
           -DVIGIL_STDLIB_HTTP=ON
@@ -37,6 +38,17 @@ jobs:
 
       - name: Build with build-wrapper
         run: build-wrapper-linux-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Generate coverage report
+        run: >
+          pip install gcovr &&
+          gcovr --root . --object-directory build
+          --filter 'src/'
+          --gcov-ignore-parse-errors negative_hits.warn_once_per_file
+          --sonarqube sonarqube-coverage.xml
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6

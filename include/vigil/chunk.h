@@ -229,7 +229,13 @@ extern "C"
            (default, error_object) on failure. */
         VIGIL_OPCODE_PARSE_I32 = 158,
         VIGIL_OPCODE_PARSE_F64 = 159,
-        VIGIL_OPCODE_PARSE_BOOL = 160
+        VIGIL_OPCODE_PARSE_BOOL = 160,
+
+        /* Self-recursion fast path: the compiler emits this when a
+           function calls itself.  Takes one u32 operand (arg_count).
+           The VM reuses the current frame's function and chunk pointers
+           directly, skipping the sibling constant lookup. */
+        VIGIL_OPCODE_CALL_SELF = 161
     } vigil_opcode_t;
 
     typedef struct vigil_chunk
