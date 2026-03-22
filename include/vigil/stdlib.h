@@ -105,39 +105,39 @@ extern "C"
     // clang-format on
 
 #ifdef VIGIL_HAS_STDLIB_FFI
-    #define VIGIL_STDLIB_FFI_ENTRY {"ffi", 3U, &vigil_stdlib_ffi},
+#define VIGIL_STDLIB_FFI_ENTRY {"ffi", 3U, &vigil_stdlib_ffi},
 #else
-    #define VIGIL_STDLIB_FFI_ENTRY {"ffi", 3U, NULL},
+#define VIGIL_STDLIB_FFI_ENTRY {"ffi", 3U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_FS
-    #define VIGIL_STDLIB_FS_ENTRY {"fs", 2U, &vigil_stdlib_fs},
+#define VIGIL_STDLIB_FS_ENTRY {"fs", 2U, &vigil_stdlib_fs},
 #else
-    #define VIGIL_STDLIB_FS_ENTRY {"fs", 2U, NULL},
+#define VIGIL_STDLIB_FS_ENTRY {"fs", 2U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_HTTP
-    #define VIGIL_STDLIB_HTTP_ENTRY {"http", 4U, &vigil_stdlib_http},
+#define VIGIL_STDLIB_HTTP_ENTRY {"http", 4U, &vigil_stdlib_http},
 #else
-    #define VIGIL_STDLIB_HTTP_ENTRY {"http", 4U, NULL},
+#define VIGIL_STDLIB_HTTP_ENTRY {"http", 4U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_NET
-    #define VIGIL_STDLIB_NET_ENTRY {"net", 3U, &vigil_stdlib_net},
+#define VIGIL_STDLIB_NET_ENTRY {"net", 3U, &vigil_stdlib_net},
 #else
-    #define VIGIL_STDLIB_NET_ENTRY {"net", 3U, NULL},
+#define VIGIL_STDLIB_NET_ENTRY {"net", 3U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_READLINE
-    #define VIGIL_STDLIB_READLINE_ENTRY {"readline", 8U, &vigil_stdlib_readline},
+#define VIGIL_STDLIB_READLINE_ENTRY {"readline", 8U, &vigil_stdlib_readline},
 #else
-    #define VIGIL_STDLIB_READLINE_ENTRY {"readline", 8U, NULL},
+#define VIGIL_STDLIB_READLINE_ENTRY {"readline", 8U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_THREAD
-    #define VIGIL_STDLIB_THREAD_ENTRY {"thread", 6U, &vigil_stdlib_thread},
+#define VIGIL_STDLIB_THREAD_ENTRY {"thread", 6U, &vigil_stdlib_thread},
 #else
-    #define VIGIL_STDLIB_THREAD_ENTRY {"thread", 6U, NULL},
+#define VIGIL_STDLIB_THREAD_ENTRY {"thread", 6U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_TIME
-    #define VIGIL_STDLIB_TIME_ENTRY {"time", 4U, &vigil_stdlib_time},
+#define VIGIL_STDLIB_TIME_ENTRY {"time", 4U, &vigil_stdlib_time},
 #else
-    #define VIGIL_STDLIB_TIME_ENTRY {"time", 4U, NULL},
+#define VIGIL_STDLIB_TIME_ENTRY {"time", 4U, NULL},
 #endif
 
     static inline int vigil_stdlib_name_equals(const char *name, size_t name_length, const char *literal,
