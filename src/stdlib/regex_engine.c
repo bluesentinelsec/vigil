@@ -549,11 +549,11 @@ static bool parse_group(parser_t *p, fragment_t *out)
 
         save_start->out1 = inner.start;
         fragment_patch(&inner, save_end);
+        fragment_free(&inner);
 
         fragment_init(out);
         out->start = save_start;
         fragment_add_patch(out, &save_end->out1);
-        fragment_free(&inner);
     }
     else
     {
@@ -901,9 +901,10 @@ static bool parse_concatenation(parser_t *p, fragment_t *out)
         }
         else
         {
+            nfa_state_t *saved_start = result.start;
             fragment_patch(&result, quantified.start);
-            fragment_free(&result);
-            result.start = result.start; /* keep start */
+            free(result.patch_list);
+            result.start = saved_start;
             result.patch_list = quantified.patch_list;
             result.patch_count = quantified.patch_count;
             result.patch_capacity = quantified.patch_capacity;
@@ -1150,6 +1151,7 @@ static bool check_match(state_list_t *l, vigil_regex_result_t *result, size_t gr
  * return false. */
 static void collect_class_bytes(const char_class_t *cclass, bool negate, char_class_t *out)
 {
+    memset(out, 0, sizeof(*out));
     for (unsigned c = 0; c < 256; c++)
     {
         if (class_test(cclass, (uint8_t)c) != negate)

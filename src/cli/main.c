@@ -1920,9 +1920,9 @@ typedef struct
 
 static void repl_buf_init(repl_buf_t *buf)
 {
-    buf->data = NULL;
+    buf->data = calloc(1, 1); /* empty string so data is never NULL */
     buf->length = 0;
-    buf->capacity = 0;
+    buf->capacity = 1;
 }
 
 static void repl_buf_free(repl_buf_t *buf)
@@ -2460,6 +2460,8 @@ static void repl_handle_doc(const char *input_data, vigil_error_t *error)
 static int repl_handle_special_command(const char *input_data, repl_decl_list_t *decls, repl_buf_t *preamble,
                                        vigil_error_t *error)
 {
+    if (!input_data)
+        return 0;
     if (strcmp(input_data, ":quit") == 0 || strcmp(input_data, ":q") == 0 || strcmp(input_data, "exit()") == 0)
         return -1;
     if (strcmp(input_data, ":help") == 0 || strcmp(input_data, ":h") == 0)

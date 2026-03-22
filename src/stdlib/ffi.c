@@ -217,9 +217,7 @@ static ffi_type *sig_to_ffi_type(const char *t, size_t len)
         return &ffi_type_pointer;
     if (len == 4 && memcmp(t, "void", 4) == 0)
         return &ffi_type_void;
-    if (len == 6 && memcmp(t, "string", 6) == 0)
-        return &ffi_type_pointer;
-    return &ffi_type_pointer; /* fallback */
+    return &ffi_type_pointer; /* fallback: covers string and unknown types */
 }
 
 /* Parse "[stdcall:]ret(p1,p2,...)" and call fn via ffi_call.
@@ -903,14 +901,10 @@ static const int p_call_f[] = {VIGIL_TYPE_I64, VIGIL_TYPE_F64, VIGIL_TYPE_F64};
 static const int p_call_s[] = {VIGIL_TYPE_I64, VIGIL_TYPE_I64, VIGIL_TYPE_I64};
 static const int p_obj_str[] = {VIGIL_TYPE_OBJECT, VIGIL_TYPE_STRING};
 
-#define F(n, nl, fn, pc, pt, rt)                                                                                       \
-    {                                                                                                                  \
-        n, nl, fn, pc, pt, rt, 1, NULL, 0, NULL, NULL                                                                  \
-    }
-#define FV(n, nl, fn, pc, pt)                                                                                          \
-    {                                                                                                                  \
-        n, nl, fn, pc, pt, VIGIL_TYPE_VOID, 0, NULL, 0, NULL, NULL                                                     \
-    }
+// clang-format off
+#define F(n, nl, fn, pc, pt, rt) {n, nl, fn, pc, pt, rt, 1, NULL, 0, NULL, NULL}
+#define FV(n, nl, fn, pc, pt) {n, nl, fn, pc, pt, VIGIL_TYPE_VOID, 0, NULL, 0, NULL, NULL}
+// clang-format on
 
 static const vigil_native_module_function_t vigil_ffi_functions[] = {
     F("open", 4U, vigil_ffi_open, 1U, p_str, VIGIL_TYPE_I64),

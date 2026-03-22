@@ -112,14 +112,10 @@ static vigil_status_t percent_encode(const char *input, size_t input_length, int
     for (i = 0; i < input_length; i++)
     {
         unsigned char c = (unsigned char)input[i];
-        if (is_unreserved((char)c) || (!encode_slash && c == '/'))
-        {
+        if (is_unreserved((char)c) || (!encode_slash && c == '/') || (!encode_plus && c == ' '))
             needed++;
-        }
         else
-        {
             needed += 3;
-        }
     }
 
     result = malloc(needed + 1);
@@ -169,6 +165,24 @@ vigil_status_t vigil_url_query_escape(const char *input, size_t input_length, ch
 }
 
 /* ── URL Parsing ─────────────────────────────────────────────────── */
+
+static vigil_status_t url_unescape_into(const char *input, size_t length, char **out_field)
+{
+    *out_field = NULL;
+    return vigil_url_unescape(input, length, out_field, NULL, NULL);
+}
+
+static vigil_status_t url_escape_append(char *buf, size_t cap, size_t *len, const char *prefix, const char *input,
+                                        size_t input_len)
+{
+    char *escaped = NULL;
+    vigil_status_t s = vigil_url_path_escape(input, input_len, &escaped, NULL, NULL);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    *len += (size_t)snprintf(buf + *len, cap - *len, "%s%s", prefix, escaped);
+    free(escaped);
+    return VIGIL_STATUS_OK;
+}
 
 vigil_status_t vigil_url_parse(const char *url_string, size_t url_length, vigil_url_t *out_url, vigil_error_t *error)
 {
@@ -250,17 +264,12 @@ vigil_status_t vigil_url_parse(const char *url_string, size_t url_length, vigil_
             }
             if (colon)
             {
-                char *decoded;
-                vigil_url_unescape(authority_start, (size_t)(colon - authority_start), &decoded, NULL, NULL);
-                out_url->username = decoded;
-                vigil_url_unescape(colon + 1, (size_t)(userinfo_end - colon - 1), &decoded, NULL, NULL);
-                out_url->password = decoded;
+                url_unescape_into(authority_start, (size_t)(colon - authority_start), &out_url->username);
+                url_unescape_into(colon + 1, (size_t)(userinfo_end - colon - 1), &out_url->password);
             }
             else
             {
-                char *decoded;
-                vigil_url_unescape(authority_start, (size_t)(userinfo_end - authority_start), &decoded, NULL, NULL);
-                out_url->username = decoded;
+                url_unescape_into(authority_start, (size_t)(userinfo_end - authority_start), &out_url->username);
             }
             host_start = userinfo_end + 1;
         }
@@ -309,9 +318,7 @@ vigil_status_t vigil_url_parse(const char *url_string, size_t url_length, vigil_
             }
             else
             {
-                char *decoded;
-                vigil_url_unescape(host_start, (size_t)(host_end - host_start), &decoded, NULL, NULL);
-                out_url->host = decoded;
+                url_unescape_into(host_start, (size_t)(host_end - host_start), &out_url->host);
             }
         }
 
@@ -333,9 +340,7 @@ vigil_status_t vigil_url_parse(const char *url_string, size_t url_length, vigil_
     }
     if (path_start < path_end)
     {
-        char *decoded;
-        vigil_url_unescape(path_start, (size_t)(path_end - path_start), &decoded, NULL, NULL);
-        out_url->path = decoded;
+        url_unescape_into(path_start, (size_t)(path_end - path_start), &out_url->path);
     }
     p = path_end;
 
@@ -360,9 +365,7 @@ vigil_status_t vigil_url_parse(const char *url_string, size_t url_length, vigil_
     {
         p++;
         fragment_start = p;
-        char *decoded;
-        vigil_url_unescape(fragment_start, (size_t)(end - fragment_start), &decoded, NULL, NULL);
-        out_url->fragment = decoded;
+        url_unescape_into(fragment_start, (size_t)(end - fragment_start), &out_url->fragment);
     }
 
     return VIGIL_STATUS_OK;
@@ -421,16 +424,9 @@ vigil_status_t vigil_url_string(const vigil_url_t *url, char **out_string, size_
         /* Userinfo */
         if (url->username && url->username[0])
         {
-            char *escaped;
-            vigil_url_path_escape(url->username, strlen(url->username), &escaped, NULL, NULL);
-            len += (size_t)snprintf(result + len, cap - len, "%s", escaped);
-            free(escaped);
+            url_escape_append(result, cap, &len, "", url->username, strlen(url->username));
             if (url->password)
-            {
-                vigil_url_path_escape(url->password, strlen(url->password), &escaped, NULL, NULL);
-                len += (size_t)snprintf(result + len, cap - len, ":%s", escaped);
-                free(escaped);
-            }
+                url_escape_append(result, cap, &len, ":", url->password, strlen(url->password));
             len += (size_t)snprintf(result + len, cap - len, "@");
         }
 
@@ -454,15 +450,10 @@ vigil_status_t vigil_url_string(const vigil_url_t *url, char **out_string, size_
     /* Path */
     if (url->path && url->path[0])
     {
-        char *escaped;
-        vigil_url_path_escape(url->path, strlen(url->path), &escaped, NULL, NULL);
         /* Ensure path starts with / if we have authority */
-        if (url->host && url->host[0] && escaped[0] != '/')
-        {
+        if (url->host && url->host[0] && url->path[0] != '/')
             len += (size_t)snprintf(result + len, cap - len, "/");
-        }
-        len += (size_t)snprintf(result + len, cap - len, "%s", escaped);
-        free(escaped);
+        url_escape_append(result, cap, &len, "", url->path, strlen(url->path));
     }
 
     /* Query */
@@ -474,10 +465,7 @@ vigil_status_t vigil_url_string(const vigil_url_t *url, char **out_string, size_
     /* Fragment */
     if (url->fragment && url->fragment[0])
     {
-        char *escaped;
-        vigil_url_path_escape(url->fragment, strlen(url->fragment), &escaped, NULL, NULL);
-        len += (size_t)snprintf(result + len, cap - len, "#%s", escaped);
-        free(escaped);
+        url_escape_append(result, cap, &len, "#", url->fragment, strlen(url->fragment));
     }
 
     *out_string = result;

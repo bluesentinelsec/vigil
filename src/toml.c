@@ -999,7 +999,8 @@ static vigil_status_t parse_key_path(toml_parser_t *p, key_path_t *kp, vigil_err
             vigil_error_set_literal(error, VIGIL_STATUS_OUT_OF_MEMORY, "toml: allocation failed");
             return VIGIL_STATUS_OUT_OF_MEMORY;
         }
-        memcpy(seg, p->buf, p->buf_len);
+        if (p->buf && p->buf_len > 0)
+            memcpy(seg, p->buf, p->buf_len);
         seg[p->buf_len] = '\0';
         kp->segments[kp->count] = seg;
         kp->lengths[kp->count] = p->buf_len;
@@ -2219,7 +2220,7 @@ static vigil_status_t emit_float_value(toml_emitter_t *e, const vigil_toml_value
     double f;
 
     f = vigil_toml_float_value(v);
-    if (f != f)
+    if (isnan(f))
         return emit_cstr(e, "nan", error);
     if (f == HUGE_VAL)
         return emit_cstr(e, "inf", error);
@@ -2453,12 +2454,14 @@ static vigil_status_t emit_table_scalar_entries(toml_emitter_t *e, const vigil_t
 
     for (i = 0; i < count; i++)
     {
-        const char *key;
-        size_t klen;
-        const vigil_toml_value_t *val;
+        const char *key = NULL;
+        size_t klen = 0;
+        const vigil_toml_value_t *val = NULL;
         vigil_status_t s;
 
-        vigil_toml_table_entry(t, i, &key, &klen, &val);
+        s = vigil_toml_table_entry(t, i, &key, &klen, &val);
+        if (s != VIGIL_STATUS_OK)
+            continue;
         if (is_section_table(val) || is_array_of_tables(val))
             continue;
         s = emit_scalar_table_entry(e, key, klen, val, error);

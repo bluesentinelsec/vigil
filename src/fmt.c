@@ -56,7 +56,11 @@ static void buf_push(buf_t *b, char c)
 
 static void buf_write(buf_t *b, const char *s, size_t n)
 {
+    if (n == 0 || !s)
+        return;
     buf_grow(b, n);
+    if (!b->data)
+        return;
     memcpy(b->data + b->len, s, n);
     b->len += n;
 }
@@ -107,7 +111,10 @@ static void emit_newline(fmt_state_t *f)
     f->at_line_start = true;
 }
 
-static void emit_space(fmt_state_t *f) { buf_push(&f->out, ' '); }
+static void emit_space(fmt_state_t *f)
+{
+    buf_push(&f->out, ' ');
+}
 
 static void emit_str(fmt_state_t *f, const char *s, size_t n)
 {
@@ -117,7 +124,10 @@ static void emit_str(fmt_state_t *f, const char *s, size_t n)
     f->at_line_start = false;
 }
 
-static void emit_cstr(fmt_state_t *f, const char *s) { emit_str(f, s, strlen(s)); }
+static void emit_cstr(fmt_state_t *f, const char *s)
+{
+    emit_str(f, s, strlen(s));
+}
 
 static const char *tok_text(const fmt_state_t *f, const vigil_token_t *t)
 {
@@ -510,8 +520,8 @@ static bool fmt_should_suppress_newline(const fmt_ctx_t *ctx, vigil_token_kind_t
         return true;
     if (!fmt_in_literal_context(ctx, pk, ck))
         return false;
-    return pk == VIGIL_TOKEN_LBRACE || ck == VIGIL_TOKEN_RBRACE ||
-           pk == VIGIL_TOKEN_SEMICOLON || pk == VIGIL_TOKEN_RBRACE;
+    return pk == VIGIL_TOKEN_LBRACE || ck == VIGIL_TOKEN_RBRACE || pk == VIGIL_TOKEN_SEMICOLON ||
+           pk == VIGIL_TOKEN_RBRACE;
 }
 
 /* Apply generic/ternary overrides to the base space decision. */
@@ -524,8 +534,8 @@ static bool fmt_is_generic_open(const fmt_state_t *f, const vigil_token_t *prev)
     return (pl == 5 && memcmp(pt, "array", 5) == 0) || (pl == 3 && memcmp(pt, "map", 3) == 0);
 }
 
-static bool fmt_adjust_space(const fmt_state_t *f, const fmt_ctx_t *ctx,
-                             const vigil_token_t *prev, const vigil_token_t *cur, bool space)
+static bool fmt_adjust_space(const fmt_state_t *f, const fmt_ctx_t *ctx, const vigil_token_t *prev,
+                             const vigil_token_t *cur, bool space)
 {
     if (ctx->generic_depth > 0 &&
         (cur->kind == VIGIL_TOKEN_GREATER || prev->kind == VIGIL_TOKEN_LESS || prev->kind == VIGIL_TOKEN_GREATER))
@@ -553,8 +563,7 @@ static int fmt_newline_level(const fmt_state_t *f, const vigil_token_t *prev, co
     return nl;
 }
 
-static void fmt_emit_spacing(fmt_state_t *f, const fmt_ctx_t *ctx,
-                             const vigil_token_t *prev, const vigil_token_t *cur)
+static void fmt_emit_spacing(fmt_state_t *f, const fmt_ctx_t *ctx, const vigil_token_t *prev, const vigil_token_t *cur)
 {
     bool suppress = fmt_should_suppress_newline(ctx, prev->kind, cur->kind);
     bool force_nl = ctx->in_enum_body && prev->kind == VIGIL_TOKEN_COMMA;
@@ -721,9 +730,8 @@ vigil_status_t vigil_fmt(const char *source_text, size_t source_length, const vi
         if (cur->kind == VIGIL_TOKEN_EOF)
             break;
 
-        size_t gap_start = (i > first_non_import)
-                               ? vigil_token_list_get(tokens, i - 1)->span.end_offset
-                               : initial_comment_end;
+        size_t gap_start =
+            (i > first_non_import) ? vigil_token_list_get(tokens, i - 1)->span.end_offset : initial_comment_end;
         bool had_comment = emit_comments_between(&f, gap_start, cur->span.start_offset);
 
         fmt_adjust_indent_before(&f, &ctx, cur->kind);

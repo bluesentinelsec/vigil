@@ -85,6 +85,8 @@ vigil_status_t vigil_platform_read_file(const vigil_allocator_t *allocator, cons
 
     nread = fread(buf, 1, (size_t)size, f);
     fclose(f);
+    if (nread > (size_t)size)
+        nread = (size_t)size;
     buf[nread] = '\0';
     *out_data = buf;
     *out_length = nread;
@@ -293,7 +295,7 @@ vigil_status_t vigil_platform_self_exe(char *out_buf, size_t buf_size, vigil_err
     return VIGIL_STATUS_OK;
 #else
     ssize_t len = readlink("/proc/self/exe", out_buf, buf_size - 1);
-    if (len < 0)
+    if (len < 0 || (size_t)len >= buf_size)
     {
         if (error)
         {
@@ -2100,8 +2102,7 @@ int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
     int count = 0;
     for (CFIndex i = 0; i < n; i++)
     {
-        SecCertificateRef cert =
-            (SecCertificateRef)CFArrayGetValueAtIndex(anchors, i);
+        SecCertificateRef cert = (SecCertificateRef)CFArrayGetValueAtIndex(anchors, i);
         CFDataRef data = SecCertificateCopyData(cert);
         if (!data)
             continue;
@@ -2117,24 +2118,28 @@ int vigil_platform_enumerate_tls_cas(vigil_tls_ca_cb_t cb, void *userdata)
 
 static const char *const tls_ca_paths_[] = {
     "/etc/ssl/certs/ca-certificates.crt",                /* Debian / Ubuntu */
-    "/etc/ssl/cert.pem",                                  /* Alpine / OpenBSD */
+    "/etc/ssl/cert.pem",                                 /* Alpine / OpenBSD */
     "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", /* RHEL / Fedora */
-    "/etc/ssl/ca-bundle.pem",                             /* SUSE */
+    "/etc/ssl/ca-bundle.pem",                            /* SUSE */
     NULL,
 };
 
 static int tls_b64val_(unsigned char c)
 {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-    if (c >= '0' && c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
+    if (c >= 'A' && c <= 'Z')
+        return c - 'A';
+    if (c >= 'a' && c <= 'z')
+        return c - 'a' + 26;
+    if (c >= '0' && c <= '9')
+        return c - '0' + 52;
+    if (c == '+')
+        return 62;
+    if (c == '/')
+        return 63;
     return -1;
 }
 
-static size_t tls_b64decode_(const char *b64, size_t b64_len,
-                             unsigned char *out, size_t max_out)
+static size_t tls_b64decode_(const char *b64, size_t b64_len, unsigned char *out, size_t max_out)
 {
     size_t out_len = 0, i = 0;
     while (i + 3 < b64_len && out_len + 3 <= max_out)
@@ -2143,19 +2148,21 @@ static size_t tls_b64decode_(const char *b64, size_t b64_len,
         int v1 = tls_b64val_((unsigned char)b64[i + 1]);
         int v2 = tls_b64val_((unsigned char)b64[i + 2]);
         int v3 = tls_b64val_((unsigned char)b64[i + 3]);
-        if (v0 < 0 || v1 < 0) break;
+        if (v0 < 0 || v1 < 0)
+            break;
         out[out_len++] = (unsigned char)((v0 << 2) | (v1 >> 4));
-        if (v2 < 0) break;
+        if (v2 < 0)
+            break;
         out[out_len++] = (unsigned char)((v1 << 4) | (v2 >> 2));
-        if (v3 < 0) break;
+        if (v3 < 0)
+            break;
         out[out_len++] = (unsigned char)((v2 << 6) | v3);
         i += 4;
     }
     return out_len;
 }
 
-static int tls_pem_next_cert_(FILE *f, unsigned char *out, size_t *out_len,
-                              size_t max_len)
+static int tls_pem_next_cert_(FILE *f, unsigned char *out, size_t *out_len, size_t max_len)
 {
     char line[256];
     char b64[65536];
@@ -2165,6 +2172,8 @@ static int tls_pem_next_cert_(FILE *f, unsigned char *out, size_t *out_len,
     while (fgets(line, (int)sizeof(line), f))
     {
         size_t llen = strcspn(line, "\r\n");
+        if (llen >= sizeof(line))
+            llen = sizeof(line) - 1;
         line[llen] = '\0';
         if (!in_cert)
         {

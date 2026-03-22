@@ -2,6 +2,11 @@
 #include "internal/vigil_internal.h"
 #include <string.h>
 
+static vigil_source_span_t token_span_or_eof(const vigil_token_t *token, const vigil_program_state_t *program)
+{
+    return token == NULL ? vigil_program_eof_span(program) : token->span;
+}
+
 vigil_status_t vigil_program_parse_type_name(const vigil_program_state_t *program, const vigil_token_t *token,
                                              const char *unsupported_message, vigil_parser_type_t *out_type)
 {
@@ -126,9 +131,9 @@ vigil_status_t vigil_program_parse_type_reference(const vigil_program_state_t *p
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
                     return status;
                 }
-                status =
-                    vigil_program_require_non_void_type(program, vigil_program_token_at(program, *cursor - 1U)->span,
-                                                        parsed_type, "function type parameters cannot use type void");
+                // clang-format off
+                status = vigil_program_require_non_void_type(program, token_span_or_eof(vigil_program_token_at(program, *cursor - 1U), program), parsed_type, "function type parameters cannot use type void");
+                // clang-format on
                 if (status != VIGIL_STATUS_OK)
                 {
                     vigil_function_type_decl_free((vigil_program_state_t *)program, &function_type);
