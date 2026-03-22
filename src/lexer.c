@@ -185,6 +185,34 @@ static vigil_status_t vigil_lexer_scan_identifier(vigil_lexer_state_t *state, si
                             state->offset);
 }
 
+static vigil_status_t vigil_lexer_scan_prefixed_number(vigil_lexer_state_t *state, size_t start, char prefix)
+{
+    size_t digits_start;
+
+    vigil_lexer_advance(state);
+    digits_start = state->offset;
+    while (vigil_lexer_is_prefixed_digit(vigil_lexer_peek(state), prefix))
+    {
+        vigil_lexer_advance(state);
+    }
+
+    if (state->offset == digits_start)
+    {
+        return vigil_lexer_report(state, start, state->offset, "expected digits after numeric base prefix");
+    }
+
+    if (isalnum((unsigned char)vigil_lexer_peek(state)))
+    {
+        while (isalnum((unsigned char)vigil_lexer_peek(state)))
+        {
+            vigil_lexer_advance(state);
+        }
+        return vigil_lexer_report(state, start, state->offset, "invalid digits for numeric base prefix");
+    }
+
+    return vigil_lexer_emit(state, VIGIL_TOKEN_INT_LITERAL, start, state->offset);
+}
+
 static vigil_status_t vigil_lexer_scan_number(vigil_lexer_state_t *state, size_t start)
 {
     vigil_token_kind_t kind;
@@ -192,34 +220,11 @@ static vigil_status_t vigil_lexer_scan_number(vigil_lexer_state_t *state, size_t
     kind = VIGIL_TOKEN_INT_LITERAL;
     if (state->text[start] == '0')
     {
-        char prefix;
-        size_t digits_start;
+        char prefix = vigil_lexer_peek(state);
 
-        prefix = vigil_lexer_peek(state);
         if (prefix == 'x' || prefix == 'X' || prefix == 'b' || prefix == 'B' || prefix == 'o' || prefix == 'O')
         {
-            vigil_lexer_advance(state);
-            digits_start = state->offset;
-            while (vigil_lexer_is_prefixed_digit(vigil_lexer_peek(state), prefix))
-            {
-                vigil_lexer_advance(state);
-            }
-
-            if (state->offset == digits_start)
-            {
-                return vigil_lexer_report(state, start, state->offset, "expected digits after numeric base prefix");
-            }
-
-            if (isalnum((unsigned char)vigil_lexer_peek(state)))
-            {
-                while (isalnum((unsigned char)vigil_lexer_peek(state)))
-                {
-                    vigil_lexer_advance(state);
-                }
-                return vigil_lexer_report(state, start, state->offset, "invalid digits for numeric base prefix");
-            }
-
-            return vigil_lexer_emit(state, kind, start, state->offset);
+            return vigil_lexer_scan_prefixed_number(state, start, prefix);
         }
     }
 
@@ -390,6 +395,60 @@ static vigil_status_t vigil_lexer_scan_fstring(vigil_lexer_state_t *state, size_
     return vigil_lexer_report(state, start, state->offset, "unterminated f-string literal");
 }
 
+static vigil_status_t vigil_lexer_scan_two_char(vigil_lexer_state_t *state, size_t start, char second,
+                                                vigil_token_kind_t two_kind, vigil_token_kind_t one_kind)
+{
+    if (vigil_lexer_match(state, second))
+    {
+        return vigil_lexer_emit(state, two_kind, start, state->offset);
+    }
+    return vigil_lexer_emit(state, one_kind, start, state->offset);
+}
+
+static vigil_status_t vigil_lexer_scan_slash(vigil_lexer_state_t *state, size_t start)
+{
+    if (vigil_lexer_match(state, '/'))
+    {
+        while (!vigil_lexer_is_at_end(state) && vigil_lexer_peek(state) != '\n')
+        {
+            vigil_lexer_advance(state);
+        }
+        return VIGIL_STATUS_OK;
+    }
+    if (vigil_lexer_match(state, '*'))
+    {
+        return vigil_lexer_skip_block_comment(state, start);
+    }
+    return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_SLASH_ASSIGN, VIGIL_TOKEN_SLASH);
+}
+
+static vigil_status_t vigil_lexer_scan_operator(vigil_lexer_state_t *state, size_t start, char ch)
+{
+    switch (ch)
+    {
+    case '+':
+        if (vigil_lexer_match(state, '+'))
+            return vigil_lexer_emit(state, VIGIL_TOKEN_PLUS_PLUS, start, state->offset);
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_PLUS_ASSIGN, VIGIL_TOKEN_PLUS);
+    case '-':
+        if (vigil_lexer_match(state, '>'))
+            return vigil_lexer_emit(state, VIGIL_TOKEN_ARROW, start, state->offset);
+        if (vigil_lexer_match(state, '-'))
+            return vigil_lexer_emit(state, VIGIL_TOKEN_MINUS_MINUS, start, state->offset);
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_MINUS_ASSIGN, VIGIL_TOKEN_MINUS);
+    case '<':
+        if (vigil_lexer_match(state, '<'))
+            return vigil_lexer_emit(state, VIGIL_TOKEN_SHIFT_LEFT, start, state->offset);
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_LESS_EQUAL, VIGIL_TOKEN_LESS);
+    case '>':
+        if (vigil_lexer_match(state, '>'))
+            return vigil_lexer_emit(state, VIGIL_TOKEN_SHIFT_RIGHT, start, state->offset);
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_GREATER_EQUAL, VIGIL_TOKEN_GREATER);
+    default:
+        return VIGIL_STATUS_INTERNAL;
+    }
+}
+
 static vigil_status_t vigil_lexer_scan_token(vigil_lexer_state_t *state)
 {
     vigil_status_t status;
@@ -430,103 +489,24 @@ static vigil_status_t vigil_lexer_scan_token(vigil_lexer_state_t *state)
     case '~':
         return vigil_lexer_emit(state, VIGIL_TOKEN_TILDE, start, state->offset);
     case '+':
-        if (vigil_lexer_match(state, '+'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_PLUS_PLUS, start, state->offset);
-        }
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_PLUS_ASSIGN, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_PLUS, start, state->offset);
     case '-':
-        if (vigil_lexer_match(state, '>'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_ARROW, start, state->offset);
-        }
-        if (vigil_lexer_match(state, '-'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_MINUS_MINUS, start, state->offset);
-        }
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_MINUS_ASSIGN, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_MINUS, start, state->offset);
-    case '*':
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_STAR_ASSIGN, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_STAR, start, state->offset);
-    case '/':
-        if (vigil_lexer_match(state, '/'))
-        {
-            while (!vigil_lexer_is_at_end(state) && vigil_lexer_peek(state) != '\n')
-            {
-                vigil_lexer_advance(state);
-            }
-            return VIGIL_STATUS_OK;
-        }
-        if (vigil_lexer_match(state, '*'))
-        {
-            return vigil_lexer_skip_block_comment(state, start);
-        }
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_SLASH_ASSIGN, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_SLASH, start, state->offset);
-    case '%':
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_PERCENT_ASSIGN, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_PERCENT, start, state->offset);
-    case '=':
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_EQUAL_EQUAL, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_ASSIGN, start, state->offset);
-    case '!':
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_BANG_EQUAL, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_BANG, start, state->offset);
     case '<':
-        if (vigil_lexer_match(state, '<'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_SHIFT_LEFT, start, state->offset);
-        }
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_LESS_EQUAL, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_LESS, start, state->offset);
     case '>':
-        if (vigil_lexer_match(state, '>'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_SHIFT_RIGHT, start, state->offset);
-        }
-        if (vigil_lexer_match(state, '='))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_GREATER_EQUAL, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_GREATER, start, state->offset);
+        return vigil_lexer_scan_operator(state, start, ch);
+    case '*':
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_STAR_ASSIGN, VIGIL_TOKEN_STAR);
+    case '/':
+        return vigil_lexer_scan_slash(state, start);
+    case '%':
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_PERCENT_ASSIGN, VIGIL_TOKEN_PERCENT);
+    case '=':
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_EQUAL_EQUAL, VIGIL_TOKEN_ASSIGN);
+    case '!':
+        return vigil_lexer_scan_two_char(state, start, '=', VIGIL_TOKEN_BANG_EQUAL, VIGIL_TOKEN_BANG);
     case '&':
-        if (vigil_lexer_match(state, '&'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_AMPERSAND_AMPERSAND, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_AMPERSAND, start, state->offset);
+        return vigil_lexer_scan_two_char(state, start, '&', VIGIL_TOKEN_AMPERSAND_AMPERSAND, VIGIL_TOKEN_AMPERSAND);
     case '|':
-        if (vigil_lexer_match(state, '|'))
-        {
-            return vigil_lexer_emit(state, VIGIL_TOKEN_PIPE_PIPE, start, state->offset);
-        }
-        return vigil_lexer_emit(state, VIGIL_TOKEN_PIPE, start, state->offset);
+        return vigil_lexer_scan_two_char(state, start, '|', VIGIL_TOKEN_PIPE_PIPE, VIGIL_TOKEN_PIPE);
     case '^':
         return vigil_lexer_emit(state, VIGIL_TOKEN_CARET, start, state->offset);
     case '"':
