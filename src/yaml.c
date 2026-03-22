@@ -242,8 +242,27 @@ static vigil_status_t yaml_buf_push(yaml_buf_t *b, yaml_parser_t *p, char ch)
     return VIGIL_STATUS_OK;
 }
 
-/* Process one line of a block scalar. Returns 1 if the line was consumed,
-   0 if the block should end, or -1 on allocation failure. */
+/* Copy one content line into buf, appending the appropriate line ending. */
+static int block_scalar_copy_line(yaml_parser_t *p, yaml_buf_t *buf, size_t block_indent, char style)
+{
+    for (size_t i = 0; i < block_indent && peek(p) == ' '; i++)
+        advance(p);
+    while (peek(p) && peek(p) != '\n')
+    {
+        if (yaml_buf_push(buf, p, peek(p)) != VIGIL_STATUS_OK)
+            return -1;
+        advance(p);
+    }
+    if (peek(p) == '\n')
+    {
+        if (yaml_buf_push(buf, p, style == '|' ? '\n' : ' ') != VIGIL_STATUS_OK)
+            return -1;
+        advance(p);
+    }
+    return 1;
+}
+
+/* Process one line of a block scalar. Returns 1=consumed, 0=end, -1=OOM. */
 static int block_scalar_line(yaml_parser_t *p, yaml_buf_t *buf, size_t block_indent, char style)
 {
     size_t line_indent = measure_indent(p);
@@ -266,23 +285,7 @@ static int block_scalar_line(yaml_parser_t *p, yaml_buf_t *buf, size_t block_ind
     if (line_indent < block_indent)
         return 0;
 
-    for (size_t i = 0; i < block_indent && peek(p) == ' '; i++)
-        advance(p);
-
-    while (peek(p) && peek(p) != '\n')
-    {
-        if (yaml_buf_push(buf, p, peek(p)) != VIGIL_STATUS_OK)
-            return -1;
-        advance(p);
-    }
-
-    if (peek(p) == '\n')
-    {
-        if (yaml_buf_push(buf, p, style == '|' ? '\n' : ' ') != VIGIL_STATUS_OK)
-            return -1;
-        advance(p);
-    }
-    return 1;
+    return block_scalar_copy_line(p, buf, block_indent, style);
 }
 
 static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_json_value_t **out)

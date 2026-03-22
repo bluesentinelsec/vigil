@@ -467,6 +467,22 @@ static vigil_status_t json_read_hex4(json_parser_t *p, uint32_t *out)
     return VIGIL_STATUS_OK;
 }
 
+/* Read the low surrogate of a surrogate pair and combine with *hi. */
+static vigil_status_t json_read_surrogate_pair(json_parser_t *p, uint32_t *hi)
+{
+    if (p->pos + 6 > p->length || p->input[p->pos] != '\\' || p->input[p->pos + 1] != 'u')
+        return parser_error(p, "json: missing low surrogate");
+    p->pos += 2;
+    uint32_t lo = 0;
+    vigil_status_t s = json_read_hex4(p, &lo);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    if (lo < 0xDC00U || lo > 0xDFFFU)
+        return parser_error(p, "json: invalid low surrogate");
+    *hi = 0x10000U + ((*hi - 0xD800U) << 10) + (lo - 0xDC00U);
+    return VIGIL_STATUS_OK;
+}
+
 /* Encode a Unicode codepoint as UTF-8 into buf[*pos].  Returns bytes written (1-4). */
 static size_t json_encode_utf8(char *buf, size_t pos, uint32_t cp)
 {
@@ -557,16 +573,9 @@ static vigil_status_t parse_unicode_escape(json_parser_t *p, json_strbuf_t *sb)
         return s;
     if (cp >= 0xD800U && cp <= 0xDBFFU)
     {
-        if (p->pos + 6 > p->length || p->input[p->pos] != '\\' || p->input[p->pos + 1] != 'u')
-            return parser_error(p, "json: missing low surrogate");
-        p->pos += 2;
-        uint32_t lo = 0;
-        s = json_read_hex4(p, &lo);
+        s = json_read_surrogate_pair(p, &cp);
         if (s != VIGIL_STATUS_OK)
             return s;
-        if (lo < 0xDC00U || lo > 0xDFFFU)
-            return parser_error(p, "json: invalid low surrogate");
-        cp = 0x10000U + ((cp - 0xD800U) << 10) + (lo - 0xDC00U);
     }
     s = json_strbuf_ensure(sb, 4);
     if (s != VIGIL_STATUS_OK)
@@ -575,24 +584,24 @@ static vigil_status_t parse_unicode_escape(json_parser_t *p, json_strbuf_t *sb)
     return VIGIL_STATUS_OK;
 }
 
+/* Table mapping escape characters to their replacement byte.
+   0 = not a simple escape (needs special handling). */
+static const char kEscapeTable[256] = {
+    ['\"'] = '\"', ['\\'] = '\\', ['/'] = '/',
+    ['b'] = '\b', ['f'] = '\f', ['n'] = '\n', ['r'] = '\r', ['t'] = '\t',
+};
+
 static vigil_status_t parse_escape(json_parser_t *p, json_strbuf_t *sb)
 {
     if (p->pos >= p->length)
         return parser_error(p, "json: unterminated escape");
-    char esc = p->input[p->pos++];
-    switch (esc)
-    {
-    case '"':  return json_strbuf_push(sb, '"');
-    case '\\': return json_strbuf_push(sb, '\\');
-    case '/':  return json_strbuf_push(sb, '/');
-    case 'b':  return json_strbuf_push(sb, '\b');
-    case 'f':  return json_strbuf_push(sb, '\f');
-    case 'n':  return json_strbuf_push(sb, '\n');
-    case 'r':  return json_strbuf_push(sb, '\r');
-    case 't':  return json_strbuf_push(sb, '\t');
-    case 'u':  return parse_unicode_escape(p, sb);
-    default:   return parser_error(p, "json: invalid escape character");
-    }
+    unsigned char esc = (unsigned char)p->input[p->pos++];
+    if (esc == 'u')
+        return parse_unicode_escape(p, sb);
+    char replacement = kEscapeTable[esc];
+    if (replacement)
+        return json_strbuf_push(sb, replacement);
+    return parser_error(p, "json: invalid escape character");
 }
 
 /* ── String content parser ───────────────────────────────────────── */
