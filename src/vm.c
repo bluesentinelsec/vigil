@@ -3320,7 +3320,7 @@ static void vigil_vm_call_self(vigil_vm_t *vm, const vigil_vm_frame_t *frame, si
     (void)vigil_vm_push_frame(vm, frame->function, frame->function, frame->chunk, base_slot, error);
 }
 
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) origin/main
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
 {

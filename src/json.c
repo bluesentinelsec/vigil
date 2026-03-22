@@ -450,179 +450,202 @@ static int hex_digit(int c)
     return -1;
 }
 
+/* Read a 4-hex-digit unicode value at p->pos, advancing past it. */
+static vigil_status_t json_read_hex4(json_parser_t *p, uint32_t *out)
+{
+    uint32_t cp = 0;
+    if (p->pos + 4 > p->length)
+        return parser_error(p, "json: incomplete unicode escape");
+    for (int i = 0; i < 4; i++)
+    {
+        int d = hex_digit(p->input[p->pos++]);
+        if (d < 0)
+            return parser_error(p, "json: invalid hex digit");
+        cp = (cp << 4) | (uint32_t)d;
+    }
+    *out = cp;
+    return VIGIL_STATUS_OK;
+}
+
+/* Read the low surrogate of a surrogate pair and combine with *hi. */
+static vigil_status_t json_read_surrogate_pair(json_parser_t *p, uint32_t *hi)
+{
+    if (p->pos + 6 > p->length || p->input[p->pos] != '\\' || p->input[p->pos + 1] != 'u')
+        return parser_error(p, "json: missing low surrogate");
+    p->pos += 2;
+    uint32_t lo = 0;
+    vigil_status_t s = json_read_hex4(p, &lo);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    if (lo < 0xDC00U || lo > 0xDFFFU)
+        return parser_error(p, "json: invalid low surrogate");
+    *hi = 0x10000U + ((*hi - 0xD800U) << 10) + (lo - 0xDC00U);
+    return VIGIL_STATUS_OK;
+}
+
+/* Encode a Unicode codepoint as UTF-8 into buf[*pos].  Returns bytes written (1-4). */
+static size_t json_encode_utf8(char *buf, size_t pos, uint32_t cp)
+{
+    if (cp < 0x80U)
+    {
+        buf[pos] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800U)
+    {
+        buf[pos] = (char)(0xC0 | (cp >> 6));
+        buf[pos + 1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000U)
+    {
+        buf[pos] = (char)(0xE0 | (cp >> 12));
+        buf[pos + 1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[pos + 2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    buf[pos] = (char)(0xF0 | (cp >> 18));
+    buf[pos + 1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    buf[pos + 2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    buf[pos + 3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+/* ── Growable string buffer for parse_string_content ──────────────── */
+
+typedef struct
+{
+    char *data;
+    size_t len;
+    size_t cap;
+    vigil_allocator_t alloc;
+} json_strbuf_t;
+
+static vigil_status_t json_strbuf_init(json_strbuf_t *sb, vigil_allocator_t a, size_t cap)
+{
+    sb->data = (char *)json_alloc(&a, cap);
+    if (!sb->data)
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    sb->len = 0;
+    sb->cap = cap;
+    sb->alloc = a;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t json_strbuf_push(json_strbuf_t *sb, char ch)
+{
+    if (sb->len >= sb->cap)
+    {
+        size_t nc = sb->cap * 2;
+        char *nb = (char *)json_realloc(&sb->alloc, sb->data, nc);
+        if (!nb)
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        sb->data = nb;
+        sb->cap = nc;
+    }
+    sb->data[sb->len++] = ch;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t json_strbuf_ensure(json_strbuf_t *sb, size_t extra)
+{
+    if (sb->len + extra >= sb->cap)
+    {
+        size_t nc = sb->cap * 2;
+        while (nc <= sb->len + extra)
+            nc *= 2;
+        char *nb = (char *)json_realloc(&sb->alloc, sb->data, nc);
+        if (!nb)
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        sb->data = nb;
+        sb->cap = nc;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+/* ── Escape-sequence handler (extracted from parse_string_content) ── */
+
+static vigil_status_t parse_unicode_escape(json_parser_t *p, json_strbuf_t *sb)
+{
+    uint32_t cp = 0;
+    vigil_status_t s = json_read_hex4(p, &cp);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    if (cp >= 0xD800U && cp <= 0xDBFFU)
+    {
+        s = json_read_surrogate_pair(p, &cp);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+    }
+    s = json_strbuf_ensure(sb, 4);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    sb->len += json_encode_utf8(sb->data, sb->len, cp);
+    return VIGIL_STATUS_OK;
+}
+
+/* Table mapping escape characters to their replacement byte.
+   0 = not a simple escape (needs special handling). */
+static const char kEscapeTable[256] = {
+    ['\"'] = '\"', ['\\'] = '\\', ['/'] = '/', ['b'] = '\b', ['f'] = '\f', ['n'] = '\n', ['r'] = '\r', ['t'] = '\t',
+};
+
+static vigil_status_t parse_escape(json_parser_t *p, json_strbuf_t *sb)
+{
+    if (p->pos >= p->length)
+        return parser_error(p, "json: unterminated escape");
+    unsigned char esc = (unsigned char)p->input[p->pos++];
+    if (esc == 'u')
+        return parse_unicode_escape(p, sb);
+    char replacement = kEscapeTable[esc];
+    if (replacement)
+        return json_strbuf_push(sb, replacement);
+    return parser_error(p, "json: invalid escape character");
+}
+
+/* ── String content parser ───────────────────────────────────────── */
+
 static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t *out_len)
 {
     /* Opening quote already consumed by caller. */
-    vigil_allocator_t a = resolve_allocator(p->allocator);
-    size_t cap = 32;
-    char *buf = (char *)json_alloc(&a, cap);
-    if (buf == NULL)
+    json_strbuf_t sb;
+    vigil_status_t s = json_strbuf_init(&sb, resolve_allocator(p->allocator), 32);
+    if (s != VIGIL_STATUS_OK)
     {
         vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");
-        return VIGIL_STATUS_OUT_OF_MEMORY;
+        return s;
     }
-    size_t len = 0;
-
-#define PUSH_CHAR(ch)                                                                                                  \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (len >= cap)                                                                                                \
-        {                                                                                                              \
-            size_t nc = cap * 2;                                                                                       \
-            char *nb = (char *)json_realloc(&a, buf, nc);                                                              \
-            if (nb == NULL)                                                                                            \
-            {                                                                                                          \
-                json_dealloc(&a, buf);                                                                                 \
-                vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");              \
-                return VIGIL_STATUS_OUT_OF_MEMORY;                                                                     \
-            }                                                                                                          \
-            buf = nb;                                                                                                  \
-            cap = nc;                                                                                                  \
-        }                                                                                                              \
-        buf[len++] = (char)(ch);                                                                                       \
-    } while (0)
 
     for (;;)
     {
         if (p->pos >= p->length)
         {
-            json_dealloc(&a, buf);
-            return parser_error(p, "json: unterminated string");
+            s = parser_error(p, "json: unterminated string");
+            goto fail;
         }
         char c = p->input[p->pos++];
         if (c == '"')
             break;
         if (c == '\\')
-        {
-            if (p->pos >= p->length)
-            {
-                json_dealloc(&a, buf);
-                return parser_error(p, "json: unterminated escape");
-            }
-            char esc = p->input[p->pos++];
-            switch (esc)
-            {
-            case '"':
-                PUSH_CHAR('"');
-                break;
-            case '\\':
-                PUSH_CHAR('\\');
-                break;
-            case '/':
-                PUSH_CHAR('/');
-                break;
-            case 'b':
-                PUSH_CHAR('\b');
-                break;
-            case 'f':
-                PUSH_CHAR('\f');
-                break;
-            case 'n':
-                PUSH_CHAR('\n');
-                break;
-            case 'r':
-                PUSH_CHAR('\r');
-                break;
-            case 't':
-                PUSH_CHAR('\t');
-                break;
-            case 'u': {
-                if (p->pos + 4 > p->length)
-                {
-                    json_dealloc(&a, buf);
-                    return parser_error(p, "json: incomplete unicode escape");
-                }
-                uint32_t cp = 0;
-                for (int i = 0; i < 4; i++)
-                {
-                    int d = hex_digit(p->input[p->pos++]);
-                    if (d < 0)
-                    {
-                        json_dealloc(&a, buf);
-                        return parser_error(p, "json: invalid hex digit");
-                    }
-                    cp = (cp << 4) | (uint32_t)d;
-                }
-                /* Handle surrogate pairs. */
-                if (cp >= 0xD800U && cp <= 0xDBFFU)
-                {
-                    if (p->pos + 6 > p->length || p->input[p->pos] != '\\' || p->input[p->pos + 1] != 'u')
-                    {
-                        json_dealloc(&a, buf);
-                        return parser_error(p, "json: missing low surrogate");
-                    }
-                    p->pos += 2;
-                    uint32_t lo = 0;
-                    for (int i = 0; i < 4; i++)
-                    {
-                        int d = hex_digit(p->input[p->pos++]);
-                        if (d < 0)
-                        {
-                            json_dealloc(&a, buf);
-                            return parser_error(p, "json: invalid hex digit");
-                        }
-                        lo = (lo << 4) | (uint32_t)d;
-                    }
-                    if (lo < 0xDC00U || lo > 0xDFFFU)
-                    {
-                        json_dealloc(&a, buf);
-                        return parser_error(p, "json: invalid low surrogate");
-                    }
-                    cp = 0x10000U + ((cp - 0xD800U) << 10) + (lo - 0xDC00U);
-                }
-                /* Encode as UTF-8. */
-                if (cp < 0x80U)
-                {
-                    PUSH_CHAR(cp);
-                }
-                else if (cp < 0x800U)
-                {
-                    PUSH_CHAR(0xC0 | (cp >> 6));
-                    PUSH_CHAR(0x80 | (cp & 0x3F));
-                }
-                else if (cp < 0x10000U)
-                {
-                    PUSH_CHAR(0xE0 | (cp >> 12));
-                    PUSH_CHAR(0x80 | ((cp >> 6) & 0x3F));
-                    PUSH_CHAR(0x80 | (cp & 0x3F));
-                }
-                else
-                {
-                    PUSH_CHAR(0xF0 | (cp >> 18));
-                    PUSH_CHAR(0x80 | ((cp >> 12) & 0x3F));
-                    PUSH_CHAR(0x80 | ((cp >> 6) & 0x3F));
-                    PUSH_CHAR(0x80 | (cp & 0x3F));
-                }
-                break;
-            }
-            default:
-                json_dealloc(&a, buf);
-                return parser_error(p, "json: invalid escape character");
-            }
-        }
+            s = parse_escape(p, &sb);
         else
-        {
-            PUSH_CHAR(c);
-        }
+            s = json_strbuf_push(&sb, c);
+        if (s != VIGIL_STATUS_OK)
+            goto fail;
     }
-#undef PUSH_CHAR
 
     /* Ensure room for NUL terminator. */
-    if (len >= cap)
-    {
-        char *nb = (char *)json_realloc(&a, buf, len + 1);
-        if (nb == NULL)
-        {
-            json_dealloc(&a, buf);
-            vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");
-            return VIGIL_STATUS_OUT_OF_MEMORY;
-        }
-        buf = nb;
-    }
-    buf[len] = '\0';
-    *out = buf;
-    *out_len = len;
+    s = json_strbuf_ensure(&sb, 1);
+    if (s != VIGIL_STATUS_OK)
+        goto fail;
+    sb.data[sb.len] = '\0';
+    *out = sb.data;
+    *out_len = sb.len;
     return VIGIL_STATUS_OK;
+
+fail:
+    json_dealloc(&sb.alloc, sb.data);
+    return s;
 }
 
 static vigil_status_t parse_string(json_parser_t *p, vigil_json_value_t **out)
@@ -639,6 +662,17 @@ static vigil_status_t parse_string(json_parser_t *p, vigil_json_value_t **out)
     return s;
 }
 
+static int json_is_digit(json_parser_t *p)
+{
+    return p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9';
+}
+
+static void json_skip_digits(json_parser_t *p)
+{
+    while (json_is_digit(p))
+        p->pos++;
+}
+
 static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out)
 {
     size_t start = p->pos;
@@ -648,34 +682,20 @@ static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out)
         p->pos++;
 
     /* Integer part. */
-    if (p->pos >= p->length || p->input[p->pos] < '0' || p->input[p->pos] > '9')
-    {
+    if (!json_is_digit(p))
         return parser_error(p, "json: invalid number");
-    }
     if (p->input[p->pos] == '0')
-    {
         p->pos++;
-    }
     else
-    {
-        while (p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9')
-        {
-            p->pos++;
-        }
-    }
+        json_skip_digits(p);
 
     /* Fractional part. */
     if (p->pos < p->length && p->input[p->pos] == '.')
     {
         p->pos++;
-        if (p->pos >= p->length || p->input[p->pos] < '0' || p->input[p->pos] > '9')
-        {
+        if (!json_is_digit(p))
             return parser_error(p, "json: invalid number fraction");
-        }
-        while (p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9')
-        {
-            p->pos++;
-        }
+        json_skip_digits(p);
     }
 
     /* Exponent. */
@@ -683,17 +703,10 @@ static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out)
     {
         p->pos++;
         if (p->pos < p->length && (p->input[p->pos] == '+' || p->input[p->pos] == '-'))
-        {
             p->pos++;
-        }
-        if (p->pos >= p->length || p->input[p->pos] < '0' || p->input[p->pos] > '9')
-        {
+        if (!json_is_digit(p))
             return parser_error(p, "json: invalid number exponent");
-        }
-        while (p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9')
-        {
-            p->pos++;
-        }
+        json_skip_digits(p);
     }
 
     /* Parse the number text.  We need a NUL-terminated copy for strtod. */
