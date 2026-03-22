@@ -12496,6 +12496,87 @@ static int vigil_parser_is_assignment_start(const vigil_parser_state_t *state)
     return token != NULL && vigil_parser_is_assignment_operator(token->kind);
 }
 
+/* ── Import assignment target resolution ───────────────────────── */
+
+static vigil_status_t vigil_parser_resolve_import_assignment_target(
+    vigil_parser_state_t *state, vigil_source_id_t import_source_id, const vigil_token_t **out_target_token,
+    size_t *out_global_index, const vigil_global_variable_t **out_global_decl, int *out_is_global,
+    vigil_parser_type_t *out_type)
+{
+    vigil_status_t status;
+    const vigil_token_t *member_token;
+    const char *member_text;
+    size_t member_length;
+    size_t dummy_index = 0U;
+
+    vigil_parser_advance(state);
+    status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected module member name after '.'", &member_token);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    *out_target_token = member_token;
+    member_text = vigil_parser_token_text(state, member_token, &member_length);
+
+    if (vigil_program_find_global_in_source(state->program, import_source_id, member_text, member_length,
+                                            out_global_index, out_global_decl))
+    {
+        if (!vigil_program_is_global_public(*out_global_decl))
+            return vigil_parser_report(state, member_token->span, "module member is not public");
+        *out_is_global = 1;
+        *out_type = (*out_global_decl)->type;
+        return VIGIL_STATUS_OK;
+    }
+    {
+        const vigil_global_constant_t *c = NULL;
+        if (vigil_program_find_constant_in_source(state->program, import_source_id, member_text, member_length, &c))
+        {
+            if (!vigil_program_is_constant_public(c))
+                return vigil_parser_report(state, member_token->span, "module member is not public");
+            return vigil_parser_report(state, member_token->span, "cannot assign to module constant");
+        }
+    }
+    {
+        const vigil_function_decl_t *f = NULL;
+        if (vigil_program_find_top_level_function_name_in_source(state->program, import_source_id, member_text,
+                                                                  member_length, &dummy_index, &f))
+        {
+            if (!vigil_program_is_function_public(f))
+                return vigil_parser_report(state, member_token->span, "module member is not public");
+            return vigil_parser_report(state, member_token->span, "module member is not assignable");
+        }
+    }
+    {
+        const vigil_class_decl_t *cl = NULL;
+        if (vigil_program_find_class_in_source(state->program, import_source_id, member_text, member_length,
+                                               &dummy_index, &cl))
+        {
+            if (!vigil_program_is_class_public(cl))
+                return vigil_parser_report(state, member_token->span, "module member is not public");
+            return vigil_parser_report(state, member_token->span, "module member is not assignable");
+        }
+    }
+    {
+        const vigil_interface_decl_t *iface = NULL;
+        if (vigil_program_find_interface_in_source(state->program, import_source_id, member_text, member_length,
+                                                   &dummy_index, &iface))
+        {
+            if (!vigil_program_is_interface_public(iface))
+                return vigil_parser_report(state, member_token->span, "module member is not public");
+            return vigil_parser_report(state, member_token->span, "module member is not assignable");
+        }
+    }
+    {
+        const vigil_enum_decl_t *en = NULL;
+        if (vigil_program_find_enum_in_source(state->program, import_source_id, member_text, member_length,
+                                              &dummy_index, &en))
+        {
+            if (!vigil_program_is_enum_public(en))
+                return vigil_parser_report(state, member_token->span, "module member is not public");
+            return vigil_parser_report(state, member_token->span, "module member is not assignable");
+        }
+    }
+    return vigil_parser_report(state, member_token->span, "unknown module member");
+}
+
 /* ── Opcode specialization helper ──────────────────────────────── */
 
 static vigil_opcode_t vigil_parser_specialize_arith_opcode(vigil_opcode_t opcode, vigil_parser_type_t target_type,
@@ -12697,94 +12778,11 @@ static vigil_status_t vigil_parser_parse_assignment_statement_internal(vigil_par
         if (vigil_parser_check(state, VIGIL_TOKEN_DOT) &&
             vigil_program_resolve_import_alias(state->program, name_text, name_length, &import_source_id))
         {
-            const vigil_token_t *member_token;
-            const vigil_global_constant_t *constant_decl;
-            const vigil_function_decl_t *function_decl;
-            const vigil_class_decl_t *class_decl;
-            const vigil_interface_decl_t *interface_decl;
-            const vigil_enum_decl_t *enum_decl;
-            const char *member_text;
-            size_t member_length;
-            size_t object_index;
-            size_t function_index;
-
-            constant_decl = NULL;
-            function_decl = NULL;
-            class_decl = NULL;
-            interface_decl = NULL;
-            enum_decl = NULL;
-            object_index = 0U;
-            function_index = 0U;
-
-            vigil_parser_advance(state);
-            status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected module member name after '.'",
-                                         &member_token);
+            status = vigil_parser_resolve_import_assignment_target(
+                state, import_source_id, &target_token, &global_index, &global_decl, &is_global_assignment,
+                &local_type);
             if (status != VIGIL_STATUS_OK)
-            {
                 return status;
-            }
-            target_token = member_token;
-            member_text = vigil_parser_token_text(state, member_token, &member_length);
-
-            if (vigil_program_find_global_in_source(state->program, import_source_id, member_text, member_length,
-                                                    &global_index, &global_decl))
-            {
-                if (!vigil_program_is_global_public(global_decl))
-                {
-                    return vigil_parser_report(state, member_token->span, "module member is not public");
-                }
-                is_global_assignment = 1;
-                local_type = global_decl->type;
-            }
-            else if (vigil_program_find_constant_in_source(state->program, import_source_id, member_text, member_length,
-                                                           &constant_decl))
-            {
-                if (!vigil_program_is_constant_public(constant_decl))
-                {
-                    return vigil_parser_report(state, member_token->span, "module member is not public");
-                }
-                return vigil_parser_report(state, member_token->span, "cannot assign to module constant");
-            }
-            else if (vigil_program_find_top_level_function_name_in_source(
-                         state->program, import_source_id, member_text, member_length, &function_index, &function_decl))
-            {
-                if (!vigil_program_is_function_public(function_decl))
-                {
-                    return vigil_parser_report(state, member_token->span, "module member is not public");
-                }
-                return vigil_parser_report(state, member_token->span, "module member is not assignable");
-            }
-            else if (vigil_program_find_class_in_source(state->program, import_source_id, member_text, member_length,
-                                                        &object_index, &class_decl))
-            {
-                if (!vigil_program_is_class_public(class_decl))
-                {
-                    return vigil_parser_report(state, member_token->span, "module member is not public");
-                }
-                return vigil_parser_report(state, member_token->span, "module member is not assignable");
-            }
-            else if (vigil_program_find_interface_in_source(state->program, import_source_id, member_text,
-                                                            member_length, &object_index, &interface_decl))
-            {
-                if (!vigil_program_is_interface_public(interface_decl))
-                {
-                    return vigil_parser_report(state, member_token->span, "module member is not public");
-                }
-                return vigil_parser_report(state, member_token->span, "module member is not assignable");
-            }
-            else if (vigil_program_find_enum_in_source(state->program, import_source_id, member_text, member_length,
-                                                       &object_index, &enum_decl))
-            {
-                if (!vigil_program_is_enum_public(enum_decl))
-                {
-                    return vigil_parser_report(state, member_token->span, "module member is not public");
-                }
-                return vigil_parser_report(state, member_token->span, "module member is not assignable");
-            }
-            else
-            {
-                return vigil_parser_report(state, member_token->span, "unknown module member");
-            }
         }
         else if (!vigil_program_find_global_in_source(state->program,
                                                       state->program->source == NULL ? 0U : state->program->source->id,
