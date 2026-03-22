@@ -280,6 +280,15 @@ class RecursionAndControlFlowTest(unittest.TestCase):
             }
         """, 31)
 
+    def test_self_recursive_tail_call(self) -> None:
+        self._run("""
+            fn count_down(i32 n, i32 acc) -> i32 {
+                if (n <= 0) { return acc; }
+                return count_down(n - 1, acc + n);
+            }
+            fn main() -> i32 { return count_down(10, 0); }
+        """, 55)
+
     def test_switch_no_match_hits_default(self) -> None:
         self._run("""
             fn main() -> i32 {

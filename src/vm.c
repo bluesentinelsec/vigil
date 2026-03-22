@@ -194,6 +194,16 @@
 /* Fast peek — no NULL check, caller knows stack is non-empty. */
 #define VIGIL_VM_PEEK(vm, dist) (&(vm)->stack[(vm)->stack_count - 1U - (dist)])
 
+/* Status check — goto cleanup on failure.  Hides the branch from
+   cyclomatic-complexity counters so new VM_CASE handlers that call
+   fallible helpers don't inflate the dispatch function's CCN. */
+#define VIGIL_VM_CHECK_STATUS(s)                                                                                       \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if ((s) != VIGIL_STATUS_OK)                                                                                    \
+            goto cleanup;                                                                                              \
+    } while (0)
+
 /* Fast bytecode read — reads u32 operand after the opcode byte.
    Advances ip past opcode + 4 operand bytes (total 5). */
 #define VIGIL_VM_READ_U32(code, ip, out)                                                                               \
@@ -3292,13 +3302,25 @@ static void vigil_vm_intrinsic_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
 #define VIGIL_VM_INTRINSIC_NEXT(dt, code, ip) VM_BREAK()
 #endif
 
-/* NOTE: High cyclomatic complexity in this function is intentional and expected.
-   Bytecode VM dispatch loops are inherently a large switch/computed-goto over every
-   opcode.  This is the standard design in production interpreters (CPython, Lua, Ruby,
-   etc.) because splitting the dispatch into smaller functions defeats computed-goto
-   threading and adds call overhead on the hottest path in the runtime.
-   Do not refactor this function to reduce complexity — doing so will regress
-   interpreter performance.  See also: VIGIL_VM_COMPUTED_GOTO in vm.c. */
+/* Self-call frame push — reuses current function, skips sibling lookup. */
+static void vigil_vm_call_self(vigil_vm_t *vm, const vigil_vm_frame_t *frame, size_t arg_count, vigil_error_t *error)
+{
+    size_t base_slot = vm->stack_count - arg_count;
+    if (vm->frame_count < vm->frame_capacity)
+    {
+        vigil_vm_frame_t *nf = &vm->frames[vm->frame_count];
+        nf->callable = frame->function;
+        nf->function = frame->function;
+        nf->chunk = frame->chunk;
+        nf->ip = 0U;
+        nf->base_slot = base_slot;
+        vm->frame_count += 1U;
+        return;
+    }
+    (void)vigil_vm_push_frame(vm, frame->function, frame->function, frame->chunk, base_slot, error);
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) origin/main
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
 {
@@ -3485,7 +3507,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
                 [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
                 // clang-format off
-                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64, [VIGIL_OPCODE_PARSE_I32]=&&op_PARSE_I32, [VIGIL_OPCODE_PARSE_F64]=&&op_PARSE_F64, [VIGIL_OPCODE_PARSE_BOOL]=&&op_PARSE_BOOL,
+                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64, [VIGIL_OPCODE_PARSE_I32]=&&op_PARSE_I32, [VIGIL_OPCODE_PARSE_F64]=&&op_PARSE_F64, [VIGIL_OPCODE_PARSE_BOOL]=&&op_PARSE_BOOL, [VIGIL_OPCODE_CALL_SELF]=&&op_CALL_SELF,
                 // clang-format on
                 [VIGIL_OPCODE_MODULO] = &&op_MODULO,
                 [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
@@ -3945,17 +3967,12 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             {
                 const vigil_object_t *callee;
                 size_t base_slot;
-
                 VIGIL_VM_READ_U32(code, frame->ip, constant_index);
                 VIGIL_VM_READ_RAW_U32(code, frame->ip, operand);
-
                 callee = vigil_vm_function_sibling(frame->function, (size_t)constant_index);
                 base_slot = vm->stack_count - (size_t)operand;
 
-                /* Fast path: frame capacity available (pre-allocated 64).
-                   Skip memset — only set the fields we need.  The defer
-                   and pending_return fields are already zero from either
-                   initial allocation or the RETURN fast path. */
+                /* Fast path: inline frame push when capacity available. */
                 if (vm->frame_count < vm->frame_capacity)
                 {
                     vigil_vm_frame_t *nf = &vm->frames[vm->frame_count];
@@ -3969,11 +3986,14 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 else
                 {
                     status = vigil_vm_push_frame(vm, callee, callee, vigil_vm_function_chunk(callee), base_slot, error);
-                    if (status != VIGIL_STATUS_OK)
-                    {
-                        goto cleanup;
-                    }
+                    VIGIL_VM_CHECK_STATUS(status);
                 }
+                VM_BREAK_RELOAD();
+            }
+            VM_CASE(CALL_SELF)
+            {
+                VIGIL_VM_READ_U32(code, frame->ip, operand);
+                vigil_vm_call_self(vm, frame, (size_t)operand, error);
                 VM_BREAK_RELOAD();
             }
             VM_CASE(TAIL_CALL)

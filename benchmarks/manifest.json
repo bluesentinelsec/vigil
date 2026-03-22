@@ -60,6 +60,16 @@
       "warmups": 1,
       "iterations": 5,
       "timeout_seconds": 20
+    },
+    {
+      "name": "run_fib",
+      "command": [
+        "run",
+        "benchmarks/cases/run_fib.vigil"
+      ],
+      "warmups": 1,
+      "iterations": 5,
+      "timeout_seconds": 20
     }
   ]
 }
