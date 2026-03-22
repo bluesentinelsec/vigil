@@ -493,18 +493,18 @@ static size_t json_encode_utf8(char *buf, size_t pos, uint32_t cp)
     }
     if (cp < 0x800U)
     {
-        buf[pos]     = (char)(0xC0 | (cp >> 6));
+        buf[pos] = (char)(0xC0 | (cp >> 6));
         buf[pos + 1] = (char)(0x80 | (cp & 0x3F));
         return 2;
     }
     if (cp < 0x10000U)
     {
-        buf[pos]     = (char)(0xE0 | (cp >> 12));
+        buf[pos] = (char)(0xE0 | (cp >> 12));
         buf[pos + 1] = (char)(0x80 | ((cp >> 6) & 0x3F));
         buf[pos + 2] = (char)(0x80 | (cp & 0x3F));
         return 3;
     }
-    buf[pos]     = (char)(0xF0 | (cp >> 18));
+    buf[pos] = (char)(0xF0 | (cp >> 18));
     buf[pos + 1] = (char)(0x80 | ((cp >> 12) & 0x3F));
     buf[pos + 2] = (char)(0x80 | ((cp >> 6) & 0x3F));
     buf[pos + 3] = (char)(0x80 | (cp & 0x3F));
@@ -587,8 +587,7 @@ static vigil_status_t parse_unicode_escape(json_parser_t *p, json_strbuf_t *sb)
 /* Table mapping escape characters to their replacement byte.
    0 = not a simple escape (needs special handling). */
 static const char kEscapeTable[256] = {
-    ['\"'] = '\"', ['\\'] = '\\', ['/'] = '/',
-    ['b'] = '\b', ['f'] = '\f', ['n'] = '\n', ['r'] = '\r', ['t'] = '\t',
+    ['\"'] = '\"', ['\\'] = '\\', ['/'] = '/', ['b'] = '\b', ['f'] = '\f', ['n'] = '\n', ['r'] = '\r', ['t'] = '\t',
 };
 
 static vigil_status_t parse_escape(json_parser_t *p, json_strbuf_t *sb)
