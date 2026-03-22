@@ -27,6 +27,7 @@ static vigil_object_t *require_map(const vigil_value_t *v)
 
 /* ── GET_INDEX ─────────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_get_index(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -150,6 +151,7 @@ vigil_status_t vigil_vm_op_array_push(vigil_vm_t *vm, vigil_vm_frame_t *frame, v
 
 /* ── ARRAY_POP ─────────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_array_pop(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -193,6 +195,7 @@ vigil_status_t vigil_vm_op_array_pop(vigil_vm_t *vm, vigil_vm_frame_t *frame, vi
 
 /* ── ARRAY_GET_SAFE ────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_array_get_safe(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -254,6 +257,7 @@ vigil_status_t vigil_vm_op_array_get_safe(vigil_vm_t *vm, vigil_vm_frame_t *fram
 
 /* ── ARRAY_SET_SAFE ────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_array_set_safe(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -297,6 +301,7 @@ vigil_status_t vigil_vm_op_array_set_safe(vigil_vm_t *vm, vigil_vm_frame_t *fram
 
 /* ── ARRAY_SLICE ───────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_array_slice(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -388,6 +393,7 @@ vigil_status_t vigil_vm_op_array_contains(vigil_vm_t *vm, vigil_vm_frame_t *fram
 
 /* ── MAP_GET_SAFE ──────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_map_get_safe(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -465,6 +471,7 @@ vigil_status_t vigil_vm_op_map_set_safe(vigil_vm_t *vm, vigil_vm_frame_t *frame,
 
 /* ── MAP_REMOVE_SAFE ───────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_map_remove_safe(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -601,6 +608,7 @@ vigil_status_t vigil_vm_op_map_keys_values(vigil_vm_t *vm, vigil_vm_frame_t *fra
 
 /* ── GET_MAP_KEY_AT ────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_get_map_key_at(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -640,6 +648,7 @@ vigil_status_t vigil_vm_op_get_map_key_at(vigil_vm_t *vm, vigil_vm_frame_t *fram
 
 /* ── GET_MAP_VALUE_AT ──────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_get_map_value_at(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;
@@ -679,6 +688,7 @@ vigil_status_t vigil_vm_op_get_map_value_at(vigil_vm_t *vm, vigil_vm_frame_t *fr
 
 /* ── SET_INDEX ─────────────────────────────────────────────────── */
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 vigil_status_t vigil_vm_op_set_index(vigil_vm_t *vm, vigil_vm_frame_t *frame, vigil_error_t *error)
 {
     vigil_status_t status;

@@ -162,7 +162,7 @@ static vigil_status_t generic_binary_integer(vigil_value_t *left, vigil_value_t 
             vigil_value_init_uint(out, ur);
         return status;
     }
-    else
+
     {
         int64_t ir = 0;
         vigil_status_t status = generic_binary_int(vigil_value_as_int(left), vigil_value_as_int(right), op, &ir);

@@ -99,12 +99,12 @@
 #include "internal/vigil_nanbox.h"
 #include "internal/vigil_vm_internal.h"
 #include "value_internal.h"
+#include "vigil/string.h"
+#include "vigil/vm.h"
 #include "vm_ops_arith.h"
 #include "vm_ops_collection.h"
 #include "vm_ops_convert.h"
 #include "vm_ops_string.h"
-#include "vigil/string.h"
-#include "vigil/vm.h"
 
 /* ── Computed-goto detection ───────────────────────────────────────
    GCC/Clang: use dispatch table.  Everything else: switch fallback.
@@ -207,9 +207,7 @@
         (ip) += 4U;                                                                                                    \
     } while (0)
 
-
-vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message,
-                                   vigil_error_t *error);
+vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message, vigil_error_t *error);
 vigil_value_t vigil_vm_pop_or_nil(vigil_vm_t *vm);
 static void vigil_vm_defer_action_clear(vigil_runtime_t *runtime, vigil_vm_defer_action_t *action);
 static vigil_status_t vigil_vm_complete_return(vigil_vm_t *vm, vigil_value_t *returned_values, size_t return_count,
@@ -1683,7 +1681,7 @@ int vigil_vm_value_is_supported_map_key(const vigil_value_t *value)
 }
 
 vigil_status_t vigil_vm_concat_strings(vigil_vm_t *vm, const vigil_value_t *left, const vigil_value_t *right,
-                                              vigil_value_t *out_value, vigil_error_t *error)
+                                       vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_string_t text;
@@ -1828,7 +1826,7 @@ static vigil_status_t vigil_vm_stringify_float_value(vigil_vm_t *vm, const vigil
 }
 
 vigil_status_t vigil_vm_stringify_value(vigil_vm_t *vm, const vigil_value_t *value, vigil_value_t *out_value,
-                                               vigil_error_t *error)
+                                        vigil_error_t *error)
 {
     if (vm == NULL || value == NULL || out_value == NULL)
     {
@@ -2273,8 +2271,8 @@ static vigil_status_t vigil_vm_format_spec_emit_text(vigil_vm_t *vm, const char 
     return VIGIL_STATUS_OK;
 }
 
-vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1,
-                                                 uint32_t word2, vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *val, uint32_t word1, uint32_t word2,
+                                          vigil_value_t *out_value, vigil_error_t *error)
 {
     char fill;
     unsigned int align;
@@ -2344,7 +2342,7 @@ vigil_status_t vigil_vm_format_spec_value(vigil_vm_t *vm, const vigil_value_t *v
 }
 
 vigil_status_t vigil_vm_format_f64_value(vigil_vm_t *vm, const vigil_value_t *value, uint32_t precision,
-                                                vigil_value_t *out_value, vigil_error_t *error)
+                                         vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
     char format[32];
@@ -2440,8 +2438,8 @@ int vigil_vm_get_string_parts(const vigil_value_t *value, const char **out_text,
     return 1;
 }
 
-vigil_status_t vigil_vm_new_string_value(vigil_vm_t *vm, const char *text, size_t length,
-                                         vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_new_string_value(vigil_vm_t *vm, const char *text, size_t length, vigil_value_t *out_value,
+                                         vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_object_t *object;
@@ -2463,8 +2461,8 @@ vigil_status_t vigil_vm_new_string_value(vigil_vm_t *vm, const char *text, size_
     return VIGIL_STATUS_OK;
 }
 
-vigil_status_t vigil_vm_make_error_value(vigil_vm_t *vm, int64_t kind, const char *message,
-                                         size_t message_length, vigil_value_t *out_value, vigil_error_t *error)
+vigil_status_t vigil_vm_make_error_value(vigil_vm_t *vm, int64_t kind, const char *message, size_t message_length,
+                                         vigil_value_t *out_value, vigil_error_t *error)
 {
     vigil_status_t status;
     vigil_object_t *object;
@@ -2495,7 +2493,7 @@ vigil_status_t vigil_vm_make_bounds_error_value(vigil_vm_t *vm, const char *mess
 }
 
 int vigil_vm_find_substring(const char *text, size_t text_length, const char *needle, size_t needle_length,
-                             size_t *out_index)
+                            size_t *out_index)
 {
     size_t index;
 
@@ -2576,9 +2574,9 @@ static vigil_status_t vigil_vm_push_checked_unsigned_integer(vigil_vm_t *vm, uin
 }
 
 vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
-                                                              int64_t minimum_value, int64_t maximum_value,
-                                                              const char *operand_error, const char *range_error,
-                                                              vigil_error_t *error)
+                                                       int64_t minimum_value, int64_t maximum_value,
+                                                       const char *operand_error, const char *range_error,
+                                                       vigil_error_t *error)
 {
     int64_t integer_value;
     double float_value;
@@ -2622,8 +2620,8 @@ vigil_status_t vigil_vm_convert_to_signed_integer_type(vigil_vm_t *vm, const vig
 }
 
 vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const vigil_value_t *value,
-                                                                uint64_t maximum_value, const char *operand_error,
-                                                                const char *range_error, vigil_error_t *error)
+                                                         uint64_t maximum_value, const char *operand_error,
+                                                         const char *range_error, vigil_error_t *error)
 {
     uint64_t integer_value;
     double float_value;
@@ -2666,8 +2664,7 @@ vigil_status_t vigil_vm_convert_to_unsigned_integer_type(vigil_vm_t *vm, const v
     return vigil_vm_push_checked_unsigned_integer(vm, integer_value, maximum_value, range_error, error);
 }
 
-vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message,
-                                   vigil_error_t *error)
+vigil_status_t vigil_vm_fail_at_ip(vigil_vm_t *vm, vigil_status_t status, const char *message, vigil_error_t *error)
 {
     vigil_source_span_t span;
     vigil_vm_frame_t *frame;
@@ -4311,167 +4308,206 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_BREAK();
             VM_CASE(GET_INDEX)
             status = vigil_vm_op_get_index(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(GET_COLLECTION_SIZE)
             status = vigil_vm_op_get_collection_size(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(ARRAY_PUSH)
             status = vigil_vm_op_array_push(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(ARRAY_POP)
             status = vigil_vm_op_array_pop(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(ARRAY_GET_SAFE)
             status = vigil_vm_op_array_get_safe(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(ARRAY_SET_SAFE)
             status = vigil_vm_op_array_set_safe(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(ARRAY_SLICE)
             status = vigil_vm_op_array_slice(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(ARRAY_CONTAINS)
             status = vigil_vm_op_array_contains(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MAP_GET_SAFE)
             status = vigil_vm_op_map_get_safe(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MAP_SET_SAFE)
             status = vigil_vm_op_map_set_safe(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MAP_REMOVE_SAFE)
             status = vigil_vm_op_map_remove_safe(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MAP_HAS)
             status = vigil_vm_op_map_has(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MAP_KEYS)
             VM_CASE(MAP_VALUES)
             status = vigil_vm_op_map_keys_values(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(GET_STRING_SIZE)
             status = vigil_vm_op_get_string_size(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_CONTAINS)
             VM_CASE(STRING_STARTS_WITH)
             VM_CASE(STRING_ENDS_WITH)
             status = vigil_vm_op_string_search(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_TRIM)
             VM_CASE(STRING_TO_UPPER)
             VM_CASE(STRING_TO_LOWER)
             status = vigil_vm_op_string_transform(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_REPLACE)
             status = vigil_vm_op_string_replace(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_SPLIT)
             status = vigil_vm_op_string_split(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_INDEX_OF)
             status = vigil_vm_op_string_index_of(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_SUBSTR)
             status = vigil_vm_op_string_substr(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_BYTES)
             status = vigil_vm_op_string_bytes(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_CHAR_AT)
             status = vigil_vm_op_string_char_at(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_TRIM_LEFT)
             VM_CASE(STRING_TRIM_RIGHT)
             status = vigil_vm_op_string_trim_dir(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_REVERSE)
             status = vigil_vm_op_string_reverse(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_IS_EMPTY)
             status = vigil_vm_op_string_is_empty(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_CHAR_COUNT)
             status = vigil_vm_op_string_char_count(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_REPEAT)
             status = vigil_vm_op_string_repeat(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_COUNT)
             status = vigil_vm_op_string_count(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_LAST_INDEX_OF)
             status = vigil_vm_op_string_last_index_of(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_TRIM_PREFIX)
             VM_CASE(STRING_TRIM_SUFFIX)
             status = vigil_vm_op_string_trim_affix(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(CHAR_FROM_INT)
             status = vigil_vm_op_char_from_int(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_TO_C)
             status = vigil_vm_op_string_to_c(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_FIELDS)
             status = vigil_vm_op_string_fields(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_EQUAL_FOLD)
             status = vigil_vm_op_string_equal_fold(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_CUT)
             status = vigil_vm_op_string_cut(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(STRING_JOIN)
             status = vigil_vm_op_string_join(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
 
             VM_CASE(GET_MAP_KEY_AT)
             status = vigil_vm_op_get_map_key_at(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(GET_MAP_VALUE_AT)
             status = vigil_vm_op_get_map_value_at(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(SET_INDEX)
             status = vigil_vm_op_set_index(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(JUMP)
             VIGIL_VM_READ_U32(code, frame->ip, operand);
@@ -4556,13 +4592,15 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(LESS)
             VM_CASE(EQUAL)
             status = vigil_vm_op_generic_binary(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
 
             VM_CASE(ADD_I64)
             VM_CASE(SUBTRACT_I64)
             status = vigil_vm_op_add_sub_i64(vm, frame, code, code_size, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(LESS_I64)
             VM_CASE(LESS_EQUAL_I64)
@@ -4571,23 +4609,27 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(EQUAL_I64)
             VM_CASE(NOT_EQUAL_I64)
             status = vigil_vm_op_cmp_i64(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MULTIPLY_I64)
             VM_CASE(DIVIDE_I64)
             VM_CASE(MODULO_I64)
             status = vigil_vm_op_mul_div_mod_i64(vm, frame, code, code_size, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(LOCALS_ADD_I64)
             VM_CASE(LOCALS_SUBTRACT_I64)
             status = vigil_vm_op_locals_add_sub_i64(vm, frame, code, code_size, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(LOCALS_MULTIPLY_I64)
             VM_CASE(LOCALS_MODULO_I64)
             status = vigil_vm_op_locals_mul_mod_i64(vm, frame, code, code_size, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(LOCALS_LESS_I64)
             VM_CASE(LOCALS_LESS_EQUAL_I64)
@@ -4596,28 +4638,34 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(LOCALS_EQUAL_I64)
             VM_CASE(LOCALS_NOT_EQUAL_I64)
             status = vigil_vm_op_locals_cmp_i64(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
 
             VM_CASE(ADD_I32)
             status = vigil_vm_op_add_i32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(SUBTRACT_I32)
             status = vigil_vm_op_sub_i32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MULTIPLY_I32)
             status = vigil_vm_op_mul_i32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(DIVIDE_I32)
             status = vigil_vm_op_div_i32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(MODULO_I32)
             status = vigil_vm_op_mod_i32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(LESS_I32)
             VM_CASE(LESS_EQUAL_I32)
@@ -4626,7 +4674,8 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(EQUAL_I32)
             VM_CASE(NOT_EQUAL_I32)
             status = vigil_vm_op_cmp_i32(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             // clang-format off
             VM_CASE(LESS_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(<); VM_BREAK();
@@ -4641,7 +4690,8 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(LOCALS_MULTIPLY_I32_STORE)
             VM_CASE(LOCALS_MODULO_I32_STORE)
             status = vigil_vm_op_locals_arith_i32_store(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(LOCALS_LESS_I32_STORE)
             VM_CASE(LOCALS_LESS_EQUAL_I32_STORE)
@@ -4650,76 +4700,94 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
             VM_CASE(LOCALS_EQUAL_I32_STORE)
             VM_CASE(LOCALS_NOT_EQUAL_I32_STORE)
             status = vigil_vm_op_locals_cmp_i32_store(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(INCREMENT_LOCAL_I32)
             status = vigil_vm_op_increment_local_i32(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(FORLOOP_I32)
             status = vigil_vm_op_forloop_i32(vm, frame, code, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
 
             VM_CASE(NEGATE)
             status = vigil_vm_op_negate(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(NOT)
             status = vigil_vm_op_not(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(BITWISE_NOT)
             status = vigil_vm_op_bitwise_not(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_I32)
             status = vigil_vm_op_to_i32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_I64)
             status = vigil_vm_op_to_i64(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_U8)
             status = vigil_vm_op_to_u8(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_U32)
             status = vigil_vm_op_to_u32(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_U64)
             status = vigil_vm_op_to_u64(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_F64)
             status = vigil_vm_op_to_f64(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(TO_STRING)
             status = vigil_vm_op_to_string(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(FORMAT_F64)
             status = vigil_vm_op_format_f64(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(FORMAT_SPEC)
             status = vigil_vm_op_format_spec(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(NEW_ERROR)
             status = vigil_vm_op_new_error(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(GET_ERROR_KIND)
             status = vigil_vm_op_get_error_kind(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(GET_ERROR_MESSAGE)
             status = vigil_vm_op_get_error_message(vm, frame, error);
-            if (status != VIGIL_STATUS_OK) goto cleanup;
+            if (status != VIGIL_STATUS_OK)
+                goto cleanup;
             VM_BREAK();
             VM_CASE(RETURN)
             frame->ip += 1U;
