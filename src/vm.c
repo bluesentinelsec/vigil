@@ -3275,6 +3275,13 @@ static void vigil_vm_intrinsic_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
 #define VIGIL_VM_INTRINSIC_NEXT(dt, code, ip) VM_BREAK()
 #endif
 
+/* NOTE: High cyclomatic complexity in this function is intentional and expected.
+   Bytecode VM dispatch loops are inherently a large switch/computed-goto over every
+   opcode.  This is the standard design in production interpreters (CPython, Lua, Ruby,
+   etc.) because splitting the dispatch into smaller functions defeats computed-goto
+   threading and adds call overhead on the hottest path in the runtime.
+   Do not refactor this function to reduce complexity — doing so will regress
+   interpreter performance.  See also: VIGIL_VM_COMPUTED_GOTO in vm.c. */
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
                                          vigil_error_t *error)
 {

@@ -65,89 +65,73 @@ extern "C"
     extern VIGIL_API const vigil_native_module_t vigil_stdlib_url;
     extern VIGIL_API const vigil_native_module_t vigil_stdlib_yaml;
 
-    /* Register all built-in stdlib modules into a native registry. */
-    static inline vigil_status_t vigil_stdlib_register_all(vigil_native_registry_t *registry, vigil_error_t *error)
+    /* ── Table-driven stdlib registry ───────────────────────────────── */
+
+    typedef struct vigil_stdlib_entry
     {
-        vigil_status_t status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_args, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_atomic, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_compress, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_crypto, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_csv, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        const char *name;
+        size_t name_length;
+        const vigil_native_module_t *module;
+    } vigil_stdlib_entry_t;
+
+    /* All known stdlib modules.  Entries whose module pointer is NULL are
+       recognised names that may not be compiled in (platform-optional). */
+    // clang-format off
+    static const vigil_stdlib_entry_t kVigilStdlibModules[] = {
+        {"args",     4U, &vigil_stdlib_args},
+        {"atomic",   6U, &vigil_stdlib_atomic},
+        {"compress", 8U, &vigil_stdlib_compress},
+        {"crypto",   6U, &vigil_stdlib_crypto},
+        {"csv",      3U, &vigil_stdlib_csv},
 #ifdef VIGIL_HAS_STDLIB_FFI
-        status = vigil_native_registry_add(registry, &vigil_stdlib_ffi, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"ffi",      3U, &vigil_stdlib_ffi},
+#else
+        {"ffi",      3U, NULL},
 #endif
-        status = vigil_native_registry_add(registry, &vigil_stdlib_fmt, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"fmt",      3U, &vigil_stdlib_fmt},
 #ifdef VIGIL_HAS_STDLIB_FS
-        status = vigil_native_registry_add(registry, &vigil_stdlib_fs, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"fs",       2U, &vigil_stdlib_fs},
+#else
+        {"fs",       2U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_HTTP
-        status = vigil_native_registry_add(registry, &vigil_stdlib_http, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"http",     4U, &vigil_stdlib_http},
+#else
+        {"http",     4U, NULL},
 #endif
-        status = vigil_native_registry_add(registry, &vigil_stdlib_log, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_math, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"log",      3U, &vigil_stdlib_log},
+        {"math",     4U, &vigil_stdlib_math},
 #ifdef VIGIL_HAS_STDLIB_NET
-        status = vigil_native_registry_add(registry, &vigil_stdlib_net, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"net",      3U, &vigil_stdlib_net},
+#else
+        {"net",      3U, NULL},
 #endif
-        status = vigil_native_registry_add(registry, &vigil_stdlib_parse, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_random, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"parse",    5U, &vigil_stdlib_parse},
+        {"random",   6U, &vigil_stdlib_random},
 #ifdef VIGIL_HAS_STDLIB_READLINE
-        status = vigil_native_registry_add(registry, &vigil_stdlib_readline, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"readline", 8U, &vigil_stdlib_readline},
+#else
+        {"readline", 8U, NULL},
 #endif
-        status = vigil_native_registry_add(registry, &vigil_stdlib_regex, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_test, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"regex",    5U, &vigil_stdlib_regex},
+        {"test",     4U, &vigil_stdlib_test},
 #ifdef VIGIL_HAS_STDLIB_THREAD
-        status = vigil_native_registry_add(registry, &vigil_stdlib_thread, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"thread",   6U, &vigil_stdlib_thread},
+#else
+        {"thread",   6U, NULL},
 #endif
 #ifdef VIGIL_HAS_STDLIB_TIME
-        status = vigil_native_registry_add(registry, &vigil_stdlib_time, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
+        {"time",     4U, &vigil_stdlib_time},
+#else
+        {"time",     4U, NULL},
 #endif
-        status = vigil_native_registry_add(registry, &vigil_stdlib_unsafe, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        status = vigil_native_registry_add(registry, &vigil_stdlib_url, error);
-        if (status != VIGIL_STATUS_OK)
-            return status;
-        return vigil_native_registry_add(registry, &vigil_stdlib_yaml, error);
-    }
+        {"unsafe",   6U, &vigil_stdlib_unsafe},
+        {"url",      3U, &vigil_stdlib_url},
+        {"yaml",     4U, &vigil_stdlib_yaml},
+    };
+    // clang-format on
+
+    #define VIGIL_STDLIB_MODULE_COUNT (sizeof(kVigilStdlibModules) / sizeof(kVigilStdlibModules[0]))
 
     static inline int vigil_stdlib_name_equals(const char *name, size_t name_length, const char *literal,
                                                size_t literal_length)
@@ -155,82 +139,46 @@ extern "C"
         return name_length == literal_length && memcmp(name, literal, literal_length) == 0;
     }
 
+    /* Register all built-in stdlib modules into a native registry. */
+    static inline vigil_status_t vigil_stdlib_register_all(vigil_native_registry_t *registry, vigil_error_t *error)
+    {
+        size_t i;
+        for (i = 0U; i < VIGIL_STDLIB_MODULE_COUNT; i++)
+        {
+            if (kVigilStdlibModules[i].module != NULL)
+            {
+                vigil_status_t status = vigil_native_registry_add(registry, kVigilStdlibModules[i].module, error);
+                if (status != VIGIL_STATUS_OK)
+                    return status;
+            }
+        }
+        return VIGIL_STATUS_OK;
+    }
+
     /* Check if an import name refers to any known stdlib module. */
     static inline int vigil_stdlib_is_known_module(const char *name, size_t name_length)
     {
-        return vigil_stdlib_name_equals(name, name_length, "args", 4U) ||
-               vigil_stdlib_name_equals(name, name_length, "atomic", 6U) ||
-               vigil_stdlib_name_equals(name, name_length, "compress", 8U) ||
-               vigil_stdlib_name_equals(name, name_length, "crypto", 6U) ||
-               vigil_stdlib_name_equals(name, name_length, "csv", 3U) ||
-               vigil_stdlib_name_equals(name, name_length, "ffi", 3U) ||
-               vigil_stdlib_name_equals(name, name_length, "fmt", 3U) ||
-               vigil_stdlib_name_equals(name, name_length, "fs", 2U) ||
-               vigil_stdlib_name_equals(name, name_length, "http", 4U) ||
-               vigil_stdlib_name_equals(name, name_length, "log", 3U) ||
-               vigil_stdlib_name_equals(name, name_length, "math", 4U) ||
-               vigil_stdlib_name_equals(name, name_length, "net", 3U) ||
-               vigil_stdlib_name_equals(name, name_length, "parse", 5U) ||
-               vigil_stdlib_name_equals(name, name_length, "random", 6U) ||
-               vigil_stdlib_name_equals(name, name_length, "readline", 8U) ||
-               vigil_stdlib_name_equals(name, name_length, "regex", 5U) ||
-               vigil_stdlib_name_equals(name, name_length, "test", 4U) ||
-               vigil_stdlib_name_equals(name, name_length, "thread", 6U) ||
-               vigil_stdlib_name_equals(name, name_length, "time", 4U) ||
-               vigil_stdlib_name_equals(name, name_length, "unsafe", 6U) ||
-               vigil_stdlib_name_equals(name, name_length, "url", 3U) ||
-               vigil_stdlib_name_equals(name, name_length, "yaml", 4U);
+        size_t i;
+        for (i = 0U; i < VIGIL_STDLIB_MODULE_COUNT; i++)
+        {
+            if (vigil_stdlib_name_equals(name, name_length, kVigilStdlibModules[i].name,
+                                         kVigilStdlibModules[i].name_length))
+                return 1;
+        }
+        return 0;
     }
 
     /* Check if an import name is a stdlib module available in this build. */
     static inline int vigil_stdlib_is_available_module(const char *name, size_t name_length)
     {
-        if (vigil_stdlib_name_equals(name, name_length, "args", 4U) ||
-            vigil_stdlib_name_equals(name, name_length, "atomic", 6U) ||
-            vigil_stdlib_name_equals(name, name_length, "compress", 8U) ||
-            vigil_stdlib_name_equals(name, name_length, "crypto", 6U) ||
-            vigil_stdlib_name_equals(name, name_length, "csv", 3U) ||
-            vigil_stdlib_name_equals(name, name_length, "fmt", 3U) ||
-            vigil_stdlib_name_equals(name, name_length, "log", 3U) ||
-            vigil_stdlib_name_equals(name, name_length, "math", 4U) ||
-            vigil_stdlib_name_equals(name, name_length, "parse", 5U) ||
-            vigil_stdlib_name_equals(name, name_length, "random", 6U) ||
-            vigil_stdlib_name_equals(name, name_length, "regex", 5U) ||
-            vigil_stdlib_name_equals(name, name_length, "test", 4U) ||
-            vigil_stdlib_name_equals(name, name_length, "unsafe", 6U) ||
-            vigil_stdlib_name_equals(name, name_length, "url", 3U) ||
-            vigil_stdlib_name_equals(name, name_length, "yaml", 4U))
+        size_t i;
+        for (i = 0U; i < VIGIL_STDLIB_MODULE_COUNT; i++)
         {
-            return 1;
+            if (kVigilStdlibModules[i].module != NULL &&
+                vigil_stdlib_name_equals(name, name_length, kVigilStdlibModules[i].name,
+                                         kVigilStdlibModules[i].name_length))
+                return 1;
         }
-#ifdef VIGIL_HAS_STDLIB_FFI
-        if (vigil_stdlib_name_equals(name, name_length, "ffi", 3U))
-            return 1;
-#endif
-#ifdef VIGIL_HAS_STDLIB_FS
-        if (vigil_stdlib_name_equals(name, name_length, "fs", 2U))
-            return 1;
-#endif
-#ifdef VIGIL_HAS_STDLIB_HTTP
-        if (vigil_stdlib_name_equals(name, name_length, "http", 4U))
-            return 1;
-#endif
-#ifdef VIGIL_HAS_STDLIB_NET
-        if (vigil_stdlib_name_equals(name, name_length, "net", 3U))
-            return 1;
-#endif
-#ifdef VIGIL_HAS_STDLIB_READLINE
-        if (vigil_stdlib_name_equals(name, name_length, "readline", 8U))
-            return 1;
-#endif
-#ifdef VIGIL_HAS_STDLIB_THREAD
-        if (vigil_stdlib_name_equals(name, name_length, "thread", 6U))
-            return 1;
-#endif
-#ifdef VIGIL_HAS_STDLIB_TIME
-        if (vigil_stdlib_name_equals(name, name_length, "time", 4U))
-            return 1;
-#endif
         return 0;
     }
 
