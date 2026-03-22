@@ -1,0 +1,47 @@
+name: SonarQube
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sonarqube:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_WRAPPER_OUT_DIR: bw-output
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Build Wrapper
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@v6
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DVIGIL_BUILD_TESTS=ON
+          -DVIGIL_STDLIB_FFI=ON
+          -DVIGIL_STDLIB_FS=ON
+          -DVIGIL_STDLIB_HTTP=ON
+          -DVIGIL_STDLIB_NET=ON
+          -DVIGIL_STDLIB_READLINE=ON
+          -DVIGIL_STDLIB_THREAD=ON
+          -DVIGIL_STDLIB_TIME=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build with build-wrapper
+        run: build-wrapper-linux-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build build
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            --define sonar.cfamily.compile-commands=${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json
