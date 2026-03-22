@@ -260,18 +260,6 @@ static int import_cmp(const void *a, const void *b)
  * Determine whether a space is needed before the current token, given
  * the previous token.  This encodes the canonical VIGIL spacing rules.
  */
-// clang-format off
-static const uint64_t kOpenGroupBits[2] = {
-    TOK_BIT(VIGIL_TOKEN_LPAREN) | TOK_BIT(VIGIL_TOKEN_LBRACKET) | TOK_BIT(VIGIL_TOKEN_LBRACE), 0
-};
-static const uint64_t kNoSpaceBeforeBits[2] = {
-    TOK_BIT(VIGIL_TOKEN_RPAREN) | TOK_BIT(VIGIL_TOKEN_RBRACKET) | TOK_BIT(VIGIL_TOKEN_RBRACE) |
-    TOK_BIT(VIGIL_TOKEN_COMMA) | TOK_BIT(VIGIL_TOKEN_SEMICOLON) | TOK_BIT(VIGIL_TOKEN_DOT) |
-    TOK_BIT(VIGIL_TOKEN_COLON) | TOK_BIT(VIGIL_TOKEN_PLUS_PLUS) | TOK_BIT(VIGIL_TOKEN_MINUS_MINUS), 0
-};
-static const uint64_t kCallPrevBits[2] = {
-    TOK_BIT(VIGIL_TOKEN_IDENTIFIER) | TOK_BIT(VIGIL_TOKEN_RPAREN) | TOK_BIT(VIGIL_TOKEN_RBRACKET), 0
-};
 // clang-format on
 
 static bool need_space_before(const vigil_token_t *prev, const vigil_token_t *cur, const fmt_state_t *f)
@@ -281,32 +269,96 @@ static bool need_space_before(const vigil_token_t *prev, const vigil_token_t *cu
 
     (void)f;
 
-    if (TOK_TEST(kOpenGroupBits, pk) || TOK_TEST(kNoSpaceBeforeBits, ck))
+    /* Never space after open or before close grouping. */
+    if (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_LBRACKET || pk == VIGIL_TOKEN_LBRACE)
         return false;
+    if (ck == VIGIL_TOKEN_RPAREN || ck == VIGIL_TOKEN_RBRACKET || ck == VIGIL_TOKEN_RBRACE)
+        return false;
+
+    /* No space before comma, semicolon, dot. */
+    if (ck == VIGIL_TOKEN_COMMA || ck == VIGIL_TOKEN_SEMICOLON || ck == VIGIL_TOKEN_DOT)
+        return false;
+    /* No space before colon (case labels, map literals). */
+    if (ck == VIGIL_TOKEN_COLON)
+        return false;
+    /* No space after dot. */
     if (pk == VIGIL_TOKEN_DOT)
         return false;
-    if ((ck == VIGIL_TOKEN_LPAREN || ck == VIGIL_TOKEN_LBRACKET) && TOK_TEST(kCallPrevBits, pk))
+
+    /* No space before ++ / -- (postfix). */
+    if (ck == VIGIL_TOKEN_PLUS_PLUS || ck == VIGIL_TOKEN_MINUS_MINUS)
         return false;
+
+    /* No space before ( in function calls: ident( or )( */
+    if (ck == VIGIL_TOKEN_LPAREN &&
+        (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_RPAREN || pk == VIGIL_TOKEN_RBRACKET))
+        return false;
+
+    /* No space before [ in indexing: ident[ or )[ */
+    if (ck == VIGIL_TOKEN_LBRACKET &&
+        (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_RPAREN || pk == VIGIL_TOKEN_RBRACKET))
+        return false;
+
+    /* Space after comma. */
     if (pk == VIGIL_TOKEN_COMMA)
         return true;
-    if (is_binary_op(ck) || is_assign_op(ck) || is_binary_op(pk) || is_assign_op(pk))
+
+    /* Space around binary ops and assignment. */
+    if (is_binary_op(ck) || is_assign_op(ck))
         return true;
-    if (ck == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_COLON)
+    if (is_binary_op(pk) || is_assign_op(pk))
         return true;
+
+    /* Space around ? and : (ternary/map). */
+    if (ck == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_QUESTION)
+        return true;
+    if (pk == VIGIL_TOKEN_COLON)
+        return true;
+
+    /* Space around arrow. */
     if (ck == VIGIL_TOKEN_ARROW || pk == VIGIL_TOKEN_ARROW)
         return true;
-    if (is_keyword(pk) || ck == VIGIL_TOKEN_LBRACE)
+
+    /* Space after keywords. */
+    if (is_keyword(pk))
         return true;
-    if ((pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_GREATER) && ck == VIGIL_TOKEN_IDENTIFIER)
+
+    /* Space before { */
+    if (ck == VIGIL_TOKEN_LBRACE)
         return true;
+
+    /* Space after ) before { (e.g. fn() {) */
+    if (pk == VIGIL_TOKEN_RPAREN && ck == VIGIL_TOKEN_LBRACE)
+        return true;
+
+    /* Space between identifier and identifier (type name). */
+    if (pk == VIGIL_TOKEN_IDENTIFIER && ck == VIGIL_TOKEN_IDENTIFIER)
+        return true;
+
+    /* Space between > and identifier (array<i32> name). */
+    if (pk == VIGIL_TOKEN_GREATER && ck == VIGIL_TOKEN_IDENTIFIER)
+        return true;
+
+    /* Space after { in map/array literals on same line. */
     if (pk == VIGIL_TOKEN_LBRACE)
         return false;
+
+    /* No space before unary ! or ~ */
     if (ck == VIGIL_TOKEN_BANG || ck == VIGIL_TOKEN_TILDE)
-        return pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_INT_LITERAL || pk == VIGIL_TOKEN_RPAREN;
-    if (ck == VIGIL_TOKEN_MINUS &&
-        (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_COMMA || pk == VIGIL_TOKEN_RETURN ||
-         is_assign_op(pk) || is_binary_op(pk)))
+    {
+        /* But space if after an identifier or literal (binary context). */
+        if (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_INT_LITERAL || pk == VIGIL_TOKEN_RPAREN)
+            return true;
         return false;
+    }
+
+    /* Unary minus: no space after ( or , or = or binary op. */
+    if (ck == VIGIL_TOKEN_MINUS && (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_COMMA || is_assign_op(pk) ||
+                                    is_binary_op(pk) || pk == VIGIL_TOKEN_RETURN))
+    {
+        return false;
+    }
+
     return true;
 }
 
