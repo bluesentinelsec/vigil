@@ -1705,8 +1705,6 @@ TEST(VigilVmTest, ExecutesArrayAndMapIndexOpcodes)
     vigil_runtime_close(&runtime);
 }
 
-// NOLINTEND(readability-function-cognitive-complexity)
-
 TEST(VigilVmTest, ReleasesExtraValuesInMultiValueRootReturn)
 {
     vigil_runtime_t *runtime = NULL;
@@ -1802,6 +1800,8 @@ TEST(VigilVmTest, RejectsPendingReturnStorageAllocationFailure)
     vigil_value_release(&constant);
     CloseVmTestContext(&runtime, &vm, &chunk, &result);
 }
+
+// NOLINTEND(readability-function-cognitive-complexity)
 
 void register_vm_tests(void)
 {
