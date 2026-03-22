@@ -204,6 +204,32 @@
             goto cleanup;                                                                                              \
     } while (0)
 
+/* Fused i32 compare + conditional jump.  Pops two i32 values, compares
+   with the given operator, and jumps if the condition is false.  On both
+   paths the trailing POP byte (which would have popped the now-absent
+   intermediate bool) is skipped. */
+#define VIGIL_VM_CMP_I32_JUMP(cmp_op)                                                                                  \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        int32_t cmp_a, cmp_b;                                                                                          \
+        VIGIL_VM_READ_U32(code, frame->ip, operand);                                                                   \
+        vm->stack_count -= 1U;                                                                                         \
+        cmp_b = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);                                                   \
+        vm->stack_count -= 1U;                                                                                         \
+        cmp_a = vigil_nanbox_decode_i32(vm->stack[vm->stack_count]);                                                   \
+        if (cmp_a cmp_op cmp_b)                                                                                        \
+        {                                                                                                              \
+            if (frame->ip < code_size && code[frame->ip] == VIGIL_OPCODE_POP)                                          \
+                frame->ip += 1U;                                                                                       \
+        }                                                                                                              \
+        else                                                                                                           \
+        {                                                                                                              \
+            frame->ip += (size_t)operand;                                                                              \
+            if (frame->ip < code_size && code[frame->ip] == VIGIL_OPCODE_POP)                                          \
+                frame->ip += 1U;                                                                                       \
+        }                                                                                                              \
+    } while (0)
+
 /* Fast bytecode read — reads u32 operand after the opcode byte.
    Advances ip past opcode + 4 operand bytes (total 5). */
 #define VIGIL_VM_READ_U32(code, ip, out)                                                                               \
@@ -3507,7 +3533,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
                 [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
                 // clang-format off
-                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64, [VIGIL_OPCODE_PARSE_I32]=&&op_PARSE_I32, [VIGIL_OPCODE_PARSE_F64]=&&op_PARSE_F64, [VIGIL_OPCODE_PARSE_BOOL]=&&op_PARSE_BOOL, [VIGIL_OPCODE_CALL_SELF]=&&op_CALL_SELF,
+                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64, [VIGIL_OPCODE_PARSE_I32]=&&op_PARSE_I32, [VIGIL_OPCODE_PARSE_F64]=&&op_PARSE_F64, [VIGIL_OPCODE_PARSE_BOOL]=&&op_PARSE_BOOL, [VIGIL_OPCODE_CALL_SELF]=&&op_CALL_SELF, [VIGIL_OPCODE_LESS_I32_JUMP_IF_FALSE]=&&op_LESS_I32_JUMP_IF_FALSE, [VIGIL_OPCODE_LESS_EQUAL_I32_JUMP_IF_FALSE]=&&op_LESS_EQUAL_I32_JUMP_IF_FALSE, [VIGIL_OPCODE_GREATER_I32_JUMP_IF_FALSE]=&&op_GREATER_I32_JUMP_IF_FALSE, [VIGIL_OPCODE_GREATER_EQUAL_I32_JUMP_IF_FALSE]=&&op_GREATER_EQUAL_I32_JUMP_IF_FALSE, [VIGIL_OPCODE_EQUAL_I32_JUMP_IF_FALSE]=&&op_EQUAL_I32_JUMP_IF_FALSE, [VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE]=&&op_NOT_EQUAL_I32_JUMP_IF_FALSE,
                 // clang-format on
                 [VIGIL_OPCODE_MODULO] = &&op_MODULO,
                 [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
@@ -5556,9 +5582,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 goto cleanup;
             }
             VM_BREAK();
-
             /* ── New string methods ──────────────────────────────── */
-
             VM_CASE(STRING_TRIM_LEFT)
             VM_CASE(STRING_TRIM_RIGHT)
             {
@@ -5609,7 +5633,6 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 }
                 VM_BREAK();
             }
-
             VM_CASE(STRING_REVERSE)
             {
                 const char *text;
@@ -7243,11 +7266,14 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 frame->ip += 1U;
                 VM_BREAK();
             }
-
-            /* ── Three-address i32 store superinstructions ────────────
-               Format: [opcode][u32 dst][u32 a][u32 b]  (13 bytes)
-               Reads locals a and b, operates, stores result to local dst.
-               Zero stack traffic — pure register-style execution. */
+            // clang-format off
+            VM_CASE(LESS_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(<); VM_BREAK();
+            VM_CASE(LESS_EQUAL_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(<=); VM_BREAK();
+            VM_CASE(GREATER_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(>); VM_BREAK();
+            VM_CASE(GREATER_EQUAL_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(>=); VM_BREAK();
+            VM_CASE(EQUAL_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(==); VM_BREAK();
+            VM_CASE(NOT_EQUAL_I32_JUMP_IF_FALSE) VIGIL_VM_CMP_I32_JUMP(!=); VM_BREAK();
+            // clang-format on
             VM_CASE(LOCALS_ADD_I32_STORE)
             {
                 uint32_t dst, idx_a, idx_b;

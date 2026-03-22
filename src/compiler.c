@@ -5324,10 +5324,55 @@ vigil_status_t vigil_parser_emit_u32(vigil_parser_state_t *state, uint32_t value
     return vigil_chunk_write_u32(&state->chunk, value, span, state->program->error);
 }
 
+static vigil_opcode_t vigil_parser_fuse_cmp_i32_jump(vigil_opcode_t cmp)
+{
+    switch (cmp)
+    {
+    case VIGIL_OPCODE_LESS_I32:
+        return VIGIL_OPCODE_LESS_I32_JUMP_IF_FALSE;
+    case VIGIL_OPCODE_LESS_EQUAL_I32:
+        return VIGIL_OPCODE_LESS_EQUAL_I32_JUMP_IF_FALSE;
+    case VIGIL_OPCODE_GREATER_I32:
+        return VIGIL_OPCODE_GREATER_I32_JUMP_IF_FALSE;
+    case VIGIL_OPCODE_GREATER_EQUAL_I32:
+        return VIGIL_OPCODE_GREATER_EQUAL_I32_JUMP_IF_FALSE;
+    case VIGIL_OPCODE_EQUAL_I32:
+        return VIGIL_OPCODE_EQUAL_I32_JUMP_IF_FALSE;
+    case VIGIL_OPCODE_NOT_EQUAL_I32:
+        return VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE;
+    default:
+        return (vigil_opcode_t)0;
+    }
+}
+
 static vigil_status_t vigil_parser_emit_jump(vigil_parser_state_t *state, vigil_opcode_t opcode,
                                              vigil_source_span_t span, size_t *out_operand_offset)
 {
     vigil_status_t status;
+
+    /* Peephole: fuse CMP_I32 + JUMP_IF_FALSE into a single
+       superinstruction.  The preceding byte is the i32 compare opcode.
+       The fused handler pops both i32 operands and conditionally jumps
+       without pushing an intermediate bool.  The caller must skip the
+       POP that normally follows JUMP_IF_FALSE when fusion fires. */
+    if (opcode == VIGIL_OPCODE_JUMP_IF_FALSE)
+    {
+        size_t len = state->chunk.code.length;
+        if (len >= 1U)
+        {
+            vigil_opcode_t fused = vigil_parser_fuse_cmp_i32_jump((vigil_opcode_t)state->chunk.code.data[len - 1U]);
+            if (fused != (vigil_opcode_t)0)
+            {
+                /* Overwrite the CMP_I32 byte with the fused opcode. */
+                state->chunk.code.data[len - 1U] = (uint8_t)fused;
+                if (out_operand_offset != NULL)
+                {
+                    *out_operand_offset = vigil_chunk_code_size(&state->chunk);
+                }
+                return vigil_parser_emit_u32(state, 0U, span);
+            }
+        }
+    }
 
     status = vigil_parser_emit_opcode(state, opcode, span);
     if (status != VIGIL_STATUS_OK)

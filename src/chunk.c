@@ -6,7 +6,7 @@
 #include "internal/vigil_internal.h"
 #include "vigil/chunk.h"
 
-static const char *const kVigilOpcodeNames[VIGIL_OPCODE_CALL_SELF + 1] = {
+static const char *const kVigilOpcodeNames[VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE + 1] = {
     [VIGIL_OPCODE_CONSTANT] = "CONSTANT",
     [VIGIL_OPCODE_NIL] = "NIL",
     [VIGIL_OPCODE_TRUE] = "TRUE",
@@ -169,6 +169,12 @@ static const char *const kVigilOpcodeNames[VIGIL_OPCODE_CALL_SELF + 1] = {
     [VIGIL_OPCODE_PARSE_F64] = "PARSE_F64",
     [VIGIL_OPCODE_PARSE_BOOL] = "PARSE_BOOL",
     [VIGIL_OPCODE_CALL_SELF] = "CALL_SELF",
+    [VIGIL_OPCODE_LESS_I32_JUMP_IF_FALSE] = "LESS_I32_JUMP_IF_FALSE",
+    [VIGIL_OPCODE_LESS_EQUAL_I32_JUMP_IF_FALSE] = "LESS_EQUAL_I32_JUMP_IF_FALSE",
+    [VIGIL_OPCODE_GREATER_I32_JUMP_IF_FALSE] = "GREATER_I32_JUMP_IF_FALSE",
+    [VIGIL_OPCODE_GREATER_EQUAL_I32_JUMP_IF_FALSE] = "GREATER_EQUAL_I32_JUMP_IF_FALSE",
+    [VIGIL_OPCODE_EQUAL_I32_JUMP_IF_FALSE] = "EQUAL_I32_JUMP_IF_FALSE",
+    [VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE] = "NOT_EQUAL_I32_JUMP_IF_FALSE",
 };
 
 static vigil_status_t vigil_chunk_append_text(vigil_string_t *output, const char *text, vigil_error_t *error);
@@ -434,12 +440,28 @@ static int vigil_chunk_is_two_u32_operand_opcode(vigil_opcode_t opcode)
 static int vigil_chunk_is_u32_operand_opcode(vigil_opcode_t opcode)
 {
     /* Lookup table avoids a long OR-chain that inflates cyclomatic complexity. */
-    static const uint8_t table[VIGIL_OPCODE_CALL_SELF + 1] = {
-        [VIGIL_OPCODE_CONSTANT] = 1,      [VIGIL_OPCODE_GET_LOCAL] = 1,   [VIGIL_OPCODE_SET_LOCAL] = 1,
-        [VIGIL_OPCODE_GET_GLOBAL] = 1,    [VIGIL_OPCODE_SET_GLOBAL] = 1,  [VIGIL_OPCODE_GET_FUNCTION] = 1,
-        [VIGIL_OPCODE_GET_CAPTURE] = 1,   [VIGIL_OPCODE_SET_CAPTURE] = 1, [VIGIL_OPCODE_JUMP] = 1,
-        [VIGIL_OPCODE_JUMP_IF_FALSE] = 1, [VIGIL_OPCODE_LOOP] = 1,        [VIGIL_OPCODE_FORMAT_F64] = 1,
-        [VIGIL_OPCODE_GET_FIELD] = 1,     [VIGIL_OPCODE_SET_FIELD] = 1,   [VIGIL_OPCODE_CALL_SELF] = 1,
+    static const uint8_t table[VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE + 1] = {
+        [VIGIL_OPCODE_CONSTANT] = 1,
+        [VIGIL_OPCODE_GET_LOCAL] = 1,
+        [VIGIL_OPCODE_SET_LOCAL] = 1,
+        [VIGIL_OPCODE_GET_GLOBAL] = 1,
+        [VIGIL_OPCODE_SET_GLOBAL] = 1,
+        [VIGIL_OPCODE_GET_FUNCTION] = 1,
+        [VIGIL_OPCODE_GET_CAPTURE] = 1,
+        [VIGIL_OPCODE_SET_CAPTURE] = 1,
+        [VIGIL_OPCODE_JUMP] = 1,
+        [VIGIL_OPCODE_JUMP_IF_FALSE] = 1,
+        [VIGIL_OPCODE_LOOP] = 1,
+        [VIGIL_OPCODE_FORMAT_F64] = 1,
+        [VIGIL_OPCODE_GET_FIELD] = 1,
+        [VIGIL_OPCODE_SET_FIELD] = 1,
+        [VIGIL_OPCODE_CALL_SELF] = 1,
+        [VIGIL_OPCODE_LESS_I32_JUMP_IF_FALSE] = 1,
+        [VIGIL_OPCODE_LESS_EQUAL_I32_JUMP_IF_FALSE] = 1,
+        [VIGIL_OPCODE_GREATER_I32_JUMP_IF_FALSE] = 1,
+        [VIGIL_OPCODE_GREATER_EQUAL_I32_JUMP_IF_FALSE] = 1,
+        [VIGIL_OPCODE_EQUAL_I32_JUMP_IF_FALSE] = 1,
+        [VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE] = 1,
     };
     return (size_t)opcode < sizeof(table) && table[(size_t)opcode];
 }
@@ -837,7 +859,7 @@ vigil_source_span_t vigil_chunk_span_at(const vigil_chunk_t *chunk, size_t offse
 
 const char *vigil_opcode_name(vigil_opcode_t opcode)
 {
-    if (opcode > VIGIL_OPCODE_CALL_SELF)
+    if (opcode > VIGIL_OPCODE_NOT_EQUAL_I32_JUMP_IF_FALSE)
     {
         return "UNKNOWN";
     }
