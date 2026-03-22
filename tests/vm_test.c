@@ -1707,6 +1707,102 @@ TEST(VigilVmTest, ExecutesArrayAndMapIndexOpcodes)
 
 // NOLINTEND(readability-function-cognitive-complexity)
 
+TEST(VigilVmTest, ReleasesExtraValuesInMultiValueRootReturn)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 10);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(30U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 20);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(30U, 2U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(30U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(30U, 6U, 7U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_EQ(vigil_value_kind(&result), VIGIL_VALUE_INT);
+    EXPECT_EQ(vigil_value_as_int(&result), 10);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, FormatsNonStringObjectAsEmptyString)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_object_t *array_object = NULL;
+    vigil_error_t error = {0};
+
+    ASSERT_EQ(OpenVmTestContext(&runtime, &vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_array_object_new(runtime, NULL, 0U, &array_object, &error), VIGIL_STATUS_OK);
+    vigil_value_init_object(&constant, &array_object);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(31U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_FORMAT_SPEC, Span(31U, 2U, 3U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(31U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 0U, Span(31U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(31U, 8U, 9U), &error), VIGIL_STATUS_OK);
+
+    ASSERT_EQ(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_value_kind(&result), VIGIL_VALUE_OBJECT);
+    ASSERT_NE(vigil_value_as_object(&result), NULL);
+    EXPECT_EQ(vigil_object_type(vigil_value_as_object(&result)), VIGIL_OBJECT_STRING);
+    EXPECT_STREQ(vigil_string_object_c_str(vigil_value_as_object(&result)), "");
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
+TEST(VigilVmTest, RejectsPendingReturnStorageAllocationFailure)
+{
+    vigil_runtime_t *runtime = NULL;
+    vigil_vm_t *vm = NULL;
+    vigil_chunk_t chunk;
+    vigil_value_t constant;
+    vigil_value_t result;
+    vigil_error_t error = {0};
+    struct FailingAllocatorStats stats = {0};
+    vigil_allocator_t allocator = {0};
+    vigil_runtime_options_t runtime_options = {0};
+    VmTestContextOptions context_options = {0};
+
+    allocator.user_data = &stats;
+    allocator.allocate = FailingAllocate;
+    allocator.reallocate = FailingReallocate;
+    allocator.deallocate = FailingDeallocate;
+    vigil_runtime_options_init(&runtime_options);
+    runtime_options.allocator = &allocator;
+    context_options.runtime_options = &runtime_options;
+    stats.fail_after = (size_t)-1;
+
+    ASSERT_EQ(OpenVmTestContextWithOptions(&runtime, &vm, &chunk, &result, &context_options, &error), VIGIL_STATUS_OK);
+
+    vigil_value_init_int(&constant, 10);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(32U, 0U, 1U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    vigil_value_init_int(&constant, 20);
+    ASSERT_EQ(vigil_chunk_write_constant(&chunk, &constant, Span(32U, 2U, 3U), NULL, &error), VIGIL_STATUS_OK);
+    vigil_value_release(&constant);
+    ASSERT_EQ(vigil_chunk_write_opcode(&chunk, VIGIL_OPCODE_RETURN, Span(32U, 4U, 5U), &error), VIGIL_STATUS_OK);
+    ASSERT_EQ(vigil_chunk_write_u32(&chunk, 2U, Span(32U, 6U, 7U), &error), VIGIL_STATUS_OK);
+    stats.fail_after = stats.calls + 2U;
+
+    EXPECT_NE(vigil_vm_execute(vm, &chunk, &result, &error), VIGIL_STATUS_OK);
+    EXPECT_NE(error.type, VIGIL_STATUS_OK);
+
+    vigil_value_release(&constant);
+    CloseVmTestContext(&runtime, &vm, &chunk, &result);
+}
+
 void register_vm_tests(void)
 {
     REGISTER_TEST(VigilVmTest, OptionsInitClearsFields);
@@ -1755,4 +1851,7 @@ void register_vm_tests(void)
     REGISTER_TEST(VigilVmTest, ExecutesUnsignedIntegerArithmetic);
     REGISTER_TEST(VigilVmTest, SupportsErrorOpcodes);
     REGISTER_TEST(VigilVmTest, ExecutesArrayAndMapIndexOpcodes);
+    REGISTER_TEST(VigilVmTest, ReleasesExtraValuesInMultiValueRootReturn);
+    REGISTER_TEST(VigilVmTest, FormatsNonStringObjectAsEmptyString);
+    REGISTER_TEST(VigilVmTest, RejectsPendingReturnStorageAllocationFailure);
 }
