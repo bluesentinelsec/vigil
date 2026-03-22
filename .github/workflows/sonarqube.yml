@@ -1,0 +1,42 @@
+name: SonarQube
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  sonarqube:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install sonar-scanner and build-wrapper
+        uses: SonarSource/sonarqube-github-c-cpp@v3
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DVIGIL_BUILD_TESTS=ON
+          -DVIGIL_STDLIB_FFI=ON
+          -DVIGIL_STDLIB_FS=ON
+          -DVIGIL_STDLIB_HTTP=ON
+          -DVIGIL_STDLIB_NET=ON
+          -DVIGIL_STDLIB_READLINE=ON
+          -DVIGIL_STDLIB_THREAD=ON
+          -DVIGIL_STDLIB_TIME=ON
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build with build-wrapper
+        run: build-wrapper-linux-x86-64 --out-dir bw-output cmake --build build
+
+      - name: Run sonar-scanner
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: sonar-scanner --define sonar.cfamily.build-wrapper-output=bw-output
