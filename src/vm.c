@@ -86,10 +86,13 @@
  */
 
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "internal/vigil_internal.h"
@@ -3097,69 +3100,179 @@ static vigil_status_t vigil_vm_call_extern(vigil_vm_t *vm, const char *desc, siz
 
 static void vigil_vm_math_sin(vigil_vm_t *vm)
 {
-    vigil_value_t r;
-    vigil_value_init_float(&r, sin(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
-    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
-    vm->stack_count += 1U;
+    vm->stack[vm->stack_count - 1U] =
+        vigil_nanbox_encode_double(sin(vigil_nanbox_decode_double(vm->stack[vm->stack_count - 1U])));
 }
 static void vigil_vm_math_cos(vigil_vm_t *vm)
 {
-    vigil_value_t r;
-    vigil_value_init_float(&r, cos(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
-    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
-    vm->stack_count += 1U;
+    vm->stack[vm->stack_count - 1U] =
+        vigil_nanbox_encode_double(cos(vigil_nanbox_decode_double(vm->stack[vm->stack_count - 1U])));
 }
 static void vigil_vm_math_sqrt(vigil_vm_t *vm)
 {
-    vigil_value_t r;
-    vigil_value_init_float(&r, sqrt(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
-    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
-    vm->stack_count += 1U;
+    vm->stack[vm->stack_count - 1U] =
+        vigil_nanbox_encode_double(sqrt(vigil_nanbox_decode_double(vm->stack[vm->stack_count - 1U])));
 }
 static void vigil_vm_math_log(vigil_vm_t *vm)
 {
-    vigil_value_t r;
-    vigil_value_init_float(&r, log(vigil_nanbox_decode_double(vigil_vm_pop_or_nil(vm))));
-    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
-    vm->stack_count += 1U;
+    vm->stack[vm->stack_count - 1U] =
+        vigil_nanbox_encode_double(log(vigil_nanbox_decode_double(vm->stack[vm->stack_count - 1U])));
 }
 static void vigil_vm_math_pow(vigil_vm_t *vm)
 {
-    vigil_value_t b, a, r;
-    b = vigil_vm_pop_or_nil(vm);
-    a = vigil_vm_pop_or_nil(vm);
-    vigil_value_init_float(&r, pow(vigil_nanbox_decode_double(a), vigil_nanbox_decode_double(b)));
-    VIGIL_VM_VALUE_COPY(&vm->stack[vm->stack_count], &r);
+    double b = vigil_nanbox_decode_double(vm->stack[vm->stack_count - 1U]);
+    double a = vigil_nanbox_decode_double(vm->stack[vm->stack_count - 2U]);
+    vm->stack_count -= 1U;
+    vm->stack[vm->stack_count - 1U] = vigil_nanbox_encode_double(pow(a, b));
+}
+
+/* ── Parse intrinsic helpers ─────────────────────────────────────────
+   These implement parse.i32/f64/bool inline in the VM, avoiding the
+   CALL_NATIVE overhead (constant lookup, function pointer dereference,
+   vigil_vm_stack_push retain/release per push, and the ok_error
+   retain/release cycle).  Each pops a string argument and pushes
+   (value, err) — two stack slots. */
+
+/* Push a parse-error pair: (default_value, error_object). */
+static void vigil_vm_ensure_stack(vigil_vm_t *vm, size_t need)
+{
+    vigil_error_t err = {0};
+
+    if (vm->stack_count + need > vm->stack_capacity)
+        vigil_vm_grow_stack(vm, vm->stack_count + need, &err);
+}
+
+static void vigil_vm_push_parse_error(vigil_vm_t *vm, vigil_value_t default_val, const char *msg)
+{
+    vigil_object_t *err_obj = NULL;
+    vigil_error_t err = {0};
+
+    vigil_vm_ensure_stack(vm, 2U);
+    if (vigil_error_object_new_cstr(vm->runtime, msg, 8, &err_obj, &err) != VIGIL_STATUS_OK)
+        err_obj = NULL;
+    vm->stack[vm->stack_count] = default_val;
+    vm->stack_count += 1U;
+    vm->stack[vm->stack_count] = err_obj != NULL ? vigil_nanbox_encode_object(err_obj) : vigil_runtime_ok_error_value(vm->runtime);
     vm->stack_count += 1U;
 }
-static void vigil_vm_math_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
+
+/* Push a parse-success pair: (value, ok_error). */
+static void vigil_vm_push_parse_ok(vigil_vm_t *vm, vigil_value_t val)
+{
+    vigil_value_t ok = vigil_runtime_ok_error_value(vm->runtime);
+
+    vigil_vm_ensure_stack(vm, 2U);
+    vigil_object_retain((vigil_object_t *)vigil_nanbox_decode_ptr(ok));
+    vm->stack[vm->stack_count] = val;
+    vm->stack_count += 1U;
+    vm->stack[vm->stack_count] = ok;
+    vm->stack_count += 1U;
+}
+
+/* Parse intrinsic: pop string, push (i32, err). */
+static void vigil_vm_parse_i32(vigil_vm_t *vm)
+{
+    vigil_object_t *obj;
+    const char *s;
+    char *end;
+    long val;
+
+    vm->stack_count -= 1U;
+    obj = (vigil_object_t *)vigil_nanbox_decode_ptr(vm->stack[vm->stack_count]);
+    s = vigil_string_object_c_str(obj);
+    if (s == NULL || *s == '\0')
+    {
+        vigil_object_release(&obj);
+        vigil_vm_push_parse_error(vm, vigil_nanbox_encode_int(0), "empty string");
+        return;
+    }
+    errno = 0;
+    val = strtol(s, &end, 10);
+    if (errno != 0 || end == s || *end != '\0' || val < INT32_MIN || val > INT32_MAX)
+    {
+        vigil_object_release(&obj);
+        vigil_vm_push_parse_error(vm, vigil_nanbox_encode_int(0), "invalid integer");
+        return;
+    }
+    vigil_object_release(&obj);
+    vigil_vm_push_parse_ok(vm, vigil_nanbox_encode_int((int64_t)val));
+}
+
+/* Parse intrinsic: pop string, push (f64, err). */
+static void vigil_vm_parse_f64(vigil_vm_t *vm)
+{
+    vigil_object_t *obj;
+    const char *s;
+    char *end;
+    double val;
+
+    vm->stack_count -= 1U;
+    obj = (vigil_object_t *)vigil_nanbox_decode_ptr(vm->stack[vm->stack_count]);
+    s = vigil_string_object_c_str(obj);
+    if (s == NULL || *s == '\0')
+    {
+        vigil_object_release(&obj);
+        vigil_vm_push_parse_error(vm, vigil_nanbox_encode_double(0.0), "empty string");
+        return;
+    }
+    errno = 0;
+    val = strtod(s, &end);
+    if (errno != 0 || end == s || *end != '\0')
+    {
+        vigil_object_release(&obj);
+        vigil_vm_push_parse_error(vm, vigil_nanbox_encode_double(0.0), "invalid float");
+        return;
+    }
+    vigil_object_release(&obj);
+    vigil_vm_push_parse_ok(vm, vigil_nanbox_encode_double(val));
+}
+
+/* Parse intrinsic: pop string, push (bool, err). */
+static void vigil_vm_parse_bool(vigil_vm_t *vm)
+{
+    vigil_object_t *obj;
+    const char *s;
+
+    vm->stack_count -= 1U;
+    obj = (vigil_object_t *)vigil_nanbox_decode_ptr(vm->stack[vm->stack_count]);
+    s = vigil_string_object_c_str(obj);
+    if (s != NULL && (strcmp(s, "true") == 0 || strcmp(s, "1") == 0))
+    {
+        vigil_object_release(&obj);
+        vigil_vm_push_parse_ok(vm, vigil_nanbox_from_bool(1));
+        return;
+    }
+    if (s != NULL && (strcmp(s, "false") == 0 || strcmp(s, "0") == 0))
+    {
+        vigil_object_release(&obj);
+        vigil_vm_push_parse_ok(vm, vigil_nanbox_from_bool(0));
+        return;
+    }
+    vigil_object_release(&obj);
+    vigil_vm_push_parse_error(vm, vigil_nanbox_from_bool(0), "invalid boolean");
+}
+
+static void vigil_vm_intrinsic_dispatch(vigil_vm_t *vm, vigil_opcode_t op)
 {
     switch (op)
     {
-    case VIGIL_OPCODE_MATH_SIN_F64:
-        vigil_vm_math_sin(vm);
-        break;
-    case VIGIL_OPCODE_MATH_COS_F64:
-        vigil_vm_math_cos(vm);
-        break;
-    case VIGIL_OPCODE_MATH_SQRT_F64:
-        vigil_vm_math_sqrt(vm);
-        break;
-    case VIGIL_OPCODE_MATH_LOG_F64:
-        vigil_vm_math_log(vm);
-        break;
-    default:
-        vigil_vm_math_pow(vm);
-        break;
+    case VIGIL_OPCODE_MATH_SIN_F64:  vigil_vm_math_sin(vm);   break;
+    case VIGIL_OPCODE_MATH_COS_F64:  vigil_vm_math_cos(vm);   break;
+    case VIGIL_OPCODE_MATH_SQRT_F64: vigil_vm_math_sqrt(vm);  break;
+    case VIGIL_OPCODE_MATH_LOG_F64:  vigil_vm_math_log(vm);   break;
+    case VIGIL_OPCODE_MATH_POW_F64:  vigil_vm_math_pow(vm);   break;
+    case VIGIL_OPCODE_PARSE_I32:     vigil_vm_parse_i32(vm);   break;
+    case VIGIL_OPCODE_PARSE_F64:     vigil_vm_parse_f64(vm);   break;
+    default:                         vigil_vm_parse_bool(vm);  break;
     }
 }
 
-/* Dispatch macro for math intrinsic handlers — avoids #if inside the
+/* Dispatch macro for intrinsic handlers — avoids #if inside the
    dispatch loop (which would add 1 lizard CCN). */
 #if VIGIL_VM_COMPUTED_GOTO
-#define VIGIL_VM_MATH_NEXT(dt, code, ip) goto *(dt)[(code)[(ip)]]
+#define VIGIL_VM_INTRINSIC_NEXT(dt, code, ip) goto *(dt)[(code)[(ip)]]
 #else
-#define VIGIL_VM_MATH_NEXT(dt, code, ip) VM_BREAK()
+#define VIGIL_VM_INTRINSIC_NEXT(dt, code, ip) VM_BREAK()
 #endif
 
 vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *function, vigil_value_t *out_value,
@@ -3348,7 +3461,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 [VIGIL_OPCODE_CALL_NATIVE] = &&op_CALL_NATIVE,
                 [VIGIL_OPCODE_DEFER_CALL_NATIVE] = &&op_DEFER_CALL_NATIVE,
                 // clang-format off
-                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64,
+                [VIGIL_OPCODE_CALL_EXTERN]=&&op_CALL_EXTERN, [VIGIL_OPCODE_MATH_SIN_F64]=&&op_MATH_SIN_F64, [VIGIL_OPCODE_MATH_COS_F64]=&&op_MATH_COS_F64, [VIGIL_OPCODE_MATH_SQRT_F64]=&&op_MATH_SQRT_F64, [VIGIL_OPCODE_MATH_LOG_F64]=&&op_MATH_LOG_F64, [VIGIL_OPCODE_MATH_POW_F64]=&&op_MATH_POW_F64, [VIGIL_OPCODE_PARSE_I32]=&&op_PARSE_I32, [VIGIL_OPCODE_PARSE_F64]=&&op_PARSE_F64, [VIGIL_OPCODE_PARSE_BOOL]=&&op_PARSE_BOOL,
                 // clang-format on
                 [VIGIL_OPCODE_MODULO] = &&op_MODULO,
                 [VIGIL_OPCODE_MULTIPLY] = &&op_MULTIPLY,
@@ -3965,8 +4078,7 @@ vigil_status_t vigil_vm_execute_function(vigil_vm_t *vm, const vigil_object_t *f
                 VM_BREAK();
             }
             // clang-format off
-            /* Math intrinsics */ VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) vigil_vm_math_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VIGIL_VM_MATH_NEXT(dispatch_table, code, frame->ip);
-            // clang-format on
+            VM_CASE(MATH_SIN_F64) VM_CASE(MATH_COS_F64) VM_CASE(MATH_SQRT_F64) VM_CASE(MATH_LOG_F64) VM_CASE(MATH_POW_F64) VM_CASE(PARSE_I32) VM_CASE(PARSE_F64) VM_CASE(PARSE_BOOL) vigil_vm_intrinsic_dispatch(vm, (vigil_opcode_t)code[frame->ip]); frame->ip += 1U; VIGIL_VM_INTRINSIC_NEXT(dispatch_table, code, frame->ip);
             // clang-format on
             VM_CASE(CALL_INTERFACE)
             {

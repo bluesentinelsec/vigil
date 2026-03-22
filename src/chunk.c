@@ -6,7 +6,7 @@
 #include "internal/vigil_internal.h"
 #include "vigil/chunk.h"
 
-static const char *const kVigilOpcodeNames[VIGIL_OPCODE_MATH_POW_F64 + 1] = {
+static const char *const kVigilOpcodeNames[VIGIL_OPCODE_PARSE_BOOL + 1] = {
     [VIGIL_OPCODE_CONSTANT] = "CONSTANT",
     [VIGIL_OPCODE_NIL] = "NIL",
     [VIGIL_OPCODE_TRUE] = "TRUE",
@@ -165,6 +165,9 @@ static const char *const kVigilOpcodeNames[VIGIL_OPCODE_MATH_POW_F64 + 1] = {
     [VIGIL_OPCODE_MATH_SQRT_F64] = "MATH_SQRT_F64",
     [VIGIL_OPCODE_MATH_LOG_F64] = "MATH_LOG_F64",
     [VIGIL_OPCODE_MATH_POW_F64] = "MATH_POW_F64",
+    [VIGIL_OPCODE_PARSE_I32] = "PARSE_I32",
+    [VIGIL_OPCODE_PARSE_F64] = "PARSE_F64",
+    [VIGIL_OPCODE_PARSE_BOOL] = "PARSE_BOOL",
 };
 
 static vigil_status_t vigil_chunk_append_text(vigil_string_t *output, const char *text, vigil_error_t *error);
@@ -830,7 +833,7 @@ vigil_source_span_t vigil_chunk_span_at(const vigil_chunk_t *chunk, size_t offse
 
 const char *vigil_opcode_name(vigil_opcode_t opcode)
 {
-    if (opcode > VIGIL_OPCODE_MATH_POW_F64)
+    if (opcode > VIGIL_OPCODE_PARSE_BOOL)
     {
         return "UNKNOWN";
     }

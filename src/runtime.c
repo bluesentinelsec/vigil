@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "internal/vigil_internal.h"
+#include "internal/vigil_nanbox.h"
 #include "stdlib/regex.h"
 #include "vigil/value.h"
 #include "vigil/vm.h"
@@ -201,4 +202,9 @@ vigil_status_t vigil_runtime_push_ok_error(vigil_runtime_t *runtime, vigil_vm_t 
     s = vigil_vm_stack_push(vm, &v, error);
     vigil_value_release(&v);
     return s;
+}
+
+vigil_value_t vigil_runtime_ok_error_value(vigil_runtime_t *runtime)
+{
+    return vigil_nanbox_encode_object(runtime->ok_error);
 }
