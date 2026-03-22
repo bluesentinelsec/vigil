@@ -14,6 +14,7 @@
 
 #include <ctype.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -184,83 +185,53 @@ static bool emit_comments_between(fmt_state_t *f, size_t start, size_t end)
 
 /* ── token classification helpers ────────────────────────────────── */
 
-static bool is_binary_op(vigil_token_kind_t k)
-{
-    switch (k)
-    {
-    case VIGIL_TOKEN_PLUS:
-    case VIGIL_TOKEN_MINUS:
-    case VIGIL_TOKEN_STAR:
-    case VIGIL_TOKEN_SLASH:
-    case VIGIL_TOKEN_PERCENT:
-    case VIGIL_TOKEN_EQUAL_EQUAL:
-    case VIGIL_TOKEN_BANG_EQUAL:
-    case VIGIL_TOKEN_LESS:
-    case VIGIL_TOKEN_LESS_EQUAL:
-    case VIGIL_TOKEN_GREATER:
-    case VIGIL_TOKEN_GREATER_EQUAL:
-    case VIGIL_TOKEN_AMPERSAND_AMPERSAND:
-    case VIGIL_TOKEN_PIPE_PIPE:
-    case VIGIL_TOKEN_AMPERSAND:
-    case VIGIL_TOKEN_PIPE:
-    case VIGIL_TOKEN_CARET:
-    case VIGIL_TOKEN_SHIFT_LEFT:
-    case VIGIL_TOKEN_SHIFT_RIGHT:
-        return true;
-    default:
-        return false;
-    }
-}
+/* ── token classification helpers (bitmap tables) ────────────────── */
 
-static bool is_assign_op(vigil_token_kind_t k)
-{
-    switch (k)
-    {
-    case VIGIL_TOKEN_ASSIGN:
-    case VIGIL_TOKEN_PLUS_ASSIGN:
-    case VIGIL_TOKEN_MINUS_ASSIGN:
-    case VIGIL_TOKEN_STAR_ASSIGN:
-    case VIGIL_TOKEN_SLASH_ASSIGN:
-    case VIGIL_TOKEN_PERCENT_ASSIGN:
-        return true;
-    default:
-        return false;
-    }
-}
+/* Token kind values are dense integers 0–72; a two-element uint64_t
+   bitmap gives O(1) classification with no branching. */
 
-static bool is_keyword(vigil_token_kind_t k)
-{
-    switch (k)
-    {
-    case VIGIL_TOKEN_IMPORT:
-    case VIGIL_TOKEN_AS:
-    case VIGIL_TOKEN_PUB:
-    case VIGIL_TOKEN_FN:
-    case VIGIL_TOKEN_CLASS:
-    case VIGIL_TOKEN_INTERFACE:
-    case VIGIL_TOKEN_ENUM:
-    case VIGIL_TOKEN_CONST:
-    case VIGIL_TOKEN_RETURN:
-    case VIGIL_TOKEN_DEFER:
-    case VIGIL_TOKEN_IF:
-    case VIGIL_TOKEN_ELSE:
-    case VIGIL_TOKEN_FOR:
-    case VIGIL_TOKEN_WHILE:
-    case VIGIL_TOKEN_SWITCH:
-    case VIGIL_TOKEN_GUARD:
-    case VIGIL_TOKEN_CASE:
-    case VIGIL_TOKEN_DEFAULT:
-    case VIGIL_TOKEN_BREAK:
-    case VIGIL_TOKEN_CONTINUE:
-    case VIGIL_TOKEN_IN:
-    case VIGIL_TOKEN_TRUE:
-    case VIGIL_TOKEN_FALSE:
-    case VIGIL_TOKEN_NIL:
-        return true;
-    default:
-        return false;
-    }
-}
+#define TOK_BIT(k) (UINT64_C(1) << ((k) & 63))
+#define TOK_IDX(k) ((unsigned)(k) >> 6)
+#define TOK_SET(tbl, k)                                                                                                \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        (tbl)[TOK_IDX(k)] |= TOK_BIT(k);                                                                             \
+    } while (0)
+#define TOK_TEST(tbl, k) (((tbl)[TOK_IDX(k)] & TOK_BIT(k)) != 0)
+
+// clang-format off
+static const uint64_t kBinaryOpBits[2] = {
+    TOK_BIT(VIGIL_TOKEN_PLUS) | TOK_BIT(VIGIL_TOKEN_MINUS) | TOK_BIT(VIGIL_TOKEN_STAR) |
+    TOK_BIT(VIGIL_TOKEN_SLASH) | TOK_BIT(VIGIL_TOKEN_PERCENT) | TOK_BIT(VIGIL_TOKEN_EQUAL_EQUAL) |
+    TOK_BIT(VIGIL_TOKEN_BANG_EQUAL) | TOK_BIT(VIGIL_TOKEN_LESS) | TOK_BIT(VIGIL_TOKEN_LESS_EQUAL) |
+    TOK_BIT(VIGIL_TOKEN_GREATER) | TOK_BIT(VIGIL_TOKEN_GREATER_EQUAL) | TOK_BIT(VIGIL_TOKEN_AMPERSAND_AMPERSAND) |
+    TOK_BIT(VIGIL_TOKEN_AMPERSAND) ,
+    TOK_BIT(VIGIL_TOKEN_PIPE_PIPE) | TOK_BIT(VIGIL_TOKEN_PIPE) | TOK_BIT(VIGIL_TOKEN_CARET) |
+    TOK_BIT(VIGIL_TOKEN_SHIFT_LEFT) | TOK_BIT(VIGIL_TOKEN_SHIFT_RIGHT)
+};
+
+static const uint64_t kAssignOpBits[2] = {
+    TOK_BIT(VIGIL_TOKEN_ASSIGN) | TOK_BIT(VIGIL_TOKEN_PLUS_ASSIGN) | TOK_BIT(VIGIL_TOKEN_MINUS_ASSIGN) |
+    TOK_BIT(VIGIL_TOKEN_STAR_ASSIGN) | TOK_BIT(VIGIL_TOKEN_SLASH_ASSIGN) | TOK_BIT(VIGIL_TOKEN_PERCENT_ASSIGN) ,
+    0
+};
+
+static const uint64_t kKeywordBits[2] = {
+    TOK_BIT(VIGIL_TOKEN_IMPORT) | TOK_BIT(VIGIL_TOKEN_AS) | TOK_BIT(VIGIL_TOKEN_PUB) |
+    TOK_BIT(VIGIL_TOKEN_FN) | TOK_BIT(VIGIL_TOKEN_CLASS) | TOK_BIT(VIGIL_TOKEN_INTERFACE) |
+    TOK_BIT(VIGIL_TOKEN_ENUM) | TOK_BIT(VIGIL_TOKEN_CONST) | TOK_BIT(VIGIL_TOKEN_RETURN) |
+    TOK_BIT(VIGIL_TOKEN_DEFER) | TOK_BIT(VIGIL_TOKEN_IF) | TOK_BIT(VIGIL_TOKEN_ELSE) |
+    TOK_BIT(VIGIL_TOKEN_FOR) | TOK_BIT(VIGIL_TOKEN_WHILE) | TOK_BIT(VIGIL_TOKEN_SWITCH) |
+    TOK_BIT(VIGIL_TOKEN_GUARD) | TOK_BIT(VIGIL_TOKEN_CASE) | TOK_BIT(VIGIL_TOKEN_DEFAULT) |
+    TOK_BIT(VIGIL_TOKEN_BREAK) | TOK_BIT(VIGIL_TOKEN_CONTINUE) | TOK_BIT(VIGIL_TOKEN_IN) |
+    TOK_BIT(VIGIL_TOKEN_NIL) | TOK_BIT(VIGIL_TOKEN_TRUE) | TOK_BIT(VIGIL_TOKEN_FALSE) ,
+    0
+};
+// clang-format on
+
+static bool is_binary_op(vigil_token_kind_t k) { return TOK_TEST(kBinaryOpBits, k); }
+static bool is_assign_op(vigil_token_kind_t k) { return TOK_TEST(kAssignOpBits, k); }
+static bool is_keyword(vigil_token_kind_t k) { return TOK_TEST(kKeywordBits, k); }
 
 /* ── import sorting ──────────────────────────────────────────────── */
 
@@ -302,12 +273,9 @@ static bool need_space_before(const vigil_token_t *prev, const vigil_token_t *cu
     if (ck == VIGIL_TOKEN_RPAREN || ck == VIGIL_TOKEN_RBRACKET || ck == VIGIL_TOKEN_RBRACE)
         return false;
 
-    /* No space before comma, semicolon, dot. */
-    if (ck == VIGIL_TOKEN_COMMA || ck == VIGIL_TOKEN_SEMICOLON || ck == VIGIL_TOKEN_DOT)
-        return false;
-    /* No space before colon (case labels, map literals).
-       Ternary colons get space added in the main loop. */
-    if (ck == VIGIL_TOKEN_COLON)
+    /* No space before comma, semicolon, dot, colon. */
+    if (ck == VIGIL_TOKEN_COMMA || ck == VIGIL_TOKEN_SEMICOLON || ck == VIGIL_TOKEN_DOT ||
+        ck == VIGIL_TOKEN_COLON)
         return false;
     /* No space after dot. */
     if (pk == VIGIL_TOKEN_DOT)
@@ -317,13 +285,8 @@ static bool need_space_before(const vigil_token_t *prev, const vigil_token_t *cu
     if (ck == VIGIL_TOKEN_PLUS_PLUS || ck == VIGIL_TOKEN_MINUS_MINUS)
         return false;
 
-    /* No space before ( in function calls: ident( or )( */
-    if (ck == VIGIL_TOKEN_LPAREN &&
-        (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_RPAREN || pk == VIGIL_TOKEN_RBRACKET))
-        return false;
-
-    /* No space before [ in indexing: ident[ or )[ */
-    if (ck == VIGIL_TOKEN_LBRACKET &&
+    /* No space before ( or [ in calls/indexing: ident( )( ident[ )[ */
+    if ((ck == VIGIL_TOKEN_LPAREN || ck == VIGIL_TOKEN_LBRACKET) &&
         (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_RPAREN || pk == VIGIL_TOKEN_RBRACKET))
         return false;
 
@@ -331,62 +294,35 @@ static bool need_space_before(const vigil_token_t *prev, const vigil_token_t *cu
     if (pk == VIGIL_TOKEN_COMMA)
         return true;
 
-    /* Space around binary ops and assignment. */
-    if (is_binary_op(ck) || is_assign_op(ck))
+    /* Space around binary ops, assignment, arrow, ternary. */
+    if (is_binary_op(ck) || is_assign_op(ck) || is_binary_op(pk) || is_assign_op(pk))
         return true;
-    if (is_binary_op(pk) || is_assign_op(pk))
+    if (ck == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_COLON)
         return true;
-
-    /* Space around ? and : (ternary/map). */
-    if (ck == VIGIL_TOKEN_QUESTION || pk == VIGIL_TOKEN_QUESTION)
-        return true;
-    if (pk == VIGIL_TOKEN_COLON)
-        return true; /* space after colon */
-    /* No space before colon (case labels, map literals). */
-
-    /* Space around arrow. */
     if (ck == VIGIL_TOKEN_ARROW || pk == VIGIL_TOKEN_ARROW)
         return true;
 
-    /* Space after keywords. */
-    if (is_keyword(pk))
+    /* Space after keywords, before {, between identifiers, after > before ident. */
+    if (is_keyword(pk) || ck == VIGIL_TOKEN_LBRACE)
         return true;
-
-    /* Space before { */
-    if (ck == VIGIL_TOKEN_LBRACE)
-        return true;
-
-    /* Space after ) before { (e.g. fn() {) */
-    if (pk == VIGIL_TOKEN_RPAREN && ck == VIGIL_TOKEN_LBRACE)
-        return true;
-
-    /* Space between identifier and identifier (type name). */
     if (pk == VIGIL_TOKEN_IDENTIFIER && ck == VIGIL_TOKEN_IDENTIFIER)
         return true;
-
-    /* Space between > and identifier (array<i32> name). */
     if (pk == VIGIL_TOKEN_GREATER && ck == VIGIL_TOKEN_IDENTIFIER)
         return true;
 
-    /* Space after { in map/array literals on same line. */
+    /* No space after { in map/array literals. */
     if (pk == VIGIL_TOKEN_LBRACE)
         return false;
 
-    /* No space before unary ! or ~ */
+    /* Unary ! or ~: space only in binary context. */
     if (ck == VIGIL_TOKEN_BANG || ck == VIGIL_TOKEN_TILDE)
-    {
-        /* But space if after an identifier or literal (binary context). */
-        if (pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_INT_LITERAL || pk == VIGIL_TOKEN_RPAREN)
-            return true;
-        return false;
-    }
+        return pk == VIGIL_TOKEN_IDENTIFIER || pk == VIGIL_TOKEN_INT_LITERAL || pk == VIGIL_TOKEN_RPAREN;
 
-    /* Unary minus: no space after ( or , or = or binary op. */
-    if (ck == VIGIL_TOKEN_MINUS && (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_COMMA || is_assign_op(pk) ||
-                                    is_binary_op(pk) || pk == VIGIL_TOKEN_RETURN))
-    {
+    /* Unary minus after (, comma, assign, binary op, return: no space. */
+    if (ck == VIGIL_TOKEN_MINUS &&
+        (pk == VIGIL_TOKEN_LPAREN || pk == VIGIL_TOKEN_COMMA || pk == VIGIL_TOKEN_RETURN ||
+         is_assign_op(pk) || is_binary_op(pk)))
         return false;
-    }
 
     return true;
 }

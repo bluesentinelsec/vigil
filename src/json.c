@@ -450,6 +450,51 @@ static int hex_digit(int c)
     return -1;
 }
 
+/* Read a 4-hex-digit unicode value at p->pos, advancing past it. */
+static vigil_status_t json_read_hex4(json_parser_t *p, uint32_t *out)
+{
+    uint32_t cp = 0;
+    if (p->pos + 4 > p->length)
+        return parser_error(p, "json: incomplete unicode escape");
+    for (int i = 0; i < 4; i++)
+    {
+        int d = hex_digit(p->input[p->pos++]);
+        if (d < 0)
+            return parser_error(p, "json: invalid hex digit");
+        cp = (cp << 4) | (uint32_t)d;
+    }
+    *out = cp;
+    return VIGIL_STATUS_OK;
+}
+
+/* Encode a Unicode codepoint as UTF-8 into buf via the PUSH_CHAR macro. */
+#define JSON_ENCODE_UTF8(cp, PUSH_CHAR)                                                                                \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if ((cp) < 0x80U)                                                                                              \
+        {                                                                                                              \
+            PUSH_CHAR(cp);                                                                                             \
+        }                                                                                                              \
+        else if ((cp) < 0x800U)                                                                                        \
+        {                                                                                                              \
+            PUSH_CHAR(0xC0 | ((cp) >> 6));                                                                             \
+            PUSH_CHAR(0x80 | ((cp) & 0x3F));                                                                           \
+        }                                                                                                              \
+        else if ((cp) < 0x10000U)                                                                                      \
+        {                                                                                                              \
+            PUSH_CHAR(0xE0 | ((cp) >> 12));                                                                            \
+            PUSH_CHAR(0x80 | (((cp) >> 6) & 0x3F));                                                                    \
+            PUSH_CHAR(0x80 | ((cp) & 0x3F));                                                                           \
+        }                                                                                                              \
+        else                                                                                                           \
+        {                                                                                                              \
+            PUSH_CHAR(0xF0 | ((cp) >> 18));                                                                            \
+            PUSH_CHAR(0x80 | (((cp) >> 12) & 0x3F));                                                                   \
+            PUSH_CHAR(0x80 | (((cp) >> 6) & 0x3F));                                                                    \
+            PUSH_CHAR(0x80 | ((cp) & 0x3F));                                                                           \
+        }                                                                                                              \
+    } while (0)
+
 static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t *out_len)
 {
     /* Opening quote already consumed by caller. */
@@ -527,21 +572,12 @@ static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t 
                 PUSH_CHAR('\t');
                 break;
             case 'u': {
-                if (p->pos + 4 > p->length)
+                uint32_t cp = 0;
+                vigil_status_t us = json_read_hex4(p, &cp);
+                if (us != VIGIL_STATUS_OK)
                 {
                     json_dealloc(&a, buf);
-                    return parser_error(p, "json: incomplete unicode escape");
-                }
-                uint32_t cp = 0;
-                for (int i = 0; i < 4; i++)
-                {
-                    int d = hex_digit(p->input[p->pos++]);
-                    if (d < 0)
-                    {
-                        json_dealloc(&a, buf);
-                        return parser_error(p, "json: invalid hex digit");
-                    }
-                    cp = (cp << 4) | (uint32_t)d;
+                    return us;
                 }
                 /* Handle surrogate pairs. */
                 if (cp >= 0xD800U && cp <= 0xDBFFU)
@@ -553,15 +589,11 @@ static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t 
                     }
                     p->pos += 2;
                     uint32_t lo = 0;
-                    for (int i = 0; i < 4; i++)
+                    us = json_read_hex4(p, &lo);
+                    if (us != VIGIL_STATUS_OK)
                     {
-                        int d = hex_digit(p->input[p->pos++]);
-                        if (d < 0)
-                        {
-                            json_dealloc(&a, buf);
-                            return parser_error(p, "json: invalid hex digit");
-                        }
-                        lo = (lo << 4) | (uint32_t)d;
+                        json_dealloc(&a, buf);
+                        return us;
                     }
                     if (lo < 0xDC00U || lo > 0xDFFFU)
                     {
@@ -570,29 +602,7 @@ static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t 
                     }
                     cp = 0x10000U + ((cp - 0xD800U) << 10) + (lo - 0xDC00U);
                 }
-                /* Encode as UTF-8. */
-                if (cp < 0x80U)
-                {
-                    PUSH_CHAR(cp);
-                }
-                else if (cp < 0x800U)
-                {
-                    PUSH_CHAR(0xC0 | (cp >> 6));
-                    PUSH_CHAR(0x80 | (cp & 0x3F));
-                }
-                else if (cp < 0x10000U)
-                {
-                    PUSH_CHAR(0xE0 | (cp >> 12));
-                    PUSH_CHAR(0x80 | ((cp >> 6) & 0x3F));
-                    PUSH_CHAR(0x80 | (cp & 0x3F));
-                }
-                else
-                {
-                    PUSH_CHAR(0xF0 | (cp >> 18));
-                    PUSH_CHAR(0x80 | ((cp >> 12) & 0x3F));
-                    PUSH_CHAR(0x80 | ((cp >> 6) & 0x3F));
-                    PUSH_CHAR(0x80 | (cp & 0x3F));
-                }
+                JSON_ENCODE_UTF8(cp, PUSH_CHAR);
                 break;
             }
             default:
@@ -639,6 +649,17 @@ static vigil_status_t parse_string(json_parser_t *p, vigil_json_value_t **out)
     return s;
 }
 
+static int json_is_digit(json_parser_t *p)
+{
+    return p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9';
+}
+
+static void json_skip_digits(json_parser_t *p)
+{
+    while (json_is_digit(p))
+        p->pos++;
+}
+
 static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out)
 {
     size_t start = p->pos;
@@ -648,34 +669,20 @@ static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out)
         p->pos++;
 
     /* Integer part. */
-    if (p->pos >= p->length || p->input[p->pos] < '0' || p->input[p->pos] > '9')
-    {
+    if (!json_is_digit(p))
         return parser_error(p, "json: invalid number");
-    }
     if (p->input[p->pos] == '0')
-    {
         p->pos++;
-    }
     else
-    {
-        while (p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9')
-        {
-            p->pos++;
-        }
-    }
+        json_skip_digits(p);
 
     /* Fractional part. */
     if (p->pos < p->length && p->input[p->pos] == '.')
     {
         p->pos++;
-        if (p->pos >= p->length || p->input[p->pos] < '0' || p->input[p->pos] > '9')
-        {
+        if (!json_is_digit(p))
             return parser_error(p, "json: invalid number fraction");
-        }
-        while (p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9')
-        {
-            p->pos++;
-        }
+        json_skip_digits(p);
     }
 
     /* Exponent. */
@@ -683,17 +690,10 @@ static vigil_status_t parse_number(json_parser_t *p, vigil_json_value_t **out)
     {
         p->pos++;
         if (p->pos < p->length && (p->input[p->pos] == '+' || p->input[p->pos] == '-'))
-        {
             p->pos++;
-        }
-        if (p->pos >= p->length || p->input[p->pos] < '0' || p->input[p->pos] > '9')
-        {
+        if (!json_is_digit(p))
             return parser_error(p, "json: invalid number exponent");
-        }
-        while (p->pos < p->length && p->input[p->pos] >= '0' && p->input[p->pos] <= '9')
-        {
-            p->pos++;
-        }
+        json_skip_digits(p);
     }
 
     /* Parse the number text.  We need a NUL-terminated copy for strtod. */

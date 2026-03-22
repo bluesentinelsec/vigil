@@ -132,78 +132,45 @@ static int vigil_lexer_is_identifier_part(char ch)
 
 static vigil_token_kind_t vigil_lexer_keyword_kind(const char *text, size_t length)
 {
-    switch (length)
+    static const struct
     {
-    case 2U:
-        if (memcmp(text, "as", 2U) == 0)
-            return VIGIL_TOKEN_AS;
-        if (memcmp(text, "fn", 2U) == 0)
-            return VIGIL_TOKEN_FN;
-        if (memcmp(text, "if", 2U) == 0)
-            return VIGIL_TOKEN_IF;
-        if (memcmp(text, "in", 2U) == 0)
-            return VIGIL_TOKEN_IN;
-        break;
-    case 3U:
-        if (memcmp(text, "for", 3U) == 0)
-            return VIGIL_TOKEN_FOR;
-        if (memcmp(text, "nil", 3U) == 0)
-            return VIGIL_TOKEN_NIL;
-        if (memcmp(text, "pub", 3U) == 0)
-            return VIGIL_TOKEN_PUB;
-        break;
-    case 4U:
-        if (memcmp(text, "case", 4U) == 0)
-            return VIGIL_TOKEN_CASE;
-        if (memcmp(text, "else", 4U) == 0)
-            return VIGIL_TOKEN_ELSE;
-        if (memcmp(text, "enum", 4U) == 0)
-            return VIGIL_TOKEN_ENUM;
-        if (memcmp(text, "true", 4U) == 0)
-            return VIGIL_TOKEN_TRUE;
-        break;
-    case 5U:
-        if (memcmp(text, "break", 5U) == 0)
-            return VIGIL_TOKEN_BREAK;
-        if (memcmp(text, "class", 5U) == 0)
-            return VIGIL_TOKEN_CLASS;
-        if (memcmp(text, "const", 5U) == 0)
-            return VIGIL_TOKEN_CONST;
-        if (memcmp(text, "defer", 5U) == 0)
-            return VIGIL_TOKEN_DEFER;
-        if (memcmp(text, "false", 5U) == 0)
-            return VIGIL_TOKEN_FALSE;
-        if (memcmp(text, "guard", 5U) == 0)
-            return VIGIL_TOKEN_GUARD;
-        if (memcmp(text, "while", 5U) == 0)
-            return VIGIL_TOKEN_WHILE;
-        break;
-    case 6U:
-        if (memcmp(text, "extern", 6U) == 0)
-            return VIGIL_TOKEN_EXTERN;
-        if (memcmp(text, "import", 6U) == 0)
-            return VIGIL_TOKEN_IMPORT;
-        if (memcmp(text, "return", 6U) == 0)
-            return VIGIL_TOKEN_RETURN;
-        if (memcmp(text, "switch", 6U) == 0)
-            return VIGIL_TOKEN_SWITCH;
-        break;
-    case 7U:
-        if (memcmp(text, "default", 7U) == 0)
-            return VIGIL_TOKEN_DEFAULT;
-        break;
-    case 8U:
-        if (memcmp(text, "continue", 8U) == 0)
-            return VIGIL_TOKEN_CONTINUE;
-        break;
-    case 9U:
-        if (memcmp(text, "interface", 9U) == 0)
-            return VIGIL_TOKEN_INTERFACE;
-        break;
-    default:
-        break;
-    }
+        const char *word;
+        size_t len;
+        vigil_token_kind_t kind;
+    } kKeywords[] = {
+        {"as", 2U, VIGIL_TOKEN_AS},
+        {"fn", 2U, VIGIL_TOKEN_FN},
+        {"if", 2U, VIGIL_TOKEN_IF},
+        {"in", 2U, VIGIL_TOKEN_IN},
+        {"for", 3U, VIGIL_TOKEN_FOR},
+        {"nil", 3U, VIGIL_TOKEN_NIL},
+        {"pub", 3U, VIGIL_TOKEN_PUB},
+        {"case", 4U, VIGIL_TOKEN_CASE},
+        {"else", 4U, VIGIL_TOKEN_ELSE},
+        {"enum", 4U, VIGIL_TOKEN_ENUM},
+        {"true", 4U, VIGIL_TOKEN_TRUE},
+        {"break", 5U, VIGIL_TOKEN_BREAK},
+        {"class", 5U, VIGIL_TOKEN_CLASS},
+        {"const", 5U, VIGIL_TOKEN_CONST},
+        {"defer", 5U, VIGIL_TOKEN_DEFER},
+        {"false", 5U, VIGIL_TOKEN_FALSE},
+        {"guard", 5U, VIGIL_TOKEN_GUARD},
+        {"while", 5U, VIGIL_TOKEN_WHILE},
+        {"extern", 6U, VIGIL_TOKEN_EXTERN},
+        {"import", 6U, VIGIL_TOKEN_IMPORT},
+        {"return", 6U, VIGIL_TOKEN_RETURN},
+        {"switch", 6U, VIGIL_TOKEN_SWITCH},
+        {"default", 7U, VIGIL_TOKEN_DEFAULT},
+        {"continue", 8U, VIGIL_TOKEN_CONTINUE},
+        {"interface", 9U, VIGIL_TOKEN_INTERFACE},
+    };
+    size_t i;
 
+    for (i = 0U; i < sizeof(kKeywords) / sizeof(kKeywords[0]); i++)
+    {
+        if (length == kKeywords[i].len && memcmp(text, kKeywords[i].word, length) == 0)
+            return kKeywords[i].kind;
+    }
     return VIGIL_TOKEN_IDENTIFIER;
 }
 
