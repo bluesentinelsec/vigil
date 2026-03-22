@@ -495,160 +495,149 @@ static size_t json_encode_utf8(char *buf, size_t pos, uint32_t cp)
     return 4;
 }
 
+/* ── Growable string buffer for parse_string_content ──────────────── */
+
+typedef struct
+{
+    char *data;
+    size_t len;
+    size_t cap;
+    vigil_allocator_t alloc;
+} json_strbuf_t;
+
+static vigil_status_t json_strbuf_init(json_strbuf_t *sb, vigil_allocator_t a, size_t cap)
+{
+    sb->data = (char *)json_alloc(&a, cap);
+    if (!sb->data)
+        return VIGIL_STATUS_OUT_OF_MEMORY;
+    sb->len = 0;
+    sb->cap = cap;
+    sb->alloc = a;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t json_strbuf_push(json_strbuf_t *sb, char ch)
+{
+    if (sb->len >= sb->cap)
+    {
+        size_t nc = sb->cap * 2;
+        char *nb = (char *)json_realloc(&sb->alloc, sb->data, nc);
+        if (!nb)
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        sb->data = nb;
+        sb->cap = nc;
+    }
+    sb->data[sb->len++] = ch;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t json_strbuf_ensure(json_strbuf_t *sb, size_t extra)
+{
+    if (sb->len + extra >= sb->cap)
+    {
+        size_t nc = sb->cap * 2;
+        while (nc <= sb->len + extra)
+            nc *= 2;
+        char *nb = (char *)json_realloc(&sb->alloc, sb->data, nc);
+        if (!nb)
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        sb->data = nb;
+        sb->cap = nc;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+/* ── Escape-sequence handler (extracted from parse_string_content) ── */
+
+static vigil_status_t parse_unicode_escape(json_parser_t *p, json_strbuf_t *sb)
+{
+    uint32_t cp = 0;
+    vigil_status_t s = json_read_hex4(p, &cp);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    if (cp >= 0xD800U && cp <= 0xDBFFU)
+    {
+        if (p->pos + 6 > p->length || p->input[p->pos] != '\\' || p->input[p->pos + 1] != 'u')
+            return parser_error(p, "json: missing low surrogate");
+        p->pos += 2;
+        uint32_t lo = 0;
+        s = json_read_hex4(p, &lo);
+        if (s != VIGIL_STATUS_OK)
+            return s;
+        if (lo < 0xDC00U || lo > 0xDFFFU)
+            return parser_error(p, "json: invalid low surrogate");
+        cp = 0x10000U + ((cp - 0xD800U) << 10) + (lo - 0xDC00U);
+    }
+    s = json_strbuf_ensure(sb, 4);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    sb->len += json_encode_utf8(sb->data, sb->len, cp);
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_escape(json_parser_t *p, json_strbuf_t *sb)
+{
+    if (p->pos >= p->length)
+        return parser_error(p, "json: unterminated escape");
+    char esc = p->input[p->pos++];
+    switch (esc)
+    {
+    case '"':  return json_strbuf_push(sb, '"');
+    case '\\': return json_strbuf_push(sb, '\\');
+    case '/':  return json_strbuf_push(sb, '/');
+    case 'b':  return json_strbuf_push(sb, '\b');
+    case 'f':  return json_strbuf_push(sb, '\f');
+    case 'n':  return json_strbuf_push(sb, '\n');
+    case 'r':  return json_strbuf_push(sb, '\r');
+    case 't':  return json_strbuf_push(sb, '\t');
+    case 'u':  return parse_unicode_escape(p, sb);
+    default:   return parser_error(p, "json: invalid escape character");
+    }
+}
+
+/* ── String content parser ───────────────────────────────────────── */
+
 static vigil_status_t parse_string_content(json_parser_t *p, char **out, size_t *out_len)
 {
     /* Opening quote already consumed by caller. */
-    vigil_allocator_t a = resolve_allocator(p->allocator);
-    size_t cap = 32;
-    char *buf = (char *)json_alloc(&a, cap);
-    if (buf == NULL)
+    json_strbuf_t sb;
+    vigil_status_t s = json_strbuf_init(&sb, resolve_allocator(p->allocator), 32);
+    if (s != VIGIL_STATUS_OK)
     {
         vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");
-        return VIGIL_STATUS_OUT_OF_MEMORY;
+        return s;
     }
-    size_t len = 0;
-
-#define PUSH_CHAR(ch)                                                                                                  \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if (len >= cap)                                                                                                \
-        {                                                                                                              \
-            size_t nc = cap * 2;                                                                                       \
-            char *nb = (char *)json_realloc(&a, buf, nc);                                                              \
-            if (nb == NULL)                                                                                            \
-            {                                                                                                          \
-                json_dealloc(&a, buf);                                                                                 \
-                vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");              \
-                return VIGIL_STATUS_OUT_OF_MEMORY;                                                                     \
-            }                                                                                                          \
-            buf = nb;                                                                                                  \
-            cap = nc;                                                                                                  \
-        }                                                                                                              \
-        buf[len++] = (char)(ch);                                                                                       \
-    } while (0)
 
     for (;;)
     {
         if (p->pos >= p->length)
         {
-            json_dealloc(&a, buf);
-            return parser_error(p, "json: unterminated string");
+            s = parser_error(p, "json: unterminated string");
+            goto fail;
         }
         char c = p->input[p->pos++];
         if (c == '"')
             break;
         if (c == '\\')
-        {
-            if (p->pos >= p->length)
-            {
-                json_dealloc(&a, buf);
-                return parser_error(p, "json: unterminated escape");
-            }
-            char esc = p->input[p->pos++];
-            switch (esc)
-            {
-            case '"':
-                PUSH_CHAR('"');
-                break;
-            case '\\':
-                PUSH_CHAR('\\');
-                break;
-            case '/':
-                PUSH_CHAR('/');
-                break;
-            case 'b':
-                PUSH_CHAR('\b');
-                break;
-            case 'f':
-                PUSH_CHAR('\f');
-                break;
-            case 'n':
-                PUSH_CHAR('\n');
-                break;
-            case 'r':
-                PUSH_CHAR('\r');
-                break;
-            case 't':
-                PUSH_CHAR('\t');
-                break;
-            case 'u': {
-                uint32_t cp = 0;
-                vigil_status_t us = json_read_hex4(p, &cp);
-                if (us != VIGIL_STATUS_OK)
-                {
-                    json_dealloc(&a, buf);
-                    return us;
-                }
-                /* Handle surrogate pairs. */
-                if (cp >= 0xD800U && cp <= 0xDBFFU)
-                {
-                    if (p->pos + 6 > p->length || p->input[p->pos] != '\\' || p->input[p->pos + 1] != 'u')
-                    {
-                        json_dealloc(&a, buf);
-                        return parser_error(p, "json: missing low surrogate");
-                    }
-                    p->pos += 2;
-                    uint32_t lo = 0;
-                    us = json_read_hex4(p, &lo);
-                    if (us != VIGIL_STATUS_OK)
-                    {
-                        json_dealloc(&a, buf);
-                        return us;
-                    }
-                    if (lo < 0xDC00U || lo > 0xDFFFU)
-                    {
-                        json_dealloc(&a, buf);
-                        return parser_error(p, "json: invalid low surrogate");
-                    }
-                    cp = 0x10000U + ((cp - 0xD800U) << 10) + (lo - 0xDC00U);
-                }
-                {
-                    /* Ensure room for up to 4 UTF-8 bytes. */
-                    if (len + 4 >= cap)
-                    {
-                        size_t nc = cap * 2;
-                        char *nb = (char *)json_realloc(&a, buf, nc);
-                        if (nb == NULL)
-                        {
-                            json_dealloc(&a, buf);
-                            vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");
-                            return VIGIL_STATUS_OUT_OF_MEMORY;
-                        }
-                        buf = nb;
-                        cap = nc;
-                    }
-                    len += json_encode_utf8(buf, len, cp);
-                    break;
-                }
-            }
-            default:
-                json_dealloc(&a, buf);
-                return parser_error(p, "json: invalid escape character");
-            }
-        }
+            s = parse_escape(p, &sb);
         else
-        {
-            PUSH_CHAR(c);
-        }
+            s = json_strbuf_push(&sb, c);
+        if (s != VIGIL_STATUS_OK)
+            goto fail;
     }
-#undef PUSH_CHAR
 
     /* Ensure room for NUL terminator. */
-    if (len >= cap)
-    {
-        char *nb = (char *)json_realloc(&a, buf, len + 1);
-        if (nb == NULL)
-        {
-            json_dealloc(&a, buf);
-            vigil_error_set_literal(p->error, VIGIL_STATUS_OUT_OF_MEMORY, "json: allocation failed");
-            return VIGIL_STATUS_OUT_OF_MEMORY;
-        }
-        buf = nb;
-    }
-    buf[len] = '\0';
-    *out = buf;
-    *out_len = len;
+    s = json_strbuf_ensure(&sb, 1);
+    if (s != VIGIL_STATUS_OK)
+        goto fail;
+    sb.data[sb.len] = '\0';
+    *out = sb.data;
+    *out_len = sb.len;
     return VIGIL_STATUS_OK;
+
+fail:
+    json_dealloc(&sb.alloc, sb.data);
+    return s;
 }
 
 static vigil_status_t parse_string(json_parser_t *p, vigil_json_value_t **out)

@@ -224,22 +224,66 @@ typedef struct
     size_t cap;
 } yaml_buf_t;
 
-#define YAML_BUF_PUSH(p, b, ch)                                                                                       \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        if ((b).len + 1 >= (b).cap)                                                                                    \
-        {                                                                                                              \
-            (b).cap *= 2;                                                                                              \
-            char *_nb = (char *)(p)->alloc.reallocate((p)->alloc.user_data, (b).data, (b).cap);                        \
-            if (!_nb)                                                                                                  \
-            {                                                                                                          \
-                yaml_dealloc((p), (b).data);                                                                           \
-                return VIGIL_STATUS_OUT_OF_MEMORY;                                                                     \
-            }                                                                                                          \
-            (b).data = _nb;                                                                                            \
-        }                                                                                                              \
-        (b).data[(b).len++] = (char)(ch);                                                                              \
-    } while (0)
+static vigil_status_t yaml_buf_push(yaml_buf_t *b, yaml_parser_t *p, char ch)
+{
+    if (b->len + 1 >= b->cap)
+    {
+        b->cap *= 2;
+        char *nb = (char *)p->alloc.reallocate(p->alloc.user_data, b->data, b->cap);
+        if (!nb)
+        {
+            yaml_dealloc(p, b->data);
+            b->data = NULL;
+            return VIGIL_STATUS_OUT_OF_MEMORY;
+        }
+        b->data = nb;
+    }
+    b->data[b->len++] = ch;
+    return VIGIL_STATUS_OK;
+}
+
+/* Process one line of a block scalar. Returns 1 if the line was consumed,
+   0 if the block should end, or -1 on allocation failure. */
+static int block_scalar_line(yaml_parser_t *p, yaml_buf_t *buf, size_t block_indent, char style)
+{
+    size_t line_indent = measure_indent(p);
+
+    /* Check for blank line */
+    size_t check = p->pos + line_indent;
+    if (check < p->len && (p->src[check] == '\n' || p->src[check] == '\0'))
+    {
+        while (peek(p) == ' ')
+            advance(p);
+        if (peek(p) == '\n')
+        {
+            if (yaml_buf_push(buf, p, '\n') != VIGIL_STATUS_OK)
+                return -1;
+            advance(p);
+            return 1;
+        }
+    }
+
+    if (line_indent < block_indent)
+        return 0;
+
+    for (size_t i = 0; i < block_indent && peek(p) == ' '; i++)
+        advance(p);
+
+    while (peek(p) && peek(p) != '\n')
+    {
+        if (yaml_buf_push(buf, p, peek(p)) != VIGIL_STATUS_OK)
+            return -1;
+        advance(p);
+    }
+
+    if (peek(p) == '\n')
+    {
+        if (yaml_buf_push(buf, p, style == '|' ? '\n' : ' ') != VIGIL_STATUS_OK)
+            return -1;
+        advance(p);
+    }
+    return 1;
+}
 
 static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_json_value_t **out)
 {
@@ -267,39 +311,14 @@ static vigil_status_t parse_block_scalar(yaml_parser_t *p, char style, vigil_jso
 
     while (p->pos < p->len)
     {
-        size_t line_indent = measure_indent(p);
-
-        /* Check for blank line */
-        size_t check = p->pos + line_indent;
-        if (check < p->len && (p->src[check] == '\n' || p->src[check] == '\0'))
+        int rc = block_scalar_line(p, &buf, block_indent, style);
+        if (rc < 0)
         {
-            while (peek(p) == ' ')
-                advance(p);
-            if (peek(p) == '\n')
-            {
-                YAML_BUF_PUSH(p, buf, '\n');
-                advance(p);
-                continue;
-            }
+            yaml_dealloc(p, buf.data);
+            return VIGIL_STATUS_OUT_OF_MEMORY;
         }
-
-        if (line_indent < block_indent)
+        if (rc == 0)
             break;
-
-        for (size_t i = 0; i < block_indent && peek(p) == ' '; i++)
-            advance(p);
-
-        while (peek(p) && peek(p) != '\n')
-        {
-            YAML_BUF_PUSH(p, buf, peek(p));
-            advance(p);
-        }
-
-        if (peek(p) == '\n')
-        {
-            YAML_BUF_PUSH(p, buf, style == '|' ? '\n' : ' ');
-            advance(p);
-        }
     }
 
     /* Trim trailing whitespace */
@@ -390,6 +409,33 @@ static vigil_status_t yaml_parse_inline_value(yaml_parser_t *p, vigil_json_value
     return parse_plain_scalar(p, out);
 }
 
+/* Parse a value that is either on the next line (indented) or inline. */
+static vigil_status_t yaml_parse_next_value(yaml_parser_t *p, size_t parent_indent, vigil_json_value_t **item)
+{
+    skip_spaces(p);
+    skip_comment(p);
+
+    if (peek(p) == '\n' || peek(p) == '\0')
+    {
+        if (peek(p) == '\n')
+            advance(p);
+        skip_blank_lines(p);
+        size_t child_indent = measure_indent(p);
+        if (child_indent > parent_indent)
+            return parse_value(p, child_indent, item);
+        return vigil_json_null_new(&p->alloc, item, p->error);
+    }
+
+    vigil_status_t s = yaml_parse_inline_value(p, item);
+    if (s != VIGIL_STATUS_OK)
+        return s;
+    skip_spaces(p);
+    skip_comment(p);
+    if (peek(p) == '\n')
+        advance(p);
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent, vigil_json_value_t **out)
 {
     vigil_status_t s = vigil_json_array_new(&p->alloc, out, p->error);
@@ -401,8 +447,6 @@ static vigil_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent, vigil_
         skip_blank_lines(p);
 
         size_t indent = measure_indent(p);
-        if (indent < seq_indent)
-            break;
         if (indent != seq_indent)
             break;
 
@@ -419,37 +463,8 @@ static vigil_status_t parse_sequence(yaml_parser_t *p, size_t seq_indent, vigil_
         if (peek(p) == ' ')
             advance(p);
 
-        skip_spaces(p);
-        skip_comment(p);
-
         vigil_json_value_t *item = NULL;
-
-        if (peek(p) == '\n' || peek(p) == '\0')
-        {
-            /* Value on next line */
-            if (peek(p) == '\n')
-                advance(p);
-            skip_blank_lines(p);
-            size_t item_indent = measure_indent(p);
-            if (item_indent > seq_indent)
-            {
-                s = parse_value(p, item_indent, &item);
-            }
-            else
-            {
-                s = vigil_json_null_new(&p->alloc, &item, p->error);
-            }
-        }
-        else
-        {
-            s = yaml_parse_inline_value(p, &item);
-            /* Skip rest of line (trailing spaces and comments) */
-            skip_spaces(p);
-            skip_comment(p);
-            if (peek(p) == '\n')
-                advance(p);
-        }
-
+        s = yaml_parse_next_value(p, seq_indent, &item);
         if (s != VIGIL_STATUS_OK)
         {
             vigil_json_free(out);
@@ -481,8 +496,6 @@ static vigil_status_t parse_mapping(yaml_parser_t *p, size_t map_indent, vigil_j
         skip_blank_lines(p);
 
         size_t indent = measure_indent(p);
-        if (indent < map_indent)
-            break;
         if (indent != map_indent)
             break;
 
@@ -511,37 +524,9 @@ static vigil_status_t parse_mapping(yaml_parser_t *p, size_t map_indent, vigil_j
             return VIGIL_STATUS_SYNTAX_ERROR;
         }
         advance(p); /* skip ':' */
-        skip_spaces(p);
-        skip_comment(p);
 
         vigil_json_value_t *value = NULL;
-
-        if (peek(p) == '\n' || peek(p) == '\0')
-        {
-            /* Value on next line */
-            if (peek(p) == '\n')
-                advance(p);
-            skip_blank_lines(p);
-            size_t val_indent = measure_indent(p);
-            if (val_indent > map_indent)
-            {
-                s = parse_value(p, val_indent, &value);
-            }
-            else
-            {
-                s = vigil_json_null_new(&p->alloc, &value, p->error);
-            }
-        }
-        else
-        {
-            s = yaml_parse_inline_value(p, &value);
-            /* Skip rest of line (trailing spaces and comments) */
-            skip_spaces(p);
-            skip_comment(p);
-            if (peek(p) == '\n')
-                advance(p);
-        }
-
+        s = yaml_parse_next_value(p, map_indent, &value);
         if (s != VIGIL_STATUS_OK)
         {
             vigil_json_free(out);
