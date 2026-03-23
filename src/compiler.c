@@ -2240,6 +2240,51 @@ static vigil_status_t vigil_program_register_native_classes(vigil_program_state_
     return VIGIL_STATUS_OK;
 }
 
+static vigil_status_t check_stdlib_availability(vigil_program_state_t *program, const vigil_token_t *target_token)
+{
+    char message[128];
+    const char *raw_import = NULL;
+    size_t raw_import_len = 0U;
+    int written;
+
+    if (program->natives == NULL || target_token == NULL)
+        return VIGIL_STATUS_OK;
+
+    raw_import = vigil_program_token_text(program, target_token, &raw_import_len);
+    if (raw_import != NULL && raw_import_len >= 2U)
+    {
+        raw_import += 1U;
+        raw_import_len -= 2U;
+    }
+    else
+    {
+        raw_import = "";
+        raw_import_len = 0U;
+    }
+
+    if (!vigil_stdlib_is_known_module(raw_import, raw_import_len))
+        return VIGIL_STATUS_OK;
+
+    written = snprintf(message, sizeof(message), "stdlib module '%.*s' is not available in this build",
+                       (int)raw_import_len, raw_import);
+    if (written < 0 || (size_t)written >= sizeof(message))
+        return vigil_compile_report(program, target_token->span, "stdlib module is not available in this build");
+    return vigil_compile_report(program, target_token->span, message);
+}
+
+static vigil_status_t register_native_import(vigil_program_state_t *program, size_t native_idx,
+                                             vigil_source_id_t source_id)
+{
+    vigil_status_t status;
+
+    status = vigil_program_register_native_function_types(program, program->natives->modules[native_idx]);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    if (program->natives->modules[native_idx]->class_count > 0U)
+        return vigil_program_register_native_classes(program, program->natives->modules[native_idx], source_id);
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program, size_t *cursor)
 {
     vigil_status_t status;
@@ -2327,40 +2372,14 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
 
     if (!native_found && program->natives != NULL && import_target_token != NULL)
     {
-        char message[128];
-        const char *raw_import = NULL;
-        size_t raw_import_len = 0U;
-        int written;
-
-        raw_import = vigil_program_token_text(program, import_target_token, &raw_import_len);
-        if (raw_import != NULL && raw_import_len >= 2U)
+        status = check_stdlib_availability(program, import_target_token);
+        if (status != VIGIL_STATUS_OK)
         {
-            raw_import += 1U;
-            raw_import_len -= 2U;
+            vigil_string_free(&import_path);
+            return status;
         }
-        else
-        {
-            raw_import = "";
-            raw_import_len = 0U;
-        }
-
-        if (!vigil_stdlib_is_known_module(raw_import, raw_import_len))
-        {
-            goto check_registered_import_source;
-        }
-
-        written = snprintf(message, sizeof(message), "stdlib module '%.*s' is not available in this build",
-                           (int)raw_import_len, raw_import);
-        vigil_string_free(&import_path);
-        if (written < 0 || (size_t)written >= sizeof(message))
-        {
-            return vigil_compile_report(program, import_target_token->span,
-                                        "stdlib module is not available in this build");
-        }
-        return vigil_compile_report(program, import_target_token->span, message);
     }
 
-check_registered_import_source:
     if (!native_found && !vigil_program_find_source_by_path(program, vigil_string_c_str(&import_path),
                                                             vigil_string_length(&import_path), &imported_source_id))
     {
@@ -2409,18 +2428,7 @@ check_registered_import_source:
     }
     else
     {
-        /* Register array types for native function returns */
-        status = vigil_program_register_native_function_types(program, program->natives->modules[native_idx]);
-        if (status != VIGIL_STATUS_OK)
-        {
-            vigil_string_free(&import_path);
-            return status;
-        }
-        if (program->natives->modules[native_idx]->class_count > 0U)
-        {
-            status = vigil_program_register_native_classes(program, program->natives->modules[native_idx],
-                                                           imported_source_id);
-        }
+        status = register_native_import(program, native_idx, imported_source_id);
     }
     vigil_string_free(&import_path);
     return status;
@@ -2718,20 +2726,90 @@ static vigil_status_t vigil_program_validate_integer_value_for_type(vigil_progra
     return VIGIL_STATUS_OK;
 }
 
+static vigil_status_t convert_int_to_signed(vigil_program_state_t *program, vigil_source_span_t span,
+                                            vigil_type_kind_t target_kind, const vigil_value_t *src, vigil_value_t *out)
+{
+    int64_t minimum_value, maximum_value;
+    if (!vigil_program_integer_type_signed_bounds(target_kind, &minimum_value, &maximum_value))
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    if (vigil_value_kind(src) == VIGIL_VALUE_UINT)
+    {
+        if (vigil_value_as_uint(src) > (uint64_t)maximum_value)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        vigil_value_init_int(out, (int64_t)vigil_value_as_uint(src));
+    }
+    else
+    {
+        if (vigil_value_as_int(src) < minimum_value || vigil_value_as_int(src) > maximum_value)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        vigil_value_init_int(out, vigil_value_as_int(src));
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t convert_int_to_unsigned(vigil_program_state_t *program, vigil_source_span_t span,
+                                              vigil_type_kind_t target_kind, const vigil_value_t *src,
+                                              vigil_value_t *out)
+{
+    uint64_t maximum_unsigned;
+    if (!vigil_program_integer_type_unsigned_max(target_kind, &maximum_unsigned))
+        return VIGIL_STATUS_INVALID_ARGUMENT;
+    if (vigil_value_kind(src) == VIGIL_VALUE_INT)
+    {
+        if (vigil_value_as_int(src) < 0 || (uint64_t)vigil_value_as_int(src) > maximum_unsigned)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        vigil_value_init_uint(out, (uint64_t)vigil_value_as_int(src));
+    }
+    else
+    {
+        if (vigil_value_as_uint(src) > maximum_unsigned)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        vigil_value_init_uint(out, vigil_value_as_uint(src));
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t convert_f64_to_integer(vigil_program_state_t *program, vigil_source_span_t span,
+                                             vigil_type_kind_t target_kind, double float_value, vigil_value_t *out)
+{
+    if (!isfinite(float_value))
+        return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+    if (vigil_parser_type_is_signed_integer(vigil_binding_type_primitive(target_kind)))
+    {
+        int64_t minimum_value, maximum_value, integer_value;
+        if (!vigil_program_integer_type_signed_bounds(target_kind, &minimum_value, &maximum_value))
+            return VIGIL_STATUS_INVALID_ARGUMENT;
+        if (float_value < (double)INT64_MIN || float_value > (double)INT64_MAX)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        integer_value = (int64_t)float_value;
+        if (integer_value < minimum_value || integer_value > maximum_value)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        vigil_value_init_int(out, integer_value);
+    }
+    else
+    {
+        uint64_t maximum_unsigned, integer_value;
+        if (!vigil_program_integer_type_unsigned_max(target_kind, &maximum_unsigned))
+            return VIGIL_STATUS_INVALID_ARGUMENT;
+        if (float_value < 0.0 || float_value > (double)UINT64_MAX)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        integer_value = (uint64_t)float_value;
+        if (integer_value > maximum_unsigned)
+            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
+        vigil_value_init_uint(out, integer_value);
+    }
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_program_convert_constant_to_integer(vigil_program_state_t *program,
                                                                 vigil_source_span_t span, vigil_type_kind_t target_kind,
                                                                 const vigil_constant_result_t *argument,
                                                                 vigil_constant_result_t *out_result)
 {
-    int64_t minimum_value;
-    int64_t maximum_value;
-    uint64_t maximum_unsigned;
-    double float_value;
+    vigil_status_t status;
 
     if (program == NULL || argument == NULL || out_result == NULL)
-    {
         return VIGIL_STATUS_INVALID_ARGUMENT;
-    }
 
     if (vigil_parser_type_equal(argument->type, vigil_binding_type_primitive(target_kind)))
     {
@@ -2740,108 +2818,21 @@ static vigil_status_t vigil_program_convert_constant_to_integer(vigil_program_st
         return VIGIL_STATUS_OK;
     }
 
+    out_result->type = vigil_binding_type_primitive(target_kind);
     if (vigil_parser_type_is_integer(argument->type))
     {
-        out_result->type = vigil_binding_type_primitive(target_kind);
         if (vigil_parser_type_is_signed_integer(out_result->type))
-        {
-            if (!vigil_program_integer_type_signed_bounds(target_kind, &minimum_value, &maximum_value))
-            {
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-            if (vigil_value_kind(&argument->value) == VIGIL_VALUE_UINT)
-            {
-                if (vigil_value_as_uint(&argument->value) > (uint64_t)maximum_value)
-                {
-                    return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-                }
-                vigil_value_init_int(&out_result->value, (int64_t)vigil_value_as_uint(&argument->value));
-            }
-            else
-            {
-                if (vigil_value_as_int(&argument->value) < minimum_value ||
-                    vigil_value_as_int(&argument->value) > maximum_value)
-                {
-                    return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-                }
-                vigil_value_init_int(&out_result->value, vigil_value_as_int(&argument->value));
-            }
-        }
+            status = convert_int_to_signed(program, span, target_kind, &argument->value, &out_result->value);
         else
-        {
-            if (!vigil_program_integer_type_unsigned_max(target_kind, &maximum_unsigned))
-            {
-                return VIGIL_STATUS_INVALID_ARGUMENT;
-            }
-            if (vigil_value_kind(&argument->value) == VIGIL_VALUE_INT)
-            {
-                if (vigil_value_as_int(&argument->value) < 0 ||
-                    (uint64_t)vigil_value_as_int(&argument->value) > maximum_unsigned)
-                {
-                    return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-                }
-                vigil_value_init_uint(&out_result->value, (uint64_t)vigil_value_as_int(&argument->value));
-            }
-            else
-            {
-                if (vigil_value_as_uint(&argument->value) > maximum_unsigned)
-                {
-                    return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-                }
-                vigil_value_init_uint(&out_result->value, vigil_value_as_uint(&argument->value));
-            }
-        }
-        return VIGIL_STATUS_OK;
+            status = convert_int_to_unsigned(program, span, target_kind, &argument->value, &out_result->value);
+        return status;
     }
 
     if (!vigil_parser_type_is_f64(argument->type))
-    {
         return vigil_compile_report(program, span, "integer conversions require an integer or f64 argument");
-    }
 
-    float_value = vigil_value_as_float(&argument->value);
-    out_result->type = vigil_binding_type_primitive(target_kind);
-    if (vigil_parser_type_is_signed_integer(out_result->type))
-    {
-        int64_t integer_value;
-
-        if (!vigil_program_integer_type_signed_bounds(target_kind, &minimum_value, &maximum_value))
-        {
-            return VIGIL_STATUS_INVALID_ARGUMENT;
-        }
-        if (!isfinite(float_value) || float_value < (double)INT64_MIN || float_value > (double)INT64_MAX)
-        {
-            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-        }
-
-        integer_value = (int64_t)float_value;
-        if (integer_value < minimum_value || integer_value > maximum_value)
-        {
-            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-        }
-        vigil_value_init_int(&out_result->value, integer_value);
-    }
-    else
-    {
-        uint64_t integer_value;
-
-        if (!vigil_program_integer_type_unsigned_max(target_kind, &maximum_unsigned))
-        {
-            return VIGIL_STATUS_INVALID_ARGUMENT;
-        }
-        if (!isfinite(float_value) || float_value < 0.0 || float_value > (double)UINT64_MAX)
-        {
-            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-        }
-
-        integer_value = (uint64_t)float_value;
-        if (integer_value > maximum_unsigned)
-        {
-            return vigil_compile_report(program, span, "integer conversion overflow or invalid value");
-        }
-        vigil_value_init_uint(&out_result->value, integer_value);
-    }
-    return VIGIL_STATUS_OK;
+    return convert_f64_to_integer(program, span, target_kind, vigil_value_as_float(&argument->value),
+                                  &out_result->value);
 }
 
 static vigil_status_t vigil_program_convert_constant_to_string(vigil_program_state_t *program, vigil_source_span_t span,
@@ -6734,6 +6725,29 @@ static vigil_status_t vigil_parser_parse_constructor(vigil_parser_state_t *state
     return vigil_parser_parse_constructor_resolved(state, name_token->span, class_index, decl, out_result);
 }
 
+static vigil_status_t emit_constructor_call(vigil_parser_state_t *state, vigil_source_span_t span,
+                                            const vigil_class_decl_t *decl, size_t class_index, size_t arg_count,
+                                            int defer_call)
+{
+    vigil_status_t status;
+
+    if (decl->constructor_function_index != (size_t)-1)
+    {
+        if (decl->constructor_function_index > UINT32_MAX)
+            return vigil_parser_report(state, span, "constructor index overflow");
+        status = emit_opcode_u32(state, defer_call ? VIGIL_OPCODE_DEFER_CALL : VIGIL_OPCODE_CALL,
+                                 (uint32_t)decl->constructor_function_index, span);
+    }
+    else
+    {
+        status = emit_opcode_u32(state, defer_call ? VIGIL_OPCODE_DEFER_NEW_INSTANCE : VIGIL_OPCODE_NEW_INSTANCE,
+                                 (uint32_t)class_index, span);
+    }
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_emit_u32(state, (uint32_t)arg_count, span);
+}
+
 static vigil_status_t vigil_parser_parse_constructor_resolved(vigil_parser_state_t *state,
                                                               vigil_source_span_t call_span, size_t class_index,
                                                               const vigil_class_decl_t *decl,
@@ -6744,21 +6758,19 @@ static vigil_status_t vigil_parser_parse_constructor_resolved(vigil_parser_state
     const vigil_function_decl_t *ctor_decl;
     size_t arg_count;
     size_t expected_arg_count;
-    int use_constructor_function;
+    int use_ctor_fn;
     int defer_call;
 
     vigil_expression_result_clear(&arg_result);
     ctor_decl = NULL;
     defer_call = state->defer_mode;
     state->defer_mode = 0;
-    use_constructor_function = decl->constructor_function_index != (size_t)-1;
-    if (use_constructor_function)
+    use_ctor_fn = decl->constructor_function_index != (size_t)-1;
+    if (use_ctor_fn)
     {
         ctor_decl = vigil_binding_function_table_get(&state->program->functions, decl->constructor_function_index);
         if (ctor_decl == NULL)
-        {
             return vigil_parser_report(state, call_span, "unknown constructor");
-        }
         expected_arg_count = ctor_decl->param_count;
     }
     else
@@ -6768,9 +6780,7 @@ static vigil_status_t vigil_parser_parse_constructor_resolved(vigil_parser_state
 
     status = vigil_parser_expect(state, VIGIL_TOKEN_LPAREN, "expected '(' after class name", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
     arg_count = 0U;
     if (!vigil_parser_check(state, VIGIL_TOKEN_RPAREN))
@@ -6779,107 +6789,50 @@ static vigil_status_t vigil_parser_parse_constructor_resolved(vigil_parser_state
         {
             status = vigil_parser_parse_expression(state, &arg_result);
             if (status != VIGIL_STATUS_OK)
-            {
                 return status;
-            }
             status = vigil_parser_require_scalar_expression(state, call_span, &arg_result,
                                                             "call arguments must be single values");
             if (status != VIGIL_STATUS_OK)
-            {
                 return status;
-            }
             if (arg_count >= expected_arg_count)
-            {
                 return vigil_parser_report(state, call_span,
                                            "constructor argument count does not match class signature");
-            }
-            status = vigil_parser_require_type(
-                state, call_span, arg_result.type,
-                use_constructor_function ? ctor_decl->params[arg_count].type : decl->fields[arg_count].type,
-                use_constructor_function ? "constructor argument type does not match parameter type"
-                                         : "constructor argument type does not match field type");
+            status = vigil_parser_require_type(state, call_span, arg_result.type,
+                                               use_ctor_fn ? ctor_decl->params[arg_count].type
+                                                           : decl->fields[arg_count].type,
+                                               use_ctor_fn ? "constructor argument type does not match parameter type"
+                                                           : "constructor argument type does not match field type");
             if (status != VIGIL_STATUS_OK)
-            {
                 return status;
-            }
             arg_count += 1U;
-
             if (!vigil_parser_match(state, VIGIL_TOKEN_COMMA))
-            {
                 break;
-            }
         }
     }
 
     status = vigil_parser_expect(state, VIGIL_TOKEN_RPAREN, "expected ')' after constructor arguments", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
-
     if (arg_count != expected_arg_count || arg_count > UINT32_MAX || class_index > UINT32_MAX)
-    {
         return vigil_parser_report(state, call_span, "constructor argument count does not match class signature");
-    }
 
-    if (use_constructor_function)
-    {
-        if (decl->constructor_function_index > UINT32_MAX)
-        {
-            return vigil_parser_report(state, call_span, "constructor index overflow");
-        }
-        status = vigil_parser_emit_opcode(state, defer_call ? VIGIL_OPCODE_DEFER_CALL : VIGIL_OPCODE_CALL, call_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)decl->constructor_function_index, call_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)arg_count, call_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
-    else
-    {
-        status = vigil_parser_emit_opcode(
-            state, defer_call ? VIGIL_OPCODE_DEFER_NEW_INSTANCE : VIGIL_OPCODE_NEW_INSTANCE, call_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)class_index, call_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)arg_count, call_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
+    status = emit_constructor_call(state, call_span, decl, class_index, arg_count, defer_call);
+    if (status != VIGIL_STATUS_OK)
+        return status;
 
     if (defer_call)
     {
         state->defer_emitted = 1;
         vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(VIGIL_TYPE_VOID));
     }
+    else if (use_ctor_fn)
+    {
+        vigil_expression_result_set_return_types(out_result, ctor_decl->return_type,
+                                                 vigil_function_return_types(ctor_decl), ctor_decl->return_count);
+    }
     else
     {
-        if (use_constructor_function)
-        {
-            vigil_expression_result_set_return_types(out_result, ctor_decl->return_type,
-                                                     vigil_function_return_types(ctor_decl), ctor_decl->return_count);
-        }
-        else
-        {
-            vigil_expression_result_set_type(out_result, vigil_binding_type_class(class_index));
-        }
+        vigil_expression_result_set_type(out_result, vigil_binding_type_class(class_index));
     }
     return VIGIL_STATUS_OK;
 }
@@ -13476,6 +13429,31 @@ cleanup:
     return status;
 }
 
+static vigil_status_t emit_implicit_void_return(vigil_parser_state_t *state, vigil_source_span_t span)
+{
+    return emit_opcode_u32(state, VIGIL_OPCODE_RETURN, 0U, span);
+}
+
+static vigil_status_t emit_repl_synthetic_return(vigil_parser_state_t *state, vigil_program_state_t *program,
+                                                 vigil_source_span_t span)
+{
+    vigil_status_t status;
+    vigil_value_t zero_val;
+    size_t const_index;
+
+    vigil_value_init_int(&zero_val, 0);
+    status = vigil_chunk_add_constant(&state->chunk, &zero_val, &const_index, program->error);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_CONSTANT, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_u32(state, (uint32_t)const_index, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return emit_opcode_u32(state, VIGIL_OPCODE_RETURN, 1U, span);
+}
+
 static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *program, size_t function_index,
                                                          const vigil_parser_state_t *parent_state)
 {
@@ -13488,9 +13466,8 @@ static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *
 
     decl = &program->functions.functions[function_index];
     if (decl->object != NULL)
-    {
         return VIGIL_STATUS_OK;
-    }
+
     for (class_index = 0U; class_index < program->class_count; class_index += 1U)
     {
         const vigil_class_decl_t *class_decl;
@@ -13498,9 +13475,7 @@ static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *
 
         class_decl = &program->classes[class_index];
         if (class_decl->constructor_function_index != function_index)
-        {
             continue;
-        }
         init_method = NULL;
         if (!vigil_class_decl_find_method(class_decl, "init", 4U, NULL, &init_method) || init_method == NULL)
         {
@@ -13510,13 +13485,10 @@ static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *
         return vigil_compile_synthetic_constructor(program, function_index, class_index, init_method->function_index);
     }
 
-    /* Check if this is an extern fn. */
     for (size_t ei = 0; ei < program->extern_fn_count; ei++)
     {
         if (program->extern_fns[ei].function_index == function_index)
-        {
             return vigil_compile_extern_fn(program, function_index, &program->extern_fns[ei]);
-        }
     }
 
     memset(&state, 0, sizeof(state));
@@ -13536,110 +13508,41 @@ static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *
 
     status = vigil_compile_seed_parameter_symbols(&state, decl);
     if (status != VIGIL_STATUS_OK)
-    {
-        vigil_chunk_free(&state.chunk);
-        vigil_parser_state_free(&state);
-        return status;
-    }
+        goto cleanup;
 
     if (function_index == program->functions.main_index)
     {
         status = vigil_compile_emit_global_initializers(program, &state);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
+            goto cleanup;
     }
 
     status = vigil_parser_parse_block_contents(&state, &body_result);
     if (status != VIGIL_STATUS_OK)
-    {
-        vigil_chunk_free(&state.chunk);
-        vigil_parser_state_free(&state);
-        return status;
-    }
+        goto cleanup;
 
-    /* Re-fetch: the function table may have been reallocated while
-       parsing the body (e.g. local/anonymous function declarations
-       call vigil_program_grow_functions). */
     decl = &program->functions.functions[function_index];
 
     if (!body_result.guaranteed_return && decl->return_count == 1U && vigil_parser_type_is_void(decl->return_type))
     {
-        status = vigil_parser_emit_opcode(&state, VIGIL_OPCODE_RETURN, decl->name_span);
+        status = emit_implicit_void_return(&state, decl->name_span);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
-        status = vigil_parser_emit_u32(&state, 0U, decl->name_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
+            goto cleanup;
         body_result.guaranteed_return = 1;
     }
 
-    /* In REPL mode, emit a synthetic 'return 0' for the synthetic main
-       when the user's statements don't include an explicit return. */
     if (!body_result.guaranteed_return && program->compile_mode == VIGIL_COMPILE_MODE_REPL &&
         function_index == program->functions.main_index)
     {
-        status = vigil_parser_emit_opcode(&state, VIGIL_OPCODE_CONSTANT, decl->name_span);
+        status = emit_repl_synthetic_return(&state, program, decl->name_span);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
-        {
-            vigil_value_t zero_val;
-            size_t const_index;
-            vigil_value_init_int(&zero_val, 0);
-            status = vigil_chunk_add_constant(&state.chunk, &zero_val, &const_index, program->error);
-            if (status != VIGIL_STATUS_OK)
-            {
-                vigil_chunk_free(&state.chunk);
-                vigil_parser_state_free(&state);
-                return status;
-            }
-            status = vigil_parser_emit_u32(&state, (uint32_t)const_index, decl->name_span);
-        }
-        if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
-        status = vigil_parser_emit_opcode(&state, VIGIL_OPCODE_RETURN, decl->name_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
-        status = vigil_parser_emit_u32(&state, 1U, decl->name_span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            vigil_chunk_free(&state.chunk);
-            vigil_parser_state_free(&state);
-            return status;
-        }
+            goto cleanup;
         body_result.guaranteed_return = 1;
     }
 
     status = vigil_compile_require_function_returns(program, decl, function_index, body_result.guaranteed_return);
     if (status != VIGIL_STATUS_OK)
-    {
-        vigil_chunk_free(&state.chunk);
-        vigil_parser_state_free(&state);
-        return status;
-    }
+        goto cleanup;
 
     object = NULL;
     status = vigil_function_object_new(program->registry->runtime, decl->name, decl->name_length, decl->param_count,
@@ -13650,9 +13553,13 @@ static vigil_status_t vigil_compile_function_with_parent(vigil_program_state_t *
         vigil_chunk_free(&state.chunk);
         return status;
     }
-
     decl->object = object;
     return VIGIL_STATUS_OK;
+
+cleanup:
+    vigil_chunk_free(&state.chunk);
+    vigil_parser_state_free(&state);
+    return status;
 }
 
 static vigil_status_t vigil_compile_function(vigil_program_state_t *program, size_t function_index)
