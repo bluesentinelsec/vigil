@@ -281,13 +281,15 @@ static int collect_reference_tokens(sem_token_list_t *list, const vigil_semantic
 /* ── Request Handlers ─────────────────────────────────────── */
 
 static vigil_status_t handle_initialize(vigil_lsp_server_t *server, const vigil_json_value_t *id,
-                                        vigil_json_value_t **out, vigil_error_t *error)
+                                        const vigil_json_value_t *params, vigil_json_value_t **out,
+                                        vigil_error_t *error)
 {
     vigil_json_value_t *result = NULL;
     vigil_json_value_t *capabilities = NULL;
     vigil_json_value_t *server_info = NULL;
     const vigil_allocator_t *a = &server->allocator;
 
+    (void)params;
     server->initialized = 1;
 
     vigil_json_object_new(a, &result, error);
@@ -387,8 +389,10 @@ static vigil_status_t handle_initialize(vigil_lsp_server_t *server, const vigil_
 }
 
 static vigil_status_t handle_shutdown(vigil_lsp_server_t *server, const vigil_json_value_t *id,
-                                      vigil_json_value_t **out, vigil_error_t *error)
+                                      const vigil_json_value_t *params, vigil_json_value_t **out,
+                                      vigil_error_t *error)
 {
+    (void)params;
     server->shutdown_requested = 1;
     return lsp_make_response(&server->allocator, id, NULL, out, error);
 }
@@ -620,7 +624,9 @@ static vigil_status_t publish_diagnostics(vigil_lsp_server_t *server, const char
     return lsp_send_notification(server, "textDocument/publishDiagnostics", params, error);
 }
 
-static void handle_did_open(vigil_lsp_server_t *server, const vigil_json_value_t *params)
+static vigil_status_t handle_did_open(vigil_lsp_server_t *server, const vigil_json_value_t *id,
+                                      const vigil_json_value_t *params, vigil_json_value_t **out,
+                                      vigil_error_t *err)
 {
     const vigil_json_value_t *text_doc;
     const vigil_json_value_t *uri_val;
@@ -630,35 +636,42 @@ static void handle_did_open(vigil_lsp_server_t *server, const vigil_json_value_t
     const char *text;
     size_t text_len;
     vigil_source_id_t source_id;
-    vigil_error_t error = {0};
+    vigil_error_t local_err = {0};
+
+    (void)id;
+    (void)out;
+    (void)err;
 
     text_doc = vigil_json_object_get(params, "textDocument");
     if (text_doc == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
-    uri_val = vigil_json_object_get(text_doc, "uri");
+    uri_val  = vigil_json_object_get(text_doc, "uri");
     text_val = vigil_json_object_get(text_doc, "text");
     if (uri_val == NULL || text_val == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
-    uri = vigil_json_string_value(uri_val);
+    uri  = vigil_json_string_value(uri_val);
     text = vigil_json_string_value(text_val);
     if (uri == NULL || text == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
-    uri_len = vigil_json_string_length(uri_val);
+    uri_len  = vigil_json_string_length(uri_val);
     text_len = vigil_json_string_length(text_val);
 
     /* Register source and analyze. */
-    if (vigil_source_registry_register(&server->sources, uri, uri_len, text, text_len, &source_id, &error) ==
+    if (vigil_source_registry_register(&server->sources, uri, uri_len, text, text_len, &source_id, &local_err) ==
         VIGIL_STATUS_OK)
     {
-        vigil_semantic_index_analyze(server->index, source_id, &error);
-        publish_diagnostics(server, uri, uri_len, source_id, &error);
+        vigil_semantic_index_analyze(server->index, source_id, &local_err);
+        publish_diagnostics(server, uri, uri_len, source_id, &local_err);
     }
+    return VIGIL_STATUS_OK;
 }
 
-static void handle_did_change(vigil_lsp_server_t *server, const vigil_json_value_t *params)
+static vigil_status_t handle_did_change(vigil_lsp_server_t *server, const vigil_json_value_t *id,
+                                        const vigil_json_value_t *params, vigil_json_value_t **out,
+                                        vigil_error_t *err)
 {
     const vigil_json_value_t *text_doc;
     const vigil_json_value_t *uri_val;
@@ -670,50 +683,61 @@ static void handle_did_change(vigil_lsp_server_t *server, const vigil_json_value
     const char *text;
     size_t text_len;
     vigil_source_id_t source_id;
-    vigil_error_t error = {0};
+    vigil_error_t local_err = {0};
+
+    (void)id;
+    (void)out;
+    (void)err;
 
     text_doc = vigil_json_object_get(params, "textDocument");
-    changes = vigil_json_object_get(params, "contentChanges");
+    changes  = vigil_json_object_get(params, "contentChanges");
     if (text_doc == NULL || changes == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
     uri_val = vigil_json_object_get(text_doc, "uri");
     if (uri_val == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
     /* Full sync: take the last change's text */
     if (vigil_json_array_count(changes) == 0)
-        return;
+        return VIGIL_STATUS_OK;
     change = vigil_json_array_get(changes, vigil_json_array_count(changes) - 1);
     if (change == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
     text_val = vigil_json_object_get(change, "text");
     if (text_val == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
-    uri = vigil_json_string_value(uri_val);
+    uri  = vigil_json_string_value(uri_val);
     text = vigil_json_string_value(text_val);
     if (uri == NULL || text == NULL)
-        return;
+        return VIGIL_STATUS_OK;
 
-    uri_len = vigil_json_string_length(uri_val);
+    uri_len  = vigil_json_string_length(uri_val);
     text_len = vigil_json_string_length(text_val);
 
     /* Re-register and re-analyze */
-    if (vigil_source_registry_register(&server->sources, uri, uri_len, text, text_len, &source_id, &error) ==
+    if (vigil_source_registry_register(&server->sources, uri, uri_len, text, text_len, &source_id, &local_err) ==
         VIGIL_STATUS_OK)
     {
-        vigil_semantic_index_analyze(server->index, source_id, &error);
-        publish_diagnostics(server, uri, uri_len, source_id, &error);
+        vigil_semantic_index_analyze(server->index, source_id, &local_err);
+        publish_diagnostics(server, uri, uri_len, source_id, &local_err);
     }
+    return VIGIL_STATUS_OK;
 }
 
-static void handle_did_close(vigil_lsp_server_t *server, const vigil_json_value_t *params)
+static vigil_status_t handle_did_close(vigil_lsp_server_t *server, const vigil_json_value_t *id,
+                                       const vigil_json_value_t *params, vigil_json_value_t **out,
+                                       vigil_error_t *error)
 {
     (void)server;
+    (void)id;
     (void)params;
+    (void)out;
+    (void)error;
     /* No cleanup needed - source registry doesn't support removal yet */
+    return VIGIL_STATUS_OK;
 }
 
 static vigil_status_t handle_references(vigil_lsp_server_t *server, const vigil_json_value_t *id,
@@ -1621,96 +1645,80 @@ static vigil_status_t handle_document_symbol(vigil_lsp_server_t *server, const v
 
 /* ── Message Dispatch ─────────────────────────────────────── */
 
+/*
+ * All request and notification handlers share the same signature so they
+ * can be stored in a flat dispatch table, keeping lsp_handle_message simple.
+ */
+typedef vigil_status_t (*lsp_handler_fn)(vigil_lsp_server_t *, const vigil_json_value_t *,
+                                         const vigil_json_value_t *, vigil_json_value_t **,
+                                         vigil_error_t *);
+
+typedef struct
+{
+    const char    *method;
+    lsp_handler_fn handler;
+} lsp_dispatch_entry_t;
+
+static const lsp_dispatch_entry_t lsp_dispatch_table[] = {
+    { "initialize",                       handle_initialize        },
+    { "shutdown",                         handle_shutdown          },
+    { "textDocument/didOpen",             handle_did_open          },
+    { "textDocument/didChange",           handle_did_change        },
+    { "textDocument/didClose",            handle_did_close         },
+    { "textDocument/documentSymbol",      handle_document_symbol   },
+    { "textDocument/hover",               handle_hover             },
+    { "textDocument/definition",          handle_definition        },
+    { "textDocument/completion",          handle_completion        },
+    { "textDocument/references",          handle_references        },
+    { "textDocument/rename",              handle_rename            },
+    { "textDocument/formatting",          handle_formatting        },
+    { "textDocument/signatureHelp",       handle_signature_help    },
+    { "textDocument/semanticTokens/full", handle_semantic_tokens_full },
+};
+
+#define LSP_DISPATCH_COUNT (sizeof(lsp_dispatch_table) / sizeof(lsp_dispatch_table[0]))
+
 static vigil_status_t lsp_handle_message(vigil_lsp_server_t *server, const vigil_json_value_t *message,
                                          vigil_error_t *error)
 {
     const vigil_json_value_t *method_val;
     const vigil_json_value_t *id;
     const vigil_json_value_t *params;
-    vigil_json_value_t *response = NULL;
-    const char *method;
-    size_t method_len;
-    vigil_status_t status = VIGIL_STATUS_OK;
+    vigil_json_value_t       *response = NULL;
+    const char               *method;
+    size_t                    method_len;
+    vigil_status_t            status = VIGIL_STATUS_OK;
+    size_t                    i;
 
     method_val = vigil_json_object_get(message, "method");
     if (method_val == NULL)
-    {
         return VIGIL_STATUS_OK;
-    }
 
     method = vigil_json_string_value(method_val);
     if (method == NULL)
-    {
         return VIGIL_STATUS_OK;
-    }
     method_len = vigil_json_string_length(method_val);
 
-    id = vigil_json_object_get(message, "id");
-    params = vigil_json_object_get(message, "params");
-
-    /* Dispatch based on method. */
-    if (method_len == 10 && strncmp(method, "initialize", 10) == 0)
-    {
-        status = handle_initialize(server, id, &response, error);
-    }
-    else if (method_len == 8 && strncmp(method, "shutdown", 8) == 0)
-    {
-        status = handle_shutdown(server, id, &response, error);
-    }
-    else if (method_len == 4 && strncmp(method, "exit", 4) == 0)
+    /* "exit" is handled inline — it requires no response and terminates the loop. */
+    if (method_len == 4 && strncmp(method, "exit", 4) == 0)
     {
         server->shutdown_requested = 1;
         return VIGIL_STATUS_OK;
     }
-    else if (method_len == 20 && strncmp(method, "textDocument/didOpen", 20) == 0)
+
+    id     = vigil_json_object_get(message, "id");
+    params = vigil_json_object_get(message, "params");
+
+    for (i = 0; i < LSP_DISPATCH_COUNT; i++)
     {
-        handle_did_open(server, params);
+        const char *entry_method = lsp_dispatch_table[i].method;
+        size_t      entry_len    = strlen(entry_method);
+        if (method_len == entry_len && strncmp(method, entry_method, method_len) == 0)
+        {
+            status = lsp_dispatch_table[i].handler(server, id, params, &response, error);
+            break;
+        }
     }
-    else if (method_len == 22 && strncmp(method, "textDocument/didChange", 22) == 0)
-    {
-        handle_did_change(server, params);
-    }
-    else if (method_len == 21 && strncmp(method, "textDocument/didClose", 21) == 0)
-    {
-        handle_did_close(server, params);
-    }
-    else if (method_len == 27 && strncmp(method, "textDocument/documentSymbol", 27) == 0)
-    {
-        status = handle_document_symbol(server, id, params, &response, error);
-    }
-    else if (method_len == 18 && strncmp(method, "textDocument/hover", 18) == 0)
-    {
-        status = handle_hover(server, id, params, &response, error);
-    }
-    else if (method_len == 23 && strncmp(method, "textDocument/definition", 23) == 0)
-    {
-        status = handle_definition(server, id, params, &response, error);
-    }
-    else if (method_len == 23 && strncmp(method, "textDocument/completion", 23) == 0)
-    {
-        status = handle_completion(server, id, params, &response, error);
-    }
-    else if (method_len == 23 && strncmp(method, "textDocument/references", 23) == 0)
-    {
-        status = handle_references(server, id, params, &response, error);
-    }
-    else if (method_len == 19 && strncmp(method, "textDocument/rename", 19) == 0)
-    {
-        status = handle_rename(server, id, params, &response, error);
-    }
-    else if (method_len == 23 && strncmp(method, "textDocument/formatting", 23) == 0)
-    {
-        status = handle_formatting(server, id, params, &response, error);
-    }
-    else if (method_len == 26 && strncmp(method, "textDocument/signatureHelp", 26) == 0)
-    {
-        status = handle_signature_help(server, id, params, &response, error);
-    }
-    else if (method_len == 32 && strncmp(method, "textDocument/semanticTokens/full", 32) == 0)
-    {
-        status = handle_semantic_tokens_full(server, id, params, &response, error);
-    }
-    /* Ignore other methods for now. */
 
     if (status != VIGIL_STATUS_OK)
     {
