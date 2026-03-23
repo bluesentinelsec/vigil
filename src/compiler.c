@@ -2285,6 +2285,29 @@ static vigil_status_t register_native_import(vigil_program_state_t *program, siz
     return VIGIL_STATUS_OK;
 }
 
+static int resolve_native_import(vigil_program_state_t *program, const vigil_token_t *target_token, size_t *native_idx,
+                                 vigil_source_id_t *source_id)
+{
+    const char *raw_import;
+    size_t raw_import_len;
+
+    if (program->natives == NULL)
+        return 0;
+    raw_import = vigil_program_token_text(program, target_token, &raw_import_len);
+    if (raw_import != NULL && raw_import_len >= 2U)
+    {
+        raw_import += 1U;
+        raw_import_len -= 2U;
+    }
+    if (raw_import != NULL &&
+        vigil_native_registry_find_index(program->natives, raw_import, raw_import_len, native_idx))
+    {
+        *source_id = VIGIL_NATIVE_SOURCE_ID(*native_idx);
+        return 1;
+    }
+    return 0;
+}
+
 static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program, size_t *cursor)
 {
     vigil_status_t status;
@@ -2300,11 +2323,9 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
     int native_found;
 
     alias_token = NULL;
-    import_target_token = NULL;
     alias_text = NULL;
     alias_length = 0U;
     imported_source_id = 0U;
-    module = NULL;
     native_idx = 0U;
     native_found = 0;
     vigil_string_init(&import_path, program->registry->runtime);
@@ -2312,39 +2333,17 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
     token = vigil_program_token_at(program, *cursor);
     if (token == NULL || token->kind != VIGIL_TOKEN_IMPORT)
     {
-        vigil_string_free(&import_path);
-        return vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
-                                    "expected 'import'");
+        status = vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
+                                      "expected 'import'");
+        goto cleanup;
     }
     *cursor += 1U;
 
-    token = vigil_program_token_at(program, *cursor);
-    import_target_token = token;
-    {
-        const char *raw_import;
-        size_t raw_import_len;
-
-        raw_import = vigil_program_token_text(program, token, &raw_import_len);
-        /* Strip quotes from the string literal. */
-        if (raw_import != NULL && raw_import_len >= 2U)
-        {
-            raw_import += 1U;
-            raw_import_len -= 2U;
-        }
-        /* Check native module registry first — skip file resolution. */
-        if (program->natives != NULL && raw_import != NULL &&
-            vigil_native_registry_find_index(program->natives, raw_import, raw_import_len, &native_idx))
-        {
-            native_found = 1;
-            imported_source_id = VIGIL_NATIVE_SOURCE_ID(native_idx);
-        }
-    }
-    status = vigil_program_parse_import_target(program, token, &import_path);
+    import_target_token = vigil_program_token_at(program, *cursor);
+    native_found = resolve_native_import(program, import_target_token, &native_idx, &imported_source_id);
+    status = vigil_program_parse_import_target(program, import_target_token, &import_path);
     if (status != VIGIL_STATUS_OK)
-    {
-        vigil_string_free(&import_path);
-        return status;
-    }
+        goto cleanup;
     *cursor += 1U;
 
     token = vigil_program_token_at(program, *cursor);
@@ -2354,8 +2353,8 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
         alias_token = vigil_program_token_at(program, *cursor);
         if (alias_token == NULL || alias_token->kind != VIGIL_TOKEN_IDENTIFIER)
         {
-            vigil_string_free(&import_path);
-            return vigil_compile_report(program, token->span, "expected import alias name");
+            status = vigil_compile_report(program, token->span, "expected import alias name");
+            goto cleanup;
         }
         alias_text = vigil_program_token_text(program, alias_token, &alias_length);
         *cursor += 1U;
@@ -2364,9 +2363,9 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
     token = vigil_program_token_at(program, *cursor);
     if (token == NULL || token->kind != VIGIL_TOKEN_SEMICOLON)
     {
-        vigil_string_free(&import_path);
-        return vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
-                                    "expected ';' after import");
+        status = vigil_compile_report(program, token == NULL ? vigil_program_eof_span(program) : token->span,
+                                      "expected ';' after import");
+        goto cleanup;
     }
     *cursor += 1U;
 
@@ -2374,27 +2373,24 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
     {
         status = check_stdlib_availability(program, import_target_token);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_string_free(&import_path);
-            return status;
-        }
+            goto cleanup;
     }
 
     if (!native_found && !vigil_program_find_source_by_path(program, vigil_string_c_str(&import_path),
                                                             vigil_string_length(&import_path), &imported_source_id))
     {
-        vigil_string_free(&import_path);
-        return vigil_compile_report(program, import_target_token == NULL ? token->span : import_target_token->span,
-                                    "imported source is not registered");
+        status = vigil_compile_report(program, import_target_token == NULL ? token->span : import_target_token->span,
+                                      "imported source is not registered");
+        goto cleanup;
     }
 
     module = vigil_program_current_module(program);
     if (module == NULL)
     {
-        vigil_string_free(&import_path);
         vigil_error_set_literal(program->error, VIGIL_STATUS_INTERNAL,
                                 "current module must be available while parsing imports");
-        return VIGIL_STATUS_INTERNAL;
+        status = VIGIL_STATUS_INTERNAL;
+        goto cleanup;
     }
     if (alias_text == NULL)
     {
@@ -2411,25 +2407,18 @@ static vigil_status_t vigil_program_parse_import(vigil_program_state_t *program,
     }
     if (alias_token != NULL && program->natives != NULL && vigil_stdlib_is_known_module(alias_text, alias_length))
     {
-        vigil_string_free(&import_path);
-        return vigil_compile_report(program, alias_token->span, "import alias shadows a standard library module");
+        status = vigil_compile_report(program, alias_token->span, "import alias shadows a standard library module");
+        goto cleanup;
     }
     status = vigil_program_add_module_import(program, module, alias_text, alias_length,
                                              alias_token == NULL ? token->span : alias_token->span, imported_source_id);
     if (status != VIGIL_STATUS_OK)
-    {
-        vigil_string_free(&import_path);
-        return status;
-    }
+        goto cleanup;
 
-    if (!native_found)
-    {
-        status = vigil_program_parse_source(program, imported_source_id);
-    }
-    else
-    {
-        status = register_native_import(program, native_idx, imported_source_id);
-    }
+    status = native_found ? register_native_import(program, native_idx, imported_source_id)
+                          : vigil_program_parse_source(program, imported_source_id);
+
+cleanup:
     vigil_string_free(&import_path);
     return status;
 }
