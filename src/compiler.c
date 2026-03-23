@@ -3637,6 +3637,55 @@ static vigil_status_t vigil_program_parse_constant_shift(vigil_program_state_t *
     }
 }
 
+static int eval_constant_comparison(vigil_token_kind_t op, const vigil_constant_result_t *left,
+                                    const vigil_constant_result_t *right)
+{
+    if (vigil_parser_type_is_integer(left->type) && vigil_parser_type_is_unsigned_integer(left->type))
+    {
+        uint64_t a = vigil_value_as_uint(&left->value), b = vigil_value_as_uint(&right->value);
+        switch (op)
+        {
+        case VIGIL_TOKEN_GREATER:
+            return a > b;
+        case VIGIL_TOKEN_GREATER_EQUAL:
+            return a >= b;
+        case VIGIL_TOKEN_LESS:
+            return a < b;
+        default:
+            return a <= b;
+        }
+    }
+    if (vigil_parser_type_is_integer(left->type))
+    {
+        int64_t a = vigil_value_as_int(&left->value), b = vigil_value_as_int(&right->value);
+        switch (op)
+        {
+        case VIGIL_TOKEN_GREATER:
+            return a > b;
+        case VIGIL_TOKEN_GREATER_EQUAL:
+            return a >= b;
+        case VIGIL_TOKEN_LESS:
+            return a < b;
+        default:
+            return a <= b;
+        }
+    }
+    {
+        double a = vigil_value_as_float(&left->value), b = vigil_value_as_float(&right->value);
+        switch (op)
+        {
+        case VIGIL_TOKEN_GREATER:
+            return a > b;
+        case VIGIL_TOKEN_GREATER_EQUAL:
+            return a >= b;
+        case VIGIL_TOKEN_LESS:
+            return a < b;
+        default:
+            return a <= b;
+        }
+    }
+}
+
 static vigil_status_t vigil_program_parse_constant_comparison(vigil_program_state_t *program, size_t *cursor,
                                                               vigil_constant_result_t *out_result)
 {
@@ -3681,63 +3730,7 @@ static vigil_status_t vigil_program_parse_constant_comparison(vigil_program_stat
                                         "comparison operators require matching integer, f64, or string operands");
         }
 
-        if (vigil_parser_type_is_integer(left.type))
-        {
-            if (vigil_parser_type_is_unsigned_integer(left.type))
-            {
-                switch (token->kind)
-                {
-                case VIGIL_TOKEN_GREATER:
-                    comparison_result = vigil_value_as_uint(&left.value) > vigil_value_as_uint(&right.value);
-                    break;
-                case VIGIL_TOKEN_GREATER_EQUAL:
-                    comparison_result = vigil_value_as_uint(&left.value) >= vigil_value_as_uint(&right.value);
-                    break;
-                case VIGIL_TOKEN_LESS:
-                    comparison_result = vigil_value_as_uint(&left.value) < vigil_value_as_uint(&right.value);
-                    break;
-                default:
-                    comparison_result = vigil_value_as_uint(&left.value) <= vigil_value_as_uint(&right.value);
-                    break;
-                }
-            }
-            else
-            {
-                switch (token->kind)
-                {
-                case VIGIL_TOKEN_GREATER:
-                    comparison_result = vigil_value_as_int(&left.value) > vigil_value_as_int(&right.value);
-                    break;
-                case VIGIL_TOKEN_GREATER_EQUAL:
-                    comparison_result = vigil_value_as_int(&left.value) >= vigil_value_as_int(&right.value);
-                    break;
-                case VIGIL_TOKEN_LESS:
-                    comparison_result = vigil_value_as_int(&left.value) < vigil_value_as_int(&right.value);
-                    break;
-                default:
-                    comparison_result = vigil_value_as_int(&left.value) <= vigil_value_as_int(&right.value);
-                    break;
-                }
-            }
-        }
-        else
-        {
-            switch (token->kind)
-            {
-            case VIGIL_TOKEN_GREATER:
-                comparison_result = vigil_value_as_float(&left.value) > vigil_value_as_float(&right.value);
-                break;
-            case VIGIL_TOKEN_GREATER_EQUAL:
-                comparison_result = vigil_value_as_float(&left.value) >= vigil_value_as_float(&right.value);
-                break;
-            case VIGIL_TOKEN_LESS:
-                comparison_result = vigil_value_as_float(&left.value) < vigil_value_as_float(&right.value);
-                break;
-            default:
-                comparison_result = vigil_value_as_float(&left.value) <= vigil_value_as_float(&right.value);
-                break;
-            }
-        }
+        comparison_result = eval_constant_comparison(token->kind, &left, &right);
 
         vigil_constant_result_release(&left);
         vigil_value_init_bool(&left.value, comparison_result);
@@ -5559,6 +5552,22 @@ static int vigil_parser_find_local_symbol(const vigil_parser_state_t *state, con
     return 0;
 }
 
+static void resolve_local_set_result(size_t *out_index, vigil_parser_type_t *out_type, int *out_is_capture,
+                                     size_t *out_capture_index, int *out_found, size_t index, vigil_parser_type_t type,
+                                     int is_capture, size_t capture_index)
+{
+    if (out_index != NULL)
+        *out_index = index;
+    if (out_type != NULL)
+        *out_type = type;
+    if (out_is_capture != NULL)
+        *out_is_capture = is_capture;
+    if (out_capture_index != NULL)
+        *out_capture_index = capture_index;
+    if (out_found != NULL)
+        *out_found = 1;
+}
+
 static vigil_status_t vigil_parser_resolve_local_symbol(vigil_parser_state_t *state, const vigil_token_t *name_token,
                                                         size_t *out_index, vigil_parser_type_t *out_type,
                                                         int *out_is_capture, size_t *out_capture_index, int *out_found)
@@ -5574,59 +5583,27 @@ static vigil_status_t vigil_parser_resolve_local_symbol(vigil_parser_state_t *st
     size_t name_length;
     vigil_status_t status;
 
-    if (out_index != NULL)
-    {
-        *out_index = 0U;
-    }
-    if (out_type != NULL)
-    {
-        *out_type = vigil_binding_type_invalid();
-    }
-    if (out_is_capture != NULL)
-    {
-        *out_is_capture = 0;
-    }
-    if (out_capture_index != NULL)
-    {
-        *out_capture_index = 0U;
-    }
+    resolve_local_set_result(out_index, out_type, out_is_capture, out_capture_index, out_found, 0U,
+                             vigil_binding_type_invalid(), 0, 0U);
     if (out_found != NULL)
-    {
         *out_found = 0;
-    }
     if (state == NULL || name_token == NULL)
-    {
         return VIGIL_STATUS_OK;
-    }
 
     if (vigil_parser_find_local_symbol(state, name_token, &local_index))
     {
-        if (out_index != NULL)
-        {
-            *out_index = local_index;
-        }
-        if (out_type != NULL)
-        {
-            *out_type = vigil_binding_scope_stack_local_at(&state->locals, local_index)->type;
-        }
-        if (out_found != NULL)
-        {
-            *out_found = 1;
-        }
+        resolve_local_set_result(out_index, out_type, NULL, NULL, out_found, local_index,
+                                 vigil_binding_scope_stack_local_at(&state->locals, local_index)->type, 0, 0U);
         return VIGIL_STATUS_OK;
     }
 
     if (state->parent == NULL)
-    {
         return VIGIL_STATUS_OK;
-    }
 
     status = vigil_parser_resolve_local_symbol(state->parent, name_token, &parent_local_index, &parent_type,
                                                &parent_is_capture, NULL, &found);
     if (status != VIGIL_STATUS_OK || !found)
-    {
         return status;
-    }
 
     name_text = vigil_parser_token_text(state, name_token, &name_length);
     decl = vigil_binding_function_table_get_mutable((vigil_binding_function_table_t *)&state->program->functions,
@@ -5638,35 +5615,15 @@ static vigil_status_t vigil_parser_resolve_local_symbol(vigil_parser_state_t *st
     }
     if (vigil_binding_function_find_capture(decl, name_text, name_length, &capture_index))
     {
-        if (out_index != NULL)
-        {
-            *out_index = capture_index;
-        }
-        if (out_type != NULL)
-        {
-            *out_type = decl->captures[capture_index].type;
-        }
-        if (out_is_capture != NULL)
-        {
-            *out_is_capture = 1;
-        }
-        if (out_capture_index != NULL)
-        {
-            *out_capture_index = capture_index;
-        }
-        if (out_found != NULL)
-        {
-            *out_found = 1;
-        }
+        resolve_local_set_result(out_index, out_type, out_is_capture, out_capture_index, out_found, capture_index,
+                                 decl->captures[capture_index].type, 1, capture_index);
         return VIGIL_STATUS_OK;
     }
 
     status =
         vigil_binding_function_grow_captures((vigil_program_state_t *)state->program, decl, decl->capture_count + 1U);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
     capture_index = decl->capture_count;
     decl->captures[capture_index].name = name_text;
@@ -5676,26 +5633,8 @@ static vigil_status_t vigil_parser_resolve_local_symbol(vigil_parser_state_t *st
     decl->captures[capture_index].source_is_capture = parent_is_capture;
     decl->capture_count += 1U;
 
-    if (out_index != NULL)
-    {
-        *out_index = capture_index;
-    }
-    if (out_type != NULL)
-    {
-        *out_type = parent_type;
-    }
-    if (out_is_capture != NULL)
-    {
-        *out_is_capture = 1;
-    }
-    if (out_capture_index != NULL)
-    {
-        *out_capture_index = capture_index;
-    }
-    if (out_found != NULL)
-    {
-        *out_found = 1;
-    }
+    resolve_local_set_result(out_index, out_type, out_is_capture, out_capture_index, out_found, capture_index,
+                             parent_type, 1, capture_index);
     return VIGIL_STATUS_OK;
 }
 
@@ -10713,201 +10652,159 @@ cleanup_loop:
     return status;
 }
 
+static vigil_status_t parse_c_for_init(vigil_parser_state_t *state)
+{
+    if (vigil_parser_match(state, VIGIL_TOKEN_SEMICOLON))
+        return VIGIL_STATUS_OK;
+    if (vigil_parser_is_variable_declaration_start(state))
+        return vigil_parser_parse_variable_declaration(state, NULL);
+    if (vigil_parser_is_assignment_start(state))
+        return vigil_parser_parse_assignment_statement_internal(state, NULL, 1);
+    return vigil_parser_parse_expression_statement_internal(state, NULL, 1);
+}
+
+static vigil_status_t parse_c_for_condition(vigil_parser_state_t *state, vigil_source_span_t span, int *has_condition,
+                                            size_t *exit_jump_offset)
+{
+    vigil_status_t status;
+    vigil_expression_result_t condition_result;
+
+    vigil_expression_result_clear(&condition_result);
+    *has_condition = 0;
+    *exit_jump_offset = 0U;
+
+    if (!vigil_parser_check(state, VIGIL_TOKEN_SEMICOLON))
+    {
+        *has_condition = 1;
+        status = vigil_parser_parse_expression(state, &condition_result);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_require_scalar_expression(state, span, &condition_result,
+                                                        "for condition must be a single bool value");
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_require_bool_type(state, span, condition_result.type, "for condition must be bool");
+        if (status != VIGIL_STATUS_OK)
+            return status;
+    }
+    status = vigil_parser_expect(state, VIGIL_TOKEN_SEMICOLON, "expected ';' after for condition", NULL);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+
+    if (*has_condition)
+    {
+        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP_IF_FALSE, span, exit_jump_offset);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_c_for_increment(vigil_parser_state_t *state, vigil_source_span_t span,
+                                            size_t condition_start, int *has_increment, size_t *loop_start,
+                                            size_t *body_jump_offset)
+{
+    vigil_status_t status;
+
+    *has_increment = 0;
+    *loop_start = condition_start;
+    *body_jump_offset = 0U;
+
+    if (vigil_parser_check(state, VIGIL_TOKEN_RPAREN))
+        return VIGIL_STATUS_OK;
+
+    *has_increment = 1;
+    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, span, body_jump_offset);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+
+    *loop_start = vigil_chunk_code_size(&state->chunk);
+    if (vigil_parser_is_assignment_start(state))
+        status = vigil_parser_parse_assignment_statement_internal(state, NULL, 0);
+    else
+        status = vigil_parser_parse_expression_statement_internal(state, NULL, 0);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+
+    return vigil_parser_emit_loop(state, condition_start, span);
+}
+
 static vigil_status_t vigil_parser_parse_c_for_statement(vigil_parser_state_t *state, const vigil_token_t *for_token,
                                                          vigil_statement_result_t *out_result)
 {
     vigil_status_t status;
-    vigil_expression_result_t condition_result;
     size_t condition_start;
     size_t loop_start;
     size_t exit_jump_offset;
     size_t body_jump_offset;
-    size_t increment_start;
     int has_condition;
     int has_increment;
     int loop_pushed;
 
-    vigil_expression_result_clear(&condition_result);
-    body_jump_offset = 0U;
-    increment_start = 0U;
-    has_condition = 0;
-    has_increment = 0;
     loop_pushed = 0;
 
     status = vigil_parser_expect(state, VIGIL_TOKEN_LPAREN, "expected '(' after 'for'", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
     vigil_parser_begin_scope(state);
-    if (vigil_parser_match(state, VIGIL_TOKEN_SEMICOLON))
-    {
-    }
-    else if (vigil_parser_is_variable_declaration_start(state))
-    {
-        status = vigil_parser_parse_variable_declaration(state, NULL);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
-    else if (vigil_parser_is_assignment_start(state))
-    {
-        status = vigil_parser_parse_assignment_statement_internal(state, NULL, 1);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
-    else
-    {
-        status = vigil_parser_parse_expression_statement_internal(state, NULL, 1);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
+    status = parse_c_for_init(state);
+    if (status != VIGIL_STATUS_OK)
+        return status;
 
     condition_start = vigil_chunk_code_size(&state->chunk);
-    if (!vigil_parser_check(state, VIGIL_TOKEN_SEMICOLON))
-    {
-        has_condition = 1;
-        status = vigil_parser_parse_expression(state, &condition_result);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_require_scalar_expression(state, for_token->span, &condition_result,
-                                                        "for condition must be a single bool value");
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status =
-            vigil_parser_require_bool_type(state, for_token->span, condition_result.type, "for condition must be bool");
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
-    status = vigil_parser_expect(state, VIGIL_TOKEN_SEMICOLON, "expected ';' after for condition", NULL);
+    status = parse_c_for_condition(state, for_token->span, &has_condition, &exit_jump_offset);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
-    exit_jump_offset = 0U;
-    if (has_condition)
-    {
-        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP_IF_FALSE, for_token->span, &exit_jump_offset);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-    }
-
-    loop_start = condition_start;
-    if (!vigil_parser_check(state, VIGIL_TOKEN_RPAREN))
-    {
-        has_increment = 1;
-        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, for_token->span, &body_jump_offset);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-
-        increment_start = vigil_chunk_code_size(&state->chunk);
-        if (vigil_parser_is_assignment_start(state))
-        {
-            status = vigil_parser_parse_assignment_statement_internal(state, NULL, 0);
-        }
-        else
-        {
-            status = vigil_parser_parse_expression_statement_internal(state, NULL, 0);
-        }
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-
-        status = vigil_parser_emit_loop(state, condition_start, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        loop_start = increment_start;
-    }
+    status =
+        parse_c_for_increment(state, for_token->span, condition_start, &has_increment, &loop_start, &body_jump_offset);
+    if (status != VIGIL_STATUS_OK)
+        return status;
 
     status = vigil_parser_expect(state, VIGIL_TOKEN_RPAREN, "expected ')' after for clauses", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     if (has_increment)
     {
         status = vigil_parser_patch_jump(state, body_jump_offset);
         if (status != VIGIL_STATUS_OK)
-        {
             return status;
-        }
     }
 
     status = vigil_parser_push_loop(state, loop_start);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     loop_pushed = 1;
 
     status = vigil_parser_parse_statement(state, NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup_loop;
-    }
-
     status = vigil_parser_emit_loop(state, loop_start, for_token->span);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup_loop;
-    }
     if (has_condition)
     {
         status = vigil_parser_patch_jump(state, exit_jump_offset);
         if (status != VIGIL_STATUS_OK)
-        {
             goto cleanup_loop;
-        }
         status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, for_token->span);
         if (status != VIGIL_STATUS_OK)
-        {
             goto cleanup_loop;
-        }
     }
-
     status = patch_loop_breaks(state);
-    if (status != VIGIL_STATUS_OK)
-    {
-        goto cleanup_loop;
-    }
 
 cleanup_loop:
     if (loop_pushed)
-    {
         vigil_parser_pop_loop(state);
-    }
     if (status == VIGIL_STATUS_OK)
     {
         status = vigil_parser_end_scope(state);
         if (status == VIGIL_STATUS_OK)
-        {
             vigil_statement_result_set_guaranteed_return(out_result, 0);
-        }
     }
     return status;
 }
