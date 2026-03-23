@@ -12000,6 +12000,96 @@ static int vigil_parser_skip_bracketed_suffix(const vigil_parser_state_t *state,
     return 0;
 }
 
+static int vigil_parser_skip_type_reference_tokens(const vigil_program_state_t *program, size_t *cursor);
+
+static int skip_type_comma_list(const vigil_program_state_t *program, size_t *cursor, vigil_token_kind_t end_token)
+{
+    const vigil_token_t *token;
+    while (1)
+    {
+        if (!vigil_parser_skip_type_reference_tokens(program, cursor))
+            return 0;
+        token = vigil_program_token_at(program, *cursor);
+        if (token != NULL && token->kind == VIGIL_TOKEN_COMMA)
+        {
+            (*cursor)++;
+            continue;
+        }
+        if (token != NULL && token->kind == end_token)
+        {
+            (*cursor)++;
+            return 1;
+        }
+        return end_token == VIGIL_TOKEN_RPAREN ? 0 : 1;
+    }
+}
+
+static int skip_fn_type_tokens(const vigil_program_state_t *program, size_t *cursor)
+{
+    const vigil_token_t *token;
+
+    (*cursor)++; /* skip 'fn' */
+    token = vigil_program_token_at(program, *cursor);
+    if (token == NULL || token->kind != VIGIL_TOKEN_LPAREN)
+        return 1;
+    (*cursor)++;
+
+    /* params */
+    token = vigil_program_token_at(program, *cursor);
+    if (token != NULL && token->kind != VIGIL_TOKEN_RPAREN)
+    {
+        if (!skip_type_comma_list(program, cursor, VIGIL_TOKEN_RPAREN))
+            return 0;
+    }
+    else
+    {
+        token = vigil_program_token_at(program, *cursor);
+        if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN)
+            return 0;
+        (*cursor)++;
+    }
+
+    /* return type */
+    token = vigil_program_token_at(program, *cursor);
+    if (token != NULL && token->kind == VIGIL_TOKEN_ARROW)
+    {
+        (*cursor)++;
+        token = vigil_program_token_at(program, *cursor);
+        if (token != NULL && token->kind == VIGIL_TOKEN_LPAREN)
+        {
+            (*cursor)++;
+            if (!skip_type_comma_list(program, cursor, VIGIL_TOKEN_RPAREN))
+                return 0;
+        }
+        else if (!vigil_parser_skip_type_reference_tokens(program, cursor))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int skip_generic_type_tokens(const vigil_program_state_t *program, size_t *cursor, int param_count)
+{
+    const vigil_token_t *token;
+    int i;
+
+    (*cursor) += 2U; /* skip name + '<' */
+    for (i = 0; i < param_count; i++)
+    {
+        if (i > 0)
+        {
+            token = vigil_program_token_at(program, *cursor);
+            if (token == NULL || token->kind != VIGIL_TOKEN_COMMA)
+                return 0;
+            (*cursor)++;
+        }
+        if (!vigil_parser_skip_type_reference_tokens(program, cursor))
+            return 0;
+    }
+    return vigil_program_consume_type_close(program, cursor);
+}
+
 static int vigil_parser_skip_type_reference_tokens(const vigil_program_state_t *program, size_t *cursor)
 {
     const vigil_token_t *token;
@@ -12008,147 +12098,38 @@ static int vigil_parser_skip_type_reference_tokens(const vigil_program_state_t *
     size_t name_length;
 
     if (program == NULL || cursor == NULL)
-    {
         return 0;
-    }
 
     token = vigil_program_token_at(program, *cursor);
     if (token == NULL)
-    {
         return 0;
-    }
 
     if (token->kind == VIGIL_TOKEN_FN)
-    {
-        *cursor += 1U;
-        token = vigil_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != VIGIL_TOKEN_LPAREN)
-        {
-            return 1;
-        }
-
-        *cursor += 1U;
-        token = vigil_program_token_at(program, *cursor);
-        if (token != NULL && token->kind != VIGIL_TOKEN_RPAREN)
-        {
-            while (1)
-            {
-                if (!vigil_parser_skip_type_reference_tokens(program, cursor))
-                {
-                    return 0;
-                }
-                token = vigil_program_token_at(program, *cursor);
-                if (token != NULL && token->kind == VIGIL_TOKEN_COMMA)
-                {
-                    *cursor += 1U;
-                    continue;
-                }
-                break;
-            }
-        }
-
-        token = vigil_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != VIGIL_TOKEN_RPAREN)
-        {
-            return 0;
-        }
-        *cursor += 1U;
-
-        token = vigil_program_token_at(program, *cursor);
-        if (token != NULL && token->kind == VIGIL_TOKEN_ARROW)
-        {
-            *cursor += 1U;
-            token = vigil_program_token_at(program, *cursor);
-            if (token != NULL && token->kind == VIGIL_TOKEN_LPAREN)
-            {
-                *cursor += 1U;
-                while (1)
-                {
-                    if (!vigil_parser_skip_type_reference_tokens(program, cursor))
-                    {
-                        return 0;
-                    }
-                    token = vigil_program_token_at(program, *cursor);
-                    if (token != NULL && token->kind == VIGIL_TOKEN_COMMA)
-                    {
-                        *cursor += 1U;
-                        continue;
-                    }
-                    if (token != NULL && token->kind == VIGIL_TOKEN_RPAREN)
-                    {
-                        *cursor += 1U;
-                        break;
-                    }
-                    return 0;
-                }
-            }
-            else if (!vigil_parser_skip_type_reference_tokens(program, cursor))
-            {
-                return 0;
-            }
-        }
-        return 1;
-    }
+        return skip_fn_type_tokens(program, cursor);
 
     if (token->kind != VIGIL_TOKEN_IDENTIFIER)
-    {
         return 0;
-    }
 
     name_text = vigil_program_token_text(program, token, &name_length);
     next_token = vigil_program_token_at(program, *cursor + 1U);
-    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LESS &&
-        vigil_program_names_equal(name_text, name_length, "array", 5U))
+    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LESS)
     {
-        *cursor += 2U;
-        if (!vigil_parser_skip_type_reference_tokens(program, cursor))
-        {
-            return 0;
-        }
-        if (!vigil_program_consume_type_close(program, cursor))
-        {
-            return 0;
-        }
-        return 1;
-    }
-    if (next_token != NULL && next_token->kind == VIGIL_TOKEN_LESS &&
-        vigil_program_names_equal(name_text, name_length, "map", 3U))
-    {
-        *cursor += 2U;
-        if (!vigil_parser_skip_type_reference_tokens(program, cursor))
-        {
-            return 0;
-        }
-        token = vigil_program_token_at(program, *cursor);
-        if (token == NULL || token->kind != VIGIL_TOKEN_COMMA)
-        {
-            return 0;
-        }
-        *cursor += 1U;
-        if (!vigil_parser_skip_type_reference_tokens(program, cursor))
-        {
-            return 0;
-        }
-        if (!vigil_program_consume_type_close(program, cursor))
-        {
-            return 0;
-        }
-        return 1;
+        if (vigil_program_names_equal(name_text, name_length, "array", 5U))
+            return skip_generic_type_tokens(program, cursor, 1);
+        if (vigil_program_names_equal(name_text, name_length, "map", 3U))
+            return skip_generic_type_tokens(program, cursor, 2);
     }
 
-    *cursor += 1U;
+    (*cursor)++;
     token = vigil_program_token_at(program, *cursor);
     if (token != NULL && token->kind == VIGIL_TOKEN_DOT)
     {
-        *cursor += 1U;
+        (*cursor)++;
         token = vigil_program_token_at(program, *cursor);
         if (token == NULL || token->kind != VIGIL_TOKEN_IDENTIFIER)
-        {
             return 0;
-        }
-        *cursor += 1U;
+        (*cursor)++;
     }
-
     return 1;
 }
 
