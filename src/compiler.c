@@ -11499,6 +11499,134 @@ static vigil_status_t vigil_parser_parse_switch_case_contents(vigil_parser_state
     return VIGIL_STATUS_OK;
 }
 
+static vigil_status_t parse_switch_default_case(vigil_parser_state_t *state, const vigil_token_t *token,
+                                                int *all_branches_return, size_t **end_jumps, size_t *end_jump_count,
+                                                size_t *end_jump_capacity)
+{
+    vigil_status_t status;
+    vigil_statement_result_t case_body_result;
+
+    vigil_parser_advance(state);
+    status = vigil_parser_expect(state, VIGIL_TOKEN_COLON, "expected ':' after default", NULL);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    vigil_statement_result_clear(&case_body_result);
+    status = vigil_parser_parse_switch_case_contents(state, &case_body_result);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    *all_branches_return = *all_branches_return && case_body_result.guaranteed_return;
+    status = vigil_parser_grow_jump_offsets(state, end_jumps, end_jump_capacity, *end_jump_count + 1U,
+                                            "switch jump table allocation overflow");
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &(*end_jumps)[*end_jump_count]);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    (*end_jump_count)++;
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_switch_case_values(vigil_parser_state_t *state, const vigil_token_t *token,
+                                               vigil_parser_type_t switch_type, size_t **body_jumps,
+                                               size_t *body_jump_count, size_t *body_jump_capacity)
+{
+    vigil_status_t status;
+    vigil_expression_result_t case_result;
+    size_t false_jump_offset;
+
+    *body_jump_count = 0U;
+    while (1)
+    {
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_DUP, token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        vigil_expression_result_clear(&case_result);
+        status = vigil_parser_parse_expression(state, &case_result);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_require_same_type(state, token->span, case_result.type, switch_type,
+                                                "switch case value type does not match switch expression");
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_EQUAL, token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP_IF_FALSE, token->span, &false_jump_offset);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_grow_jump_offsets(state, body_jumps, body_jump_capacity, *body_jump_count + 1U,
+                                                "switch jump table allocation overflow");
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &(*body_jumps)[*body_jump_count]);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        (*body_jump_count)++;
+        status = vigil_parser_patch_jump(state, false_jump_offset);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        if (!vigil_parser_match(state, VIGIL_TOKEN_COMMA))
+            break;
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_switch_case_branch(vigil_parser_state_t *state, const vigil_token_t *token,
+                                               vigil_parser_type_t switch_type, int *all_branches_return,
+                                               size_t **end_jumps, size_t *end_jump_count, size_t *end_jump_capacity,
+                                               size_t **body_jumps, size_t *body_jump_capacity)
+{
+    vigil_status_t status;
+    vigil_statement_result_t case_body_result;
+    size_t body_jump_count;
+    size_t jump_offset;
+    size_t i;
+
+    vigil_parser_advance(state);
+    status = parse_switch_case_values(state, token, switch_type, body_jumps, &body_jump_count, body_jump_capacity);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+
+    status = vigil_parser_expect(state, VIGIL_TOKEN_COLON, "expected ':' after case value", NULL);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &jump_offset);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    for (i = 0U; i < body_jump_count; i++)
+    {
+        status = vigil_parser_patch_jump(state, (*body_jumps)[i]);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+    }
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    vigil_statement_result_clear(&case_body_result);
+    status = vigil_parser_parse_switch_case_contents(state, &case_body_result);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    *all_branches_return = *all_branches_return && case_body_result.guaranteed_return;
+    status = vigil_parser_grow_jump_offsets(state, end_jumps, end_jump_capacity, *end_jump_count + 1U,
+                                            "switch jump table allocation overflow");
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &(*end_jumps)[*end_jump_count]);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    (*end_jump_count)++;
+    return vigil_parser_patch_jump(state, jump_offset);
+}
+
 static vigil_status_t vigil_parser_parse_switch_statement(vigil_parser_state_t *state,
                                                           vigil_statement_result_t *out_result)
 {
@@ -11506,27 +11634,20 @@ static vigil_status_t vigil_parser_parse_switch_statement(vigil_parser_state_t *
     const vigil_token_t *switch_token;
     const vigil_token_t *token;
     vigil_expression_result_t switch_result;
-    vigil_expression_result_t case_result;
-    vigil_statement_result_t case_body_result;
     size_t *end_jumps;
     size_t end_jump_count;
     size_t end_jump_capacity;
     size_t *body_jumps;
-    size_t body_jump_count;
     size_t body_jump_capacity;
     size_t jump_offset;
-    size_t false_jump_offset;
     int has_default;
     int all_branches_return;
 
     vigil_expression_result_clear(&switch_result);
-    vigil_expression_result_clear(&case_result);
-    vigil_statement_result_clear(&case_body_result);
     end_jumps = NULL;
     end_jump_count = 0U;
     end_jump_capacity = 0U;
     body_jumps = NULL;
-    body_jump_count = 0U;
     body_jump_capacity = 0U;
     has_default = 0;
     all_branches_return = 1;
@@ -11586,36 +11707,10 @@ static vigil_status_t vigil_parser_parse_switch_statement(vigil_parser_state_t *
                 goto cleanup;
             }
             has_default = 1;
-            vigil_parser_advance(state);
-            status = vigil_parser_expect(state, VIGIL_TOKEN_COLON, "expected ':' after default", NULL);
+            status = parse_switch_default_case(state, token, &all_branches_return, &end_jumps, &end_jump_count,
+                                               &end_jump_capacity);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            vigil_statement_result_clear(&case_body_result);
-            status = vigil_parser_parse_switch_case_contents(state, &case_body_result);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            all_branches_return = all_branches_return && case_body_result.guaranteed_return;
-            status = vigil_parser_grow_jump_offsets(state, &end_jumps, &end_jump_capacity, end_jump_count + 1U,
-                                                    "switch jump table allocation overflow");
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &end_jumps[end_jump_count]);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            end_jump_count += 1U;
             continue;
         }
 
@@ -11624,120 +11719,10 @@ static vigil_status_t vigil_parser_parse_switch_statement(vigil_parser_state_t *
             status = vigil_parser_report(state, token->span, "expected 'case', 'default', or '}' in switch body");
             goto cleanup;
         }
-        vigil_parser_advance(state);
-
-        body_jump_count = 0U;
-        while (1)
-        {
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_DUP, token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            vigil_expression_result_clear(&case_result);
-            status = vigil_parser_parse_expression(state, &case_result);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_require_same_type(state, token->span, case_result.type, switch_result.type,
-                                                    "switch case value type does not match switch expression");
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_EQUAL, token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP_IF_FALSE, token->span, &false_jump_offset);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_grow_jump_offsets(state, &body_jumps, &body_jump_capacity, body_jump_count + 1U,
-                                                    "switch jump table allocation overflow");
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &body_jumps[body_jump_count]);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            body_jump_count += 1U;
-            status = vigil_parser_patch_jump(state, false_jump_offset);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-
-            if (!vigil_parser_match(state, VIGIL_TOKEN_COMMA))
-            {
-                break;
-            }
-        }
-
-        status = vigil_parser_expect(state, VIGIL_TOKEN_COLON, "expected ':' after case value", NULL);
+        status = parse_switch_case_branch(state, token, switch_result.type, &all_branches_return, &end_jumps,
+                                          &end_jump_count, &end_jump_capacity, &body_jumps, &body_jump_capacity);
         if (status != VIGIL_STATUS_OK)
-        {
             goto cleanup;
-        }
-        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &jump_offset);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        for (false_jump_offset = 0U; false_jump_offset < body_jump_count; false_jump_offset += 1U)
-        {
-            status = vigil_parser_patch_jump(state, body_jumps[false_jump_offset]);
-            if (status != VIGIL_STATUS_OK)
-            {
-                goto cleanup;
-            }
-        }
-
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        vigil_statement_result_clear(&case_body_result);
-        status = vigil_parser_parse_switch_case_contents(state, &case_body_result);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        all_branches_return = all_branches_return && case_body_result.guaranteed_return;
-        status = vigil_parser_grow_jump_offsets(state, &end_jumps, &end_jump_capacity, end_jump_count + 1U,
-                                                "switch jump table allocation overflow");
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, token->span, &end_jumps[end_jump_count]);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        end_jump_count += 1U;
-        status = vigil_parser_patch_jump(state, jump_offset);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
     }
 
     if (!has_default)
