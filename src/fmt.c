@@ -150,6 +150,16 @@ static void emit_comment_text(fmt_state_t *f, size_t cstart, size_t cend)
     emit_newline(f);
 }
 
+static size_t skip_block_comment(const char *src, size_t i, size_t end)
+{
+    i += 2;
+    while (i + 1 < end && !(src[i] == '*' && src[i + 1] == '/'))
+        i++;
+    if (i + 1 < end)
+        i += 2;
+    return i;
+}
+
 static bool emit_comments_between(fmt_state_t *f, size_t start, size_t end)
 {
     bool emitted = false;
@@ -167,11 +177,7 @@ static bool emit_comments_between(fmt_state_t *f, size_t start, size_t end)
         else if (i + 1 < end && f->src[i] == '/' && f->src[i + 1] == '*')
         {
             size_t cstart = i;
-            i += 2;
-            while (i + 1 < end && !(f->src[i] == '*' && f->src[i + 1] == '/'))
-                i++;
-            if (i + 1 < end)
-                i += 2;
+            i = skip_block_comment(f->src, i, end);
             emit_comment_text(f, cstart, i);
             emitted = true;
         }

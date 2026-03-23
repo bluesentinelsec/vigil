@@ -58,8 +58,7 @@ static int registry_find_source_path(const vigil_source_registry_t *registry, co
     return 0;
 }
 
-const char *cli_source_token_text(const vigil_source_file_t *source, const vigil_token_t *token,
-                                  size_t *out_length)
+const char *cli_source_token_text(const vigil_source_file_t *source, const vigil_token_t *token, size_t *out_length)
 {
     size_t length;
 
@@ -73,11 +72,22 @@ const char *cli_source_token_text(const vigil_source_file_t *source, const vigil
     return vigil_string_c_str(&source->text) + token->span.start_offset;
 }
 
-vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path,
-                                       const char *import_text, size_t import_length,
-                                       vigil_string_t *out_path, vigil_error_t *error)
+static size_t cli_path_dir_length(const char *path, size_t length)
 {
-    size_t base_length;
+    size_t prefix = length;
+    while (prefix > 0U)
+    {
+        char current = path[prefix - 1U];
+        if (current == '/' || current == '\\')
+            break;
+        prefix -= 1U;
+    }
+    return prefix;
+}
+
+vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_path, const char *import_text,
+                                   size_t import_length, vigil_string_t *out_path, vigil_error_t *error)
+{
     size_t prefix_length;
 
     vigil_string_clear(out_path);
@@ -89,17 +99,7 @@ vigil_status_t resolve_import_path(vigil_runtime_t *runtime, const char *base_pa
     if (cli_path_is_absolute(import_text, import_length))
         return vigil_string_assign(out_path, import_text, import_length, error);
 
-    base_length = strlen(base_path);
-    prefix_length = base_length;
-    while (prefix_length > 0U)
-    {
-        char current;
-
-        current = base_path[prefix_length - 1U];
-        if (current == '/' || current == '\\')
-            break;
-        prefix_length -= 1U;
-    }
+    prefix_length = cli_path_dir_length(base_path, strlen(base_path));
     if (prefix_length != 0U)
     {
         if (vigil_string_assign(out_path, base_path, prefix_length, error) != VIGIL_STATUS_OK)
@@ -281,9 +281,8 @@ static int register_single_import(import_register_context_t *context, const vigi
         return 1;
 
     vigil_string_init(&import_path, context->runtime);
-    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path),
-                                import_text + 1U, import_length - 2U, &import_path,
-                                context->error) != VIGIL_STATUS_OK)
+    if (resolve_import_path(context->runtime, vigil_string_c_str(&(*context->source)->path), import_text + 1U,
+                            import_length - 2U, &import_path, context->error) != VIGIL_STATUS_OK)
     {
         vigil_string_free(&import_path);
         return 0;

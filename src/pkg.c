@@ -5,6 +5,7 @@
  * Packages are identified by git URLs (e.g. github.com/user/repo).
  */
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,12 +35,12 @@ static void set_error(vigil_error_t *error, vigil_status_t type, const char *msg
 static char *trim_whitespace(char *str)
 {
     char *end;
-    while (*str == ' ' || *str == '\t' || *str == '\n' || *str == '\r')
+    while (isspace((unsigned char)*str))
         str++;
     if (*str == '\0')
         return str;
     end = str + strlen(str) - 1;
-    while (end > str && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r'))
+    while (end > str && isspace((unsigned char)*end))
         end--;
     end[1] = '\0';
     return str;
@@ -596,6 +597,18 @@ static vigil_status_t install_transitive_deps(const char *project_root, const ch
                                               vigil_error_t *error);
 
 /* Install a single package (used by both get and sync) */
+static void ensure_parent_dir(const char *path, vigil_error_t *error)
+{
+    char parent[4096];
+    size_t len = strlen(path);
+    memcpy(parent, path, len + 1);
+    while (len > 0 && parent[len - 1] != '/' && parent[len - 1] != '\\')
+        len--;
+    if (len > 0)
+        parent[len - 1] = '\0';
+    vigil_platform_mkdir_p(parent, error);
+}
+
 static vigil_status_t install_package(const char *project_root, const char *pkg_url, const char *version,
                                       vigil_pkg_lock_t *lock, char *out_commit, size_t commit_size,
                                       vigil_error_t *error)
@@ -623,23 +636,13 @@ static vigil_status_t install_package(const char *project_root, const char *pkg_
 
     if (pkg_exists)
     {
-        /* Fetch updates */
         status = vigil_pkg_git_fetch(pkg_path, error);
         if (status != VIGIL_STATUS_OK)
             return status;
     }
     else
     {
-        /* Create parent directories */
-        char parent[4096];
-        size_t len = strlen(pkg_path);
-        memcpy(parent, pkg_path, len + 1);
-        while (len > 0 && parent[len - 1] != '/' && parent[len - 1] != '\\')
-            len--;
-        if (len > 0)
-            parent[len - 1] = '\0';
-        vigil_platform_mkdir_p(parent, error);
-
+        ensure_parent_dir(pkg_path, error);
         status = vigil_pkg_git_clone(pkg_url, pkg_path, error);
         if (status != VIGIL_STATUS_OK)
             return status;
@@ -931,6 +934,27 @@ static vigil_status_t remove_directory_recursive(const char *path, vigil_error_t
     return vigil_platform_remove(path, error);
 }
 
+static void lock_remove_entry(vigil_pkg_lock_t *lock, const char *name)
+{
+    size_t i;
+    for (i = 0; i < lock->count; i++)
+    {
+        if (strcmp(lock->entries[i].name, name) == 0)
+        {
+            free(lock->entries[i].name);
+            free(lock->entries[i].version);
+            free(lock->entries[i].commit);
+            if (i + 1 < lock->count)
+            {
+                memmove(&lock->entries[i], &lock->entries[i + 1],
+                        (lock->count - i - 1) * sizeof(vigil_pkg_lock_entry_t));
+            }
+            lock->count--;
+            break;
+        }
+    }
+}
+
 vigil_status_t vigil_pkg_remove(const char *project_root, const char *package_url, vigil_error_t *error)
 {
     vigil_toml_value_t *root = NULL;
@@ -941,7 +965,6 @@ vigil_status_t vigil_pkg_remove(const char *project_root, const char *package_ur
     char lock_path[4096];
     vigil_status_t status;
     int pkg_exists = 0;
-    size_t i;
 
     if (project_root == NULL || package_url == NULL)
     {
@@ -983,23 +1006,7 @@ vigil_status_t vigil_pkg_remove(const char *project_root, const char *package_ur
     vigil_pkg_lock_init(&lock);
     if (vigil_pkg_lock_read(lock_path, &lock, NULL) == VIGIL_STATUS_OK)
     {
-        /* Find and remove entry */
-        for (i = 0; i < lock.count; i++)
-        {
-            if (strcmp(lock.entries[i].name, package_url) == 0)
-            {
-                free(lock.entries[i].name);
-                free(lock.entries[i].version);
-                free(lock.entries[i].commit);
-                if (i + 1 < lock.count)
-                {
-                    memmove(&lock.entries[i], &lock.entries[i + 1],
-                            (lock.count - i - 1) * sizeof(vigil_pkg_lock_entry_t));
-                }
-                lock.count--;
-                break;
-            }
-        }
+        lock_remove_entry(&lock, package_url);
         vigil_pkg_lock_write(lock_path, &lock, error);
     }
     vigil_pkg_lock_free(&lock);

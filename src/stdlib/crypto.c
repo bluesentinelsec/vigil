@@ -77,28 +77,26 @@ static void bytes_to_hex(const uint8_t *data, size_t len, char *out)
     }
 }
 
+static int hex_digit_value(int ch)
+{
+    if (ch >= '0' && ch <= '9')
+        return ch - '0';
+    if (ch >= 'a' && ch <= 'f')
+        return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F')
+        return ch - 'A' + 10;
+    return -1;
+}
+
 static int hex_to_bytes(const char *hex, size_t hex_len, uint8_t *out)
 {
     if (hex_len % 2 != 0)
         return -1;
     for (size_t i = 0; i < hex_len / 2; i++)
     {
-        int hi = hex[i * 2], lo = hex[i * 2 + 1];
-        if (hi >= '0' && hi <= '9')
-            hi -= '0';
-        else if (hi >= 'a' && hi <= 'f')
-            hi = hi - 'a' + 10;
-        else if (hi >= 'A' && hi <= 'F')
-            hi = hi - 'A' + 10;
-        else
-            return -1;
-        if (lo >= '0' && lo <= '9')
-            lo -= '0';
-        else if (lo >= 'a' && lo <= 'f')
-            lo = lo - 'a' + 10;
-        else if (lo >= 'A' && lo <= 'F')
-            lo = lo - 'A' + 10;
-        else
+        int hi = hex_digit_value(hex[i * 2]);
+        int lo = hex_digit_value(hex[i * 2 + 1]);
+        if (hi < 0 || lo < 0)
             return -1;
         out[i] = (uint8_t)((hi << 4) | lo);
     }

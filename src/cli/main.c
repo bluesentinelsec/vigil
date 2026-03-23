@@ -767,6 +767,36 @@ static void debug_cli_print_locals(debug_cli_state_t *state, size_t frame_idx)
     }
 }
 
+static const char *skip_to_line(const char *text, int target_line)
+{
+    const char *p = text;
+    int cur = 1;
+    while (*p && cur < target_line)
+    {
+        if (*p == '\n')
+            cur++;
+        p++;
+    }
+    return p;
+}
+
+static void debug_cli_print_source_range(const char *p, int start, int end, uint32_t current_line)
+{
+    int cur = start;
+    while (*p && cur <= end)
+    {
+        const char *eol = p;
+        while (*eol && *eol != '\n')
+            eol++;
+        char marker = (cur == (int)current_line) ? '>' : ' ';
+        printf("%c%4d | %.*s\n", marker, cur, (int)(eol - p), p);
+        if (*eol)
+            eol++;
+        p = eol;
+        cur++;
+    }
+}
+
 static void debug_cli_list_source(debug_cli_state_t *state, int around_line)
 {
     vigil_source_id_t source_id;
@@ -782,30 +812,10 @@ static void debug_cli_list_source(debug_cli_state_t *state, int around_line)
     const char *text = vigil_string_c_str(&source->text);
     int center = (around_line > 0) ? around_line : (int)line;
     int start = center - 5;
-    int end = center + 5;
     if (start < 1)
         start = 1;
 
-    const char *p = text;
-    int cur = 1;
-    while (*p && cur < start)
-    {
-        if (*p == '\n')
-            cur++;
-        p++;
-    }
-    while (*p && cur <= end)
-    {
-        const char *eol = p;
-        while (*eol && *eol != '\n')
-            eol++;
-        char marker = (cur == (int)line) ? '>' : ' ';
-        printf("%c%4d | %.*s\n", marker, cur, (int)(eol - p), p);
-        if (*eol)
-            eol++;
-        p = eol;
-        cur++;
-    }
+    debug_cli_print_source_range(skip_to_line(text, start), start, center + 5, line);
 }
 
 static void debug_cli_help(void)
@@ -2216,29 +2226,32 @@ static int repl_needs_continuation(const char *text)
 }
 
 /* Count net open brackets in text. */
+static const char *skip_string_literal(const char *text, char quote)
+{
+    for (text++; *text; text++)
+    {
+        if (*text == '\\')
+        {
+            if (text[1])
+                text++;
+            continue;
+        }
+        if (*text == quote)
+            return text;
+    }
+    return text;
+}
+
 static int repl_bracket_depth(const char *text)
 {
     int depth = 0;
-    int in_string = 0;
-    char quote = 0;
     for (; *text; text++)
     {
-        if (in_string)
-        {
-            if (*text == '\\')
-            {
-                if (text[1])
-                    text++;
-                continue;
-            }
-            if (*text == quote)
-                in_string = 0;
-            continue;
-        }
         if (*text == '"' || *text == '\'')
         {
-            in_string = 1;
-            quote = *text;
+            text = skip_string_literal(text, *text);
+            if (!*text)
+                break;
             continue;
         }
         if (*text == '{' || *text == '(' || *text == '[')
