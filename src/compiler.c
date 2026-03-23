@@ -6042,6 +6042,92 @@ static int vigil_parser_resolve_builtin_conversion_kind(const vigil_parser_state
     return 1;
 }
 
+static vigil_status_t resolve_integer_conversion(vigil_parser_state_t *state, const vigil_token_t *name_token,
+                                                 vigil_type_kind_t target_kind, vigil_parser_type_t arg_type,
+                                                 vigil_opcode_t opcode, vigil_opcode_t *out_opcode, int *needs_opcode)
+{
+    if (vigil_parser_type_equal(arg_type, vigil_binding_type_primitive(target_kind)))
+    {
+        *needs_opcode = 0;
+    }
+    else if (vigil_parser_type_is_integer(arg_type) || vigil_parser_type_is_f64(arg_type))
+    {
+        *out_opcode = opcode;
+        *needs_opcode = 1;
+    }
+    else
+    {
+        return vigil_parser_report(state, name_token->span, "integer conversions require an integer or f64 argument");
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t resolve_non_integer_conversion(vigil_parser_state_t *state, const vigil_token_t *name_token,
+                                                     vigil_type_kind_t target_kind, vigil_parser_type_t arg_type,
+                                                     vigil_opcode_t *out_opcode, int *needs_opcode)
+{
+    switch (target_kind)
+    {
+    case VIGIL_TYPE_F64:
+        if (vigil_parser_type_is_f64(arg_type))
+            *needs_opcode = 0;
+        else if (vigil_parser_type_is_integer(arg_type))
+        {
+            *out_opcode = VIGIL_OPCODE_TO_F64;
+            *needs_opcode = 1;
+        }
+        else
+            return vigil_parser_report(state, name_token->span, "f64(...) requires an integer or f64 argument");
+        break;
+    case VIGIL_TYPE_STRING:
+        if (vigil_parser_type_is_string(arg_type))
+            *needs_opcode = 0;
+        else if (vigil_parser_type_is_integer(arg_type) || vigil_parser_type_is_f64(arg_type) ||
+                 vigil_parser_type_is_bool(arg_type))
+        {
+            *out_opcode = VIGIL_OPCODE_TO_STRING;
+            *needs_opcode = 1;
+        }
+        else
+            return vigil_parser_report(state, name_token->span,
+                                       "string(...) requires a string, integer, f64, or bool argument");
+        break;
+    case VIGIL_TYPE_BOOL:
+        if (!vigil_parser_type_is_bool(arg_type))
+            return vigil_parser_report(state, name_token->span, "bool(...) requires a bool argument");
+        *needs_opcode = 0;
+        break;
+    default:
+        return vigil_parser_report(state, name_token->span, "unsupported built-in conversion");
+    }
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_opcode_t integer_conversion_opcode(vigil_type_kind_t kind)
+{
+    switch (kind)
+    {
+    case VIGIL_TYPE_I32:
+        return VIGIL_OPCODE_TO_I32;
+    case VIGIL_TYPE_I64:
+        return VIGIL_OPCODE_TO_I64;
+    case VIGIL_TYPE_U8:
+        return VIGIL_OPCODE_TO_U8;
+    case VIGIL_TYPE_U32:
+        return VIGIL_OPCODE_TO_U32;
+    case VIGIL_TYPE_U64:
+        return VIGIL_OPCODE_TO_U64;
+    default:
+        return VIGIL_OPCODE_TO_I32;
+    }
+}
+
+static int is_integer_target_kind(vigil_type_kind_t kind)
+{
+    return kind == VIGIL_TYPE_I32 || kind == VIGIL_TYPE_I64 || kind == VIGIL_TYPE_U8 || kind == VIGIL_TYPE_U32 ||
+           kind == VIGIL_TYPE_U64;
+}
+
 static vigil_status_t vigil_parser_parse_builtin_conversion(vigil_parser_state_t *state,
                                                             const vigil_token_t *name_token,
                                                             vigil_type_kind_t target_kind,
@@ -6058,111 +6144,35 @@ static vigil_status_t vigil_parser_parse_builtin_conversion(vigil_parser_state_t
 
     status = vigil_parser_expect(state, VIGIL_TOKEN_LPAREN, "expected '(' after conversion name", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
-
     status = vigil_parser_parse_expression(state, &argument_result);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     if (vigil_parser_match(state, VIGIL_TOKEN_COMMA))
-    {
         return vigil_parser_report(state, name_token->span, "built-in conversions accept exactly one argument");
-    }
     status = vigil_parser_expect(state, VIGIL_TOKEN_RPAREN, "expected ')' after conversion argument", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
-    switch (target_kind)
+    if (is_integer_target_kind(target_kind))
     {
-    case VIGIL_TYPE_I32:
-        opcode = VIGIL_OPCODE_TO_I32;
-        goto integer_conversion;
-    case VIGIL_TYPE_I64:
-        opcode = VIGIL_OPCODE_TO_I64;
-        goto integer_conversion;
-    case VIGIL_TYPE_U8:
-        opcode = VIGIL_OPCODE_TO_U8;
-        goto integer_conversion;
-    case VIGIL_TYPE_U32:
-        opcode = VIGIL_OPCODE_TO_U32;
-        goto integer_conversion;
-    case VIGIL_TYPE_U64:
-        opcode = VIGIL_OPCODE_TO_U64;
-        goto integer_conversion;
-    case VIGIL_TYPE_F64:
-        if (vigil_parser_type_is_f64(argument_result.type))
-        {
-            needs_opcode = 0;
-        }
-        else if (vigil_parser_type_is_integer(argument_result.type))
-        {
-            opcode = VIGIL_OPCODE_TO_F64;
-            needs_opcode = 1;
-        }
-        else
-        {
-            return vigil_parser_report(state, name_token->span, "f64(...) requires an integer or f64 argument");
-        }
-        break;
-    case VIGIL_TYPE_STRING:
-        if (vigil_parser_type_is_string(argument_result.type))
-        {
-            needs_opcode = 0;
-        }
-        else if (vigil_parser_type_is_integer(argument_result.type) || vigil_parser_type_is_f64(argument_result.type) ||
-                 vigil_parser_type_is_bool(argument_result.type))
-        {
-            opcode = VIGIL_OPCODE_TO_STRING;
-            needs_opcode = 1;
-        }
-        else
-        {
-            return vigil_parser_report(state, name_token->span,
-                                       "string(...) requires a string, integer, f64, or bool argument");
-        }
-        break;
-    case VIGIL_TYPE_BOOL:
-        if (!vigil_parser_type_is_bool(argument_result.type))
-        {
-            return vigil_parser_report(state, name_token->span, "bool(...) requires a bool argument");
-        }
-        needs_opcode = 0;
-        break;
-    default:
-        return vigil_parser_report(state, name_token->span, "unsupported built-in conversion");
+        opcode = integer_conversion_opcode(target_kind);
+        status = resolve_integer_conversion(state, name_token, target_kind, argument_result.type, opcode, &opcode,
+                                            &needs_opcode);
     }
-
-integer_conversion:
-    if (target_kind == VIGIL_TYPE_I32 || target_kind == VIGIL_TYPE_I64 || target_kind == VIGIL_TYPE_U8 ||
-        target_kind == VIGIL_TYPE_U32 || target_kind == VIGIL_TYPE_U64)
+    else
     {
-        if (vigil_parser_type_equal(argument_result.type, vigil_binding_type_primitive(target_kind)))
-        {
-            needs_opcode = 0;
-        }
-        else if (vigil_parser_type_is_integer(argument_result.type) || vigil_parser_type_is_f64(argument_result.type))
-        {
-            needs_opcode = 1;
-        }
-        else
-        {
-            return vigil_parser_report(state, name_token->span,
-                                       "integer conversions require an integer or f64 argument");
-        }
+        status = resolve_non_integer_conversion(state, name_token, target_kind, argument_result.type, &opcode,
+                                                &needs_opcode);
     }
+    if (status != VIGIL_STATUS_OK)
+        return status;
 
     if (needs_opcode)
     {
         status = vigil_parser_emit_opcode(state, opcode, name_token->span);
         if (status != VIGIL_STATUS_OK)
-        {
             return status;
-        }
     }
 
     vigil_expression_result_set_type(out_result, vigil_binding_type_primitive(target_kind));
