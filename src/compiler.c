@@ -800,16 +800,19 @@ static int vigil_program_find_source_by_path(const vigil_program_state_t *progra
     return 0;
 }
 
+static void write_find_index(size_t *out_index, size_t value)
+{
+    if (out_index != NULL)
+        *out_index = value;
+}
+
 int vigil_program_find_class_in_source(const vigil_program_state_t *program, vigil_source_id_t source_id,
                                        const char *name, size_t name_length, size_t *out_index,
                                        const vigil_class_decl_t **out_class)
 {
     size_t i;
 
-    if (out_index != NULL)
-    {
-        *out_index = 0U;
-    }
+    write_find_index(out_index, 0U);
     if (out_class != NULL)
     {
         *out_class = NULL;
@@ -827,10 +830,7 @@ int vigil_program_find_class_in_source(const vigil_program_state_t *program, vig
         }
         if (vigil_program_names_equal(program->classes[i].name, program->classes[i].name_length, name, name_length))
         {
-            if (out_index != NULL)
-            {
-                *out_index = i;
-            }
+            write_find_index(out_index, i);
             if (out_class != NULL)
             {
                 *out_class = &program->classes[i];
@@ -848,10 +848,7 @@ int vigil_program_find_interface_in_source(const vigil_program_state_t *program,
 {
     size_t i;
 
-    if (out_index != NULL)
-    {
-        *out_index = 0U;
-    }
+    write_find_index(out_index, 0U);
     if (out_interface != NULL)
     {
         *out_interface = NULL;
@@ -870,10 +867,7 @@ int vigil_program_find_interface_in_source(const vigil_program_state_t *program,
         if (vigil_program_names_equal(program->interfaces[i].name, program->interfaces[i].name_length, name,
                                       name_length))
         {
-            if (out_index != NULL)
-            {
-                *out_index = i;
-            }
+            write_find_index(out_index, i);
             if (out_interface != NULL)
             {
                 *out_interface = &program->interfaces[i];
@@ -928,10 +922,7 @@ int vigil_program_find_enum_in_source(const vigil_program_state_t *program, vigi
 {
     size_t i;
 
-    if (out_index != NULL)
-    {
-        *out_index = 0U;
-    }
+    write_find_index(out_index, 0U);
     if (out_decl != NULL)
     {
         *out_decl = NULL;
@@ -949,10 +940,7 @@ int vigil_program_find_enum_in_source(const vigil_program_state_t *program, vigi
         }
         if (vigil_program_names_equal(program->enums[i].name, program->enums[i].name_length, name, name_length))
         {
-            if (out_index != NULL)
-            {
-                *out_index = i;
-            }
+            write_find_index(out_index, i);
             if (out_decl != NULL)
             {
                 *out_decl = &program->enums[i];
@@ -1299,10 +1287,7 @@ int vigil_program_find_global_in_source(const vigil_program_state_t *program, vi
 {
     size_t i;
 
-    if (out_index != NULL)
-    {
-        *out_index = 0U;
-    }
+    write_find_index(out_index, 0U);
     if (out_global != NULL)
     {
         *out_global = NULL;
@@ -1320,10 +1305,7 @@ int vigil_program_find_global_in_source(const vigil_program_state_t *program, vi
         }
         if (vigil_program_names_equal(program->globals[i].name, program->globals[i].name_length, name, name_length))
         {
-            if (out_index != NULL)
-            {
-                *out_index = i;
-            }
+            write_find_index(out_index, i);
             if (out_global != NULL)
             {
                 *out_global = &program->globals[i];
@@ -3838,6 +3820,68 @@ static vigil_status_t vigil_program_parse_constant_equality(vigil_program_state_
     }
 }
 
+typedef enum
+{
+    CONST_BITWISE_AND,
+    CONST_BITWISE_XOR,
+    CONST_BITWISE_OR
+} const_bitwise_op_t;
+
+static void constant_result_set_integer(vigil_constant_result_t *result, vigil_parser_type_t type, int64_t ival,
+                                        uint64_t uval)
+{
+    vigil_constant_result_release(result);
+    if (vigil_parser_type_is_unsigned_integer(type))
+    {
+        vigil_value_init_uint(&result->value, uval);
+    }
+    else
+    {
+        vigil_value_init_int(&result->value, ival);
+    }
+    result->type = type;
+}
+
+static vigil_status_t vigil_program_apply_constant_bitwise(vigil_program_state_t *program, vigil_source_span_t span,
+                                                           const_bitwise_op_t op, vigil_constant_result_t *left,
+                                                           vigil_constant_result_t *right)
+{
+    vigil_status_t status;
+    int64_t ival = 0;
+    uint64_t uval = 0U;
+
+    if (!vigil_parser_type_is_integer(left->type) || !vigil_parser_type_equal(left->type, right->type))
+    {
+        vigil_constant_result_release(left);
+        vigil_constant_result_release(right);
+        return vigil_compile_report(program, span, "bitwise operators require matching integer operands");
+    }
+
+    if (vigil_parser_type_is_unsigned_integer(left->type))
+    {
+        uint64_t a = vigil_value_as_uint(&left->value), b = vigil_value_as_uint(&right->value);
+        uval = (op == CONST_BITWISE_AND) ? (a & b) : (op == CONST_BITWISE_XOR) ? (a ^ b) : (a | b);
+    }
+    else
+    {
+        int64_t a = vigil_value_as_int(&left->value), b = vigil_value_as_int(&right->value);
+        ival = (op == CONST_BITWISE_AND) ? (a & b) : (op == CONST_BITWISE_XOR) ? (a ^ b) : (a | b);
+    }
+    status = vigil_program_validate_integer_value_for_type(program, span, left->type,
+                                                           vigil_parser_type_is_unsigned_integer(left->type)
+                                                               ? &(vigil_value_t){vigil_nanbox_encode_uint(uval)}
+                                                               : &(vigil_value_t){vigil_nanbox_encode_int(ival)});
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_constant_result_release(left);
+        vigil_constant_result_release(right);
+        return status;
+    }
+    constant_result_set_integer(left, left->type, ival, uval);
+    vigil_constant_result_release(right);
+    return VIGIL_STATUS_OK;
+}
+
 static vigil_status_t vigil_program_parse_constant_bitwise_and(vigil_program_state_t *program, size_t *cursor,
                                                                vigil_constant_result_t *out_result)
 {
@@ -3845,8 +3889,6 @@ static vigil_status_t vigil_program_parse_constant_bitwise_and(vigil_program_sta
     vigil_constant_result_t left;
     vigil_constant_result_t right;
     const vigil_token_t *token;
-    int64_t integer_result = 0;
-    uint64_t uinteger_result = 0U;
 
     vigil_constant_result_clear(&left);
     vigil_constant_result_clear(&right);
@@ -3872,47 +3914,9 @@ static vigil_status_t vigil_program_parse_constant_bitwise_and(vigil_program_sta
             vigil_constant_result_release(&left);
             return status;
         }
-        if (!vigil_parser_type_is_integer(left.type) || !vigil_parser_type_equal(left.type, right.type))
-        {
-            vigil_constant_result_release(&left);
-            vigil_constant_result_release(&right);
-            return vigil_compile_report(program, token->span, "bitwise operators require matching integer operands");
-        }
-
-        if (vigil_parser_type_is_unsigned_integer(left.type))
-        {
-            uinteger_result = vigil_value_as_uint(&left.value) & vigil_value_as_uint(&right.value);
-        }
-        else
-        {
-            integer_result = vigil_value_as_int(&left.value) & vigil_value_as_int(&right.value);
-        }
-        status = vigil_program_validate_integer_value_for_type(
-            program, token->span, left.type,
-            vigil_parser_type_is_unsigned_integer(left.type)
-                ? &(vigil_value_t){vigil_nanbox_encode_uint(uinteger_result)}
-                : &(vigil_value_t){vigil_nanbox_encode_int(integer_result)});
+        status = vigil_program_apply_constant_bitwise(program, token->span, CONST_BITWISE_AND, &left, &right);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_constant_result_release(&left);
-            vigil_constant_result_release(&right);
             return status;
-        }
-        {
-            vigil_parser_type_t integer_type = left.type;
-
-            vigil_constant_result_release(&left);
-            if (vigil_parser_type_is_unsigned_integer(integer_type))
-            {
-                vigil_value_init_uint(&left.value, uinteger_result);
-            }
-            else
-            {
-                vigil_value_init_int(&left.value, integer_result);
-            }
-            left.type = integer_type;
-        }
-        vigil_constant_result_release(&right);
     }
 }
 
@@ -3923,8 +3927,6 @@ static vigil_status_t vigil_program_parse_constant_bitwise_xor(vigil_program_sta
     vigil_constant_result_t left;
     vigil_constant_result_t right;
     const vigil_token_t *token;
-    int64_t integer_result = 0;
-    uint64_t uinteger_result = 0U;
 
     vigil_constant_result_clear(&left);
     vigil_constant_result_clear(&right);
@@ -3950,47 +3952,9 @@ static vigil_status_t vigil_program_parse_constant_bitwise_xor(vigil_program_sta
             vigil_constant_result_release(&left);
             return status;
         }
-        if (!vigil_parser_type_is_integer(left.type) || !vigil_parser_type_equal(left.type, right.type))
-        {
-            vigil_constant_result_release(&left);
-            vigil_constant_result_release(&right);
-            return vigil_compile_report(program, token->span, "bitwise operators require matching integer operands");
-        }
-
-        if (vigil_parser_type_is_unsigned_integer(left.type))
-        {
-            uinteger_result = vigil_value_as_uint(&left.value) ^ vigil_value_as_uint(&right.value);
-        }
-        else
-        {
-            integer_result = vigil_value_as_int(&left.value) ^ vigil_value_as_int(&right.value);
-        }
-        status = vigil_program_validate_integer_value_for_type(
-            program, token->span, left.type,
-            vigil_parser_type_is_unsigned_integer(left.type)
-                ? &(vigil_value_t){vigil_nanbox_encode_uint(uinteger_result)}
-                : &(vigil_value_t){vigil_nanbox_encode_int(integer_result)});
+        status = vigil_program_apply_constant_bitwise(program, token->span, CONST_BITWISE_XOR, &left, &right);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_constant_result_release(&left);
-            vigil_constant_result_release(&right);
             return status;
-        }
-        {
-            vigil_parser_type_t integer_type = left.type;
-
-            vigil_constant_result_release(&left);
-            if (vigil_parser_type_is_unsigned_integer(integer_type))
-            {
-                vigil_value_init_uint(&left.value, uinteger_result);
-            }
-            else
-            {
-                vigil_value_init_int(&left.value, integer_result);
-            }
-            left.type = integer_type;
-        }
-        vigil_constant_result_release(&right);
     }
 }
 
@@ -4001,8 +3965,6 @@ static vigil_status_t vigil_program_parse_constant_bitwise_or(vigil_program_stat
     vigil_constant_result_t left;
     vigil_constant_result_t right;
     const vigil_token_t *token;
-    int64_t integer_result = 0;
-    uint64_t uinteger_result = 0U;
 
     vigil_constant_result_clear(&left);
     vigil_constant_result_clear(&right);
@@ -4028,47 +3990,9 @@ static vigil_status_t vigil_program_parse_constant_bitwise_or(vigil_program_stat
             vigil_constant_result_release(&left);
             return status;
         }
-        if (!vigil_parser_type_is_integer(left.type) || !vigil_parser_type_equal(left.type, right.type))
-        {
-            vigil_constant_result_release(&left);
-            vigil_constant_result_release(&right);
-            return vigil_compile_report(program, token->span, "bitwise operators require matching integer operands");
-        }
-
-        if (vigil_parser_type_is_unsigned_integer(left.type))
-        {
-            uinteger_result = vigil_value_as_uint(&left.value) | vigil_value_as_uint(&right.value);
-        }
-        else
-        {
-            integer_result = vigil_value_as_int(&left.value) | vigil_value_as_int(&right.value);
-        }
-        status = vigil_program_validate_integer_value_for_type(
-            program, token->span, left.type,
-            vigil_parser_type_is_unsigned_integer(left.type)
-                ? &(vigil_value_t){vigil_nanbox_encode_uint(uinteger_result)}
-                : &(vigil_value_t){vigil_nanbox_encode_int(integer_result)});
+        status = vigil_program_apply_constant_bitwise(program, token->span, CONST_BITWISE_OR, &left, &right);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_constant_result_release(&left);
-            vigil_constant_result_release(&right);
             return status;
-        }
-        {
-            vigil_parser_type_t integer_type = left.type;
-
-            vigil_constant_result_release(&left);
-            if (vigil_parser_type_is_unsigned_integer(integer_type))
-            {
-                vigil_value_init_uint(&left.value, uinteger_result);
-            }
-            else
-            {
-                vigil_value_init_int(&left.value, integer_result);
-            }
-            left.type = integer_type;
-        }
-        vigil_constant_result_release(&right);
     }
 }
 

@@ -1113,6 +1113,29 @@ const vigil_chunk_t *vigil_function_object_chunk(const vigil_object_t *object)
     return &function_object->chunk;
 }
 
+static vigil_status_t closure_alloc_captures(vigil_runtime_t *runtime, vigil_closure_object_t *object,
+                                             const vigil_value_t *captures, size_t capture_count, vigil_error_t *error)
+{
+    vigil_status_t status;
+    void *memory = NULL;
+    size_t i;
+
+    status = vigil_runtime_alloc(runtime, capture_count * sizeof(*object->captures), &memory, error);
+    if (status != VIGIL_STATUS_OK)
+    {
+        vigil_object_t *base = &object->base;
+        vigil_object_release(&base);
+        return status;
+    }
+
+    object->captures = (vigil_value_t *)memory;
+    for (i = 0U; i < capture_count; ++i)
+    {
+        object->captures[i] = vigil_value_copy(&captures[i]);
+    }
+    return VIGIL_STATUS_OK;
+}
+
 vigil_status_t vigil_closure_object_new(vigil_runtime_t *runtime, vigil_object_t *function,
                                         const vigil_value_t *captures, size_t capture_count,
                                         vigil_object_t **out_object, vigil_error_t *error)
@@ -1120,7 +1143,6 @@ vigil_status_t vigil_closure_object_new(vigil_runtime_t *runtime, vigil_object_t
     vigil_status_t status;
     vigil_closure_object_t *object;
     void *memory;
-    size_t capture_index;
 
     vigil_error_clear(error);
     if (runtime == NULL || function == NULL || out_object == NULL)
@@ -1156,21 +1178,9 @@ vigil_status_t vigil_closure_object_new(vigil_runtime_t *runtime, vigil_object_t
 
     if (capture_count != 0U)
     {
-        memory = NULL;
-        status = vigil_runtime_alloc(runtime, capture_count * sizeof(*object->captures), &memory, error);
+        status = closure_alloc_captures(runtime, object, captures, capture_count, error);
         if (status != VIGIL_STATUS_OK)
-        {
-            vigil_object_t *base = &object->base;
-
-            vigil_object_release(&base);
             return status;
-        }
-
-        object->captures = (vigil_value_t *)memory;
-        for (capture_index = 0U; capture_index < capture_count; ++capture_index)
-        {
-            object->captures[capture_index] = vigil_value_copy(&captures[capture_index]);
-        }
     }
 
     *out_object = &object->base;

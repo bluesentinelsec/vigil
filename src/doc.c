@@ -296,27 +296,32 @@ static void extract_comment_before(const vigil_allocator_t *a, const char *src, 
     }
 }
 
+static int module_summary_starts_at(const char *src, size_t src_len, size_t first_decl_offset, size_t *out_pos)
+{
+    size_t pos;
+    if (src == NULL || first_decl_offset == 0)
+        return 0;
+    pos = doc_skip_leading_blank_lines(src, first_decl_offset);
+    if (pos >= first_decl_offset)
+        return 0;
+    if (src[pos] != '/')
+        return 0;
+    if (pos + 1 >= src_len || src[pos + 1] != '/')
+        return 0;
+    *out_pos = pos;
+    return 1;
+}
+
 static void extract_module_summary(const vigil_allocator_t *a, const char *src, size_t src_len,
                                    size_t first_decl_offset, vigil_doc_comment_t *out)
 {
-    /* Module summary = leading // comments before any declaration. */
     size_t pos;
     doc_buf_t buf;
     int found = 0;
 
     out->text = NULL;
     out->length = 0;
-    if (src == NULL || first_decl_offset == 0)
-        return;
-
-    /* Skip leading blank lines. */
-    pos = doc_skip_leading_blank_lines(src, first_decl_offset);
-
-    if (pos >= first_decl_offset)
-        return;
-    if (src[pos] != '/')
-        return;
-    if (pos + 1 >= src_len || src[pos + 1] != '/')
+    if (!module_summary_starts_at(src, src_len, first_decl_offset, &pos))
         return;
 
     buf_init(&buf, a);
@@ -328,7 +333,6 @@ static void extract_module_summary(const vigil_allocator_t *a, const char *src, 
         const char *text;
         size_t text_len;
 
-        /* Find end of line. */
         while (line_end < src_len && src[line_end] != '\n')
             line_end++;
 
@@ -355,13 +359,55 @@ static void extract_module_summary(const vigil_allocator_t *a, const char *src, 
 
 /* ── Type text extraction from tokens ────────────────────────────── */
 
+static void extract_generic_args(const char *src, const vigil_token_list_t *tokens, size_t *cursor, doc_buf_t *buf)
+{
+    const vigil_token_t *t;
+    size_t len;
+    const char *text;
+    int angle_depth;
+
+    buf_append_char(buf, '<');
+    (*cursor)++;
+    angle_depth = 1;
+    while (angle_depth > 0)
+    {
+        t = tok_at(tokens, *cursor);
+        if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
+            break;
+        if (t->kind == VIGIL_TOKEN_LESS)
+        {
+            angle_depth++;
+            buf_append_char(buf, '<');
+        }
+        else if (t->kind == VIGIL_TOKEN_GREATER)
+        {
+            angle_depth--;
+            buf_append_char(buf, '>');
+        }
+        else if (t->kind == VIGIL_TOKEN_SHIFT_RIGHT)
+        {
+            angle_depth -= 2;
+            buf_append_cstr(buf, ">>");
+        }
+        else if (t->kind == VIGIL_TOKEN_COMMA)
+        {
+            buf_append_cstr(buf, ", ");
+        }
+        else
+        {
+            text = tok_text(src, t, &len);
+            buf_append(buf, text, len);
+        }
+        (*cursor)++;
+    }
+}
+
 static void extract_type_text(const char *src, const vigil_token_list_t *tokens, size_t *cursor, doc_buf_t *buf)
 {
     /* Extracts a type expression: identifier, module.Type, array<T>, map<K,V>, fn(...) -> R */
     const vigil_token_t *t = tok_at(tokens, *cursor);
     size_t len;
     const char *text;
-    int angle_depth;
 
     if (t == NULL)
         return;
@@ -389,49 +435,17 @@ static void extract_type_text(const char *src, const vigil_token_list_t *tokens,
     /* Handle generic types: array<T>, map<K,V> */
     if (t != NULL && t->kind == VIGIL_TOKEN_LESS)
     {
-        buf_append_char(buf, '<');
-        (*cursor)++;
-        angle_depth = 1;
-        while (angle_depth > 0)
-        {
-            t = tok_at(tokens, *cursor);
-            if (t == NULL || t->kind == VIGIL_TOKEN_EOF)
-                break;
-            if (t->kind == VIGIL_TOKEN_LESS)
-            {
-                angle_depth++;
-                buf_append_char(buf, '<');
-                (*cursor)++;
-            }
-            else if (t->kind == VIGIL_TOKEN_GREATER)
-            {
-                angle_depth--;
-                buf_append_char(buf, '>');
-                (*cursor)++;
-            }
-            else if (t->kind == VIGIL_TOKEN_SHIFT_RIGHT)
-            {
-                /* >> token closes two levels of nested generics */
-                angle_depth -= 2;
-                buf_append_cstr(buf, ">>");
-                (*cursor)++;
-            }
-            else if (t->kind == VIGIL_TOKEN_COMMA)
-            {
-                buf_append_cstr(buf, ", ");
-                (*cursor)++;
-            }
-            else
-            {
-                text = tok_text(src, t, &len);
-                buf_append(buf, text, len);
-                (*cursor)++;
-            }
-        }
+        extract_generic_args(src, tokens, cursor, buf);
     }
 }
 
 /* ── Parameter list extraction ───────────────────────────────────── */
+
+static int tok_is_end_of_list(const vigil_token_list_t *tokens, size_t cursor, vigil_token_kind_t close_kind)
+{
+    const vigil_token_t *t = tok_at(tokens, cursor);
+    return t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == close_kind;
+}
 
 static vigil_status_t extract_params(const vigil_allocator_t *a, const char *src, const vigil_token_list_t *tokens,
                                      size_t *cursor, vigil_doc_param_t **out_params, size_t *out_count)
@@ -452,21 +466,15 @@ static vigil_status_t extract_params(const vigil_allocator_t *a, const char *src
     if (params == NULL)
         return VIGIL_STATUS_OUT_OF_MEMORY;
 
-    while (1)
+    while (!tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_RPAREN))
     {
         doc_buf_t type_buf;
         size_t name_len;
         const char *name_text;
 
-        t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RPAREN)
-            break;
-
-        /* Type */
         buf_init(&type_buf, a);
         extract_type_text(src, tokens, cursor, &type_buf);
 
-        /* Name */
         t = tok_at(tokens, *cursor);
         name_text = tok_text(src, t, &name_len);
         (*cursor)++;
@@ -505,6 +513,31 @@ static vigil_status_t extract_params(const vigil_allocator_t *a, const char *src
 
 /* ── Return type extraction ──────────────────────────────────────── */
 
+static void extract_tuple_return(const char *src, const vigil_token_list_t *tokens, size_t *cursor, doc_buf_t *buf)
+{
+    const vigil_token_t *t;
+    int first = 1;
+    buf_append_char(buf, '(');
+    (*cursor)++;
+    while (1)
+    {
+        t = tok_at(tokens, *cursor);
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_RPAREN))
+            break;
+        if (!first)
+            buf_append_cstr(buf, ", ");
+        first = 0;
+        extract_type_text(src, tokens, cursor, buf);
+        t = tok_at(tokens, *cursor);
+        if (t != NULL && t->kind == VIGIL_TOKEN_COMMA)
+            (*cursor)++;
+    }
+    buf_append_char(buf, ')');
+    t = tok_at(tokens, *cursor);
+    if (t != NULL && t->kind == VIGIL_TOKEN_RPAREN)
+        (*cursor)++;
+}
+
 static void extract_return_type(const vigil_allocator_t *a, const char *src, const vigil_token_list_t *tokens,
                                 size_t *cursor, char **out_text, size_t *out_len)
 {
@@ -524,27 +557,7 @@ static void extract_return_type(const vigil_allocator_t *a, const char *src, con
     t = tok_at(tokens, *cursor);
     if (t != NULL && t->kind == VIGIL_TOKEN_LPAREN)
     {
-        /* Tuple return: (i32, err) */
-        int first = 1;
-        buf_append_char(&buf, '(');
-        (*cursor)++;
-        while (1)
-        {
-            t = tok_at(tokens, *cursor);
-            if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RPAREN)
-                break;
-            if (!first)
-                buf_append_cstr(&buf, ", ");
-            first = 0;
-            extract_type_text(src, tokens, cursor, &buf);
-            t = tok_at(tokens, *cursor);
-            if (t != NULL && t->kind == VIGIL_TOKEN_COMMA)
-                (*cursor)++;
-        }
-        buf_append_char(&buf, ')');
-        t = tok_at(tokens, *cursor);
-        if (t != NULL && t->kind == VIGIL_TOKEN_RPAREN)
-            (*cursor)++;
+        extract_tuple_return(src, tokens, cursor, &buf);
     }
     else
     {
@@ -626,6 +639,16 @@ static vigil_doc_symbol_t *module_add_symbol(vigil_doc_module_t *m)
 }
 
 static void free_symbol(const vigil_allocator_t *a, vigil_doc_symbol_t *sym);
+
+static void free_symbol_array(const vigil_allocator_t *a, vigil_doc_symbol_t *arr, size_t count)
+{
+    size_t i;
+    if (arr == NULL)
+        return;
+    for (i = 0; i < count; i++)
+        free_symbol(a, &arr[i]);
+    doc_free_ptr(a, arr);
+}
 
 /* ── Parse function declaration ──────────────────────────────────── */
 
@@ -744,7 +767,7 @@ static void skip_class_field_tail(const vigil_token_list_t *tokens, size_t *curs
     while (1)
     {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_SEMICOLON))
             break;
         (*cursor)++;
     }
@@ -865,11 +888,11 @@ static int parse_class_body_member(class_parse_ctx_t *ctx)
     const vigil_token_t *t = tok_at(ctx->tokens, *ctx->cursor);
     int is_pub = 0;
 
-    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE)
+    if (tok_is_end_of_list(ctx->tokens, *ctx->cursor, VIGIL_TOKEN_RBRACE))
         return 0;
 
     t = consume_public_modifier(ctx, &is_pub);
-    if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE)
+    if (tok_is_end_of_list(ctx->tokens, *ctx->cursor, VIGIL_TOKEN_RBRACE))
         return 0;
 
     return handle_class_member(ctx, t, is_pub);
@@ -947,6 +970,33 @@ static vigil_status_t parse_class(const vigil_allocator_t *a, const char *src, s
 
 /* ── Parse interface declaration ─────────────────────────────────── */
 
+static void parse_interface_method(const vigil_allocator_t *a, const char *src, size_t src_len,
+                                   const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *method)
+{
+    const vigil_token_t *t;
+    size_t name_len;
+    const char *name_text;
+
+    t = tok_at(tokens, *cursor);
+    memset(method, 0, sizeof(*method));
+    extract_comment_before(a, src, src_len, t->span.start_offset, &method->comment);
+    (*cursor)++; /* skip fn */
+
+    t = tok_at(tokens, *cursor);
+    name_text = tok_text(src, t, &name_len);
+    method->kind = VIGIL_DOC_FUNCTION;
+    method->name = doc_strdup(a, name_text, name_len);
+    method->name_length = name_len;
+    (*cursor)++;
+
+    extract_params(a, src, tokens, cursor, &method->params, &method->param_count);
+    extract_return_type(a, src, tokens, cursor, &method->return_text, &method->return_length);
+
+    t = tok_at(tokens, *cursor);
+    if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
+        (*cursor)++;
+}
+
 static vigil_status_t parse_interface(const vigil_allocator_t *a, const char *src, size_t src_len,
                                       const vigil_token_list_t *tokens, size_t *cursor, vigil_doc_symbol_t *sym)
 {
@@ -978,33 +1028,14 @@ static vigil_status_t parse_interface(const vigil_allocator_t *a, const char *sr
 
     while (1)
     {
-        vigil_doc_symbol_t method;
-
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_RBRACE))
             break;
 
         if (t->kind == VIGIL_TOKEN_FN)
         {
-            memset(&method, 0, sizeof(method));
-            extract_comment_before(a, src, src_len, t->span.start_offset, &method.comment);
-            /* Interface methods have no body — just signature + ; */
-            (*cursor)++; /* skip fn */
-
-            t = tok_at(tokens, *cursor);
-            name_text = tok_text(src, t, &name_len);
-            method.kind = VIGIL_DOC_FUNCTION;
-            method.name = doc_strdup(a, name_text, name_len);
-            method.name_length = name_len;
-            (*cursor)++;
-
-            extract_params(a, src, tokens, cursor, &method.params, &method.param_count);
-            extract_return_type(a, src, tokens, cursor, &method.return_text, &method.return_length);
-
-            /* Skip semicolon. */
-            t = tok_at(tokens, *cursor);
-            if (t != NULL && t->kind == VIGIL_TOKEN_SEMICOLON)
-                (*cursor)++;
+            vigil_doc_symbol_t method;
+            parse_interface_method(a, src, src_len, tokens, cursor, &method);
 
             if (sym->iface_method_count >= method_cap)
             {
@@ -1060,7 +1091,7 @@ static vigil_status_t parse_enum(const vigil_allocator_t *a, const char *src, si
     while (1)
     {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_RBRACE)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_RBRACE))
             break;
 
         if (t->kind == VIGIL_TOKEN_IDENTIFIER)
@@ -1119,7 +1150,7 @@ static void parse_const_or_var(const vigil_allocator_t *a, const char *src, cons
     while (1)
     {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_SEMICOLON))
             break;
         (*cursor)++;
     }
@@ -1219,7 +1250,7 @@ static void skip_to_semicolon(const vigil_token_list_t *tokens, size_t *cursor)
     while (1)
     {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_SEMICOLON)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_SEMICOLON))
             break;
         (*cursor)++;
     }
@@ -1229,14 +1260,11 @@ static void skip_to_semicolon(const vigil_token_list_t *tokens, size_t *cursor)
 
 static void skip_named_block_decl(const vigil_token_list_t *tokens, size_t *cursor)
 {
-    const vigil_token_t *t;
-
     (*cursor)++;
     (*cursor)++;
     while (1)
     {
-        t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_LBRACE))
             break;
         (*cursor)++;
     }
@@ -1276,7 +1304,7 @@ static void skip_function_return_type(const vigil_token_list_t *tokens, size_t *
     while (1)
     {
         t = tok_at(tokens, *cursor);
-        if (t == NULL || t->kind == VIGIL_TOKEN_EOF || t->kind == VIGIL_TOKEN_LBRACE)
+        if (tok_is_end_of_list(tokens, *cursor, VIGIL_TOKEN_LBRACE))
             break;
         (*cursor)++;
     }
@@ -2063,26 +2091,9 @@ static void free_symbol(const vigil_allocator_t *a, vigil_doc_symbol_t *sym)
         doc_free_ptr(a, sym->params);
     }
 
-    if (sym->fields != NULL)
-    {
-        for (i = 0; i < sym->field_count; i++)
-            free_symbol(a, &sym->fields[i]);
-        doc_free_ptr(a, sym->fields);
-    }
-
-    if (sym->methods != NULL)
-    {
-        for (i = 0; i < sym->method_count; i++)
-            free_symbol(a, &sym->methods[i]);
-        doc_free_ptr(a, sym->methods);
-    }
-
-    if (sym->iface_methods != NULL)
-    {
-        for (i = 0; i < sym->iface_method_count; i++)
-            free_symbol(a, &sym->iface_methods[i]);
-        doc_free_ptr(a, sym->iface_methods);
-    }
+    free_symbol_array(a, sym->fields, sym->field_count);
+    free_symbol_array(a, sym->methods, sym->method_count);
+    free_symbol_array(a, sym->iface_methods, sym->iface_method_count);
 
     if (sym->variant_names != NULL)
     {

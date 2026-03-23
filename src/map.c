@@ -92,15 +92,26 @@ static uint64_t vigil_map_hash_value(const vigil_value_t *key)
     }
 }
 
+static int vigil_map_string_objects_equal(const vigil_object_t *left, const vigil_object_t *right)
+{
+    size_t left_length, right_length;
+    const char *left_text, *right_text;
+
+    if (left == NULL || right == NULL || vigil_object_type(left) != VIGIL_OBJECT_STRING ||
+        vigil_object_type(right) != VIGIL_OBJECT_STRING)
+    {
+        return 0;
+    }
+    left_length = vigil_string_object_length(left);
+    right_length = vigil_string_object_length(right);
+    left_text = vigil_string_object_c_str(left);
+    right_text = vigil_string_object_c_str(right);
+    return left_length == right_length && left_text != NULL && right_text != NULL &&
+           memcmp(left_text, right_text, left_length) == 0;
+}
+
 static int vigil_map_key_values_equal(const vigil_value_t *left, const vigil_value_t *right)
 {
-    const vigil_object_t *left_object;
-    const vigil_object_t *right_object;
-    size_t left_length;
-    size_t right_length;
-    const char *left_text;
-    const char *right_text;
-
     if (left == NULL || right == NULL || vigil_value_kind(left) != vigil_value_kind(right))
     {
         return 0;
@@ -115,19 +126,7 @@ static int vigil_map_key_values_equal(const vigil_value_t *left, const vigil_val
     case VIGIL_VALUE_UINT:
         return vigil_value_as_uint(left) == vigil_value_as_uint(right);
     case VIGIL_VALUE_OBJECT:
-        left_object = vigil_value_as_object(left);
-        right_object = vigil_value_as_object(right);
-        if (left_object == NULL || right_object == NULL || vigil_object_type(left_object) != VIGIL_OBJECT_STRING ||
-            vigil_object_type(right_object) != VIGIL_OBJECT_STRING)
-        {
-            return 0;
-        }
-        left_length = vigil_string_object_length(left_object);
-        right_length = vigil_string_object_length(right_object);
-        left_text = vigil_string_object_c_str(left_object);
-        right_text = vigil_string_object_c_str(right_object);
-        return left_length == right_length && left_text != NULL && right_text != NULL &&
-               memcmp(left_text, right_text, left_length) == 0;
+        return vigil_map_string_objects_equal(vigil_value_as_object(left), vigil_value_as_object(right));
     default:
         return 0;
     }
