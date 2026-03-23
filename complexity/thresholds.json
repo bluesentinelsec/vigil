@@ -5,7 +5,8 @@
     "param": 6
   },
   "new_function": {
-    "ccn": 10
+    "ccn": 17,
+    "param": 7
   },
   "churn": {
     "since_days": 180,
