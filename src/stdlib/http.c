@@ -1389,9 +1389,12 @@ static vigil_status_t http_req_header(vigil_vm_t *vm, size_t arg_count, vigil_er
     size_t name_len = 0;
     get_string_arg(vm, base, 1, &name, &name_len);
     char nbuf[256];
+    if (name == NULL)
+        name_len = 0;
     if (name_len >= sizeof(nbuf))
         name_len = sizeof(nbuf) - 1;
-    memcpy(nbuf, name, name_len);
+    if (name_len > 0)
+        memcpy(nbuf, name, name_len);
     nbuf[name_len] = '\0';
     vigil_vm_stack_pop_n(vm, arg_count);
 
@@ -1962,9 +1965,12 @@ static vigil_status_t http_redirect(vigil_vm_t *vm, size_t arg_count, vigil_erro
     int64_t status_code = arg_count >= 3 ? get_i64_arg(vm, base, 2) : 302;
 
     char ubuf[2048];
+    if (url == NULL)
+        url_len = 0;
     if (url_len >= sizeof(ubuf))
         url_len = sizeof(ubuf) - 1;
-    memcpy(ubuf, url, url_len);
+    if (url_len > 0)
+        memcpy(ubuf, url, url_len);
     ubuf[url_len] = '\0';
     vigil_vm_stack_pop_n(vm, arg_count);
 

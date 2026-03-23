@@ -973,10 +973,10 @@ static vigil_status_t handle_signature_help(vigil_lsp_server_t *server, const vi
 
     /* Find call expression containing this position */
     node = vigil_semantic_file_node_at(sem_file, offset);
-    while (node != NULL && node->kind != VIGIL_NODE_CALL_EXPR && node->kind != VIGIL_NODE_METHOD_CALL_EXPR)
+    if (node != NULL && node->kind != VIGIL_NODE_CALL_EXPR && node->kind != VIGIL_NODE_METHOD_CALL_EXPR)
     {
         /* Walk up - for now just check nodes at position */
-        break;
+        node = NULL;
     }
 
     if (node != NULL && (node->kind == VIGIL_NODE_CALL_EXPR || node->kind == VIGIL_NODE_METHOD_CALL_EXPR))
