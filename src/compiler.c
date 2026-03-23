@@ -10911,6 +10911,29 @@ static vigil_status_t emit_for_in_bind_map(vigil_parser_state_t *state, vigil_so
     return vigil_parser_bind_inferred_target(state, value_name, value_type);
 }
 
+static vigil_status_t validate_for_in_iterable(vigil_parser_state_t *state, const vigil_token_t *for_token,
+                                               const vigil_token_t *first_name, const vigil_token_t *second_name,
+                                               vigil_parser_type_t iterable_type, vigil_parser_type_t *element_type,
+                                               vigil_parser_type_t *key_type, vigil_parser_type_t *value_type)
+{
+    if (vigil_parser_type_is_array(iterable_type))
+    {
+        if (second_name != NULL)
+            return vigil_parser_report(state, second_name->span, "for-in over arrays requires a single loop binding");
+        *element_type = vigil_program_array_type_element(state->program, iterable_type);
+        return VIGIL_STATUS_OK;
+    }
+    if (vigil_parser_type_is_map(iterable_type))
+    {
+        if (second_name == NULL)
+            return vigil_parser_report(state, first_name->span, "for-in over maps requires key and value bindings");
+        *key_type = vigil_program_map_type_key(state->program, iterable_type);
+        *value_type = vigil_program_map_type_value(state->program, iterable_type);
+        return VIGIL_STATUS_OK;
+    }
+    return vigil_parser_report(state, for_token->span, "for-in requires an array or map iterable");
+}
+
 static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *state, const vigil_token_t *for_token,
                                                           vigil_statement_result_t *out_result)
 {
@@ -10928,8 +10951,6 @@ static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *
     size_t exit_jump_offset;
     size_t body_jump_offset;
     size_t increment_start;
-    vigil_loop_context_t *loop;
-    size_t i;
     int loop_pushed;
     int iteration_scope_begun;
 
@@ -10972,23 +10993,10 @@ static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *
 
     /* Validate iterable type. */
     iterable_type = iterable_result.type;
-    if (vigil_parser_type_is_array(iterable_type))
-    {
-        if (second_name != NULL)
-            return vigil_parser_report(state, second_name->span, "for-in over arrays requires a single loop binding");
-        element_type = vigil_program_array_type_element(state->program, iterable_type);
-    }
-    else if (vigil_parser_type_is_map(iterable_type))
-    {
-        if (second_name == NULL)
-            return vigil_parser_report(state, first_name->span, "for-in over maps requires key and value bindings");
-        key_type = vigil_program_map_type_key(state->program, iterable_type);
-        value_type = vigil_program_map_type_value(state->program, iterable_type);
-    }
-    else
-    {
-        return vigil_parser_report(state, for_token->span, "for-in requires an array or map iterable");
-    }
+    status = validate_for_in_iterable(state, for_token, first_name, second_name, iterable_type, &element_type,
+                                      &key_type, &value_type);
+    if (status != VIGIL_STATUS_OK)
+        return status;
 
     /* Emit loop scaffolding. */
     vigil_parser_begin_scope(state);
@@ -11053,16 +11061,7 @@ static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *
     if (status != VIGIL_STATUS_OK)
         goto cleanup;
 
-    loop = vigil_parser_current_loop(state);
-    if (loop != NULL)
-    {
-        for (i = 0U; i < loop->break_count; ++i)
-        {
-            status = vigil_parser_patch_jump(state, loop->break_jumps[i].operand_offset);
-            if (status != VIGIL_STATUS_OK)
-                goto cleanup;
-        }
-    }
+    status = patch_loop_breaks(state);
 
 cleanup:
     if (iteration_scope_begun)
