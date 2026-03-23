@@ -30,6 +30,19 @@ def normalize_path(raw_path: str) -> str:
     return raw_path
 
 
+COGNITIVE_RE = re.compile(
+    r"function '(?P<func>[^']+)' has cognitive complexity of \d+"
+)
+
+
+def stable_message(message: str) -> str:
+    """Normalize cognitive-complexity messages so that a value change is not a new diagnostic."""
+    m = COGNITIVE_RE.search(message)
+    if m:
+        return f"function '{m.group('func')}' has cognitive complexity above threshold"
+    return message
+
+
 def load_diagnostics(path: Path) -> dict[str, dict]:
     diagnostics = {}
     for line in path.read_text().splitlines():
@@ -51,7 +64,7 @@ def load_diagnostics(path: Path) -> dict[str, dict]:
                 normalized["path"],
                 normalized["severity"],
                 normalized["check"],
-                normalized["message"],
+                stable_message(normalized["message"]),
             )
         )
         diagnostics[key] = normalized
