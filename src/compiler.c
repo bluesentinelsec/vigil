@@ -7511,247 +7511,217 @@ static vigil_status_t vigil_parser_parse_native_method_call(vigil_parser_state_t
     return VIGIL_STATUS_OK;
 }
 
-static vigil_status_t vigil_parser_parse_qualified_symbol(vigil_parser_state_t *state,
-                                                          const vigil_token_t *module_token,
-                                                          vigil_expression_result_t *out_result)
+static vigil_status_t parse_qualified_enum_member(vigil_parser_state_t *state, const vigil_token_t *member_token,
+                                                  vigil_source_id_t source_id, const char *member_name,
+                                                  size_t member_name_length, vigil_expression_result_t *out_result)
 {
     vigil_status_t status;
     vigil_value_t value;
-    const vigil_token_t *member_token;
     const vigil_token_t *enum_member_token;
-    const vigil_global_constant_t *constant;
+    const vigil_enum_member_t *enum_member;
+    const char *enum_member_name;
+    size_t enum_member_name_length;
+    size_t enum_index = 0U;
+
+    vigil_parser_advance(state);
+    enum_member_token = vigil_parser_peek(state);
+    if (enum_member_token == NULL || enum_member_token->kind != VIGIL_TOKEN_IDENTIFIER)
+        return vigil_parser_report(state, member_token->span, "unknown enum member");
+    vigil_parser_advance(state);
+    enum_member_name = vigil_parser_token_text(state, enum_member_token, &enum_member_name_length);
+    if (!vigil_program_lookup_enum_member_in_source(state->program, source_id, member_name, member_name_length,
+                                                    enum_member_name, enum_member_name_length, &enum_index,
+                                                    &enum_member))
+        return vigil_parser_report(state, enum_member_token->span, "unknown enum member");
+    if (!vigil_program_is_enum_public(&state->program->enums[enum_index]))
+        return vigil_parser_report(state, member_token->span, "module member is not public");
+
+    vigil_value_init_int(&value, enum_member->value);
+    status = vigil_chunk_write_constant(&state->chunk, &value, enum_member_token->span, NULL, state->program->error);
+    vigil_value_release(&value);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    vigil_expression_result_set_type(out_result, vigil_binding_type_enum(enum_index));
+    return VIGIL_STATUS_OK;
+}
+
+static vigil_status_t parse_qualified_call(vigil_parser_state_t *state, const vigil_token_t *member_token,
+                                           vigil_source_id_t source_id, const char *member_name,
+                                           size_t member_name_length, vigil_expression_result_t *out_result)
+{
     const vigil_function_decl_t *function_decl;
     const vigil_class_decl_t *class_decl;
-    const vigil_enum_member_t *enum_member;
-    const char *module_name;
-    const char *member_name;
-    const char *enum_member_name;
-    size_t module_name_length;
-    size_t member_name_length;
-    size_t enum_member_name_length;
-    size_t function_index;
-    size_t class_index;
-    size_t enum_index;
-    vigil_source_id_t source_id;
+    size_t function_index = 0U;
+    size_t class_index = 0U;
 
-    constant = NULL;
-    function_decl = NULL;
-    class_decl = NULL;
-    enum_member = NULL;
-    function_index = 0U;
-    class_index = 0U;
-    enum_index = 0U;
-    source_id = 0U;
-    vigil_value_init_nil(&value);
-
-    module_name = vigil_parser_token_text(state, module_token, &module_name_length);
-    if (!vigil_program_resolve_import_alias(state->program, module_name, module_name_length, &source_id))
+    /* Native module function call. */
+    if (VIGIL_IS_NATIVE_SOURCE_ID(source_id) && state->program->natives != NULL)
     {
-        return vigil_parser_report(state, module_token->span, "unknown local variable");
-    }
-
-    status = vigil_parser_expect(state, VIGIL_TOKEN_DOT, "expected '.' after module name", NULL);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected module member name after '.'", &member_token);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-
-    member_name = vigil_parser_token_text(state, member_token, &member_name_length);
-    if (vigil_parser_check(state, VIGIL_TOKEN_DOT) &&
-        vigil_program_find_enum_in_source(state->program, source_id, member_name, member_name_length, &enum_index,
-                                          NULL))
-    {
-        vigil_parser_advance(state);
-        enum_member_token = vigil_parser_peek(state);
-        if (enum_member_token == NULL || enum_member_token->kind != VIGIL_TOKEN_IDENTIFIER)
+        const vigil_native_module_t *nmod;
+        size_t nmod_idx = VIGIL_NATIVE_SOURCE_INDEX(source_id);
+        int is_native_fn = 0;
+        if (nmod_idx < state->program->natives->module_count)
         {
-            return vigil_parser_report(state, member_token->span, "unknown enum member");
-        }
-        vigil_parser_advance(state);
-        enum_member_name = vigil_parser_token_text(state, enum_member_token, &enum_member_name_length);
-        if (!vigil_program_lookup_enum_member_in_source(state->program, source_id, member_name, member_name_length,
-                                                        enum_member_name, enum_member_name_length, &enum_index,
-                                                        &enum_member))
-        {
-            return vigil_parser_report(state, enum_member_token->span, "unknown enum member");
-        }
-        if (!vigil_program_is_enum_public(&state->program->enums[enum_index]))
-        {
-            return vigil_parser_report(state, member_token->span, "module member is not public");
-        }
-
-        vigil_value_init_int(&value, enum_member->value);
-        status =
-            vigil_chunk_write_constant(&state->chunk, &value, enum_member_token->span, NULL, state->program->error);
-        vigil_value_release(&value);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        vigil_expression_result_set_type(out_result, vigil_binding_type_enum(enum_index));
-        return VIGIL_STATUS_OK;
-    }
-
-    /* Static method call: module.ClassName.method(...) */
-    if (vigil_parser_check(state, VIGIL_TOKEN_DOT) && VIGIL_IS_NATIVE_SOURCE_ID(source_id) &&
-        state->program->natives != NULL &&
-        vigil_program_find_class_in_source(state->program, source_id, member_name, member_name_length, &class_index,
-                                           &class_decl) &&
-        class_decl->native_class != NULL)
-    {
-        const vigil_native_class_t *nc = class_decl->native_class;
-        const vigil_token_t *static_method_token;
-        const char *sm_name;
-        size_t sm_len;
-        size_t smi;
-
-        vigil_parser_advance(state); /* consume '.' */
-        status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected static method name after '.'",
-                                     &static_method_token);
-        if (status != VIGIL_STATUS_OK)
-        {
-            return status;
-        }
-        sm_name = vigil_parser_token_text(state, static_method_token, &sm_len);
-        for (smi = 0U; smi < nc->method_count; smi++)
-        {
-            if (nc->methods[smi].is_static && nc->methods[smi].name_length == sm_len &&
-                memcmp(nc->methods[smi].name, sm_name, sm_len) == 0)
+            size_t ni;
+            nmod = state->program->natives->modules[nmod_idx];
+            for (ni = 0U; ni < nmod->function_count; ni++)
             {
-                return vigil_parser_parse_native_static_method_call(state, static_method_token, &nc->methods[smi],
-                                                                    class_index, out_result);
-            }
-        }
-        return vigil_parser_report(state, static_method_token->span, "unknown static method");
-    }
-
-    if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN))
-    {
-        /* Native module function call. */
-        if (VIGIL_IS_NATIVE_SOURCE_ID(source_id) && state->program->natives != NULL)
-        {
-            /* Check if it's a function first; if not, fall through to class lookup. */
-            const vigil_native_module_t *nmod;
-            size_t nmod_idx = VIGIL_NATIVE_SOURCE_INDEX(source_id);
-            int is_native_fn = 0;
-            if (nmod_idx < state->program->natives->module_count)
-            {
-                size_t ni;
-                nmod = state->program->natives->modules[nmod_idx];
-                for (ni = 0U; ni < nmod->function_count; ni++)
+                if (nmod->functions[ni].name_length == member_name_length &&
+                    memcmp(nmod->functions[ni].name, member_name, member_name_length) == 0)
                 {
-                    if (nmod->functions[ni].name_length == member_name_length &&
-                        memcmp(nmod->functions[ni].name, member_name, member_name_length) == 0)
-                    {
-                        is_native_fn = 1;
-                        break;
-                    }
+                    is_native_fn = 1;
+                    break;
                 }
             }
-            if (is_native_fn)
-            {
-                return vigil_parser_parse_native_call(state, member_token, source_id, member_name, member_name_length,
-                                                      out_result);
-            }
         }
-        if (vigil_program_find_top_level_function_name_in_source(state->program, source_id, member_name,
-                                                                 member_name_length, &function_index, &function_decl))
-        {
-            if (!vigil_program_is_function_public(function_decl))
-            {
-                return vigil_parser_report(state, member_token->span, "module member is not public");
-            }
-            return vigil_parser_parse_call_resolved(state, member_token->span, function_index, function_decl,
-                                                    out_result);
-        }
-        if (vigil_program_find_class_in_source(state->program, source_id, member_name, member_name_length, &class_index,
-                                               &class_decl))
-        {
-            if (!vigil_program_is_class_public(class_decl))
-            {
-                return vigil_parser_report(state, member_token->span, "module member is not public");
-            }
-            return vigil_parser_parse_constructor_resolved(state, member_token->span, class_index, class_decl,
-                                                           out_result);
-        }
-        return vigil_parser_report(state, member_token->span, "unknown function");
+        if (is_native_fn)
+            return vigil_parser_parse_native_call(state, member_token, source_id, member_name, member_name_length,
+                                                  out_result);
     }
+    if (vigil_program_find_top_level_function_name_in_source(state->program, source_id, member_name, member_name_length,
+                                                             &function_index, &function_decl))
+    {
+        if (!vigil_program_is_function_public(function_decl))
+            return vigil_parser_report(state, member_token->span, "module member is not public");
+        return vigil_parser_parse_call_resolved(state, member_token->span, function_index, function_decl, out_result);
+    }
+    if (vigil_program_find_class_in_source(state->program, source_id, member_name, member_name_length, &class_index,
+                                           &class_decl))
+    {
+        if (!vigil_program_is_class_public(class_decl))
+            return vigil_parser_report(state, member_token->span, "module member is not public");
+        return vigil_parser_parse_constructor_resolved(state, member_token->span, class_index, class_decl, out_result);
+    }
+    return vigil_parser_report(state, member_token->span, "unknown function");
+}
+
+static vigil_status_t parse_qualified_non_call(vigil_parser_state_t *state, const vigil_token_t *member_token,
+                                               vigil_source_id_t source_id, const char *member_name,
+                                               size_t member_name_length, vigil_expression_result_t *out_result)
+{
+    vigil_status_t status;
+    const vigil_function_decl_t *function_decl;
+    const vigil_global_constant_t *constant;
+    const vigil_global_variable_t *global_decl;
+    size_t function_index = 0U;
+    size_t global_index = 0U;
 
     if (vigil_program_find_top_level_function_name_in_source(state->program, source_id, member_name, member_name_length,
                                                              &function_index, &function_decl))
     {
         vigil_parser_type_t function_type;
-
         if (!vigil_program_is_function_public(function_decl))
-        {
             return vigil_parser_report(state, member_token->span, "module member is not public");
-        }
         function_type = vigil_binding_type_invalid();
         status = vigil_program_intern_function_type_from_decl((vigil_program_state_t *)state->program, function_decl,
                                                               &function_type);
         if (status != VIGIL_STATUS_OK)
-        {
             return status;
-        }
         vigil_expression_result_set_type(out_result, function_type);
         status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_FUNCTION, member_token->span);
         if (status != VIGIL_STATUS_OK)
-        {
             return status;
-        }
         return vigil_parser_emit_u32(state, (uint32_t)function_index, member_token->span);
     }
 
     if (vigil_program_find_constant_in_source(state->program, source_id, member_name, member_name_length, &constant))
     {
         if (!vigil_program_is_constant_public(constant))
-        {
             return vigil_parser_report(state, member_token->span, "module member is not public");
-        }
         status = vigil_chunk_write_constant(&state->chunk, &constant->value, member_token->span, NULL,
                                             state->program->error);
         if (status != VIGIL_STATUS_OK)
-        {
             return status;
-        }
         vigil_expression_result_set_type(out_result, constant->type);
         return VIGIL_STATUS_OK;
     }
 
+    global_decl = NULL;
+    if (vigil_program_find_global_in_source(state->program, source_id, member_name, member_name_length, &global_index,
+                                            &global_decl))
     {
-        const vigil_global_variable_t *global_decl;
-        size_t global_index;
-
-        global_decl = NULL;
-        global_index = 0U;
-        if (vigil_program_find_global_in_source(state->program, source_id, member_name, member_name_length,
-                                                &global_index, &global_decl))
-        {
-            if (!vigil_program_is_global_public(global_decl))
-            {
-                return vigil_parser_report(state, member_token->span, "module member is not public");
-            }
-            status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_GLOBAL, member_token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            status = vigil_parser_emit_u32(state, (uint32_t)global_index, member_token->span);
-            if (status != VIGIL_STATUS_OK)
-            {
-                return status;
-            }
-            vigil_expression_result_set_type(out_result, global_decl->type);
-            return VIGIL_STATUS_OK;
-        }
+        if (!vigil_program_is_global_public(global_decl))
+            return vigil_parser_report(state, member_token->span, "module member is not public");
+        status = emit_opcode_u32(state, VIGIL_OPCODE_GET_GLOBAL, (uint32_t)global_index, member_token->span);
+        if (status != VIGIL_STATUS_OK)
+            return status;
+        vigil_expression_result_set_type(out_result, global_decl->type);
+        return VIGIL_STATUS_OK;
     }
 
     return vigil_parser_report(state, member_token->span, "unknown module member");
+}
+
+static vigil_status_t vigil_parser_parse_qualified_symbol(vigil_parser_state_t *state,
+                                                          const vigil_token_t *module_token,
+                                                          vigil_expression_result_t *out_result)
+{
+    vigil_status_t status;
+    const vigil_token_t *member_token;
+    const char *module_name;
+    const char *member_name;
+    size_t module_name_length;
+    size_t member_name_length;
+    vigil_source_id_t source_id = 0U;
+    size_t enum_index = 0U;
+    size_t class_index = 0U;
+
+    module_name = vigil_parser_token_text(state, module_token, &module_name_length);
+    if (!vigil_program_resolve_import_alias(state->program, module_name, module_name_length, &source_id))
+        return vigil_parser_report(state, module_token->span, "unknown local variable");
+
+    status = vigil_parser_expect(state, VIGIL_TOKEN_DOT, "expected '.' after module name", NULL);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected module member name after '.'", &member_token);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+
+    member_name = vigil_parser_token_text(state, member_token, &member_name_length);
+
+    /* Enum member: module.Enum.MEMBER */
+    if (vigil_parser_check(state, VIGIL_TOKEN_DOT) &&
+        vigil_program_find_enum_in_source(state->program, source_id, member_name, member_name_length, &enum_index,
+                                          NULL))
+        return parse_qualified_enum_member(state, member_token, source_id, member_name, member_name_length, out_result);
+
+    /* Static method: module.Class.method(...) */
+    if (vigil_parser_check(state, VIGIL_TOKEN_DOT) && VIGIL_IS_NATIVE_SOURCE_ID(source_id) &&
+        state->program->natives != NULL)
+    {
+        const vigil_class_decl_t *class_decl = NULL;
+        if (vigil_program_find_class_in_source(state->program, source_id, member_name, member_name_length, &class_index,
+                                               &class_decl) &&
+            class_decl->native_class != NULL)
+        {
+            const vigil_native_class_t *nc = class_decl->native_class;
+            const vigil_token_t *static_method_token;
+            const char *sm_name;
+            size_t sm_len, smi;
+
+            vigil_parser_advance(state);
+            status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected static method name after '.'",
+                                         &static_method_token);
+            if (status != VIGIL_STATUS_OK)
+                return status;
+            sm_name = vigil_parser_token_text(state, static_method_token, &sm_len);
+            for (smi = 0U; smi < nc->method_count; smi++)
+            {
+                if (nc->methods[smi].is_static && nc->methods[smi].name_length == sm_len &&
+                    memcmp(nc->methods[smi].name, sm_name, sm_len) == 0)
+                    return vigil_parser_parse_native_static_method_call(state, static_method_token, &nc->methods[smi],
+                                                                        class_index, out_result);
+            }
+            return vigil_parser_report(state, static_method_token->span, "unknown static method");
+        }
+    }
+
+    /* Call: module.func(...) or module.Class(...) */
+    if (vigil_parser_check(state, VIGIL_TOKEN_LPAREN))
+        return parse_qualified_call(state, member_token, source_id, member_name, member_name_length, out_result);
+
+    /* Non-call: function ref, constant, or global */
+    return parse_qualified_non_call(state, member_token, source_id, member_name, member_name_length, out_result);
 }
 
 static vigil_status_t vigil_parser_parse_method_call(vigil_parser_state_t *state, const vigil_token_t *method_token,
