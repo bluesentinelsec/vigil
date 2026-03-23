@@ -5215,6 +5215,15 @@ vigil_status_t vigil_parser_emit_u32(vigil_parser_state_t *state, uint32_t value
     return vigil_chunk_write_u32(&state->chunk, value, span, state->program->error);
 }
 
+static vigil_status_t emit_opcode_u32(vigil_parser_state_t *state, vigil_opcode_t opcode, uint32_t operand,
+                                      vigil_source_span_t span)
+{
+    vigil_status_t status = vigil_parser_emit_opcode(state, opcode, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_emit_u32(state, operand, span);
+}
+
 static vigil_opcode_t vigil_parser_fuse_cmp_i32_jump(vigil_opcode_t cmp)
 {
     switch (cmp)
@@ -11175,6 +11184,98 @@ static vigil_status_t vigil_parser_bind_inferred_target(vigil_parser_state_t *st
     return vigil_parser_declare_local_symbol(state, name_token, type, 0, NULL);
 }
 
+static vigil_status_t emit_for_in_condition(vigil_parser_state_t *state, vigil_source_span_t span, size_t index_slot,
+                                            size_t collection_slot, size_t *exit_jump, size_t *body_jump)
+{
+    vigil_status_t status;
+
+    status = emit_opcode_u32(state, VIGIL_OPCODE_GET_LOCAL, (uint32_t)index_slot, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = emit_opcode_u32(state, VIGIL_OPCODE_GET_LOCAL, (uint32_t)collection_slot, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_COLLECTION_SIZE, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_LESS, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP_IF_FALSE, span, exit_jump);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, span, body_jump);
+}
+
+static vigil_status_t emit_for_in_increment(vigil_parser_state_t *state, vigil_source_span_t span, size_t index_slot,
+                                            size_t condition_start)
+{
+    vigil_status_t status;
+
+    status = emit_opcode_u32(state, VIGIL_OPCODE_GET_LOCAL, (uint32_t)index_slot, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_i32_constant(state, 1, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_ADD, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = emit_opcode_u32(state, VIGIL_OPCODE_SET_LOCAL, (uint32_t)index_slot, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_emit_loop(state, condition_start, span);
+}
+
+static vigil_status_t emit_for_in_get_element(vigil_parser_state_t *state, vigil_source_span_t span,
+                                              size_t collection_slot, size_t index_slot, vigil_opcode_t get_op)
+{
+    vigil_status_t status;
+
+    status = emit_opcode_u32(state, VIGIL_OPCODE_GET_LOCAL, (uint32_t)collection_slot, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = emit_opcode_u32(state, VIGIL_OPCODE_GET_LOCAL, (uint32_t)index_slot, span);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_emit_opcode(state, get_op, span);
+}
+
+static vigil_status_t emit_for_in_bind_array(vigil_parser_state_t *state, vigil_source_span_t span,
+                                             size_t collection_slot, size_t index_slot, const vigil_token_t *name,
+                                             vigil_parser_type_t element_type)
+{
+    vigil_status_t status = emit_for_in_get_element(state, span, collection_slot, index_slot, VIGIL_OPCODE_GET_INDEX);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_bind_inferred_target(state, name, element_type);
+}
+
+static vigil_status_t emit_for_in_bind_map(vigil_parser_state_t *state, vigil_source_span_t span,
+                                           size_t collection_slot, size_t index_slot, const vigil_token_t *key_name,
+                                           vigil_parser_type_t key_type, const vigil_token_t *value_name,
+                                           vigil_parser_type_t value_type)
+{
+    vigil_status_t status;
+
+    status = emit_for_in_get_element(state, span, collection_slot, index_slot, VIGIL_OPCODE_GET_MAP_KEY_AT);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = vigil_parser_bind_inferred_target(state, key_name, key_type);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    status = emit_for_in_get_element(state, span, collection_slot, index_slot, VIGIL_OPCODE_GET_MAP_VALUE_AT);
+    if (status != VIGIL_STATUS_OK)
+        return status;
+    return vigil_parser_bind_inferred_target(state, value_name, value_type);
+}
+
 static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *state, const vigil_token_t *for_token,
                                                           vigil_statement_result_t *out_result)
 {
@@ -11212,52 +11313,40 @@ static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *
     key_type = vigil_binding_type_invalid();
     value_type = vigil_binding_type_invalid();
 
+    /* Parse bindings and iterable. */
     status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected loop binding name after 'for'", &first_name);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     if (vigil_parser_match(state, VIGIL_TOKEN_COMMA))
     {
         status = vigil_parser_expect(state, VIGIL_TOKEN_IDENTIFIER, "expected second loop binding name after ','",
                                      &second_name);
         if (status != VIGIL_STATUS_OK)
-        {
             return status;
-        }
     }
     status = vigil_parser_expect(state, VIGIL_TOKEN_IN, "expected 'in' after loop bindings", NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     status = vigil_parser_parse_expression(state, &iterable_result);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     status = vigil_parser_require_scalar_expression(state, for_token->span, &iterable_result,
                                                     "for-in iterable must be a single array or map value");
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
+    /* Validate iterable type. */
     iterable_type = iterable_result.type;
     if (vigil_parser_type_is_array(iterable_type))
     {
         if (second_name != NULL)
-        {
             return vigil_parser_report(state, second_name->span, "for-in over arrays requires a single loop binding");
-        }
         element_type = vigil_program_array_type_element(state->program, iterable_type);
     }
     else if (vigil_parser_type_is_map(iterable_type))
     {
         if (second_name == NULL)
-        {
             return vigil_parser_report(state, first_name->span, "for-in over maps requires key and value bindings");
-        }
         key_type = vigil_program_map_type_key(state->program, iterable_type);
         value_type = vigil_program_map_type_value(state->program, iterable_type);
     }
@@ -11266,256 +11355,68 @@ static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *
         return vigil_parser_report(state, for_token->span, "for-in requires an array or map iterable");
     }
 
+    /* Emit loop scaffolding. */
     vigil_parser_begin_scope(state);
-
     status = vigil_binding_scope_stack_declare_hidden_local(&state->locals, iterable_type, 0, &collection_slot,
                                                             state->program->error);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
-
     status = vigil_parser_emit_i32_constant(state, 0, for_token->span);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     status = vigil_binding_scope_stack_declare_hidden_local(
         &state->locals, vigil_binding_type_primitive(VIGIL_TYPE_I32), 0, &index_slot, state->program->error);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
 
     condition_start = vigil_chunk_code_size(&state->chunk);
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
+    status = emit_for_in_condition(state, for_token->span, index_slot, collection_slot, &exit_jump_offset,
+                                   &body_jump_offset);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
-    status = vigil_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_COLLECTION_SIZE, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_LESS, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP_IF_FALSE, for_token->span, &exit_jump_offset);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_jump(state, VIGIL_OPCODE_JUMP, for_token->span, &body_jump_offset);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
 
     increment_start = vigil_chunk_code_size(&state->chunk);
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
+    status = emit_for_in_increment(state, for_token->span, index_slot, condition_start);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
-    status = vigil_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_i32_constant(state, 1, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_ADD, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_SET_LOCAL, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
-    status = vigil_parser_emit_loop(state, condition_start, for_token->span);
-    if (status != VIGIL_STATUS_OK)
-    {
-        return status;
-    }
 
     status = vigil_parser_patch_jump(state, body_jump_offset);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     status = vigil_parser_push_loop(state, increment_start);
     if (status != VIGIL_STATUS_OK)
-    {
         return status;
-    }
     loop_pushed = 1;
 
+    /* Bind loop variables and parse body. */
     vigil_parser_begin_scope(state);
     iteration_scope_begun = 1;
     if (vigil_parser_type_is_array(iterable_type))
-    {
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_INDEX, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_bind_inferred_target(state, first_name, element_type);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-    }
+        status = emit_for_in_bind_array(state, for_token->span, collection_slot, index_slot, first_name, element_type);
     else
-    {
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_MAP_KEY_AT, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_bind_inferred_target(state, first_name, key_type);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)collection_slot, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_LOCAL, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_u32(state, (uint32_t)index_slot, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_GET_MAP_VALUE_AT, for_token->span);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-        status = vigil_parser_bind_inferred_target(state, second_name, value_type);
-        if (status != VIGIL_STATUS_OK)
-        {
-            goto cleanup;
-        }
-    }
+        status = emit_for_in_bind_map(state, for_token->span, collection_slot, index_slot, first_name, key_type,
+                                      second_name, value_type);
+    if (status != VIGIL_STATUS_OK)
+        goto cleanup;
 
     status = vigil_parser_parse_statement(state, NULL);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup;
-    }
 
     status = vigil_parser_end_scope(state);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup;
-    }
     iteration_scope_begun = 0;
 
     status = vigil_parser_emit_loop(state, increment_start, for_token->span);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup;
-    }
     status = vigil_parser_patch_jump(state, exit_jump_offset);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup;
-    }
     status = vigil_parser_emit_opcode(state, VIGIL_OPCODE_POP, for_token->span);
     if (status != VIGIL_STATUS_OK)
-    {
         goto cleanup;
-    }
 
     loop = vigil_parser_current_loop(state);
     if (loop != NULL)
@@ -11524,28 +11425,20 @@ static vigil_status_t vigil_parser_parse_for_in_statement(vigil_parser_state_t *
         {
             status = vigil_parser_patch_jump(state, loop->break_jumps[i].operand_offset);
             if (status != VIGIL_STATUS_OK)
-            {
                 goto cleanup;
-            }
         }
     }
 
 cleanup:
     if (iteration_scope_begun)
-    {
         (void)vigil_parser_end_scope(state);
-    }
     if (loop_pushed)
-    {
         vigil_parser_pop_loop(state);
-    }
     if (status == VIGIL_STATUS_OK)
     {
         status = vigil_parser_end_scope(state);
         if (status == VIGIL_STATUS_OK)
-        {
             vigil_statement_result_set_guaranteed_return(out_result, 0);
-        }
     }
     return status;
 }
